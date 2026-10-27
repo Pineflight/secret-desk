@@ -41,4 +41,24 @@ describe("InventoryStore", () => {
     const bad = INVENTORY_YAML.replace("{ key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 16 } }", "{ key: X, from: { type: issue, secret: gibt-es-nicht } }");
     expect(() => InventoryStore.fromText(bad)).toThrow(/unbekanntes Secret/);
   });
+  it("speichert Beschreibung, Verantwortlichen, Link und Schlagworte und prueft sie", () => {
+    const s = InventoryStore.fromText(INVENTORY_YAML);
+    s.addSecret({ id: "peecho-key", name: "PEECHO_API_KEY", service: "peecho", stage: "staging", description: "Druckauftraege an Peecho senden (Edge Function print-order)", owner: "niklas", link: "https://www.peecho.com", tags: ["druck", "wakemiles"], places: [{ repo: "wake-miles", scope: "environment", environment: "staging" }] });
+    expect(s.getSecret("peecho-key")).toMatchObject({ owner: "niklas", tags: ["druck", "wakemiles"] });
+    s.patchSecret("peecho-key", { description: "Neu beschrieben", tags: ["druck"] });
+    expect(s.getSecret("peecho-key")!.description).toBe("Neu beschrieben");
+    s.patchSecret("peecho-key", { tags: [] });
+    expect(s.getSecret("peecho-key")!.tags).toEqual([]);
+    expect(() => s.addSecret({ id: "x1", name: "X_Y", service: "a", stage: "dev", link: "kein-link" })).toThrow(InventoryError);
+    expect(() => s.addSecret({ id: "x2", name: "X_Y", service: "a", stage: "dev", tags: ["Gross Schrift"] })).toThrow(InventoryError);
+  });
+  it("Variablen: Beschreibungsfelder aendern und entfernen", () => {
+    const s = InventoryStore.fromText(INVENTORY_YAML);
+    s.addVariable({ id: "site-url", name: "NEXT_PUBLIC_SITE_URL", stage: "staging", value: "https://s.example.com", places: [{ repo: "web-studio", scope: "environment", environment: "staging" }] });
+    s.patchVariable("site-url", { description: "Basis-URL der Staging-Seite", owner: "niklas", link: "https://example.com/doku", tags: ["url"] });
+    expect(s.getVariable("site-url")).toMatchObject({ description: "Basis-URL der Staging-Seite", owner: "niklas", tags: ["url"] });
+    s.patchVariable("site-url", { description: null, tags: [] });
+    expect(s.getVariable("site-url")!.description).toBeUndefined();
+    expect(s.getVariable("site-url")!.tags).toEqual([]);
+  });
 });

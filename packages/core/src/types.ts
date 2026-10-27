@@ -5,6 +5,17 @@ export const StageSchema = z.enum(["dev", "staging", "production", "shared"]);
 export type Stage = z.infer<typeof StageSchema>;
 
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum als JJJJ-MM-TT");
+const Tag = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Schlagwort in kleinbuchstaben-mit-bindestrich");
+/** Beschreibende Angaben, die Secrets und Variablen gleichermassen haben. */
+const Describable = {
+  /** Wofuer der Wert gebraucht wird, wo er genutzt wird. */
+  description: z.string().max(500).optional(),
+  /** Wer sich kuemmert (Person oder Team). */
+  owner: z.string().max(80).optional(),
+  /** Weiterfuehrende Seite: Anbieter-Dashboard, Doku, Ticket. */
+  link: z.string().url().optional(),
+  tags: z.array(Tag).max(12).default([]),
+};
 const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, "Name in GROSSBUCHSTABEN_MIT_UNTERSTRICH");
 const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Slug in kleinbuchstaben-mit-bindestrich");
 
@@ -28,6 +39,7 @@ export const SecretSchema = z
     /** Name des Secrets im Ziel, zum Beispiel CLOUDFLARE_API_TOKEN. */
     name: SecretName,
     title: z.string().optional(),
+    ...Describable,
     product: z.string().optional(),
     stage: StageSchema.default("shared"),
     service: z.string().min(1),
@@ -100,7 +112,7 @@ export type ProviderDef = z.infer<typeof ProviderDefSchema>;
 export const VariableSchema = z.object({
   id: Slug,
   name: SecretName,
-  description: z.string().optional(),
+  ...Describable,
   product: z.string().optional(),
   stage: StageSchema.default("shared"),
   value: z.string().max(1000).nullable().default(null),

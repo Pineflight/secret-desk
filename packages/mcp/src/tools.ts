@@ -36,8 +36,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "desk_list_secrets",
-    description: "Listet Secrets (nur Metadaten, nie Werte). Filter: stage (dev, staging, production, shared), repo, product, status (ok, soon, due, expired, no-date, unknown), provider.",
-    inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional(), status: z.string().optional(), provider: z.string().optional() },
+    description: "Listet Secrets (nur Metadaten, nie Werte). Filter: stage (dev, staging, production, shared), repo, product, status (ok, soon, due, expired, no-date, unknown), provider, q (Freitext in Name, Beschreibung, Schlagworten, Verantwortlichem), tag.",
+    inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional(), status: z.string().optional(), provider: z.string().optional(), q: z.string().optional(), tag: z.string().optional() },
     run: (c, i) => c.request("GET", `/secrets${qs(i)}`),
   },
   {
@@ -62,14 +62,18 @@ export const TOOLS: ToolDef[] = [
       ttlDays: z.number().int().positive().optional(),
       product: z.string().optional(),
       notes: z.string().optional(),
+      description: z.string().max(500).optional(),
+      owner: z.string().optional(),
+      link: z.string().url().optional(),
+      tags: z.array(z.string()).optional(),
       places: z.array(PlaceInput).optional(),
     },
     run: (c, i) => c.request("POST", "/secrets", i),
   },
   {
     name: "desk_update_secret",
-    description: "Aendert Metadaten eines Eintrags (expires als JJJJ-MM-TT oder null, notes, ttlDays, title). Keine Werte.",
-    inputSchema: { id: z.string(), expires: z.string().nullable().optional(), notes: z.string().optional(), ttlDays: z.number().int().positive().optional(), title: z.string().optional() },
+    description: "Aendert Metadaten eines Eintrags (expires als JJJJ-MM-TT oder null, notes, ttlDays, title, description = wofuer und wo genutzt, owner, link, tags). Keine Werte.",
+    inputSchema: { id: z.string(), expires: z.string().nullable().optional(), notes: z.string().optional(), ttlDays: z.number().int().positive().optional(), title: z.string().optional(), description: z.string().max(500).optional(), owner: z.string().optional(), link: z.string().url().optional(), tags: z.array(z.string()).optional() },
     run: (c, i) => {
       const { id, ...patch } = i;
       return c.request("PATCH", `/secrets/${encodeURIComponent(String(id))}`, patch);
@@ -137,7 +141,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_list_variables",
     description: "Listet GitHub-Actions-Variablen (vars.*) mit Sollwert aus dem Inventar. Variablen sind Konfiguration, kein Geheimnis. Filter: stage, repo, product.",
-    inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional() },
+    inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional(), q: z.string().optional(), tag: z.string().optional() },
     run: (c, i) => c.request("GET", `/variables${qs(i)}`),
   },
   {
@@ -150,7 +154,7 @@ export const TOOLS: ToolDef[] = [
     name: "desk_add_variable",
     description:
       "Legt eine Variable im Inventar an (id kleinbuchstaben-mit-bindestrich, name GROSSBUCHSTABEN, stage, mindestens ein Ziel in places). value ist der Sollwert, oder weglassen, wenn er noch unbekannt ist. NIE ein Geheimnis als Variable: Werte, die wie Schluessel aussehen, werden abgelehnt. Setzt noch nichts in GitHub.",
-    inputSchema: { id: z.string(), name: z.string(), stage: StageEnum, value: z.string().optional(), description: z.string().optional(), product: z.string().optional(), places: z.array(PlaceInput).min(1) },
+    inputSchema: { id: z.string(), name: z.string(), stage: StageEnum, value: z.string().optional(), description: z.string().max(500).optional(), owner: z.string().optional(), link: z.string().url().optional(), tags: z.array(z.string()).optional(), product: z.string().optional(), places: z.array(PlaceInput).min(1) },
     run: (c, i) => c.request("POST", "/variables", i),
   },
   {
@@ -158,6 +162,15 @@ export const TOOLS: ToolDef[] = [
     description: "Aendert den Sollwert einer Variable im Inventar. Setzt noch nichts in GitHub (dafuer desk_apply_variable).",
     inputSchema: { id: z.string(), value: z.string() },
     run: (c, i) => c.request("PATCH", `/variables/${encodeURIComponent(String(i.id))}`, { value: i.value }),
+  },
+  {
+    name: "desk_update_variable_meta",
+    description: "Aendert Beschreibung, Verantwortlichen, Link und Schlagworte einer Variable im Inventar. Der Sollwert bleibt (dafuer desk_set_variable_value).",
+    inputSchema: { id: z.string(), description: z.string().max(500).optional(), owner: z.string().optional(), link: z.string().url().optional(), tags: z.array(z.string()).optional() },
+    run: (c, i) => {
+      const { id, ...patch } = i;
+      return c.request("PATCH", `/variables/${encodeURIComponent(String(id))}`, patch);
+    },
   },
   {
     name: "desk_apply_variable",

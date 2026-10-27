@@ -71,6 +71,10 @@ export interface SecretView {
   id: string;
   name: string;
   title: string | null;
+  description: string | null;
+  owner: string | null;
+  link: string | null;
+  tags: string[];
   product: string | null;
   stage: Stage;
   service: string;
@@ -97,6 +101,10 @@ function view(rt: Runtime, s: SecretEntry, today: Date, live?: Awaited<ReturnTyp
     id: s.id,
     name: s.name,
     title: s.title ?? null,
+    description: s.description ?? null,
+    owner: s.owner ?? null,
+    link: s.link ?? null,
+    tags: s.tags,
     product: s.product ?? null,
     stage: s.stage,
     service: s.service,
@@ -123,6 +131,9 @@ export interface ListFilter {
   product?: string;
   status?: StatusLevel;
   provider?: string;
+  /** Freitext: Name, id, Beschreibung, Schlagworte, Verantwortlicher, Ziele. */
+  q?: string;
+  tag?: string;
   /** Live-Abgleich mit GitHub (Netzwerk). */
   live?: boolean;
 }
@@ -133,6 +144,11 @@ export async function listSecrets(rt: Runtime, filter: ListFilter = {}, today = 
   if (filter.repo) secrets = secrets.filter((s) => s.places.some((p) => p.repo === filter.repo));
   if (filter.product) secrets = secrets.filter((s) => s.product === filter.product);
   if (filter.provider) secrets = secrets.filter((s) => s.provider === filter.provider);
+  if (filter.tag) secrets = secrets.filter((s) => s.tags.includes(filter.tag!));
+  if (filter.q) {
+    const q = filter.q.toLowerCase();
+    secrets = secrets.filter((s) => [s.id, s.name, s.title, s.description, s.owner, s.product, s.service, ...s.tags, ...s.places.map((p) => p.repo)].some((x) => x?.toLowerCase().includes(q)));
+  }
   const live = filter.live ? await rt.github.snapshot(rt.owner, secrets.flatMap((s) => s.places)) : undefined;
   const views = secrets.map((s) => view(rt, s, today, live));
   const out = filter.status ? views.filter((v) => v.status === filter.status) : views;
@@ -341,6 +357,9 @@ export interface VariableView {
   id: string;
   name: string;
   description: string | null;
+  owner: string | null;
+  link: string | null;
+  tags: string[];
   product: string | null;
   stage: Stage;
   value: string | null;
@@ -351,14 +370,22 @@ const variableView = (v: VariableEntry): VariableView => ({
   id: v.id,
   name: v.name,
   description: v.description ?? null,
+  owner: v.owner ?? null,
+  link: v.link ?? null,
+  tags: v.tags,
   product: v.product ?? null,
   stage: v.stage,
   value: v.value,
   places: v.places,
 });
 
-export function listVariables(rt: Runtime, filter: { stage?: Stage; repo?: string; product?: string } = {}): VariableView[] {
+export function listVariables(rt: Runtime, filter: { stage?: Stage; repo?: string; product?: string; q?: string; tag?: string } = {}): VariableView[] {
   let list = rt.inventory.data.variables;
+  if (filter.tag) list = list.filter((v) => v.tags.includes(filter.tag!));
+  if (filter.q) {
+    const q = filter.q.toLowerCase();
+    list = list.filter((v) => [v.id, v.name, v.description, v.owner, v.product, v.value, ...v.tags, ...v.places.map((p) => p.repo)].some((x) => x?.toLowerCase().includes(q)));
+  }
   if (filter.stage) list = list.filter((v) => v.stage === filter.stage);
   if (filter.repo) list = list.filter((v) => v.places.some((p) => p.repo === filter.repo));
   if (filter.product) list = list.filter((v) => v.product === filter.product);
@@ -385,7 +412,7 @@ export async function addVariable(rt: Runtime, actor: Actor, entry: z.input<type
   return variableView(created);
 }
 
-export async function updateVariable(rt: Runtime, actor: Actor, id: string, patch: { value?: string | null; description?: string | null }, options: { acknowledgedPublic?: boolean } = {}): Promise<VariableView> {
+export async function updateVariable(rt: Runtime, actor: Actor, id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null }, options: { acknowledgedPublic?: boolean } = {}): Promise<VariableView> {
   const current = rt.inventory.getVariable(id);
   if (!current) throw new InventoryError(`Variable nicht gefunden: ${id}`);
   if (typeof patch.value === "string") assertPublicValue(current.name, patch.value, actor.kind === "human" && Boolean(options.acknowledgedPublic));

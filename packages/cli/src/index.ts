@@ -308,9 +308,9 @@ async function importLegacy(args: string[], io: Io): Promise<number> {
     if (repo && product) map.set(repo, product);
   }
   const r = importLegacyInventory(await readFile(input, "utf8"), { productOf: (repo) => map.get(repo) });
-  const body = stringify({ version: 1, thresholds: [30, 14, 7], secrets: r.secrets, envTemplates: [], providers: [] }, { lineWidth: 0 });
+  const body = stringify({ version: 1, thresholds: [30, 14, 7], secrets: r.secrets, variables: r.variables, envTemplates: [], providers: [] }, { lineWidth: 0 });
   await writeFile(output, `# Aus dem bisherigen Inventar umgewandelt. Nur Metadaten.\n${body}`, "utf8");
-  io.out(`${r.secrets.length} Eintraege geschrieben, uebersprungen: ${r.skipped.variables} Variablen, ${r.skipped.nonGitHub} Nicht-GitHub-Stellen`);
+  io.out(`${r.secrets.length} Secrets und ${r.variables.length} Variablen geschrieben, uebersprungen: ${r.skipped.nonGitHub} Nicht-GitHub-Stellen (Worker, Supabase, lokal)`);
   return 0;
 }
 

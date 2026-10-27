@@ -5,6 +5,10 @@ thresholds: [30, 14, 7]
 secrets:
   - id: cloudflare-deploy-demo
     name: CLOUDFLARE_API_TOKEN
+    description: Deploy-Zugang fuer Workers beider Repos
+    owner: team-platform
+    link: https://dash.cloudflare.com/profile/api-tokens
+    tags: [deploy, cloudflare]
     product: demo
     stage: shared
     service: cloudflare

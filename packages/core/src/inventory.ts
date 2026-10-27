@@ -22,7 +22,7 @@ export class InventoryError extends Error {
   }
 }
 
-type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title">;
+type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title" | "description" | "owner" | "link" | "tags">;
 
 /**
  * Das Inventar als YAML-Datei. Nur Metadaten, nie Werte. Aenderungen gehen ueber das
@@ -66,7 +66,7 @@ export class InventoryStore {
     if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
     return this.#mutate(() => {
       for (const [key, value] of Object.entries(patch)) {
-        if (value === undefined || value === null) {
+        if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
           if (key === "expires") this.#doc.setIn(["secrets", idx, key], null);
           else this.#doc.deleteIn(["secrets", idx, key]);
         } else this.#doc.setIn(["secrets", idx, key], value);
@@ -92,14 +92,16 @@ export class InventoryStore {
     return this.#mutate(() => this.#addNode(["variables"], entry), () => this.getVariable(parsed.data.id)!);
   }
 
-  patchVariable(id: string, patch: { value?: string | null; description?: string | null }): VariableEntry {
+  patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null }): VariableEntry {
     const idx = this.#data.variables.findIndex((v) => v.id === id);
     if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
     return this.#mutate(() => {
       if ("value" in patch) this.#doc.setIn(["variables", idx, "value"], patch.value ?? null);
-      if ("description" in patch) {
-        if (patch.description === null || patch.description === undefined) this.#doc.deleteIn(["variables", idx, "description"]);
-        else this.#doc.setIn(["variables", idx, "description"], patch.description);
+      for (const key of ["description", "owner", "link", "tags"] as const) {
+        if (!(key in patch)) continue;
+        const v = patch[key];
+        if (v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "") this.#doc.deleteIn(["variables", idx, key]);
+        else this.#doc.setIn(["variables", idx, key], v);
       }
     }, () => this.getVariable(id)!);
   }

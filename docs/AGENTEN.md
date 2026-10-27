@@ -12,7 +12,7 @@ Das Portal muss laufen (`pnpm dev`).
 ## Werkzeuge
 `desk_overview`, `desk_list_secrets`, `desk_get_secret`, `desk_add_secret`, `desk_update_secret`, `desk_list_providers`, `desk_list_connections`,
 `desk_add_provider`, `desk_add_env_template`, `desk_add_env_entry`, `desk_request_renewal`, `desk_list_reviews`, `desk_list_evidence`,
-`desk_list_variables`, `desk_variable_status`, `desk_add_variable`, `desk_set_variable_value`, `desk_apply_variable`, `desk_get_approval`,
+`desk_list_variables`, `desk_variable_status`, `desk_update_variable_meta`, `desk_add_variable`, `desk_set_variable_value`, `desk_apply_variable`, `desk_get_approval`,
 `desk_export_dev_env`, `desk_team_export`.
 
 ## Regeln der Richtlinie (erzwingt das Portal, nicht der Agent)

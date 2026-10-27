@@ -10,10 +10,10 @@ Typen kommen aus `@secret-desk/runtime` und `@secret-desk/core` (nur `import typ
 | Methode Pfad | Antwort / Zweck |
 |---|---|
 | GET `overview` | `Overview` (Summen je Stage und Status, `attention`, `variables`, `pendingReviews`, `pendingApprovals`) |
-| GET `secrets?stage&repo&product&status&provider&live=1` | `SecretView[]` |
+| GET `secrets?stage&repo&product&status&provider&q&tag&live=1` | `SecretView[]` |
 | GET `secrets/:id` | `SecretView` |
 | POST `secrets` | `SecretView` anlegen (Metadaten) |
-| PATCH `secrets/:id` | Metadaten aendern (`expires`, `notes`, `ttlDays`, `title`) |
+| PATCH `secrets/:id` | Metadaten aendern (`expires`, `notes`, `ttlDays`, `title`, `description`, `owner`, `link`, `tags`) |
 | POST `renewal-requests` `{ secretId, dryRun? }` | `awaiting-review` + `IssuanceView`, `pending-approval` oder `dry-run` |
 | GET `reviews` / `reviews/:id` | `IssuanceView[]` / `IssuanceView` (offene Pruefungen, nur Metadaten, `report.checks`, `report.checklist`, `fingerprint`, `expiresAt`) |
 | POST `reviews/:id/confirm` `{ ticks: string[], note?, force? }` | `CommitResult` (schreibt erst jetzt nach GitHub) |
@@ -24,14 +24,15 @@ Typen kommen aus `@secret-desk/runtime` und `@secret-desk/core` (nur `import typ
 | GET `evidence/:secretId/:reportId/svg` | Beleg als Bild (`image/svg+xml`, in `<img>` einbinden) |
 | POST `evidence/:secretId/:reportId/attachments` (multipart `file`, `note`) | `Attachment` (PNG/JPEG/WebP bis 5 MB) |
 | GET `evidence/:secretId/:reportId/attachments/:file` | Bild |
-| GET `variables?stage&repo&product` | `VariableView[]` |
+| GET `variables?stage&repo&product&q&tag` | `VariableView[]` |
 | POST `variables` | Variable anlegen (`acknowledgedPublic` bei Warnung) |
-| PATCH `variables/:id` `{ value?, description?, acknowledgedPublic? }` | Sollwert im Inventar aendern |
+| PATCH `variables/:id` `{ value?, description?, owner?, link?, tags?, acknowledgedPublic? }` | Sollwert und Beschreibung im Inventar aendern |
 | GET `variables/:id/status` | `{ variable, drift: VariableDrift[] }` (Soll gegen Ist in GitHub) |
 | POST `variables/:id/apply` `{ acknowledgedPublic? }` | `applied` (+ Ergebnisse) oder `pending-approval` |
 | POST `variables/:id/adopt` | Istwert aus GitHub als Sollwert uebernehmen |
 | DELETE `variables/:id` | aus dem Inventar entfernen |
 | GET `approvals` / POST `approvals/:id/approve|deny` | `Approval[]` / `Approval` |
+| GET `dev-templates` | Dev-Vorlagen: `{ id, repo, stage, file, entries: [{ key, source, description, value? (nur bei default), variable?, secret? }] }` (nie Werte ausser Defaults) |
 | GET `providers` | Anbieter (`kind`, `connection`, `guide`) |
 | GET `connections` | `ConnectionStatus[]` (nur ja/nein) |
 | POST `connections/:id/token` `{ token }` / DELETE | Token nur fuer diese Sitzung (Arbeitsspeicher) setzen/loeschen |
@@ -42,3 +43,5 @@ Typen kommen aus `@secret-desk/runtime` und `@secret-desk/core` (nur `import typ
 Fehlercodes: 400 ungueltige Eingabe, 401 Sitzung, 403 Richtlinie/Host, 404, 409 Zustand (auch Anbieter nicht verbunden), 502 GitHub.
 
 Nie vorhanden in einer Antwort: der Wert eines Secrets, ein Token einer Verbindung, der Agenten-Token.
+
+Beschreibende Angaben (Secrets und Variablen gleich): `description` (max. 500 Zeichen), `owner`, `link` (URL), `tags` (Schlagworte `kleinbuchstaben-mit-bindestrich`, max. 12). `SecretView` und `VariableView` enthalten sie; leere Werte als `null` bzw. `[]`.

@@ -15,6 +15,7 @@ import {
   getIssuance,
   listEvidence,
   listSecrets,
+  listVariables,
   overview,
   rejectIssuance,
   requestApplyVariable,
@@ -205,6 +206,19 @@ describe("Variablen", () => {
     await expect(addVariable(rt, agent, { id: "x-y", name: "X_Y", places: [] })).rejects.toThrow();
     const v = await addVariable(rt, agent, { id: "print-env", name: "PRINT_ENV", stage: "staging", value: "sandbox", places: [{ repo: "wake-miles", scope: "environment", environment: "staging" }] });
     expect(v.value).toBe("sandbox");
+  });
+});
+
+describe("Beschreibungen und Suche", () => {
+  it("findet Secrets und Variablen ueber Beschreibung und Schlagworte", async () => {
+    const { rt } = await setup();
+    await addSecret(rt, { id: "peecho-key", name: "PEECHO_API_KEY", service: "peecho", stage: "staging", description: "Druckauftraege senden", owner: "niklas", tags: ["druck"], places: [{ repo: "wake-miles", scope: "environment", environment: "staging" }] });
+    expect((await listSecrets(rt, { q: "druckauftr" })).map((s) => s.id)).toEqual(["peecho-key"]);
+    expect((await listSecrets(rt, { tag: "druck" })).map((s) => s.id)).toEqual(["peecho-key"]);
+    expect((await listSecrets(rt, { q: "niklas" })).map((s) => s.id)).toContain("peecho-key");
+    await updateVariable(rt, human, "site-url-staging", { description: "Basis-URL der Staging-Seite", tags: ["url"] });
+    expect(listVariables(rt, { q: "basis-url" }).map((v) => v.id)).toEqual(["site-url-staging"]);
+    expect(listVariables(rt, { tag: "url" })[0]).toMatchObject({ description: "Basis-URL der Staging-Seite", tags: ["url"], owner: null });
   });
 });
 

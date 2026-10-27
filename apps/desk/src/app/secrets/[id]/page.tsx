@@ -1,0 +1,195 @@
+"use client";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import type { VerificationReport } from "@secret-desk/core";
+import type { IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
+import { Dialog } from "@/components/Dialog";
+import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
+import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
+import { Icon } from "@/components/Icons";
+import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SectionLabel, Skeleton, StageBadge, StatusBadge } from "@/components/ui";
+import { ApiError, api, enc } from "@/lib/api";
+import { daysLabel, formatDate, formatDateTime, placeText } from "@/lib/format";
+import { useMutation, useQuery } from "@/lib/hooks";
+import { overallInfo } from "@/lib/status";
+import { useToast } from "@/lib/toast";
+
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 py-2 text-sm">
+      <dt className="text-muted-text">{label}</dt>
+      <dd className="text-right font-medium">{children}</dd>
+    </div>
+  );
+}
+
+export default function SecretDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const toast = useToast();
+  const secret = useQuery<SecretView>(`secret:${id}`, () => api<SecretView>("GET", `secrets/${enc(id)}`));
+  const evidence = useQuery<VerificationReport[]>(`evidence:${id}`, () => api<VerificationReport[]>("GET", `evidence/${enc(id)}`));
+  const [manual, setManual] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string } | null>(null);
+  const [notice, setNotice] = useState<{ tone: "warn" | "danger"; title: string; text: string; href?: string; link?: string } | null>(null);
+
+  const startRenewal = async (dryRun: boolean) => {
+    setNotice(null);
+    setPlan(null);
+    try {
+      const res = await api<IssuanceRequestResult>("POST", "renewal-requests", { secretId: id, ...(dryRun ? { dryRun: true } : {}) });
+      if (res.status === "awaiting-review") router.push(`/pruefen/${enc(res.issuance.id)}`);
+      else if (res.status === "pending-approval") setNotice({ tone: "warn", title: "Freigabe nötig", text: "Für diese Stage muss zuerst jemand die Anfrage freigeben.", href: "/freigaben", link: "Zu den Freigaben" });
+      else setPlan(res.plan as never);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: "Verbindung fehlt", text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/verbindungen", link: "Zu den Verbindungen" });
+      else toast.error(e instanceof Error ? e.message : "Unbekannter Fehler");
+    }
+  };
+
+  if (secret.error) return <ErrorState error={secret.error} onRetry={secret.reload} />;
+  const s = secret.data;
+  if (!s) return <div className="space-y-4"><Skeleton className="h-10 w-72" /><Skeleton className="h-48" /></div>;
+
+  return (
+    <>
+      <p className="mb-2 text-sm"><Link href="/secrets" className="text-primary hover:underline">← Alle Secrets</Link></p>
+      <PageHeader
+        title={s.title ?? s.name}
+        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} /></span>}
+        actions={
+          <>
+            {s.automatic ? <Button variant="primary" onClick={() => void startRenewal(false)}><Icon name="bolt" />Neuen Wert erzeugen</Button> : null}
+            <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />Wert einfügen</Button>
+            <Button variant="ghost" onClick={() => void startRenewal(true)}>Nur Plan zeigen</Button>
+          </>
+        }
+      />
+      {notice ? (
+        <div className="mb-6">
+          <Notice tone={notice.tone} title={notice.title}>{notice.text} {notice.href ? <Link href={notice.href} className="font-medium underline">{notice.link}</Link> : null}</Notice>
+        </div>
+      ) : null}
+      {plan ? (
+        <div className="mb-6">
+          <Notice tone="info" title="Probelauf: Es wurde nichts verändert">
+            <ul className="list-disc pl-5">
+              <li>{plan.automatic ? "Der Wert würde automatisch erzeugt." : "Der Wert muss von Hand eingefügt werden."}</li>
+              <li>Ziele: {plan.places?.length ? plan.places.join(", ") : "keine"}</li>
+              <li>{plan.revokesOld ? "Der alte Wert würde nach der Bestätigung widerrufen." : "Der alte Wert wird nicht widerrufen."}</li>
+              {plan.ttlDays ? <li>Gültigkeit: {plan.ttlDays} Tage</li> : null}
+            </ul>
+          </Notice>
+        </div>
+      ) : null}
+
+      <Card className="mb-6">
+        <div className="flex items-center justify-between gap-3">
+          <SectionLabel>Beschreibung</SectionLabel>
+          <Button variant="ghost" onClick={() => setEditing(true)}><Icon name="wrench" />Bearbeiten</Button>
+        </div>
+        {s.description || s.owner || s.link || s.tags.length > 0 || s.notes ? (
+          <div className="mt-3 space-y-3 text-sm">
+            {s.description ? <p className="whitespace-pre-line">{s.description}</p> : <p className="text-muted-text">Noch keine Beschreibung. Sag, wofür der Wert gebraucht wird und wo er genutzt wird.</p>}
+            {s.owner ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Verantwortlich</dt><dd className="font-medium">{s.owner}</dd></dl> : null}
+            {s.link ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Link</dt><dd><ExternalLink href={s.link} /></dd></dl> : null}
+            {s.tags.length > 0 ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Schlagworte</dt><dd><TagPills tags={s.tags} /></dd></dl> : null}
+            {s.notes ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Hinweise</dt><dd className="whitespace-pre-line">{s.notes}</dd></dl> : null}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted-text">Noch keine Beschreibung. Sag, wofür der Wert gebraucht wird und wo er genutzt wird.</p>
+        )}
+      </Card>
+
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <SectionLabel>Fakten</SectionLabel>
+          <dl className="mt-2 divide-y divide-line">
+            <Fact label="Dienst">{s.service}</Fact>
+            <Fact label="Anbieter">{s.provider}</Fact>
+            <Fact label="Läuft ab"><span className="tabular">{formatDate(s.expires)}</span> <span className="font-normal text-muted-text">({daysLabel(s.daysLeft)})</span></Fact>
+            <Fact label="Zuletzt erneuert"><span className="tabular">{formatDate(s.rotatedAt)}</span></Fact>
+            <Fact label="Zuletzt bestätigt">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` von ${s.verifiedBy}` : ""}</> : "noch nie"}</Fact>
+          </dl>
+        </Card>
+        <Card>
+          <SectionLabel>Ziele in GitHub</SectionLabel>
+          {s.places.length ? <ul className="mt-3 flex flex-wrap gap-2">{s.places.map((p, i) => <li key={i}><Pill>{placeText(p)}</Pill></li>)}</ul> : <p className="mt-3 text-sm text-muted-text">Keine Ziele. Dieser Eintrag wird nur lokal genutzt.</p>}
+        </Card>
+      </div>
+
+      <Card>
+        <SectionLabel>Verlauf der Prüfungen</SectionLabel>
+        <div className="mt-4">
+          {evidence.loading && !evidence.data ? <ListSkeleton rows={2} /> : null}
+          {evidence.error ? <ErrorState error={evidence.error} onRetry={evidence.reload} /> : null}
+          {evidence.data && evidence.data.length === 0 ? <EmptyState title="Noch keine Prüfung" icon="shield">Sobald ein Wert geprüft wurde, steht der Beleg hier.</EmptyState> : null}
+          <ul className="space-y-4">
+            {[...(evidence.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((r) => {
+              const overall = r.checks.some((c) => c.status === "fail") ? "fail" : r.checks.some((c) => c.status === "warn") ? "warn" : "pass";
+              const c = r.confirmation;
+              return (
+                <li key={r.id} className="flex flex-wrap gap-4 rounded-xl border border-line p-4">
+                  <div className="w-56 shrink-0"><EvidenceImage secretId={r.secretId} reportId={r.id} createdAt={r.createdAt} zoomable className="w-full" /></div>
+                  <div className="min-w-0 flex-1 space-y-2 text-sm">
+                    <p className="flex flex-wrap items-center gap-2"><span className="tabular font-medium">{formatDateTime(r.createdAt)}</span><Badge info={overallInfo(overall)} /></p>
+                    <p className="text-muted-text">{c ? (c.decision === "confirmed" ? `Bestätigt von ${c.by} am ${formatDateTime(c.at)}` : `Abgelehnt von ${c.by} am ${formatDateTime(c.at)}`) : "Noch nicht bestätigt"}{c?.note ? `: ${c.note}` : ""}</p>
+                    <p className="text-xs text-muted">Fingerabdruck <span className="font-mono">{r.fingerprint}</span></p>
+                    {r.attachments.length > 0 ? (
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-text">Anlagen</p>
+                        <div className="flex flex-wrap gap-2">{r.attachments.map((a) => <AttachmentThumb key={a.file} secretId={r.secretId} reportId={r.id} file={a.file} note={a.note} />)}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </Card>
+
+      {editing ? <EditMetaDialog path={`secrets/${enc(s.id)}`} initial={metaFrom(s)} notes={s.notes} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); secret.reload(); }} /> : null}
+      {manual ? <ManualValueDialog secret={s} onClose={() => setManual(false)} /> : null}
+    </>
+  );
+}
+
+function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: () => void }) {
+  const router = useRouter();
+  const ref = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState("");
+  const send = useMutation(async (v: string) => api<{ id: string }>("POST", `secrets/${enc(secret.id)}/manual-value`, { value: v }));
+  const submit = async () => {
+    const v = value;
+    setValue("");
+    if (ref.current) ref.current.value = "";
+    const res = await send.run(v);
+    if (res) router.push(`/pruefen/${enc(res.id)}`);
+  };
+  return (
+    <Dialog title="Wert einfügen" description={`Für ${secret.name}. Der Wert wird geprüft und nie gespeichert. Geschrieben wird erst nach deiner Bestätigung.`} onClose={onClose}>
+      {secret.guide ? (
+        <div className="mb-4 rounded-xl bg-page p-4 text-sm">
+          <p className="mb-2 font-medium">So bekommst du den Wert</p>
+          <a href={secret.guide.url} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex items-center gap-1 text-primary underline">Anleitung des Anbieters öffnen<Icon name="external" className="h-3.5 w-3.5" /></a>
+          {secret.guide.steps.length > 0 ? <ol className="list-decimal space-y-1 pl-5">{secret.guide.steps.map((st, i) => <li key={i}>{st}</li>)}</ol> : null}
+        </div>
+      ) : null}
+      <form onSubmit={(e) => { e.preventDefault(); if (value) void submit(); }} className="space-y-4">
+        <div className="space-y-1">
+          <label htmlFor="manual-value" className="block text-sm font-medium">Neuer Wert</label>
+          <input id="manual-value" ref={ref} data-autofocus type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className="w-full rounded-xl border border-line bg-card px-3 py-2 font-mono text-sm" />
+          <p className="text-xs text-muted">Wird nach dem Absenden sofort aus dem Feld gelöscht.</p>
+        </div>
+        {send.error ? <Notice tone="danger">{send.error.message}</Notice> : null}
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Abbrechen</Button>
+          <Button type="submit" variant="primary" loading={send.pending} disabled={!value}>Prüfen</Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}

@@ -52,7 +52,7 @@ import {
   type Actor,
   type Runtime,
 } from "@secret-desk/runtime";
-import { bearerMatches, checkHost, checkOrigin, type PortalSession } from "./security.js";
+import { bearerMatches, checkHost, checkOrigin, type PortalSession } from "./security";
 
 export interface RouterDeps {
   rt: Runtime;
@@ -80,10 +80,11 @@ const optStr = (b: Body, k: string): string | undefined => (typeof b[k] === "str
 /** Gemeinsame Operationen. Alle Antworten sind JSON und enthalten nie einen geheimen Wert. */
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
-  ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), live: query.get("live") === "1" })],
+  ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   ["POST", /^secrets$/, ({ rt, body }) => addSecret(rt, body as never)],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
   ["PATCH", /^secrets\/([^/]+)$/, ({ rt, params, body }) => updateSecretMeta(rt, params[0]!, body as never)],
+  ["GET", /^dev-templates$/, ({ rt }) => rt.inventory.data.envTemplates.map((t) => ({ id: t.id, repo: t.repo, stage: t.stage, file: t.file, entries: t.entries.map((e) => ({ key: e.key, source: e.from.type, description: e.description ?? null, ...(e.from.type === "variable" ? { variable: e.from.variable } : {}), ...(e.from.type === "issue" ? { secret: e.from.secret } : {}), ...(e.from.type === "default" ? { value: e.from.value } : {}) })) }))],
   ["GET", /^providers$/, ({ rt }) => listProviders(rt)],
   ["POST", /^providers$/, ({ rt, body }) => addManualProvider(rt, body as never)],
   ["GET", /^connections$/, ({ rt }) => listConnections(rt)],
@@ -94,11 +95,11 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^reviews\/([^/]+)$/, ({ rt, params }) => getIssuance(rt, params[0]!)],
   ["GET", /^evidence\/([^/]+)$/, ({ rt, params }) => listEvidence(rt, params[0]!)],
   ["GET", /^evidence\/([^/]+)\/([^/]+)$/, ({ rt, params }) => getEvidence(rt, params[0]!, params[1]!)],
-  ["GET", /^variables$/, ({ rt, query }) => listVariables(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}) })],
+  ["GET", /^variables$/, ({ rt, query }) => listVariables(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}) })],
   ["POST", /^variables$/, ({ rt, actor, body }) => addVariable(rt, actor, body as never, { acknowledgedPublic: body.acknowledgedPublic === true })],
   ["GET", /^variables\/([^/]+)$/, ({ rt, params }) => getVariable(rt, params[0]!)],
   ["GET", /^variables\/([^/]+)\/status$/, ({ rt, params }) => inspectVariableLive(rt, params[0]!)],
-  ["PATCH", /^variables\/([^/]+)$/, ({ rt, actor, params, body }) => updateVariable(rt, actor, params[0]!, { ...("value" in body ? { value: body.value as string | null } : {}), ...("description" in body ? { description: body.description as string | null } : {}) }, { acknowledgedPublic: body.acknowledgedPublic === true })],
+  ["PATCH", /^variables\/([^/]+)$/, ({ rt, actor, params, body }) => updateVariable(rt, actor, params[0]!, { ...("value" in body ? { value: body.value as string | null } : {}), ...("description" in body ? { description: body.description as string | null } : {}), ...("owner" in body ? { owner: body.owner as string | null } : {}), ...("link" in body ? { link: body.link as string | null } : {}), ...("tags" in body ? { tags: body.tags as string[] | null } : {}) }, { acknowledgedPublic: body.acknowledgedPublic === true })],
   ["POST", /^variables\/([^/]+)\/apply$/, ({ rt, actor, params, body }) => requestApplyVariable(rt, actor, params[0]!, { ...(optStr(body, "reason") ? { reason: optStr(body, "reason")! } : {}), acknowledgedPublic: body.acknowledgedPublic === true })],
   ["GET", /^approvals$/, ({ rt }) => listApprovals(rt)],
   ["GET", /^approvals\/([^/]+)$/, ({ rt, params }) => getApproval(rt, params[0]!)],

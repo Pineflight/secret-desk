@@ -82,6 +82,7 @@ export function importLegacyInventory(yamlText: string, options: LegacyImportOpt
             name: c.name,
             ...(product ? { product } : {}),
             stage: mapped.stage,
+            tags: [],
             value: null,
             places: [mapped.environment ? { repo: p.repo, scope: "environment", environment: mapped.environment } : { repo: p.repo, scope: "repository" }],
           });
@@ -102,6 +103,7 @@ export function importLegacyInventory(yamlText: string, options: LegacyImportOpt
         name: c.name,
         ...(product ? { product } : {}),
         stage: mapped.stage,
+        tags: [],
         service: c.service,
         provider: prov.provider,
         params: prov.params ?? {},

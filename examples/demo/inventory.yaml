@@ -1,11 +1,15 @@
 # Demo-Inventar mit erfundenen Werten und Zielen. Nur Metadaten.
 version: 1
-thresholds: [30, 14, 7]
+thresholds: [ 30, 14, 7 ]
 
 secrets:
   - id: cloudflare-deploy-wakemiles
     name: CLOUDFLARE_API_TOKEN
     product: wakemiles
+    description: "Deploy-Zugang fuer Workers und Pages von WakeMiles: wird von den Deploy-Workflows der App und der Landingpage gelesen."
+    owner: niklas
+    link: https://dash.cloudflare.com/profile/api-tokens
+    tags: [deploy, cloudflare, wakemiles]
     stage: shared
     service: cloudflare
     provider: random-hex
@@ -17,6 +21,9 @@ secrets:
   - id: vapid-private-wakemiles
     name: VAPID_PRIVATE_KEY
     product: wakemiles
+    description: Privater Schluessel fuer Web-Push-Benachrichtigungen. Gehoert zum oeffentlichen Schluessel in den Variablen.
+    owner: niklas
+    tags: [push, wakemiles]
     stage: shared
     service: web-push
     provider: random-hex
@@ -26,15 +33,26 @@ secrets:
   - id: hmac-wakemiles-staging
     name: ARTIFACT_HMAC_SECRET
     product: wakemiles
+    description: Signiert Artefakt-Links im Buch-Worker. Muss im Worker und in der Edge Function gleich sein.
+    owner: niklas
+    tags: [signatur, wakemiles]
     stage: staging
     service: intern
     provider: random-hex
     expiry: none
     places:
       - { repo: wake-miles, scope: environment, environment: staging }
+    rotatedAt: 2026-10-27
+    verifiedAt: 2026-10-27
+    verifiedBy: niklas
+    expires: null
   - id: vesselapi-wakemiles-staging
     name: VESSELAPI_API_KEY
     product: wakemiles
+    description: Zugang zur VesselAPI fuer Hafenereignisse und Schiffsdaten (Staging-Tarif).
+    owner: niklas
+    link: https://vesselapi.com
+    tags: [ais, wakemiles]
     stage: staging
     service: vesselapi
     provider: vesselapi
@@ -44,6 +62,10 @@ secrets:
   - id: stripe-webhook-webstudio-staging
     name: STRIPE_WEBHOOK_SECRET
     product: web-studio
+    description: Pruefsignatur der Stripe-Webhooks in der Sandbox, damit Zahlungen im Portal verbucht werden.
+    owner: niklas
+    link: https://dashboard.stripe.com/test/webhooks
+    tags: [zahlung, web-studio]
     stage: staging
     service: stripe
     provider: stripe-restricted-key
@@ -54,6 +76,10 @@ secrets:
   - id: openai-leitfaden-staging
     name: OPENAI_API_KEY
     product: leitfaden
+    description: Projekt-Schluessel fuer den Assistenten in Staging, mit Ausgabenlimit.
+    owner: niklas
+    link: https://platform.openai.com/api-keys
+    tags: [ki, leitfaden]
     stage: staging
     service: openai
     provider: openai
@@ -63,6 +89,10 @@ secrets:
   - id: supabase-access-leitfaden
     name: SUPABASE_ACCESS_TOKEN
     product: leitfaden
+    description: Zugangstoken fuer Migrationen und Deploys der Supabase-Projekte von Leitfaden (CI).
+    owner: niklas
+    link: https://supabase.com/dashboard/account/tokens
+    tags: [ci, supabase, leitfaden]
     stage: shared
     service: supabase
     provider: supabase-access-token
@@ -72,6 +102,9 @@ secrets:
   - id: lead-token-dev
     name: LEAD_INTAKE_TOKEN
     product: web-studio
+    description: Lokales Token fuer den Lead-Eingang in der Entwicklung, jeder Entwickler bekommt ein eigenes.
+    owner: niklas
+    tags: [dev, web-studio]
     stage: dev
     service: intern
     provider: random-hex
@@ -81,14 +114,20 @@ variables:
   - id: revenuecat-project-wakemiles
     name: REVENUECAT_PROJECT_ID
     product: wakemiles
+    description: "Kennung des RevenueCat-Projekts, aus dem das Produkt-Setup arbeitet."
+    owner: niklas
+    link: https://app.revenuecat.com
+    tags: [revenuecat, wakemiles]
     stage: shared
-    description: RevenueCat-Projekt fuer Produkt-Setup
     value: proj_demo_123
     places:
       - { repo: wake-miles, scope: repository }
   - id: site-url-webstudio-staging
     name: NEXT_PUBLIC_SITE_URL
     product: web-studio
+    description: "Basis-Adresse der Staging-Seite von Web Studio, fuer Links in E-Mails und Webhooks."
+    owner: niklas
+    tags: [url, web-studio]
     stage: staging
     value: "https://web-studio-app-staging.pineflight.com"
     places:
@@ -96,6 +135,9 @@ variables:
   - id: site-url-leitfaden-staging
     name: NEXT_PUBLIC_SITE_URL
     product: leitfaden
+    description: "Basis-Adresse der Staging-Seite von Leitfaden."
+    owner: niklas
+    tags: [url, leitfaden]
     stage: staging
     value: "https://leitfaden-staging.pineflight.com"
     places:
@@ -103,8 +145,10 @@ variables:
   - id: print-env-wakemiles
     name: PRINT_ENV
     product: wakemiles
+    description: "Druckmodus: sandbox testet ohne echte Bestellung, live loest echte Druckauftraege aus."
+    owner: niklas
+    tags: [druck, wakemiles]
     stage: staging
-    description: sandbox oder live
     places:
       - { repo: wake-miles, scope: environment, environment: staging }
 
@@ -113,14 +157,23 @@ envTemplates:
     repo: web-studio
     stage: dev
     entries:
-      - { key: NEXT_PUBLIC_SITE_URL, from: { type: default, value: "http://localhost:3000" } }
+      - {
+          key: NEXT_PUBLIC_SITE_URL,
+          from: { type: default, value: "http://localhost:3000" }
+        }
       - { key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 32 } }
-      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" } }
+      - {
+          key: STRIPE_SECRET_KEY,
+          from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" }
+        }
   - id: leitfaden-dev
     repo: leitfaden
     stage: dev
     entries:
-      - { key: NEXT_PUBLIC_SITE_URL, from: { type: variable, variable: site-url-leitfaden-staging } }
+      - {
+          key: NEXT_PUBLIC_SITE_URL,
+          from: { type: variable, variable: site-url-leitfaden-staging }
+        }
       - { key: RATE_LIMIT_GEHEIMNIS, from: { type: generate, kind: hex, bytes: 16 } }
 
 providers: []

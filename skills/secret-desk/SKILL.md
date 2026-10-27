@@ -21,7 +21,8 @@ mit Metadaten und stellst Anfragen.
 4. **Neue Eintraege nur mit Zielen:** ausser `dev` braucht jeder Eintrag `places` (Repo, `repository` oder `environment` mit Name).
 5. **Namen:** `id` in kleinbuchstaben-mit-bindestrich, `name` GROSSBUCHSTABEN_MIT_UNTERSTRICH. Ein Secret je Stage und Repo-Gruppe; staging und
    production teilen nie ein Secret.
-6. **Defaults in `.env`-Vorlagen** nur fuer Nicht-Geheimes (URLs, Flags). Alles Geheime ist `generate`, `issue` oder `prompt`.
+6. **Neue Eintraege immer beschreiben:** `description` (wofuer, wo genutzt, 1-2 Saetze), `owner` und, wenn vorhanden, `link` zur Anbieter-Seite oder Doku, dazu 1-3 `tags` (kleinbuchstaben-mit-bindestrich). Gilt fuer Secrets und Variablen. Frag den Menschen, wenn du den Zweck nicht kennst, statt etwas zu erfinden.
+7. **Defaults in `.env`-Vorlagen** nur fuer Nicht-Geheimes (URLs, Flags). Alles Geheime ist `generate`, `issue` oder `prompt`.
 
 ## Typische Ablaeufe
 
@@ -45,7 +46,7 @@ mit Metadaten und stellst Anfragen.
 und erzeugt seine Dev-Dateien.
 
 **Variablen (vars.*, Konfiguration, kein Geheimnis):** `desk_list_variables`, `desk_variable_status` (Soll gegen Ist in GitHub),
-`desk_add_variable` / `desk_set_variable_value` (Sollwert im Inventar), `desk_apply_variable` (nach GitHub). Nie ein Geheimnis als Variable
+`desk_add_variable` / `desk_set_variable_value` / `desk_update_variable_meta` (Sollwert und Beschreibung im Inventar), `desk_apply_variable` (nach GitHub). Nie ein Geheimnis als Variable
 anlegen, das ist dort im Klartext lesbar: Schluessel, Tokens, Passwoerter gehoeren in ein Secret. Das Portal lehnt Werte ab, die wie Schluessel aussehen.
 
 **Nachweis:** `desk_list_reviews` zeigt, was auf die Bestaetigung eines Menschen wartet, `desk_list_evidence` die frueheren Pruefberichte eines Secrets.

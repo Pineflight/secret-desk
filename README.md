@@ -14,6 +14,7 @@ review and confirm them, and write them straight into the project's GitHub secre
 | **Neuer Wert** | Anbieter-API erzeugt den Token, das Portal **prueft ihn** (Funktionstest, Rechte, Ablauf, Ziele erreichbar) und zeigt einen **Pruefbericht mit Beleg-Bild**. |
 | **Bestaetigen** | Du hakst die Pruefpunkte ab (optional mit eigenem Screenshot). **Erst dann** wird in GitHub geschrieben und der alte Wert widerrufen. Ablehnen loescht den neuen Wert beim Anbieter wieder. |
 | **Von Hand** | Anbieter ohne API: Anleitung, Wert einfuegen, gleiche Pruefung, gleiche Bestaetigung. |
+| **Beschreibungen** | Jedes Secret und jede Variable hat Beschreibung (wofür, wo genutzt), Verantwortlichen, Link und Schlagworte. Suche und Filter darüber. |
 | **Variablen** | `vars.*` mit Sollwert im Inventar, Abgleich mit GitHub (Soll/Ist), setzen, aus GitHub uebernehmen. Ein Schutz verhindert, dass ein Geheimnis als Variable landet. |
 | **Dev-`.env`** | Pro Repo eine Vorlage. Der Export erzeugt die Datei jetzt (Defaults, Zufallswerte, persoenliche Dev-Tokens, Variablen), Modus 600, nirgends gespeichert. |
 | **Team** | Eine Konfigurationsdatei ohne Werte zum Verteilen. Neue Teammitglieder importieren sie, verbinden ihre Konten und legen los. |
