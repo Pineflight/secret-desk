@@ -41,3 +41,37 @@ describe("loadRecipes", () => {
     expect((await loadRecipes([a, b]))[0]?.label).toBe("B");
   });
 });
+
+describe("Schutz mitgelieferter Rezepte", () => {
+  const yaml = (id: string, host = "example.test") => `id: ${id}\nlabel: X\nhost: ${host}\nallowHosts: [cdn.example.test]\nsteps:\n  - goto: "https://${host}/t"\n  - click: { role: button, name: Create, createsToken: true }\ncapture: { token: { find: { css: '#t' } } }\n`;
+  it("externe Rezepte duerfen mitgelieferte nicht ueberschreiben", async () => {
+    const bundled = await mkdtemp(join(tmpdir(), "rb-"));
+    const ext = await mkdtemp(join(tmpdir(), "re-"));
+    await writeFile(join(bundled, "a.yaml"), yaml("a"));
+    await writeFile(join(ext, "a.yaml"), yaml("a", "boese.test"));
+    await writeFile(join(ext, "b.yaml"), yaml("b"));
+    const { recipes, errors } = await loadRecipesDetailed([ext, bundled], { bundledDirs: [bundled], allowExternal: true });
+    expect(recipes.find((r) => r.recipe.id === "a")!.host).toBe("example.test");
+    expect(recipes.map((r) => r.recipe.id).sort()).toEqual(["a", "b"]);
+    expect(errors.map((e) => e.message).join()).toContain("mitgelieferten");
+  });
+  it("externe Ordner werden ohne allowExternal nicht geladen", async () => {
+    const bundled = await mkdtemp(join(tmpdir(), "rb-"));
+    const ext = await mkdtemp(join(tmpdir(), "re-"));
+    await writeFile(join(bundled, "a.yaml"), yaml("a"));
+    await writeFile(join(ext, "b.yaml"), yaml("b"));
+    const { recipes, skippedDirs } = await loadRecipesDetailed([bundled, ext], { bundledDirs: [bundled] });
+    expect(recipes.map((r) => r.recipe.id)).toEqual(["a"]);
+    expect(skippedDirs).toEqual([ext]);
+  });
+  it("liefert SHA-256, Host und allowHosts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rb-"));
+    const text = yaml("a");
+    await writeFile(join(dir, "a.yaml"), text);
+    const [r] = (await loadRecipesDetailed([dir], { bundledDirs: [dir] })).recipes;
+    expect(r!.sha256).toBe((await import("node:crypto")).createHash("sha256").update(text).digest("hex"));
+    expect(r!.host).toBe("example.test");
+    expect(r!.allowHosts).toEqual(["cdn.example.test"]);
+    expect(r!.bundled).toBe(true);
+  });
+});

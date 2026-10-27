@@ -48,6 +48,8 @@ export class PlaywrightDriver implements BrowserDriver {
         headless: this.#opts.headless ?? false,
         slowMo: this.#opts.slowMoMs ?? 0,
         viewport: null,
+        // Playwright startet Chrome sonst mit --no-sandbox. In Containern ohne Nutzer-Namensraeume kann dieser Start deshalb scheitern.
+        chromiumSandbox: true,
       });
     } catch (err) {
       if (!path) throw new ChromeNotFoundError("Kein Chrome gefunden.");

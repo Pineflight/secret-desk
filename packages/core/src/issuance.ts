@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
+import type { ProviderConfig } from "./config.js";
+import { issuanceSnapshot } from "./snapshot.js";
+import type { SecretEntry } from "./types.js";
 import type { EvidenceStore } from "./evidence.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
@@ -18,6 +21,8 @@ export interface IssuanceDeps {
   fetch?: FetchLike;
   now?: () => Date;
   evidence?: EvidenceStore;
+  /** Anbieter-Einstellungen aus der Konfiguration (erlaubte Hosts). */
+  providerConfig?: ProviderConfig;
 }
 
 /**
@@ -30,6 +35,10 @@ export interface PendingIssuance {
   value: SecretValue;
   report: VerificationReport;
   oldExternalId?: string;
+  /** Hash ueber Ziele, Anbieter, Parameter, Stage und alte Kennung zum Zeitpunkt der Pruefung (siehe snapshot.ts). */
+  snapshot: string;
+  /** Der Eintrag, mit dem ausgestellt wurde. Widerrufen wird immer mit diesen Parametern, nie mit nachtraeglich geaenderten. */
+  issuedSecret: SecretEntry;
   newExpires: string | null;
   createdAt: string;
   expiresAt: string;
@@ -39,6 +48,14 @@ export class IssuanceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "IssuanceError";
+  }
+}
+
+/** Der Eintrag hat sich seit der Pruefung geaendert: nichts wurde geschrieben, der neue Wert ist beim Anbieter widerrufen. */
+export class StaleIssuanceError extends IssuanceError {
+  constructor() {
+    super("Eintrag wurde seit der Pruefung geaendert, bitte neu erzeugen");
+    this.name = "StaleIssuanceError";
   }
 }
 
@@ -72,6 +89,9 @@ export async function prepareIssuance(
   const f = deps.fetch ?? fetch;
   const kind0 = stageKind(deps.inventory.stages, secret.stage);
   const label = `${secret.id}-${now.toISOString().slice(0, 10)}`;
+  const pc = deps.providerConfig ? { providerConfig: deps.providerConfig } : {};
+  const snapshot = issuanceSnapshot(secret, kind0);
+  const issuedSecret = structuredClone(secret);
 
   let value: SecretValue;
   let externalId: string | undefined;
@@ -84,7 +104,7 @@ export async function prepareIssuance(
     if (!provider || provider.kind !== "automatic" || !provider.issue) {
       throw new IssuanceError(`Anbieter "${secret.provider}" kann nicht automatisch erzeugen. Wert von Hand eingeben.`);
     }
-    const issued = await provider.issue({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label });
+    const issued = await provider.issue({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
@@ -107,7 +127,7 @@ export async function prepareIssuance(
   }
   if (provider?.verify) {
     try {
-      checks.push(...(await provider.verify({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now })));
+      checks.push(...(await provider.verify({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now, ...pc })));
     } catch (err) {
       checks.push({ id: "provider-verify", label: "Pruefung beim Anbieter nicht durchfuehrbar", status: "warn", detail: (err as Error).message });
     }
@@ -145,6 +165,8 @@ export async function prepareIssuance(
     value,
     report,
     ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
+    snapshot,
+    issuedSecret,
     newExpires,
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttl).toISOString(),
@@ -175,6 +197,12 @@ export async function commitIssuance(
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
   const now = (deps.now ?? (() => new Date()))();
   if (now.getTime() > Date.parse(pending.expiresAt)) throw new IssuanceError("Die Anfrage ist abgelaufen. Neu ausstellen.");
+  // Bindung an den Stand der Pruefung: Wurden Ziele, Anbieter, Parameter, Stage oder Kennung inzwischen geaendert
+  // (zum Beispiel durch einen Agenten oder einen importierten Pull Request), geht der Wert nirgends hin.
+  if (issuanceSnapshot(secret, stageKind(deps.inventory.stages, secret.stage)) !== pending.snapshot) {
+    await discardIssuance(pending, deps, { by: confirmation.by, why: "stale" });
+    throw new StaleIssuanceError();
+  }
   if (!options.force && overallStatus(pending.report.checks) === "fail") {
     throw new IssuanceError("Die automatische Pruefung ist fehlgeschlagen. Verwerfen oder Ursache beheben.");
   }
@@ -213,7 +241,7 @@ export async function commitIssuance(
   let revokedOld = false;
   if (pending.oldExternalId && provider?.revoke) {
     try {
-      await provider.revoke({ externalId: pending.oldExternalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch });
+      await provider.revoke({ externalId: pending.oldExternalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedOld = true;
       pending.report.checks.push({ id: "revoke-old", label: "Alter Wert beim Anbieter widerrufen", status: "pass" });
     } catch (err) {
@@ -241,14 +269,15 @@ export async function commitIssuance(
 export async function discardIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; why: "rejected" | "expired"; note?: string },
+  reason: { by: string; why: "rejected" | "expired" | "stale"; note?: string },
 ): Promise<{ revokedNew: boolean }> {
-  const secret = deps.inventory.getSecret(pending.secretId);
+  // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
+  const secret = pending.issuedSecret ?? deps.inventory.getSecret(pending.secretId);
   const provider = secret ? deps.providers.get(secret.provider) : undefined;
   let revokedNew = false;
   if (secret && pending.report.externalId && provider?.revoke) {
     try {
-      await provider.revoke({ externalId: pending.report.externalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch });
+      await provider.revoke({ externalId: pending.report.externalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedNew = true;
     } catch {
       /* bleibt gueltig, steht im Bericht */
@@ -260,7 +289,7 @@ export async function discardIssuance(
     at: now.toISOString(),
     ticks: [],
     decision: "rejected",
-    note: `${reason.why === "expired" ? "Zeit abgelaufen" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
+    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
   };
   await deps.evidence?.save(pending.report);
   return { revokedNew };

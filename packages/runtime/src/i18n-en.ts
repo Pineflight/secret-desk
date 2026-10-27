@@ -222,6 +222,19 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Form des Schluessels", "Key shape"],
   ["Praefix sb_secret_", "Prefix sb_secret_"],
   ["Praefix sb_publishable_", "Prefix sb_publishable_"],
+  // Teil A der Sicherheitsbefunde: core/issuance.ts, patch.ts, types.ts, providers/grafana.ts, http.ts, runtime/agent-api.ts, approvals.ts
+  ["Eintrag wurde seit der Pruefung geaendert, bitte neu erzeugen", "The entry was changed since the check, please generate again"],
+  ["Eintrag seit der Pruefung geaendert", "Entry changed since the check"],
+  ["Nur eine Zeile, ohne Zeilenumbruch", "Single line only, no line break"],
+  ["Nur http:// oder https:// erlaubt", "Only http:// or https:// allowed"],
+  ["Parameter \"baseUrl\" darf keine Zugangsdaten enthalten", "Parameter \"baseUrl\" must not contain credentials"],
+  ["Parameter \"baseUrl\" darf keinen Port enthalten", "Parameter \"baseUrl\" must not contain a port"],
+  ["Weiterleitung nicht gefolgt", "Redirect not followed"],
+  ["Agenten duerfen nur Dateien namens .env oder .env.* als Ziel einer Vorlage setzen.", "Agents may only set files named .env or .env.* as the target of a template."],
+  ["Agenten duerfen nur Dateien namens .env oder .env.* schreiben (nicht .envrc, .npmrc, Makefile, *.sh).", "Agents may only write files named .env or .env.* (not .envrc, .npmrc, Makefile, *.sh)."],
+  ["Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.", "The entry changed since the request, approval discarded."],
+  ["Bestehende Dateien ueberschreiben darf nur ein Mensch.", "Only a human may overwrite existing files."],
+  ["Ersetzen braucht die ausdrueckliche Bestaetigung confirmReplace: true.", "Replacing needs the explicit confirmation confirmReplace: true."],
   // runtime/agent-api.ts
   ["Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben.", "Value generated and checked. A human confirms it in the portal (Review tab), only then it is written."],
   ["Variable nicht gefunden", "Variable not found"],
@@ -386,12 +399,23 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["serviceaccounts:write auf serviceaccounts:id:* (Token erzeugen und loeschen)", "serviceaccounts:write on serviceaccounts:id:* (create and delete tokens)"],
   ["serviceaccounts:read auf serviceaccounts:id:* (Token auflisten, pruefen)", "serviceaccounts:read on serviceaccounts:id:* (list and check tokens)"],
   ["Praktisch: Service-Account des Stacks mit der Rolle Admin", "In practice: a stack service account with the Admin role"],
+  ["Startadresse erforderlich: bitte die Adresse mit ?launch=... aus dem Terminal oeffnen, in dem secret-desk gestartet wurde.", "Launch address required: open the address with ?launch=... from the terminal where secret-desk was started."],
+  ["Anfrage von fremdem Ursprung abgelehnt", "Request from a foreign origin rejected"],
+  ["Der macOS-Schluesselbund ist nicht erreichbar, gesperrt oder wurde verweigert. Es wird nichts ueberschrieben.", "The macOS keychain is unreachable, locked or access was denied. Nothing is overwritten."],
+  ["Der Schluesselbund-Eintrag secret-desk/vault-key enthaelt keinen gueltigen Schluessel. Er wird nicht ueberschrieben.", "The keychain entry secret-desk/vault-key does not contain a valid key. It is not overwritten."],
+  ["nicht gesetzt", "not set"],
+  ["keine angegeben", "none given"],
+  ["Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus.", "External recipe folder skipped: automation.allowExternalRecipes is off."],
 ];
 
 type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  [/^Die Tresordatei (.+) ist nicht lesbar\. Sie wird nicht ueberschrieben\.$/, "The vault file $1 is not readable. It is not overwritten."],
+  [/^Die Tresordatei (.+) ist beschaedigt oder hat ein unbekanntes Format\. Eine Kopie liegt als (.+); nichts wurde ueberschrieben\.$/, "The vault file $1 is corrupted or has an unknown format. A copy was saved as $2; nothing was overwritten."],
+  [/^(.+): Die Id "(.+)" gehoert zu einem mitgelieferten Rezept und kann nicht ueberschrieben werden\. Das mitgelieferte Rezept gilt\.$/, "$1: The id \"$2\" belongs to a bundled recipe and cannot be overridden. The bundled recipe applies."],
+  [/^Konto\/Besitzer beim Anbieter stimmt mit dem Eintrag ueberein \(owner: (.+)\)$/, "Account/owner at the provider matches the entry (owner: $1)"],
   [/^Rezepte konnten nicht gelesen werden: (.+)$/s, "Recipes could not be read: $1"],
   [/^Es laeuft schon ein Browser-Lauf \(Secret (.+?)\)\. Erst abwarten oder abbrechen\.$/, "A browser run is already in progress (secret $1). Wait for it or cancel it first."],
   [/^Konfiguration ungueltig: (.+)$/s, "Invalid configuration: $1"],
@@ -509,6 +533,14 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Feld "(.*)"$/, "Field \"$1\""],
   [/^Platzhalter "(.*)"$/, "Placeholder \"$1\""],
   [/^Feld fehlt: (.+)$/, "Field missing: $1"],
+  [/^Feld nicht erlaubt: (.+)$/, "Field not allowed: $1"],
+  [/^(.+): Die Stage (.+?) darf hier nicht ausgestellt werden\.$/, "$1: stage $2 may not be issued here."],
+  [/^Host "(.+?)" ist nicht erlaubt: nur \*\.grafana\.net oder providers\.grafana\.allowedHosts in der Konfiguration$/, "Host \"$1\" is not allowed: only *.grafana.net or providers.grafana.allowedHosts in the configuration"],
+  [/^Agenten legen Eintraege nur in Stages der Art dev an \(Stage (.+?)\)\. Stage angeben\.$/, "Agents only create entries in stages of kind dev (stage $1). Specify a stage."],
+  [/^Unbekannter Anbieter: (.+)$/, "Unknown provider: $1"],
+  [/^Agenten setzen keine Adressen in params \((.+)\)\. Das macht ein Mensch im Portal\.$/, "Agents do not set addresses in params ($1). A human does that in the portal."],
+  [/^Agenten legen Vorlagen nur fuer Stages der Art dev an \(Stage (.+?)\)\.$/, "Agents only create templates for stages of kind dev (stage $1)."],
+  [/^Agenten duerfen kein Secret aus Stage (.+?) in eine Vorlage aufnehmen\.$/, "Agents may not add a secret from stage $1 to a template."],
   [/^Browser: (.+)$/, "Browser: $1"],
   [/^erwartet: (.+)$/, "expected: $1"],
   [/^gefunden: (.+)$/, "found: $1"],

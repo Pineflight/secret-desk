@@ -53,6 +53,20 @@ export const ConfigSchema = z.object({
       envRoots: z.array(z.string()).default([]),
     })
     .default({ envRoots: [] }),
+  /**
+   * Einstellungen einzelner Anbieter. Netzwerkziele, die ein Eintrag im Inventar frei waehlen kann, werden hier freigegeben:
+   * Das Inventar kann aus fremden Quellen kommen (Git, Pull Requests), die Konfiguration nicht.
+   */
+  providers: z
+    .object({
+      grafana: z
+        .object({
+          /** Zusaetzlich zu *.grafana.net erlaubte Hosts (exakter Hostname, ohne Port, nur https). */
+          allowedHosts: z.array(z.string().min(1)).default([]),
+        })
+        .default({ allowedHosts: [] }),
+    })
+    .default({ grafana: { allowedHosts: [] } }),
   /** Browser-Automatisierung (Rezepte, siehe docs/BROWSER-AUTOMATION.md). Relative Pfade gelten ab der Konfigurationsdatei, `~` ist das Home-Verzeichnis. */
   automation: z
     .object({
@@ -67,11 +81,15 @@ export const ConfigSchema = z.object({
       slowMoMs: z.number().int().min(0).max(5000).optional(),
       /** Zusaetzliche Ordner mit Rezepten (*.yaml). Zusaetzlich immer <Ordner des Inventars>/recipes. */
       recipesDirs: z.array(z.string().min(1)).optional(),
+      /** Rezepte aus anderen Ordnern als den mitgelieferten laden. Rezepte sind ausfuehrbare Browserskripte: nur fuer Quellen, denen du vertraust. */
+      allowExternalRecipes: z.boolean().default(false),
     })
-    .default({ enabled: true, loginTimeoutMinutes: 10 }),
+    .default({ enabled: true, loginTimeoutMinutes: 10, allowExternalRecipes: false }),
   server: z.object({ port: z.number().int().min(1024).max(65535).default(4747) }).default({ port: 4747 }),
 });
 export type DeskConfig = z.infer<typeof ConfigSchema>;
+/** Anbieter-Einstellungen, wie sie an provider.issue/verify/revoke durchgereicht werden. */
+export type ProviderConfig = DeskConfig["providers"];
 
 export async function loadConfig(path: string): Promise<DeskConfig> {
   const text = await readFile(path, "utf8");

@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icons";
+import { Dialog } from "@/components/Dialog";
 import { Button, Card, Checkbox, Notice, PageHeader, SectionLabel, TextAreaField } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation } from "@/lib/hooks";
@@ -22,13 +23,15 @@ export default function TeamPage() {
   const [replace, setReplace] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const imp = useMutation(async () => api<ImportResult>("POST", "team-import", { text, replace }));
+  const [confirming, setConfirming] = useState(false);
+  const imp = useMutation(async () => api<ImportResult>("POST", "team-import", { text, replace, ...(replace ? { confirmReplace: true } : {}) }));
 
   const readFile = async () => {
     const f = fileRef.current?.files?.[0];
     if (f) setText(await f.text());
   };
   const submit = async () => {
+    setConfirming(false);
     const r = await imp.run();
     if (r) {
       setResult(r);
@@ -48,7 +51,7 @@ export default function TeamPage() {
         </Card>
         <Card>
           <SectionLabel>{t("team.importTitle")}</SectionLabel>
-          <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) void submit(); }} className="mt-3 space-y-3">
+          <form onSubmit={(e) => { e.preventDefault(); if (!text.trim()) return; if (replace) setConfirming(true); else void submit(); }} className="mt-3 space-y-3">
             <div className="space-y-1">
               <label htmlFor="team-datei" className="block text-sm font-medium">{t("team.loadFile")}</label>
               <input id="team-datei" ref={fileRef} type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={() => void readFile()} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary-light file:px-3 file:py-1.5 file:text-primary" />
@@ -61,6 +64,14 @@ export default function TeamPage() {
           </form>
         </Card>
       </div>
+      {confirming ? (
+        <Dialog title={t("team.confirmReplaceTitle")} description={t("team.confirmReplaceText")} onClose={() => setConfirming(false)}>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button onClick={() => setConfirming(false)}>{t("team.confirmReplaceCancel")}</Button>
+            <Button variant="danger" loading={imp.pending} onClick={() => void submit()}>{t("team.confirmReplaceYes")}</Button>
+          </div>
+        </Dialog>
+      ) : null}
     </>
   );
 }

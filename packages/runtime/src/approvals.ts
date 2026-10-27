@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-export type ApprovalState = "pending" | "approved" | "denied" | "failed";
+import type { ApprovalSnapshot } from "@secret-desk/core";
+
+/** stale = der Eintrag hat sich seit der Anfrage geaendert, die Freigabe wurde verworfen. */
+export type ApprovalState = "pending" | "approved" | "denied" | "failed" | "stale";
 export type ApprovalAction = "issue" | "apply-variable";
 
 export interface Approval {
@@ -12,6 +15,12 @@ export interface Approval {
   reason: string | null;
   createdAt: string;
   state: ApprovalState;
+  /**
+   * Der Inhalt, den der Mensch freigibt (Ziele, Sollwert, Stage ...), und ein Hash darueber. Beim Freigeben wird der Hash
+   * neu berechnet: Hat jemand den Eintrag seit der Anfrage geaendert, wird die Freigabe verworfen.
+   */
+  snapshotHash: string;
+  snapshot: ApprovalSnapshot["view"];
   /** Kurztext nach der Ausfuehrung, nie ein Wert. */
   result?: string;
 }
@@ -23,9 +32,14 @@ export interface Approval {
 export class ApprovalQueue {
   readonly #items = new Map<string, Approval>();
 
-  create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date }): Approval {
+  create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date; snapshot: ApprovalSnapshot }): Approval {
     const open = [...this.#items.values()].find((a) => a.action === input.action && a.targetId === input.targetId && a.state === "pending");
-    if (open) return open;
+    if (open) {
+      if (open.snapshotHash === input.snapshot.hash) return open;
+      // Anderer Inhalt als bei der offenen Anfrage: die alte kann nicht mehr freigegeben werden.
+      open.state = "stale";
+      open.result = "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.";
+    }
     const approval: Approval = {
       id: randomUUID(),
       action: input.action,
@@ -34,6 +48,8 @@ export class ApprovalQueue {
       reason: input.reason ?? null,
       createdAt: (input.now ?? new Date()).toISOString(),
       state: "pending",
+      snapshotHash: input.snapshot.hash,
+      snapshot: input.snapshot.view,
     };
     this.#items.set(approval.id, approval);
     return approval;

@@ -134,7 +134,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
 
 /** Abhaengigkeiten fuer die Funktionen des Kerns, die Ausstellung und Bestaetigung steuern. */
 export function issuanceDeps(rt: Runtime): IssuanceDeps {
-  return { inventory: rt.inventory, github: rt.github, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence };
+  return { inventory: rt.inventory, github: rt.github, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence, providerConfig: rt.config.providers };
 }
 
 export async function readOptional(path: string): Promise<string | null> {

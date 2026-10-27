@@ -43,6 +43,7 @@ async function setup(agentStages = "") {
   return { rt, dir };
 }
 const agent = { kind: "agent", name: "claude" } as const;
+const human = { kind: "human", name: "alice" } as const;
 
 describe("Stages in der Laufzeit", () => {
   it("listStages liefert Definitionen, Environment-Namen und Nutzung", async () => {
@@ -68,8 +69,8 @@ describe("Stages in der Laufzeit", () => {
     const { rt } = await setup();
     const v = await addVariable(rt, { kind: "human", name: "n" }, { id: "v1", name: "V_ONE", stage: "abnahme", value: "x", places: [{ repo: "r", scope: "environment" }] });
     expect(v.places[0]!.environment).toBe("abnahme");
-    await expect(addSecret(rt, { id: "s1", name: "S_ONE", service: "x", stage: "alle", places: [{ repo: "r", scope: "environment" }] })).rejects.toThrow(/keine GitHub-Environment/);
-    await expect(addSecret(rt, { id: "s2", name: "S_TWO", service: "x", stage: "gibt-es-nicht", places: [{ repo: "r", scope: "repository" }] })).rejects.toThrow(/Unbekannte Stage/);
+    await expect(addSecret(rt, human, { id: "s1", name: "S_ONE", service: "x", stage: "alle", places: [{ repo: "r", scope: "environment" }] })).rejects.toThrow(/keine GitHub-Environment/);
+    await expect(addSecret(rt, human, { id: "s2", name: "S_TWO", service: "x", stage: "gibt-es-nicht", places: [{ repo: "r", scope: "repository" }] })).rejects.toThrow(/Unbekannte Stage/);
   });
   it("setStages speichert, blockiert Entfernen genutzter Stages mit Zaehlern", async () => {
     const { rt, dir } = await setup();

@@ -21,7 +21,7 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
         expires_in: "90",
         secrets: "write",
         actions_variables: "write",
-        environments: "read",
+        environments: "write",
         metadata: "read",
       });
       return {
@@ -35,7 +35,7 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
           "Token erzeugen, kopieren und unten einfuegen.",
           "Fuer Organisations-Secrets braucht der Token zusaetzlich das Organisationsrecht \"Secrets\" (Read and write).",
         ],
-        permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read", "Metadata: Read"],
+        permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read and write (needed for environment secrets)", "Metadata: Read"],
       };
     }
     case "cloudflare":

@@ -36,8 +36,8 @@ describe("buildEnvFile", () => {
     expect(r.issuedSecretIds).toEqual(["cf-deploy-acme-app"]);
   });
   it("quotet Werte mit Sonderzeichen", () => {
-    expect(formatEnvValue("a b")).toBe('"a b"');
-    expect(formatEnvValue('x"y')).toBe('"x\\"y"');
+    expect(formatEnvValue("a b")).toBe("'a b'");
+    expect(formatEnvValue('x"y')).toBe("'x\"y'");
     expect(formatEnvValue("plain-1.2")).toBe("plain-1.2");
   });
 });

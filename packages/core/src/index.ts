@@ -12,6 +12,8 @@ export * from "./connections.js";
 export * from "./provider.js";
 export * from "./rotate.js";
 export * from "./issuance.js";
+export * from "./snapshot.js";
+export * from "./patch.js";
 export * from "./env-export.js";
 export * from "./team.js";
 export * from "./config.js";

@@ -7,7 +7,7 @@ import { ConnectionStore } from "../src/connections.js";
 import { EvidenceStore } from "../src/evidence.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
-import { commitIssuance, discardIssuance, prepareIssuance, IssuanceError } from "../src/issuance.js";
+import { commitIssuance, discardIssuance, prepareIssuance, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
 import { ProviderRegistry, type Provider } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
 import { renderEvidenceSvg } from "../src/verification.js";
@@ -128,5 +128,44 @@ describe("Beleg und Anlagen", () => {
     await expect(evidence.attach("cf-deploy-acme-app", p.report.id, new Uint8Array(5 * 1024 * 1024 + 1), "image/png")).rejects.toThrow(/5 MB/);
     await expect(evidence.get("../etc", "x")).rejects.toThrow(/Ungueltige/);
     expect(await readFile(join(evidence.dir, "cf-deploy-acme-app", p.report.id, "anlage-1.png"))).toHaveLength(4);
+  });
+});
+
+describe("Bindung an den Stand der Pruefung (Befund F2b)", () => {
+  const ticks = ["c1", "c2"];
+  it("umgebogene Ziele nach der Pruefung: nichts wird geschrieben, der neue Wert wird widerrufen", async () => {
+    const { deps, inventory, revoke, writes } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    // Angriff: zwischen Pruefung und Bestaetigung zeigt das Secret auf ein fremdes Repository.
+    inventory.data.secrets.find((s) => s.id === "cf-deploy-acme-app")!.places = [{ repo: "attacker-repo", scope: "repository" }];
+    const err = await commitIssuance(p, deps, { by: "alice", ticks }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StaleIssuanceError);
+    expect((err as Error).message).toBe("Eintrag wurde seit der Pruefung geaendert, bitte neu erzeugen");
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
+    expect(revoke).not.toHaveBeenCalledWith(expect.objectContaining({ externalId: "old-token-id" }));
+  });
+  it("geaenderte Parameter oder Anbieter: ebenfalls verworfen; Widerruf nutzt die Parameter von damals", async () => {
+    const { deps, inventory, revoke, writes } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    inventory.data.secrets.find((s) => s.id === "cf-deploy-acme-app")!.params = { baseUrl: "https://evil.example" };
+    await expect(commitIssuance(p, deps, { by: "alice", ticks })).rejects.toThrow(StaleIssuanceError);
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    const call = revoke.mock.calls[0] as unknown as [{ params: Record<string, unknown> }];
+    expect(call[0].params).toEqual({});
+  });
+  it("geaenderte Stage und alte Kennung zaehlen auch", async () => {
+    for (const change of [(s: { stage: string }) => (s.stage = "production"), (s: { externalId?: string }) => (s.externalId = "anderer")]) {
+      const { deps, inventory, writes } = await setup();
+      const p = await prepareIssuance("cf-deploy-acme-app", deps);
+      change(inventory.data.secrets.find((s) => s.id === "cf-deploy-acme-app")! as never);
+      await expect(commitIssuance(p, deps, { by: "alice", ticks })).rejects.toThrow(StaleIssuanceError);
+      expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    }
+  });
+  it("unveraendert: wie bisher", async () => {
+    const { deps } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    expect((await commitIssuance(p, deps, { by: "alice", ticks })).ok).toBe(true);
   });
 });

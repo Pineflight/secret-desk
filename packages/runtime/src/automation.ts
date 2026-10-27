@@ -154,12 +154,13 @@ export class AutomationManager {
     for (const d of config.automation.recipesDirs ?? []) dirs.push(path(d, configDir));
     let loaded;
     try {
-      loaded = await loadRecipesDetailed(dirs);
+      loaded = await loadRecipesDetailed(dirs, { bundledDirs: bundled && existsSync(bundled) ? [bundled] : [], allowExternal: config.automation.allowExternalRecipes });
     } catch (err) {
       this.problems.push({ file: dirs.join(", "), message: `Rezepte konnten nicht gelesen werden: ${(err as Error).message.split("\n")[0]}` });
       return;
     }
     this.problems.push(...loaded.errors);
+    for (const d of loaded.skippedDirs ?? []) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
     for (const { recipe, file } of loaded.recipes) {
       const base = createBrowserProvider({
         recipe,

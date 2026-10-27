@@ -141,3 +141,28 @@ describe("dryRunRecipe", () => {
     expect(d.closed).toBe(true);
   });
 });
+
+describe("capture auf fremdem Host", () => {
+  it("liest den Token nicht, wenn der Browser nach dem Klick auf einer fremden Seite steht", async () => {
+    let reads = 0;
+    const d = formDriver({
+      on: (e, dd) => {
+        if (e.action === "click" && e.key === 'button "Create"') {
+          dd.visible.add("css #tok");
+          dd.texts.set("css #tok", TOKEN);
+          dd.url = "https://evil.test/phish";
+        }
+      },
+    });
+    const orig = d.readText.bind(d);
+    d.readText = async (sel) => {
+      reads++;
+      return orig(sel);
+    };
+    const err = await runRecipe(sampleRecipe(), VARS, d).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect((err as RecipeRunError).kind).toBe("host");
+    expect(reads).toBe(0);
+    expect(String((err as Error).message)).not.toContain(TOKEN);
+  });
+});

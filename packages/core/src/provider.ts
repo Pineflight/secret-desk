@@ -1,5 +1,6 @@
 import type { SecretValue } from "./secret.js";
 import type { ConnectionStore } from "./connections.js";
+import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
 import type { StageKind } from "./stages.js";
 import type { SecretEntry, Stage } from "./types.js";
@@ -16,6 +17,8 @@ export interface IssueContext {
   now: Date;
   /** Name, unter dem der Token beim Anbieter erscheint. */
   label: string;
+  /** Einstellungen aus der Konfiguration (nicht aus dem Inventar): zum Beispiel erlaubte Hosts. */
+  providerConfig?: ProviderConfig;
 }
 
 export interface IssuedSecret {
@@ -32,6 +35,7 @@ export interface RevokeContext {
   params: Record<string, unknown>;
   connections: ConnectionStore;
   fetch: FetchLike;
+  providerConfig?: ProviderConfig;
 }
 
 export interface VerifyContext {
@@ -47,6 +51,7 @@ export interface VerifyContext {
   connections: ConnectionStore;
   fetch: FetchLike;
   now: Date;
+  providerConfig?: ProviderConfig;
 }
 
 export interface ProviderGuide {

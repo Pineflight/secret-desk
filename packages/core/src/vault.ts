@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, rename, stat } from "node:fs/promises";
+import { copyFile, readFile, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensurePrivateDir, writePrivateFile, type Platform } from "./platform.js";
@@ -59,6 +59,14 @@ export function envKeySource(env: NodeJS.ProcessEnv = process.env): KeySource {
   };
 }
 
+/** Exit-Code von `security find-generic-password`, wenn es den Eintrag nicht gibt. */
+const MAC_ITEM_NOT_FOUND = 44;
+
+/**
+ * macOS: nur wenn der Eintrag sicher fehlt (Exit-Code 44), wird ein neuer Schluessel angelegt. Jeder andere Fehler
+ * (gesperrter Schluesselbund, verweigerter Zugriff) wirft und ueberschreibt nichts: ein neuer Schluessel wuerde alle Tresor-Eintraege unlesbar machen.
+ * Der neue Schluessel geht ueber `security -i` (Befehle ueber stdin), nie als Argument, das in der Prozessliste stuende.
+ */
 export function macKeychainKeySource(exec: VaultExec = defaultExec): KeySource {
   return {
     label: "macOS-Schluesselbund",
@@ -66,12 +74,14 @@ export function macKeychainKeySource(exec: VaultExec = defaultExec): KeySource {
       try {
         const k = parseKey(await exec("security", ["find-generic-password", "-s", SERVICE, "-a", ACCOUNT, "-w"]));
         if (k) return k;
-      } catch {
-        /* noch kein Eintrag */
+        throw new VaultUnavailableError("Der Schluesselbund-Eintrag secret-desk/vault-key enthaelt keinen gueltigen Schluessel. Er wird nicht ueberschrieben.");
+      } catch (err) {
+        if (err instanceof VaultUnavailableError) throw err;
+        if ((err as { code?: unknown } | null)?.code !== MAC_ITEM_NOT_FOUND) throw new VaultUnavailableError("Der macOS-Schluesselbund ist nicht erreichbar, gesperrt oder wurde verweigert. Es wird nichts ueberschrieben.");
       }
       const fresh = randomBytes(32);
       try {
-        await exec("security", ["add-generic-password", "-U", "-s", SERVICE, "-a", ACCOUNT, "-w", fresh.toString("base64")]);
+        await exec("security", ["-i"], `add-generic-password -s ${SERVICE} -a ${ACCOUNT} -w ${fresh.toString("base64")}\n`);
       } catch {
         throw new VaultUnavailableError("Der macOS-Schluesselbund ist nicht erreichbar oder wurde verweigert.");
       }
@@ -250,13 +260,37 @@ export class SecretVault {
     return this.#keys.label;
   }
 
+  #backup: string | undefined;
+  #chain: Promise<unknown> = Promise.resolve();
+
+  /** Schreibende Zugriffe nacheinander: lesen-aendern-schreiben darf sich im selben Prozess nicht ueberlappen. */
+  #locked<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#chain.then(fn, fn);
+    this.#chain = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Nur eine fehlende Datei ist ein leerer Tresor. Alles andere wirft; eine kaputte Datei wird vorher als `.corrupt-<zeit>` gesichert. */
   async #read(): Promise<Doc> {
+    let text: string;
     try {
-      const parsed = JSON.parse(await readFile(this.#file, "utf8")) as Doc;
-      return parsed.version === 1 && parsed.entries ? parsed : { version: 1, entries: {} };
-    } catch {
-      return { version: 1, entries: {} };
+      text = await readFile(this.#file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, entries: {} };
+      throw new VaultUnavailableError(`Die Tresordatei ${this.#file} ist nicht lesbar. Sie wird nicht ueberschrieben.`);
     }
+    let parsed: Doc | null = null;
+    try {
+      const doc = JSON.parse(text) as Doc;
+      if (doc && doc.version === 1 && typeof doc.entries === "object" && doc.entries !== null && !Array.isArray(doc.entries)) parsed = doc;
+    } catch {
+      /* unten behandelt */
+    }
+    if (parsed) return parsed;
+    // Kopie, nicht Verschieben: die Originaldatei bleibt, jeder weitere Zugriff scheitert weiter, bis ein Mensch entscheidet.
+    this.#backup ??= `${this.#file}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    await copyFile(this.#file, this.#backup).catch(() => undefined);
+    throw new VaultUnavailableError(`Die Tresordatei ${this.#file} ist beschaedigt oder hat ein unbekanntes Format. Eine Kopie liegt als ${this.#backup}; nichts wurde ueberschrieben.`);
   }
 
   async #write(doc: Doc): Promise<void> {
@@ -292,9 +326,12 @@ export class SecretVault {
     cipher.setAAD(Buffer.from(id));
     const plain = typeof value === "string" ? value : value.reveal();
     const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-    const doc = await this.#read();
-    doc.entries[id] = { iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), ct: ct.toString("base64"), savedAt: now.toISOString(), fingerprint: createHash("sha256").update(plain).digest("hex").slice(0, 12), ...(expires !== undefined ? { expires } : {}) };
-    await this.#write(doc);
+    const entry: Entry = { iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), ct: ct.toString("base64"), savedAt: now.toISOString(), fingerprint: createHash("sha256").update(plain).digest("hex").slice(0, 12), ...(expires !== undefined ? { expires } : {}) };
+    await this.#locked(async () => {
+      const doc = await this.#read();
+      doc.entries[id] = entry;
+      await this.#write(doc);
+    });
   }
 
   async get(id: string): Promise<SecretValue | null> {
@@ -312,9 +349,11 @@ export class SecretVault {
   }
 
   async delete(id: string): Promise<void> {
-    const doc = await this.#read();
-    if (!(id in doc.entries)) return;
-    delete doc.entries[id];
-    await this.#write(doc);
+    await this.#locked(async () => {
+      const doc = await this.#read();
+      if (!(id in doc.entries)) return;
+      delete doc.entries[id];
+      await this.#write(doc);
+    });
   }
 }

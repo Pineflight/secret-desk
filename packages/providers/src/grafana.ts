@@ -1,10 +1,17 @@
-import { SecretValue, type Check, type Provider } from "@secret-desk/core";
+import { SecretValue, type Check, type Provider, type ProviderConfig } from "@secret-desk/core";
 import { check, daysApart, day, isRecord, probeWithConnection, step } from "./checks.js";
 import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, seg } from "./http.js";
 
 const ID = "grafana-service-account-token";
 
-function baseUrl(params: Record<string, unknown>): string {
+/**
+ * Adresse der Grafana-Instanz. Der Token der Verbindung geht als Bearer an diese Adresse: Sie darf deshalb nicht frei
+ * aus dem Inventar kommen (das kann aus fremden Quellen stammen). Erlaubt sind nur
+ *   (a) https-Hosts, die auf .grafana.net enden, und
+ *   (b) exakt die Hosts aus providers.grafana.allowedHosts der Konfiguration.
+ * Kein Port, keine Zugangsdaten in der URL, kein Teilstring-Vergleich.
+ */
+export function baseUrl(params: Record<string, unknown>, cfg?: ProviderConfig): string {
   const raw = requireString(ID, params, "baseUrl");
   let u: URL;
   try {
@@ -13,7 +20,15 @@ function baseUrl(params: Record<string, unknown>): string {
     throw new ProviderError(ID, null, 'Parameter "baseUrl" ist keine gueltige URL');
   }
   if (u.protocol !== "https:") throw new ProviderError(ID, null, 'Parameter "baseUrl" muss mit https:// beginnen');
-  return raw.replace(/\/+$/, "");
+  if (u.username || u.password) throw new ProviderError(ID, null, 'Parameter "baseUrl" darf keine Zugangsdaten enthalten');
+  if (u.port) throw new ProviderError(ID, null, 'Parameter "baseUrl" darf keinen Port enthalten');
+  const host = u.hostname.toLowerCase();
+  const allowed = (cfg?.grafana.allowedHosts ?? []).map((h) => h.toLowerCase());
+  const cloud = host.length > ".grafana.net".length && host.endsWith(".grafana.net");
+  if (!cloud && !allowed.includes(host)) {
+    throw new ProviderError(ID, null, `Host "${host}" ist nicht erlaubt: nur *.grafana.net oder providers.grafana.allowedHosts in der Konfiguration`);
+  }
+  return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
 }
 
 export const grafanaProvider: Provider = {
@@ -22,7 +37,7 @@ export const grafanaProvider: Provider = {
   kind: "automatic",
   connection: "grafana",
   async issue(ctx) {
-    const base = baseUrl(ctx.params);
+    const base = baseUrl(ctx.params, ctx.providerConfig);
     const accountId = requireInt(ID, ctx.params, "serviceAccountId");
     const ttl = ctx.secret.ttlDays;
     const res = await callWithToken<{ id?: number; key?: string }>(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens`, {
@@ -35,7 +50,7 @@ export const grafanaProvider: Provider = {
   },
   verify(ctx) {
     return step(ctx, "exists", "Token beim Anbieter", async () => {
-      const base = baseUrl(ctx.params);
+      const base = baseUrl(ctx.params, ctx.providerConfig);
       const accountId = requireInt(ID, ctx.params, "serviceAccountId");
       const r = await probeWithConnection(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens`);
       const list = Array.isArray(r.json) ? r.json.filter(isRecord) : undefined;
@@ -66,7 +81,7 @@ export const grafanaProvider: Provider = {
     ];
   },
   async revoke(ctx) {
-    const base = baseUrl(ctx.params);
+    const base = baseUrl(ctx.params, ctx.providerConfig);
     const accountId = requireInt(ID, ctx.params, "serviceAccountId");
     await callWithToken(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens/${seg(ctx.externalId)}`, { method: "DELETE" });
   },

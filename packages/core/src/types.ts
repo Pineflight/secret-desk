@@ -5,20 +5,25 @@ import { DEFAULT_STAGES, StageDefSchema, StageIdSchema, effectiveStages, findSta
 export const StageSchema = StageIdSchema;
 export type Stage = string;
 
-const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum als JJJJ-MM-TT");
-const Tag = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Schlagwort in kleinbuchstaben-mit-bindestrich");
+/** Eine Zeile: kein Zeilenumbruch jeder Art. Schuetzt Dateien, in die der Text als Kommentar geschrieben wird (.env). */
+export const OneLine = z.string().regex(/^[^\r\n\u0085\u2028\u2029]*$/, "Nur eine Zeile, ohne Zeilenumbruch");
+/** Nur http(s): keine javascript:-, data:- oder file:-Adressen in Anleitungen und Links. */
+export const WebUrl = z.string().url().refine((u) => /^https?:\/\//i.test(u), "Nur http:// oder https:// erlaubt");
+
+export const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum als JJJJ-MM-TT");
+export const Tag = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Schlagwort in kleinbuchstaben-mit-bindestrich");
 /** Beschreibende Angaben, die Secrets und Variablen gleichermassen haben. */
-const Describable = {
+export const Describable = {
   /** Wofuer der Wert gebraucht wird, wo er genutzt wird. */
   description: z.string().max(500).optional(),
   /** Wer sich kuemmert (Person oder Team). */
   owner: z.string().max(80).optional(),
   /** Weiterfuehrende Seite: Anbieter-Dashboard, Doku, Ticket. */
-  link: z.string().url().optional(),
+  link: WebUrl.optional(),
   tags: z.array(Tag).max(12).default([]),
 };
-const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, "Name in GROSSBUCHSTABEN_MIT_UNTERSTRICH");
-const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Slug in kleinbuchstaben-mit-bindestrich");
+export const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, "Name in GROSSBUCHSTABEN_MIT_UNTERSTRICH");
+export const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Slug in kleinbuchstaben-mit-bindestrich");
 
 /** Wo ein Secret im GitHub-Secret-Speicher liegt. */
 export const PlaceSchema = z
@@ -34,8 +39,7 @@ export type Place = z.infer<typeof PlaceSchema>;
 
 export const ExpiryKindSchema = z.enum(["none", "possible", "required", "unknown"]);
 
-export const SecretSchema = z
-  .object({
+export const SecretFields = {
     id: Slug,
     /** Name des Secrets im Ziel, zum Beispiel CLOUDFLARE_API_TOKEN. */
     name: SecretName,
@@ -60,7 +64,10 @@ export const SecretSchema = z
     rotation: z.string().optional(),
     notes: z.string().optional(),
     places: z.array(PlaceSchema).default([]),
-  })
+};
+
+export const SecretSchema = z
+  .object(SecretFields)
   .superRefine((s, ctx) => {
     if (s.expiry === "none" && s.expires) {
       ctx.addIssue({ code: "custom", message: "expiry none, aber expires gesetzt", path: ["expires"] });
@@ -73,7 +80,7 @@ export const EnvSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("default"), value: z.string() }),
   z.object({ type: z.literal("generate"), kind: z.enum(["hex", "base64", "uuid"]).default("hex"), bytes: z.number().int().min(8).max(128).default(32) }),
   z.object({ type: z.literal("issue"), secret: Slug }),
-  z.object({ type: z.literal("prompt"), hint: z.string().optional() }),
+  z.object({ type: z.literal("prompt"), hint: OneLine.optional() }),
   /** Wert einer Variable aus dem Inventar (Konfiguration, kein Geheimnis). */
   z.object({ type: z.literal("variable"), variable: Slug }),
 ]);
@@ -82,14 +89,14 @@ export type EnvSource = z.infer<typeof EnvSourceSchema>;
 export const EnvEntrySchema = z.object({
   key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
   from: EnvSourceSchema,
-  description: z.string().optional(),
+  description: OneLine.max(300).optional(),
 });
 
 export const EnvTemplateSchema = z.object({
   id: Slug,
-  repo: z.string().min(1),
+  repo: OneLine.min(1),
   stage: StageSchema.default("dev"),
-  file: z.string().default(".env.local"),
+  file: OneLine.min(1).default(".env.local"),
   entries: z.array(EnvEntrySchema).min(1),
 });
 export type EnvTemplate = z.infer<typeof EnvTemplateSchema>;
@@ -98,7 +105,7 @@ export type EnvTemplate = z.infer<typeof EnvTemplateSchema>;
 export const ProviderDefSchema = z.object({
   id: Slug,
   label: z.string().min(1),
-  url: z.string().url(),
+  url: WebUrl,
   steps: z.array(z.string()).default([]),
 });
 export type ProviderDef = z.infer<typeof ProviderDefSchema>;

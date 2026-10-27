@@ -167,7 +167,7 @@ class Runner {
     return this.fail("step", `Schritt ${i + 1} (${describeStep(step)}) fehlgeschlagen: ${reason}.`);
   }
 
-  async #checkHost(): Promise<void> {
+  async checkHost(): Promise<void> {
     const url = await this.driver.currentUrl();
     let host: string;
     try {
@@ -207,7 +207,7 @@ class Runner {
       const reason = renderValue(step.pause.human, vars);
       return this.#waitForHuman(reason, resolveCondition(step.pause.until, vars));
     }
-    await this.#checkHost();
+    await this.checkHost();
     if ("screenshot" in step) return this.shoot(step.screenshot);
     if ("fill" in step) return this.driver.fill(pickSelector(renderValue(step.fill, vars)), renderValue(step.fill.value, vars));
     if ("select" in step) return this.driver.select(pickSelector(renderValue(step.select, vars)), renderValue(step.select.value, vars));
@@ -307,12 +307,15 @@ async function readValue(r: Runner, sel: Selector, pattern: string | undefined, 
 async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
   const cap = recipe.capture;
   const find = cap.token.find as Selector;
+  // Token nur lesen, wenn der Browser noch auf einer erlaubten Seite steht (ein Klick kann woandershin fuehren).
+  await r.checkHost();
   try {
     await driver.waitFor({ visible: find }, cap.token.timeoutSeconds * 1000, options.signal);
   } catch (err) {
     if (err instanceof WaitAbortedError) return r.fail("abort", "Abgebrochen.");
     return r.fail("capture", `Token-Feld nicht gefunden (${describeSelector(find)}).`);
   }
+  await r.checkHost();
   const token = await readValue(r, find, cap.token.pattern, "Token");
   if (!token) return r.fail("capture", "Token-Feld ist leer.");
   r.addSecret(token);

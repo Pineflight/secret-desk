@@ -40,12 +40,14 @@ export async function callJson<T = unknown>(
 ): Promise<T | undefined> {
   let res: Response;
   try {
-    res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // Nie einer Weiterleitung folgen: Authorization und andere Kopfzeilen wuerden sonst an einen fremden Host gehen.
+    res = await fetchFn(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (err) {
     const name = (err as Error).name;
     const reason = name === "TimeoutError" || name === "AbortError" ? "Zeitueberschreitung nach 20 s" : safeText((err as Error).message, secrets);
     throw new ProviderError(provider, null, `Anfrage fehlgeschlagen: ${reason}`);
   }
+  if (res.status >= 300 && res.status < 400) throw new ProviderError(provider, res.status, "Weiterleitung nicht gefolgt");
   const text = await res.text().catch(() => "");
   if (!res.ok) throw new ProviderError(provider, res.status, safeText(text, secrets) || res.statusText || "Fehler");
   if (!text.trim()) return undefined;

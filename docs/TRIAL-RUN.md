@@ -6,13 +6,13 @@ Already verified (self-test against the real GitHub, 27 Oct 2026): encryption, c
 and variables on the repository and on the environment.
 
 Tip: in the portal, every manual secret has an "Open the provider's page with presets" button. For GitHub, name, owner, expiry and permissions (`params.permissions` in the inventory) are prefilled; you only pick the repository yourself. For the first token (secret-desk itself) use this link:
-`https://github.com/settings/personal-access-tokens/new?name=secret-desk-sandbox&description=secret-desk+trial+run&target_name=YOUR-ORG&expires_in=7&secrets=write&actions_variables=write&environments=read&metadata=read`
+`https://github.com/settings/personal-access-tokens/new?name=secret-desk-sandbox&description=secret-desk+trial+run&target_name=YOUR-ORG&expires_in=7&secrets=write&actions_variables=write&environments=write&metadata=read`
 
 ## 0. What to create beforehand (everything short-lived and with minimal permissions)
 
 | What | Where | Permissions | Expiry |
 |---|---|---|---|
-| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `YOUR-ORG`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read, Metadata: Read | 7 days |
+| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `YOUR-ORG`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read and write, Metadata: Read | 7 days |
 | **Cloudflare bootstrap token** (test B only) | Cloudflare, My Profile, API Tokens, Custom token | **User > API Tokens > Edit** (nothing else) | 1 day |
 | **Cloudflare account ID** (test B) | Cloudflare dashboard, account, "Copy account ID" | none | none |
 | **Throwaway token to paste in** (test C, optional) | GitHub, fine-grained token, resource owner your own account, **no** permissions except Public Repositories (read-only) | none | 1 day |

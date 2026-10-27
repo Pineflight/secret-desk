@@ -47,11 +47,25 @@ function ApprovalCard({ a, onChanged }: { a: Approval; onChanged: () => void }) 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-medium">{ACTION_KEYS[a.action] ? t(ACTION_KEYS[a.action]!) : a.action}</p>
-          <p className="text-sm text-muted-text">{t("approvals.target")} <span className="font-mono text-ink">{a.targetId}</span> · {t("approvals.requestedBy", { user: a.requestedBy, date: formatDateTime(a.createdAt) })}</p>
+          <p className="text-sm text-muted-text">{t("approvals.target")} <span className="font-mono text-ink">{a.targetId}</span> · {t("approvals.requestedByUnverified", { user: a.requestedBy, date: formatDateTime(a.createdAt) })}</p>
         </div>
         <Badge info={state} />
       </div>
       {target.data?.description ? <p className="mt-2 text-sm text-muted-text" title={target.data.description}>{target.data.name}: {truncate(target.data.description, 160)}</p> : null}
+      {a.snapshot ? (
+        <div className="mt-3 rounded-xl border border-line bg-muted p-3 text-sm">
+          <p className="font-medium">{t("approvals.snapshotTitle")}</p>
+          <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[max-content_1fr]">
+            {Object.entries(a.snapshot).map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-muted-text">{t(`approvals.snapshot.${k}`)}</dt>
+                <dd className="break-words font-mono">{Array.isArray(v) ? v.join(", ") : v === null ? "-" : String(v)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {a.state === "stale" ? <div className="mt-3"><Notice tone="warn">{t("approvals.stale")}</Notice></div> : null}
       {a.reason ? <p className="mt-2 text-sm">{t("approvals.reason", { reason: a.reason })}</p> : null}
       {a.result ? <p className="mt-2 text-sm text-muted-text">{t("approvals.result", { result: a.result })}</p> : null}
       {decide.error ? <div className="mt-3"><Notice tone="danger">{decide.error.message}</Notice></div> : null}

@@ -35,6 +35,21 @@ export function currentSession(): SessionInfo | null {
   return session;
 }
 
+/** Liest ?launch= aus der Adresse und entfernt es sofort aus der Adressleiste. Wird nie gespeichert. */
+function takeLaunchSecret(): string | null {
+  if (typeof window === "undefined" || !window.location) return null;
+  try {
+    const url = new URL(window.location.href);
+    const launch = url.searchParams.get("launch");
+    if (!launch) return null;
+    url.searchParams.delete("launch");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    return launch;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureSession(force = false): Promise<SessionInfo> {
   if (force) {
     session = null;
@@ -43,7 +58,8 @@ export async function ensureSession(force = false): Promise<SessionInfo> {
   if (session) return session;
   if (!pending) {
     pending = (async () => {
-      const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
+      const launch = takeLaunchSecret();
+      const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store", ...(launch ? { headers: { "x-secret-desk-launch": launch } } : {}) });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string } | null;
         throw new ApiError(res.status, body?.error ?? translate("common.err.session"));

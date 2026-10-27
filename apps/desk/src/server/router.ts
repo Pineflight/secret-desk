@@ -9,7 +9,9 @@ import {
   RotationError,
   TeamBundleError,
   VariableError,
+  VariablePatchSchema,
   mergeTeamBundle,
+  parseInput,
   parseTeamBundle,
   type Stage,
   type StatusLevel,
@@ -110,30 +112,44 @@ function tokenExpiry(b: Body): string | null {
 }
 const optStr = (b: Body, k: string): string | undefined => (typeof b[k] === "string" ? (b[k] as string) : undefined);
 
+/** Der Name kommt vom Agenten selbst (Kopf x-agent-name) und ist nicht verifiziert: gekuerzt und auf harmlose Zeichen beschraenkt. */
+export function sanitizeAgentName(raw: string | null): string {
+  const clean = (raw ?? "").replace(/[^A-Za-z0-9 ._:@/-]/g, "").replace(/\s+/g, " ").trim().slice(0, 40).trim();
+  return clean || "agent";
+}
+
 /** Gemeinsame Operationen. Alle Antworten sind JSON und enthalten nie einen geheimen Wert. */
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
-  ["POST", /^secrets$/, ({ rt, body }) => addSecret(rt, body as never)],
+  ["POST", /^secrets$/, ({ rt, actor, body }) => addSecret(rt, actor, body)],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
-  ["PATCH", /^secrets\/([^/]+)$/, ({ rt, params, body }) => updateSecretMeta(rt, params[0]!, body as never)],
+  // Der Akteur bestimmt die erlaubten Felder (strikt, unbekannte Felder -> 400): Agenten nur Metadaten, Menschen alle bearbeitbaren.
+  ["PATCH", /^secrets\/([^/]+)$/, ({ rt, actor, params, body }) => updateSecretMeta(rt, actor, params[0]!, body)],
   ["GET", /^dev-templates$/, ({ rt }) => rt.inventory.data.envTemplates.map((t) => ({ id: t.id, repo: t.repo, stage: t.stage, file: t.file, entries: t.entries.map((e) => ({ key: e.key, source: e.from.type, description: e.description ?? null, ...(e.from.type === "variable" ? { variable: e.from.variable } : {}), ...(e.from.type === "issue" ? { secret: e.from.secret } : {}), ...(e.from.type === "default" ? { value: e.from.value } : {}) })) }))],
   ["GET", /^providers$/, ({ rt }) => listProviders(rt)],
-  ["POST", /^providers$/, ({ rt, body }) => addManualProvider(rt, body as never)],
+  ["POST", /^providers$/, ({ rt, actor, body }) => addManualProvider(rt, actor, body as never)],
   ["GET", /^connections$/, ({ rt }) => listConnections(rt)],
-  ["POST", /^env-templates$/, ({ rt, body }) => addEnvTemplate(rt, body as never)],
-  ["POST", /^env-templates\/([^/]+)\/entries$/, ({ rt, params, body }) => addEnvEntry(rt, params[0]!, body as never)],
+  ["POST", /^env-templates$/, ({ rt, actor, body }) => addEnvTemplate(rt, actor, body as never)],
+  ["POST", /^env-templates\/([^/]+)\/entries$/, ({ rt, actor, params, body }) => addEnvEntry(rt, actor, params[0]!, body as never)],
   ["POST", /^renewal-requests$/, ({ rt, actor, body }) => requestIssuance(rt, actor, str(body, "secretId"), { ...(optStr(body, "reason") ? { reason: optStr(body, "reason")! } : {}), dryRun: body.dryRun === true })],
   ["GET", /^reviews$/, ({ rt }) => listIssuances(rt)],
   ["GET", /^reviews\/([^/]+)$/, ({ rt, params }) => getIssuance(rt, params[0]!)],
   ["GET", /^evidence\/([^/]+)$/, ({ rt, params }) => listEvidence(rt, params[0]!)],
   ["GET", /^evidence\/([^/]+)\/([^/]+)$/, ({ rt, params }) => getEvidence(rt, params[0]!, params[1]!)],
   ["GET", /^variables$/, ({ rt, query }) => listVariables(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}) })],
-  ["POST", /^variables$/, ({ rt, actor, body }) => addVariable(rt, actor, body as never, { acknowledgedPublic: body.acknowledgedPublic === true })],
+  ["POST", /^variables$/, ({ rt, actor, body }) => {
+    const { acknowledgedPublic, ...entry } = body;
+    return addVariable(rt, actor, entry as never, { acknowledgedPublic: acknowledgedPublic === true });
+  }],
   ["GET", /^variables\/([^/]+)$/, ({ rt, params }) => getVariable(rt, params[0]!)],
   ["GET", /^variables\/([^/]+)\/status$/, ({ rt, params }) => inspectVariableLive(rt, params[0]!)],
-  ["PATCH", /^variables\/([^/]+)$/, ({ rt, actor, params, body }) => updateVariable(rt, actor, params[0]!, { ...("value" in body ? { value: body.value as string | null } : {}), ...("description" in body ? { description: body.description as string | null } : {}), ...("owner" in body ? { owner: body.owner as string | null } : {}), ...("link" in body ? { link: body.link as string | null } : {}), ...("tags" in body ? { tags: body.tags as string[] | null } : {}) }, { acknowledgedPublic: body.acknowledgedPublic === true })],
+  // Strikt: nur Sollwert und Beschreibung. stage, places, id, name sind keine Felder dieser Route (400 statt stillem Ignorieren).
+  ["PATCH", /^variables\/([^/]+)$/, ({ rt, actor, params, body }) => {
+    const { acknowledgedPublic, ...patch } = parseInput(VariablePatchSchema, body);
+    return updateVariable(rt, actor, params[0]!, patch as never, { acknowledgedPublic: acknowledgedPublic === true });
+  }],
   ["POST", /^variables\/([^/]+)\/apply$/, ({ rt, actor, params, body }) => requestApplyVariable(rt, actor, params[0]!, { ...(optStr(body, "reason") ? { reason: optStr(body, "reason")! } : {}), acknowledgedPublic: body.acknowledgedPublic === true })],
   ["GET", /^approvals$/, ({ rt }) => listApprovals(rt)],
   ["GET", /^approvals\/([^/]+)$/, ({ rt, params }) => getApproval(rt, params[0]!)],
@@ -175,6 +191,8 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["DELETE", /^repos\/([^/]+)\/link$/, ({ rt, params }) => removeLink(rt, decodeURIComponent(params[0]!))],
   ["POST", /^repos\/scan$/, ({ rt }) => scanLocal(rt)],
   ["POST", /^team-import$/, async ({ rt, body }) => {
+    // Ersetzen loescht bestehende Eintraege: nur mit ausdruecklicher Bestaetigung (das Portal fragt vorher nach).
+    if (body.replace === true && body.confirmReplace !== true) throw new InventoryError("Ersetzen braucht die ausdrueckliche Bestaetigung confirmReplace: true.");
     const merged = mergeTeamBundle(rt.inventory, parseTeamBundle(str(body, "text")), body.replace === true ? "replace" : "merge");
     await rt.inventory.save();
     return merged;
@@ -224,7 +242,7 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
   let actor: Actor;
   if (kind === "agent") {
     if (!bearerMatches(req, deps.agentToken)) return err(401, "Agenten-Token fehlt oder ist falsch");
-    actor = { kind: "agent", name: req.headers.get("x-agent-name") ?? "agent" };
+    actor = { kind: "agent", name: sanitizeAgentName(req.headers.get("x-agent-name")) };
   } else {
     // Beleg-Bilder werden per <img> geladen und koennen keinen CSRF-Header senden: nur lesend, nur mit Cookie.
     const imageRead = req.method === "GET" && /^evidence\/[^/]+\/[^/]+\/(svg|attachments\/[^/]+)$/.test(path);

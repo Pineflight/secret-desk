@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ConnectionStore } from "./connections.js";
+import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
@@ -32,6 +33,13 @@ export interface EnvBuildDeps {
   now?: () => Date;
   /** Vom Nutzer eingegebene Werte fuer `prompt`-Eintraege. */
   prompts?: Record<string, string>;
+  /** Konfiguration der Anbieter (zum Beispiel erlaubte Grafana-Hosts), wird an provider.issue durchgereicht. */
+  providerConfig?: ProviderConfig;
+  /**
+   * Nur diese Stages duerfen als `issue`-Quelle ausgestellt werden (gesetzt fuer Agenten: Dev-Stages).
+   * Ohne Angabe gilt keine Einschraenkung (Mensch).
+   */
+  allowedIssueStages?: string[];
 }
 
 export interface EnvBuildResult {
@@ -48,9 +56,24 @@ export function generateValue(kind: "hex" | "base64" | "uuid", bytes: number): s
   return kind === "hex" ? b.toString("hex") : b.toString("base64");
 }
 
+/**
+ * Maskiert einen Wert so, dass `source .env`, docker compose und dotenv-Parser ihn als reinen Text lesen und nichts ausfuehren.
+ *   1. Nur harmlose Zeichen: unveraendert.
+ *   2. Sonst in EINFACHE Anfuehrungszeichen: In der POSIX-Shell, bei docker compose und bei dotenv ist dort alles wortwoertlich
+ *      ($(...), Backticks, $VAR, Backslashes, Zeilenumbrueche). Das ist der Normalfall.
+ *   3. Enthaelt der Wert selbst ein einfaches Anfuehrungszeichen (dort nicht maskierbar): doppelte Anfuehrungszeichen
+ *      und \, ", $ sowie Backtick mit Backslash maskieren. Zeilenumbrueche bleiben echte Zeilenumbrueche (in der Shell und
+ *      in dotenv innerhalb doppelter Anfuehrungszeichen gueltig; die Zeichenfolge \n wuerde die Shell nicht umsetzen).
+ */
 export function formatEnvValue(value: string): string {
   if (/^[A-Za-z0-9_./:@%+=,-]*$/.test(value)) return value;
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+  if (!value.includes("'")) return `'${value}'`;
+  return `"${value.replace(/[\\"$`]/g, "\\$&")}"`;
+}
+
+/** Text fuer eine Kommentarzeile: jede Art von Zeilenumbruch wird zu einem Leerzeichen, sonst koennte ein Kommentar eine Zuweisung einschleusen. */
+export function commentText(text: string): string {
+  return text.replace(/[\r\n\u0085\u2028\u2029]+/g, " ").trim();
 }
 
 /**
@@ -64,7 +87,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
 
   const now = (deps.now ?? (() => new Date()))();
   const lines: string[] = [
-    `# Erzeugt von secret-desk am ${now.toISOString().slice(0, 10)} fuer ${template.repo} (${template.stage}).`,
+    `# Erzeugt von secret-desk am ${now.toISOString().slice(0, 10)} fuer ${commentText(template.repo)} (${commentText(template.stage)}).`,
     "# Enthaelt Geheimnisse. Nicht committen, nicht weitergeben.",
     "",
   ];
@@ -85,6 +108,9 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     else {
       const secret = deps.inventory.getSecret(from.secret);
       if (!secret) throw new EnvExportError(`Unbekanntes Secret: ${from.secret}`);
+      if (deps.allowedIssueStages && !deps.allowedIssueStages.includes(secret.stage)) {
+        throw new EnvExportError(`${secret.id}: Die Stage ${secret.stage} darf hier nicht ausgestellt werden.`);
+      }
       const provider = deps.providers.get(secret.provider);
       if (!provider || provider.kind !== "automatic" || !provider.issue) {
         throw new EnvExportError(`${secret.id}: Anbieter "${secret.provider}" kann keinen Dev-Wert erzeugen. In der Vorlage "prompt" verwenden.`);
@@ -98,11 +124,12 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         fetch: deps.fetch ?? fetch,
         now,
         label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
+        ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
       });
       value = result.value.reveal();
       issued.push(secret.id);
     }
-    if (entry.description) lines.push(`# ${entry.description}`);
+    if (entry.description) lines.push(`# ${commentText(entry.description)}`);
     lines.push(`${entry.key}=${formatEnvValue(value)}`);
     sources[entry.key] = from.type;
   }

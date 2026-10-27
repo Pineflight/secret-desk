@@ -1,4 +1,5 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename } from "node:fs/promises";
+import { writePrivateFile } from "./platform.js";
 import { parseDocument, type Document } from "yaml";
 import {
   VariableSchema,
@@ -23,7 +24,10 @@ export class InventoryError extends Error {
   }
 }
 
-type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title" | "description" | "owner" | "link" | "tags">;
+type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title" | "description" | "owner" | "link" | "tags" | "product">;
+
+/** Die einzigen Felder, die patchSecret setzt. Gleicht patch.ts (SecretHumanPatchSchema) ab; ein Test haelt beide gleich. */
+export const PATCHABLE_SECRET_KEYS: readonly string[] = ["expires", "rotatedAt", "verifiedAt", "verifiedBy", "externalId", "notes", "ttlDays", "expiry", "title", "description", "owner", "link", "tags", "product"];
 
 /**
  * Das Inventar als YAML-Datei. Nur Metadaten, nie Werte. Aenderungen gehen ueber das
@@ -62,9 +66,11 @@ export class InventoryStore {
     return this.#doc.toString();
   }
 
-  patchSecret(id: string, patch: Partial<Patchable>): SecretEntry {
+  patchSecret(id: string, patch: { [K in keyof Patchable]?: Patchable[K] | null }): SecretEntry {
     const idx = this.#data.secrets.findIndex((s) => s.id === id);
     if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+    const unknown = Object.keys(patch).filter((k) => !PATCHABLE_SECRET_KEYS.includes(k));
+    if (unknown.length > 0) throw new InventoryError(`Feld nicht erlaubt: ${unknown.join(", ")}`);
     return this.#mutate(() => {
       for (const [key, value] of Object.entries(patch)) {
         if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
@@ -180,7 +186,8 @@ export class InventoryStore {
   async save(): Promise<void> {
     if (!this.path) return;
     const tmp = `${this.path}.tmp-${process.pid}`;
-    await writeFile(tmp, this.#doc.toString(), { encoding: "utf8", mode: 0o644 });
+    // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
+    await writePrivateFile(tmp, this.#doc.toString());
     await rename(tmp, this.path);
   }
 

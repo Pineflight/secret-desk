@@ -1,4 +1,5 @@
 import type { ConnectionStore } from "./connections.js";
+import type { ProviderConfig } from "./config.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
@@ -21,6 +22,8 @@ export interface RotateDeps {
   owner: string;
   fetch?: FetchLike;
   now?: () => Date;
+  /** Anbieter-Einstellungen aus der Konfiguration (erlaubte Hosts). */
+  providerConfig?: ProviderConfig;
   onEvent?: (event: RotationEvent) => void;
 }
 
@@ -122,6 +125,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     fetch: f,
     now,
     label: `${secret.id}-${now.toISOString().slice(0, 10)}`,
+    ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
   });
   deps.onEvent?.({ type: "issued", secretId });
 
@@ -147,7 +151,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   let revoked = false;
   if (options.revokeOld !== false && secret.externalId && provider.revoke) {
     try {
-      await provider.revoke({ externalId: secret.externalId, secret, params: secret.params, connections: deps.connections, fetch: f });
+      await provider.revoke({ externalId: secret.externalId, secret, params: secret.params, connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revoked = true;
       deps.onEvent?.({ type: "revoked", secretId });
     } catch (err) {

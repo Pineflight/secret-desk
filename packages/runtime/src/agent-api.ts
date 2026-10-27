@@ -1,12 +1,22 @@
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import {
+  EnvEntrySchema,
   EnvExportError,
+  EnvTemplateSchema,
   InventoryError,
   NotConnectedError,
   PromptsRequiredError,
   RotationError,
+  SecretAgentCreateSchema,
+  SecretAgentPatchSchema,
+  SecretHumanPatchSchema,
   SecretValue,
+  StaleIssuanceError,
+  VariableAgentCreateSchema,
+  parseInput,
+  secretApprovalSnapshot,
+  variableApprovalSnapshot,
   agentStageIds,
   adoptVariable,
   applyVariable,
@@ -24,8 +34,6 @@ import {
   renderEvidenceSvg,
   writeEnvFile,
   type CommitResult,
-  type EnvTemplateSchema,
-  type EnvEntrySchema,
   type OverallStatus,
   type PendingIssuance,
   type Place,
@@ -213,33 +221,80 @@ export async function listConnections(rt: Runtime) {
   });
 }
 
-/** Nur Metadaten: neue Eintraege duerfen Agenten anlegen, ausgeloest wird dadurch nichts. */
-export async function addSecret(rt: Runtime, entry: z.input<typeof SecretSchema>): Promise<SecretView> {
-  const created = rt.inventory.addSecret(entry);
+/** Dateinamen, die Agenten als .env-Ziel nutzen duerfen: .env, .env.local, .env.development ... (nicht .envrc, .npmrc, Makefile, *.sh). */
+export const AGENT_ENV_FILENAME = /^\.env(?:\.(?!(?:sh|bash|zsh|fish|ksh|csh|command|ps1|bat|cmd|py|js|mjs|cjs|rb|pl|php)$)[A-Za-z0-9_-]+)*$/i;
+const agentMayWriteEnvFile = (path: string): boolean => AGENT_ENV_FILENAME.test(posix.basename(path.replace(/\\/g, "/")));
+
+/** Parameter-Namen, ueber die ein Anbieter ein Netzwerkziel bekommen koennte. Agenten setzen sie nie; ein Mensch im Portal. */
+const NETWORK_PARAM_KEYS = new Set(["baseurl", "url", "endpoint", "host", "hostname", "origin", "webhookurl", "server"]);
+
+const agentStages = (rt: Runtime): string[] => agentStageIds(rt.config, rt.inventory.stages);
+
+/**
+ * Neue Eintraege. Menschen: alles, was das Schema erlaubt. Agenten: nur Stages der Art dev, nur bekannte Anbieter,
+ * keine Netzwerkziele in params, keine Pruefstempel und keine Anbieter-Kennung. Ausgeloest wird dadurch nichts.
+ */
+export async function addSecret(rt: Runtime, actor: Actor, entry: unknown): Promise<SecretView> {
+  if (actor.kind === "agent") {
+    const e = parseInput(SecretAgentCreateSchema, entry);
+    if (!agentStages(rt).includes(e.stage)) throw new PolicyError(`Agenten legen Eintraege nur in Stages der Art dev an (Stage ${e.stage}). Stage angeben.`);
+    if (e.provider !== "manual" && !rt.providers.get(e.provider)) throw new InventoryError(`Unbekannter Anbieter: ${e.provider}`);
+    const bad = Object.keys(e.params).filter((k) => NETWORK_PARAM_KEYS.has(k.toLowerCase()));
+    if (bad.length > 0) throw new PolicyError(`Agenten setzen keine Adressen in params (${bad.join(", ")}). Das macht ein Mensch im Portal.`);
+  }
+  const created = rt.inventory.addSecret(entry as z.input<typeof SecretSchema>);
   await rt.inventory.save();
   return view(rt, created, new Date());
 }
 
-export async function updateSecretMeta(rt: Runtime, id: string, patch: Parameters<Runtime["inventory"]["patchSecret"]>[1]): Promise<SecretView> {
-  const updated = rt.inventory.patchSecret(id, patch);
+/**
+ * Aenderung an einem bestehenden Eintrag. Mensch: ausdruecklich benannte, bearbeitbare Felder.
+ * Agent: nur title, description, owner, link, tags, notes, product. Alles andere ist ein Fehler (nicht ignoriert).
+ */
+export async function updateSecretMeta(rt: Runtime, actor: Actor, id: string, patch: unknown): Promise<SecretView> {
+  const parsed = actor.kind === "agent" ? parseInput(SecretAgentPatchSchema, patch) : parseInput(SecretHumanPatchSchema, patch);
+  const updated = rt.inventory.patchSecret(id, parsed as Parameters<Runtime["inventory"]["patchSecret"]>[1]);
   await rt.inventory.save();
   return view(rt, updated, new Date());
 }
 
-export async function addManualProvider(rt: Runtime, def: z.input<typeof ProviderDefSchema>) {
+export async function addManualProvider(rt: Runtime, _actor: Actor, def: z.input<typeof ProviderDefSchema>) {
+  // Ein neuer Anbieter darf keinen bestehenden ersetzen (auch keinen eingebauten): sonst waere ein automatischer ploetzlich ein manueller.
+  const wanted = (def as { id?: unknown }).id;
+  if (typeof wanted === "string" && rt.providers.get(wanted)) throw new InventoryError(`Anbieter existiert schon: ${wanted}`);
   const created = rt.inventory.addProvider(def);
   await rt.inventory.save();
   rt.providers.register({ id: created.id, label: created.label, kind: "manual", guide: { url: created.url, steps: created.steps } });
   return created;
 }
 
-export async function addEnvTemplate(rt: Runtime, template: z.input<typeof EnvTemplateSchema>) {
+/** Agenten: nur Dev-Stages, nur .env-Dateinamen, `issue`-Quellen nur aus Dev-Stages. */
+function assertAgentTemplate(rt: Runtime, stage: string, file: string | undefined, entries: z.output<typeof EnvEntrySchema>[]): void {
+  if (!agentStages(rt).includes(stage)) throw new PolicyError(`Agenten legen Vorlagen nur fuer Stages der Art dev an (Stage ${stage}).`);
+  if (file !== undefined && !agentMayWriteEnvFile(file)) throw new PolicyError("Agenten duerfen nur Dateien namens .env oder .env.* als Ziel einer Vorlage setzen.");
+  for (const e of entries) {
+    if (e.from.type !== "issue") continue;
+    const s = rt.inventory.getSecret(e.from.secret);
+    if (s && !agentStages(rt).includes(s.stage)) throw new PolicyError(`Agenten duerfen kein Secret aus Stage ${s.stage} in eine Vorlage aufnehmen.`);
+  }
+}
+
+export async function addEnvTemplate(rt: Runtime, actor: Actor, template: z.input<typeof EnvTemplateSchema>) {
+  if (actor.kind === "agent") {
+    const t = parseInput(EnvTemplateSchema, template);
+    assertAgentTemplate(rt, t.stage, t.file, t.entries);
+  }
   const created = rt.inventory.addEnvTemplate(template);
   await rt.inventory.save();
   return created;
 }
 
-export async function addEnvEntry(rt: Runtime, templateId: string, entry: z.input<typeof EnvEntrySchema>) {
+export async function addEnvEntry(rt: Runtime, actor: Actor, templateId: string, entry: z.input<typeof EnvEntrySchema>) {
+  if (actor.kind === "agent") {
+    const t = rt.inventory.data.envTemplates.find((x) => x.id === templateId);
+    if (!t) throw new InventoryError(`Vorlage nicht gefunden: ${templateId}`);
+    assertAgentTemplate(rt, t.stage, t.file, [parseInput(EnvEntrySchema, entry)]);
+  }
   const updated = rt.inventory.addEnvEntry(templateId, entry);
   await rt.inventory.save();
   return updated;
@@ -327,13 +382,14 @@ export type IssuanceRequestResult =
  * bevor ein Mensch den Pruefbericht bestaetigt hat.
  */
 export async function requestIssuance(rt: Runtime, actor: Actor, secretId: string, options: { reason?: string; dryRun?: boolean } = {}): Promise<IssuanceRequestResult> {
+
   const secret = rt.inventory.getSecret(secretId);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${secretId}`);
   if (options.dryRun) return { status: "dry-run", plan: planRotation(secretId, rt) };
   // Ein Browser-Lauf oeffnet ein Fenster am Rechner des Menschen: Agenten brauchen dafuer in jeder Stage eine Freigabe.
   const browser = actor.kind === "agent" && rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
   if (browser || !agentMayRunNow(rt, actor, secret.stage, secret.places.length > 0)) {
-    const approval = rt.approvals.create({ action: "issue", targetId: secretId, requestedBy: actor.name, reason: options.reason ?? null });
+    const approval = rt.approvals.create({ action: "issue", targetId: secretId, requestedBy: actor.name, reason: options.reason ?? null, snapshot: secretApprovalSnapshot(secret) });
     return {
       status: "pending-approval",
       approvalId: approval.id,
@@ -341,6 +397,8 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
       message: browser ? "Dieser Anbieter oeffnet ein Browserfenster. Das braucht immer eine Freigabe im Portal (Reiter Freigaben)." : `Stage ${secret.stage} braucht eine Freigabe im Portal (Reiter Freigaben).`,
     };
   }
+  // Aufraeumen abgelaufener Pruefungen passiert beim Start einer neuen Ausstellung (und im Takt des Portals), nie beim Lesen.
+  await rt.issuances.sweep(issuanceDeps(rt));
   const pending = await prepareTracked(rt, secretId);
   rt.issuances.add(pending);
   return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben." };
@@ -354,15 +412,16 @@ export async function submitManualValue(rt: Runtime, actor: Actor, secretId: str
   return issuanceView(pending);
 }
 
+/** Lesend und ohne Nebenwirkung: Abgelaufene werden nur ausgeblendet. Verworfen (und beim Anbieter widerrufen) werden sie im Takt, nicht hier. */
+const alive = (p: { expiresAt: string }): boolean => Date.parse(p.expiresAt) > Date.now();
+
 export async function listIssuances(rt: Runtime): Promise<IssuanceView[]> {
-  await rt.issuances.sweep(issuanceDeps(rt));
-  return rt.issuances.list().map(issuanceView);
+  return rt.issuances.list().filter(alive).map(issuanceView);
 }
 
 export async function getIssuance(rt: Runtime, id: string): Promise<IssuanceView> {
-  await rt.issuances.sweep(issuanceDeps(rt));
   const p = rt.issuances.get(id);
-  if (!p) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+  if (!p || !alive(p)) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
   return issuanceView(p);
 }
 
@@ -371,9 +430,15 @@ export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, inp
   await rt.issuances.sweep(issuanceDeps(rt));
   const pending = rt.issuances.get(id);
   if (!pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
-  const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
-  if (result.ok) rt.issuances.delete(id);
-  return result;
+  try {
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
+    if (result.ok) rt.issuances.delete(id);
+    return result;
+  } catch (err) {
+    // Der neue Wert ist beim Anbieter schon widerrufen: die Pruefung ist nicht mehr zu retten.
+    if (err instanceof StaleIssuanceError) rt.issuances.delete(id);
+    throw err;
+  }
 }
 
 export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string): Promise<{ revokedNew: boolean }> {
@@ -464,6 +529,7 @@ export async function inspectVariableLive(rt: Runtime, id: string): Promise<{ va
 }
 
 export async function addVariable(rt: Runtime, actor: Actor, entry: z.input<typeof VariableSchema>, options: { acknowledgedPublic?: boolean } = {}): Promise<VariableView> {
+  if (actor.kind === "agent") parseInput(VariableAgentCreateSchema, entry);
   if (entry.value !== null && entry.value !== undefined) assertPublicValue(entry.name, entry.value, actor.kind === "human" && Boolean(options.acknowledgedPublic));
   const created = rt.inventory.addVariable(entry);
   await rt.inventory.save();
@@ -494,7 +560,7 @@ export async function requestApplyVariable(rt: Runtime, actor: Actor, id: string
   const v = rt.inventory.getVariable(id);
   if (!v) throw new InventoryError(`Variable nicht gefunden: ${id}`);
   if (!agentMayRunNow(rt, actor, v.stage, v.places.length > 0)) {
-    const approval = rt.approvals.create({ action: "apply-variable", targetId: id, requestedBy: actor.name, reason: options.reason ?? null });
+    const approval = rt.approvals.create({ action: "apply-variable", targetId: id, requestedBy: actor.name, reason: options.reason ?? null, snapshot: variableApprovalSnapshot(v) });
     return { status: "pending-approval", approvalId: approval.id, message: `Stage ${v.stage} braucht eine Freigabe im Portal (Reiter Freigaben).` };
   }
   const outcomes = await applyVariable(rt.github, rt.owner, v, { acknowledgedPublic: actor.kind === "human" && Boolean(options.acknowledgedPublic) });
@@ -525,7 +591,12 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
   requireHuman(actor, "Freigaben erteilen");
   const approval = rt.approvals.get(id);
   if (!approval) throw new PolicyError(`Anfrage nicht gefunden: ${id}`);
+  if (approval.state !== "pending") throw new PolicyError(`Anfrage ist schon erledigt: ${approval.state}`);
   if (decision === "deny") return rt.approvals.resolve(id, "denied");
+  // Die Freigabe gilt fuer den Inhalt von damals. Hat sich der Eintrag (Ziele, Sollwert, Stage, Anbieter, Parameter) geaendert, verfaellt sie.
+  const target = approval.action === "issue" ? rt.inventory.getSecret(approval.targetId) : rt.inventory.getVariable(approval.targetId);
+  const nowHash = !target ? null : approval.action === "issue" ? secretApprovalSnapshot(target as SecretEntry).hash : variableApprovalSnapshot(target as VariableEntry).hash;
+  if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.");
   try {
     if (approval.action === "issue") {
       const pending = await prepareTracked(rt, approval.targetId);
@@ -558,6 +629,7 @@ export async function exportEnv(
   actor: Actor,
   input: { repo: string; stage?: Stage; template?: string; path?: string; overwrite?: boolean; prompts?: Record<string, string> },
 ): Promise<DevEnvResult> {
+  if (actor.kind === "agent" && input.overwrite) throw new PolicyError("Bestehende Dateien ueberschreiben darf nur ein Mensch.");
   const stage: Stage = input.stage ?? (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
   if (actor.kind === "agent" && !agentStageIds(rt.config, rt.inventory.stages).includes(stage)) {
     throw new PolicyError(`Agenten duerfen fuer ${stage} keine .env erzeugen.`);
@@ -580,11 +652,12 @@ export async function exportEnv(
     target = join(folder, template.file);
     if (!isPathInside(folder, target)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
   }
+  if (actor.kind === "agent" && !agentMayWriteEnvFile(target)) throw new PolicyError("Agenten duerfen nur Dateien namens .env oder .env.* schreiben (nicht .envrc, .npmrc, Makefile, *.sh).");
   // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
   const roots = configured.length > 0 && folder ? [...configured, folder] : configured;
   try {
-    const built = await buildEnvFile(template, { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, ...(input.prompts ? { prompts: input.prompts } : {}) });
-    const written = await writeEnvFile(target, built.text, { overwrite: input.overwrite ?? false, allowedRoots: roots });
+    const built = await buildEnvFile(template, { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers, ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}), ...(input.prompts ? { prompts: input.prompts } : {}) });
+    const written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots });
     const warnings: string[] = [];
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");

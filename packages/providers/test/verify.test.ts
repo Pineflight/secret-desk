@@ -206,13 +206,13 @@ describe("resend-api-key verify", () => {
 });
 
 describe("grafana verify", () => {
-  const params = { baseUrl: "https://g.example.net/", serviceAccountId: 7 };
+  const params = { baseUrl: "https://g.grafana.net/", serviceAccountId: 7 };
   const opts = { conns: ["grafana"], externalId: "42", expiresAt: "2026-12-01T10:00:00Z" };
   it("Erfolg", async () => {
     const m = mockFetch({ body: [{ id: 41, hasExpired: true }, { id: 42, hasExpired: false, expiration: "2026-12-01T10:00:00Z" }] });
     const checks = await run("grafana-service-account-token", m.fetch, params, opts);
     expect(byId(checks)).toEqual({ exists: "pass", valid: "pass", expires: "pass" });
-    expect(m.calls[0]!.url).toBe("https://g.example.net/api/serviceaccounts/7/tokens");
+    expect(m.calls[0]!.url).toBe("https://g.grafana.net/api/serviceaccounts/7/tokens");
     expectNoLeak(checks);
   });
   it("abgelaufen = fail, fehlend = fail, Ablauf weicht ab = warn", async () => {

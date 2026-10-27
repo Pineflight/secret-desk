@@ -33,6 +33,10 @@ Values are never stored. The portal holds them in memory only, only for as long 
   Data reaches PowerShell (`-NoProfile -NonInteractive`) only via stdin, never via arguments. An existing blob file that cannot be opened
   is never overwritten. Anyone with DPAPI access as the same account (malware running in the user context) can obtain the key: DPAPI protects against
   other users and against theft of the files, not against code running in your own account.
+- **macOS Keychain:** a new key is created only when `security find-generic-password` reports "item not found" (exit code 44). Any other failure
+  (locked keychain, access denied) is an error and overwrites nothing, because a new key would make every vault entry unreadable. The new key is passed
+  to `security -i` via stdin, not as a command-line argument, so it does not appear in the process list.
+- **Vault file:** only a missing file means an empty vault. A damaged or unreadable file is an error (a copy is kept as `vault.json.corrupt-<time>`) and is never overwritten. Writes in one process are serialized.
 - **Linux without `secret-tool`:** a clear error message, never silent plaintext storage. Options: `SECRET_DESK_VAULT_KEY` or the explicit
   setting `vault.keyFile` (key file, mode 600, rejected if its permissions are too open). The latter puts key and data on the same
   disk: use it only when no keyring is available.
@@ -40,13 +44,29 @@ Values are never stored. The portal holds them in memory only, only for as long 
   including the drive; UNC and `\\?\` paths and reserved names are rejected on Windows. Names in the evidence folder are limited to `[A-Za-z0-9._-]`,
   with no trailing dot and no Windows device names.
 - **Processes:** all external commands (`git`, `op`, `security`, `secret-tool`, `powershell.exe`, Chrome via Playwright) run with `execFile` without a shell
-  and with `windowsHide`.
+  and with `windowsHide`. Key material reaches `powershell.exe` (Windows) and `security -i` (macOS) via stdin; `secret-tool` (Linux) also gets it via stdin.
+- **Browser automation:** Chrome is started with its sandbox enabled (`chromiumSandbox: true`; Playwright would otherwise add `--no-sandbox`). In some containers without user namespaces
+  this can fail to start; there is deliberately no option to turn the sandbox off: run secret-desk outside such a container. Recipes: bundled recipes cannot be overridden by a recipe with the same id from another folder.
+  The browser URL is checked against the recipe's `host`/`allowHosts` before the token is read.
 
 ## Access to the portal
-- Listens only on `127.0.0.1` (on all systems; allowed Host values are `127.0.0.1`, `localhost` and `[::1]`, each with the port). Host check against DNS rebinding, origin check on changes.
+- Listens only on `127.0.0.1` (on all systems; allowed Host values are `127.0.0.1`, `localhost` and `[::1]`, each with the port). Host check against DNS rebinding, origin check on changes,
+  and `Sec-Fetch-Site` is evaluated: cross-site and same-site browser requests are rejected. A Content-Security-Policy restricts pages to their own origin.
+- **Launch secret:** at start the server creates a random 256-bit secret and prints the URL `http://127.0.0.1:<port>/?launch=<secret>` in the terminal only.
+  `/api/session` issues the session cookie and CSRF token only to a caller that presents the secret (compared in constant time) or already holds a valid cookie;
+  everyone else gets 401. The page sends the secret once and removes it from the address bar; it is never stored. Without it, any local process could
+  simply request a session. For demos and development, `SECRET_DESK_NO_LAUNCH_SECRET=1` turns this off (`pnpm demo` sets it).
 - Portal session: cookie (`HttpOnly`, `SameSite=Strict`) plus a CSRF token on every call.
-- Agent interface: its own bearer token (`~/.secret-desk/agent-token`, mode 600; on Windows `%USERPROFILE%\.secret-desk\agent-token`, protected by the user profile). Agents **cannot confirm anything**,
-  cannot set connections, upload attachments or pass values, and cannot trigger anything in non-dev stages (such as staging or production) without approval.
+- Agent interface: its own bearer token (`~/.secret-desk/agent-token`, mode 600; the mode is checked on every read and corrected, on Windows only a warning, protection comes from the user profile).
+  An agent that only uses this interface **cannot confirm anything**, cannot set connections, upload attachments or pass values, and cannot trigger anything in non-dev stages
+  (such as staging or production) without approval.
+
+### Limit: agents with shell access as the same OS user
+The statements above hold for an agent that talks to the agent interface. An agent that has shell access as the **same operating-system user** can read every file that user can read
+(including `~/.secret-desk/agent-token`, `.env` files and the browser profile) and can start processes. It can also watch the terminal where secret-desk runs, if it is allowed to,
+and so obtain the launch secret and open the portal itself. The launch secret protects only against processes that cannot see that terminal (other local programs, scripts,
+browser tabs of other sites). It is not a barrier against an agent running with your privileges. Recommendation: run agents in a separate sandbox, container or operating-system user,
+and give them only the agent interface (token) and no access to your home folder.
 
 ## Provider access tokens
 Enter them per session in the portal (memory only), or via environment variable, or via a 1Password reference (`op://`). Never in the configuration.

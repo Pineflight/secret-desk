@@ -28,6 +28,8 @@ async function init(): Promise<Desk> {
     hosts: allowedHosts(rt.config.server.port),
     demo,
   };
+  const launchUrl = desk.session.launchUrl(rt.config.server.port);
+  if (launchUrl) console.log(`\nsecret-desk: Portal oeffnen unter\n  ${launchUrl}\n(Die Adresse enthaelt ein Startgeheimnis; nicht weitergeben.)\n`);
   // Abgelaufene, nicht bestaetigte Werte verwerfen (der neue Wert wird beim Anbieter wieder geloescht).
   setInterval(() => void rt.issuances.sweep(issuanceDeps(rt)).catch(() => undefined), 60_000).unref();
   return desk;

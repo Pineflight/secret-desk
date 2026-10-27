@@ -65,7 +65,6 @@ export const TOOLS: ToolDef[] = [
       provider: z.string().optional(),
       params: z.record(z.string(), z.unknown()).optional(),
       expiry: z.enum(["none", "possible", "required", "unknown"]).optional(),
-      expires: z.string().optional(),
       ttlDays: z.number().int().positive().optional(),
       product: z.string().optional(),
       notes: z.string().optional(),
@@ -79,8 +78,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "desk_update_secret",
-    description: "Aendert Metadaten eines Eintrags (expires als JJJJ-MM-TT oder null, notes, ttlDays, title, description = wofuer und wo genutzt, owner, link, tags). Keine Werte.",
-    inputSchema: { id: z.string(), expires: z.string().nullable().optional(), notes: z.string().optional(), ttlDays: z.number().int().positive().optional(), title: z.string().optional(), description: z.string().max(500).optional(), owner: z.string().optional(), link: z.string().url().optional(), tags: z.array(z.string()).optional() },
+    description: "Aendert beschreibende Metadaten eines Eintrags (title, description = wofuer und wo genutzt, owner, link, tags, notes, product). Stage, Ziele, Anbieter, Parameter, Ablauf und Pruefstempel aendert nur ein Mensch im Portal; der Server lehnt andere Felder ab. Keine Werte.",
+    inputSchema: { id: z.string(), notes: z.string().optional(), title: z.string().optional(), description: z.string().max(500).optional(), owner: z.string().optional(), link: z.string().url().optional(), tags: z.array(z.string()).optional(), product: z.string().optional() },
     run: (c, i) => {
       const { id, ...patch } = i;
       return c.request("PATCH", `/secrets/${encodeURIComponent(String(id))}`, patch);
@@ -194,8 +193,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_export_dev_env",
     description:
-      "Erzeugt die .env fuer die lokale Entwicklung eines Repos (nur Stages der Art dev). Schreibt die Datei in den angegebenen Pfad (muss in einem freigegebenen Ordner liegen), Modus 600. Antwort enthaelt nur Pfad, Schluessel und Herkunft, nie Werte. Lies die Datei danach nicht aus. Fehlen Eingaben (prompt-Eintraege), meldet das Werkzeug needs-input: Die muss ein Mensch im Portal oder in der CLI eintragen.",
-    inputSchema: { repo: z.string(), template: z.string().optional(), path: z.string(), overwrite: z.boolean().optional() },
+      "Erzeugt die .env fuer die lokale Entwicklung eines Repos (nur Stages der Art dev). Schreibt die Datei in den angegebenen Pfad (muss in einem freigegebenen Ordner liegen und .env oder .env.* heissen; bestehende Dateien werden nie ueberschrieben), Modus 600. Antwort enthaelt nur Pfad, Schluessel und Herkunft, nie Werte. Lies die Datei danach nicht aus. Fehlen Eingaben (prompt-Eintraege), meldet das Werkzeug needs-input: Die muss ein Mensch im Portal oder in der CLI eintragen.",
+    inputSchema: { repo: z.string(), template: z.string().optional(), path: z.string() },
     run: (c, i) => c.request("POST", "/env-export", i),
   },
   {

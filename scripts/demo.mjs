@@ -10,6 +10,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const env = {
   ...process.env,
   SECRET_DESK_DEMO: "1",
+  SECRET_DESK_NO_LAUNCH_SECRET: "1",
   SECRET_DESK_CONFIG: process.env.SECRET_DESK_CONFIG ?? join(root, "examples", "demo", "secret-desk.config.yaml"),
 };
 const args = ["--filter", "@secret-desk/desk", "run", "dev"];

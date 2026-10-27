@@ -1,4 +1,4 @@
-import { readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { readFile, readdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ensurePrivateDir, isReservedWindowsName, writePrivateFile } from "./platform.js";
 import type { Attachment, VerificationReport } from "./verification.js";
@@ -37,7 +37,7 @@ export class EvidenceStore {
     await ensurePrivateDir(folder);
     const file = join(folder, `${safe(report.id, "reportId")}.json`);
     const tmp = `${file}.tmp-${process.pid}`;
-    await writeFile(tmp, JSON.stringify(report, null, 2), "utf8");
+    await writePrivateFile(tmp, JSON.stringify(report, null, 2));
     await rename(tmp, file);
   }
 

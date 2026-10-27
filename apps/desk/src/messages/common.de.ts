@@ -67,6 +67,7 @@ export default {
   "common.approval.approved": "Freigegeben",
   "common.approval.denied": "Abgelehnt",
   "common.approval.failed": "Fehlgeschlagen",
+  "common.approval.stale": "Verworfen (Eintrag geändert)",
   "common.provider.browser": "Browser",
   "common.selectSearch": "Suchen…",
   "common.noMatches": "Keine Treffer",

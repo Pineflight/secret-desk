@@ -18,7 +18,9 @@ export function check(id: string, label: string, status: CheckStatus, extra: { e
 export async function probe(provider: string, ctx: VerifyContext, url: string, init: RequestInit, secrets: string[]): Promise<Reply> {
   let res: Response;
   try {
-    res = await ctx.fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // Weiterleitungen werden nicht verfolgt (der Wert und Kopfzeilen wie apikey duerfen nie zu einem anderen Host gehen);
+    // 3xx kommt als Status zurueck und wird von den Pruefern als nicht bestanden gewertet.
+    res = await ctx.fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (err) {
     const name = (err as Error).name;
     const reason = name === "TimeoutError" || name === "AbortError" ? "Zeitueberschreitung nach 20 s" : safeText((err as Error).message ?? "Fehler", secrets);

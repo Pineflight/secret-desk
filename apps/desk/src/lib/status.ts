@@ -92,6 +92,8 @@ export function approvalStateInfo(state: string): Info {
       return { label: translate("common.approval.approved"), tone: "success", icon: "check" };
     case "denied":
       return { label: translate("common.approval.denied"), tone: "neutral", icon: "x" };
+    case "stale":
+      return { label: translate("common.approval.stale"), tone: "warn", icon: "alert" };
     default:
       return { label: translate("common.approval.failed"), tone: "danger", icon: "alert" };
   }

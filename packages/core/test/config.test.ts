@@ -9,12 +9,12 @@ const BASE = { inventory: "./inventory.yaml", github: { owner: "acme", auth: { t
 describe("Konfiguration: automation", () => {
   it("hat ohne Angabe sichere Vorgaben", () => {
     const c = ConfigSchema.parse(BASE);
-    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10 });
+    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10, allowExternalRecipes: false });
   });
 
   it("nimmt alle Felder an", () => {
-    const c = ConfigSchema.parse({ ...BASE, automation: { enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"] } });
-    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"] });
+    const c = ConfigSchema.parse({ ...BASE, automation: { enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true } });
+    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true });
   });
 
   it("lehnt unsinnige Werte ab", () => {

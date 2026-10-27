@@ -62,17 +62,52 @@ describe("SecretVault", () => {
   });
 });
 
+describe("SecretVault Dateizugriff", () => {
+  it("parallele set-Aufrufe verlieren nichts", async () => {
+    const v = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
+    await Promise.all(Array.from({ length: 25 }, (_, i) => v.set(`id-${i}`, `wert-${i}`)));
+    expect((await v.list()).map((e) => e.id).sort()).toHaveLength(25);
+    await Promise.all(Array.from({ length: 10 }, (_, i) => v.delete(`id-${i}`)));
+    expect(await v.list()).toHaveLength(15);
+  });
+  it("kaputtes JSON wirft, sichert die Datei und ueberschreibt nichts", async () => {
+    const dir = await tmp();
+    const file = join(dir, "v.json");
+    await writeFile(file, "{kaputt");
+    const v = new SecretVault({ file, keySource: fixedKey() });
+    await expect(v.set("a", "x")).rejects.toBeInstanceOf(VaultUnavailableError);
+    await expect(v.list()).rejects.toThrow(/Kopie/);
+    const { readdirSync } = await import("node:fs");
+    const backups = readdirSync(dir).filter((n) => n.includes(".corrupt-"));
+    expect(backups.length).toBeGreaterThan(0);
+    expect(await readFile(join(dir, backups[0]!), "utf8")).toBe("{kaputt");
+  });
+  it("fehlende Datei ist ein leerer Tresor", async () => {
+    const v = new SecretVault({ file: join(await tmp(), "gibt-es-nicht.json"), keySource: fixedKey() });
+    expect(await v.list()).toEqual([]);
+  });
+  it.skipIf(process.platform === "win32")("nicht lesbare Datei wirft statt zu ueberschreiben", async () => {
+    const dir = await tmp();
+    const file = join(dir, "v.json");
+    await writeFile(file, '{"version":1,"entries":{}}');
+    await chmod(file, 0o000);
+    const v = new SecretVault({ file, keySource: fixedKey() });
+    if (process.getuid?.() !== 0) await expect(v.set("a", "x")).rejects.toBeInstanceOf(VaultUnavailableError);
+    await chmod(file, 0o600);
+  });
+});
+
 describe("KeySource", () => {
-  it("macOS: legt den Schluessel im Schluesselbund an, wenn er fehlt, und liest ihn danach", async () => {
-    const calls: string[][] = [];
+  it("macOS: legt den Schluessel nur bei Exit-Code 44 an, ueber stdin statt Argumente, und liest ihn danach", async () => {
+    const calls: { args: string[]; input?: string }[] = [];
     let stored = "";
-    const exec = async (_f: string, args: string[]) => {
-      calls.push(args);
+    const exec = async (_f: string, args: string[], input?: string) => {
+      calls.push({ args, ...(input !== undefined ? { input } : {}) });
       if (args[0] === "find-generic-password") {
-        if (!stored) throw new Error("nicht gefunden");
+        if (!stored) throw Object.assign(new Error("not found"), { code: 44 });
         return stored;
       }
-      stored = args[args.indexOf("-w") + 1]!;
+      stored = /-w (\S+)/.exec(input ?? "")![1]!;
       return "";
     };
     const src = macKeychainKeySource(exec);
@@ -80,7 +115,26 @@ describe("KeySource", () => {
     const k2 = await src.key();
     expect(k1.length).toBe(32);
     expect(k2.equals(k1)).toBe(true);
-    expect(calls.some((c) => c[0] === "add-generic-password")).toBe(true);
+    const add = calls.find((c) => c.args[0] === "-i")!;
+    expect(add.input).toContain("add-generic-password");
+    expect(calls.flatMap((c) => c.args).join(" ")).not.toContain(k1.toString("base64"));
+  });
+  it("macOS: gesperrter Schluesselbund oder anderer Fehler legt nichts neu an", async () => {
+    for (const code of [36, 51, 1, undefined]) {
+      const calls: string[][] = [];
+      const exec = async (_f: string, args: string[]) => {
+        calls.push(args);
+        throw Object.assign(new Error("fehler"), code !== undefined ? { code } : {});
+      };
+      await expect(macKeychainKeySource(exec).key()).rejects.toBeInstanceOf(VaultUnavailableError);
+      expect(calls.some((a) => a[0] === "-i" || a[0] === "add-generic-password")).toBe(false);
+    }
+  });
+  it("macOS: ungueltiger Eintrag wird nicht ueberschrieben", async () => {
+    const calls: string[][] = [];
+    const exec = async (_f: string, args: string[]) => (calls.push(args), "kein-schluessel");
+    await expect(macKeychainKeySource(exec).key()).rejects.toThrow(/nicht ueberschrieben/);
+    expect(calls).toHaveLength(1);
   });
   it("nimmt die Umgebungsvariable vor dem Schluesselbund", async () => {
     const key = randomBytes(32).toString("base64");

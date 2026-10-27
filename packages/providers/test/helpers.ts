@@ -7,7 +7,7 @@ export const ISSUED = "ISSUED-VALUE-ABCDEFGH";
 /** Fehlerantwort, die beide Werte enthaelt. */
 export const LEAK = JSON.stringify({ message: `denied ${CONN_TOKEN}`, value: ISSUED });
 
-export type Call = { url: string; method: string; headers: Record<string, string>; body: string | undefined; signal: AbortSignal | undefined };
+export type Call = { url: string; method: string; headers: Record<string, string>; body: string | undefined; signal: AbortSignal | undefined; redirect: RequestRedirect | undefined };
 export type Reply = { status?: number; body?: unknown };
 
 /** Gemocktes fetch: antwortet der Reihe nach, merkt sich alle Aufrufe. */
@@ -21,9 +21,11 @@ export function mockFetch(...replies: Reply[]) {
       headers: (init?.headers ?? {}) as Record<string, string>,
       body: init?.body as string | undefined,
       signal: init?.signal ?? undefined,
+      redirect: init?.redirect,
     });
     const r = replies[Math.min(i++, replies.length - 1)] ?? { status: 204 };
     const status = r.status ?? 200;
+    if (status >= 300 && status < 400) return new Response(null, { status, headers: { location: "https://evil.example/steal" } });
     const text = r.body === undefined ? null : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
     return new Response(status === 204 ? null : text, { status });
   });

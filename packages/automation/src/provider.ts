@@ -66,11 +66,15 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
       url: `https://${recipe.host}/`,
       steps: ["secret-desk oeffnet ein Browserfenster.", "Dort selbst anmelden (Passwort, 2FA); secret-desk tippt keine Zugangsdaten.", "Der Rest laeuft automatisch, danach pruefen und bestaetigen."],
     },
-    reviewChecklist: (secret) => [
-      `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
-      "Der Token hat nur die Rechte, die der Dienst braucht",
-      "Ablauf ist gesetzt",
-    ],
+    reviewChecklist: (secret) => {
+      const v = recipeVars(secret, secret.stage, new Date());
+      return [
+        `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
+        `Konto/Besitzer beim Anbieter stimmt mit dem Eintrag ueberein (owner: ${v["owner"] || "nicht gesetzt"})`,
+        `Rechte (params.permissions): ${v["permissions"] || "keine angegeben"}. Der Token hat genau diese und nur die Rechte, die der Dienst braucht`,
+        "Ablauf ist gesetzt",
+      ];
+    },
     async issue(ctx: IssueContext): Promise<IssuedSecret> {
       const secretId = ctx.secret.id;
       const vars = recipeVars(ctx.secret, ctx.stage, ctx.now);
