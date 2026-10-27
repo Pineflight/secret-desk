@@ -1,11 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { DevEnvResult } from "@secret-desk/runtime";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, Checkbox, Notice, PageHeader, SectionLabel, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
-import { Skeleton, EmptyState, ErrorState } from "@/components/ui";
+import { Skeleton, EmptyState, ErrorState, Field } from "@/components/ui";
+import { RepoPicker } from "@/components/RepoPicker";
+import { useRepoList } from "@/lib/repo-list";
+import { defaultEnvPath } from "@/lib/repos";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
 
@@ -20,6 +23,9 @@ function FreeExport() {
   const [prompts, setPrompts] = useState<{ key: string; value: string }[]>([]);
   const [result, setResult] = useState<DevEnvResult | null>(null);
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
+  const repoId = useId();
+  const repoList = useRepoList();
+  const linked = repoList.data?.repos.find((r) => r.name === f.repo.trim())?.link?.path ?? null;
 
   const run = useMutation(async (body: unknown) => api<DevEnvResult>("POST", "env-export", body));
 
@@ -27,7 +33,7 @@ function FreeExport() {
     const filled = prompts.filter((p) => p.key.trim() && p.value !== "");
     const body = {
       repo: f.repo.trim(),
-      path: f.path.trim(),
+      ...(f.path.trim() ? { path: f.path.trim() } : {}),
       stage: f.stage,
       overwrite,
       ...(f.template.trim() ? { template: f.template.trim() } : {}),
@@ -52,8 +58,10 @@ function FreeExport() {
         <Card>
           <SectionLabel>{t("dev.createFile")}</SectionLabel>
           <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-4 space-y-4">
-            <TextField label={t("dev.repository")} required value={f.repo} onChange={(e) => set("repo", e.target.value)} autoComplete="off" />
-            <TextField label={t("dev.filePath")} hint={t("dev.filePathHintFree")} required value={f.path} onChange={(e) => set("path", e.target.value)} autoComplete="off" />
+            <Field label={t("dev.repository")} htmlFor={repoId}>
+              <RepoPicker id={repoId} required value={f.repo} onChange={(v) => set("repo", v)} />
+            </Field>
+            <TextField label={t("dev.filePath")} hint={linked ? t("dev.filePathHintLinked", { folder: linked }) : t("dev.filePathHintFree")} required={!linked} value={f.path} onChange={(e) => set("path", e.target.value)} autoComplete="off" />
             <div className="grid gap-4 sm:grid-cols-2">
               <SelectField label={t("dev.stage")} value={f.stage} onChange={(e) => set("stage", e.target.value)}>
                 {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -136,8 +144,13 @@ function entryDetail(e: TemplateEntry, t: (key: string, vars?: Record<string, st
 function TemplateCard({ t: tpl }: { t: Template }) {
   const t = useT();
   const toast = useToast();
-  const [path, setPath] = useState("");
+  const [typed, setTyped] = useState<string | null>(null);
   const [overwrite, setOverwrite] = useState(false);
+  const repoList = useRepoList();
+  // Ist das Repository verknuepft, kommt der Pfad vorbelegt aus dem Ordner. Eigene Eingabe geht vor.
+  const folder = repoList.data?.repos.find((r) => r.name === tpl.repo)?.link?.path ?? null;
+  const path = typed ?? defaultEnvPath(folder, tpl.file) ?? "";
+  const setPath = (v: string) => setTyped(v);
   const promptKeys = tpl.entries.filter((e) => e.source === "prompt").map((e) => e.key);
   const [values, setValues] = useState<Record<string, string>>({});
   const [result, setResult] = useState<DevEnvResult | null>(null);
@@ -174,7 +187,7 @@ function TemplateCard({ t: tpl }: { t: Template }) {
         ))}
       </ul>
       <form onSubmit={(ev) => { ev.preventDefault(); void submit(); }} className="mt-4 space-y-3 border-t border-line pt-4">
-        <TextField label={t("dev.filePath")} hint={t("dev.filePathHintTpl")} required value={path} onChange={(e) => setPath(e.target.value)} autoComplete="off" />
+        <TextField label={t("dev.filePath")} hint={folder && typed === null ? t("dev.filePathFromLink") : t("dev.filePathHintTpl")} required value={path} onChange={(e) => setPath(e.target.value)} autoComplete="off" />
         {promptKeys.map((k) => (
           <div key={k} className="space-y-1">
             <label htmlFor={`p-${tpl.id}-${k}`} className="block text-sm font-medium">{t("dev.promptRequired", { key: k })}</label>

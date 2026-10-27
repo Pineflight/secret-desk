@@ -14,6 +14,8 @@ export const ConfigSchema = z.object({
   inventory: z.string().min(1),
   /** Ordner fuer Pruefberichte und Anlagen, relativ zur Konfiguration. Nicht ins Git. */
   evidenceDir: z.string().default(".secret-desk-evidence"),
+  /** Lokale Datei mit den Ordner-Verknuepfungen der Repositories (rechnerspezifisch, nie im Inventar). Standard: ~/.secret-desk/repo-links.json. */
+  linksFile: z.string().min(1).optional(),
   github: z.object({
     owner: z.string().min(1),
     auth: z.discriminatedUnion("type", [

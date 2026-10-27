@@ -15,4 +15,4 @@ async function handler(req: Request): Promise<Response> {
   return route(req, desk);
 }
 
-export { handler as GET, handler as POST, handler as PATCH, handler as DELETE };
+export { handler as GET, handler as POST, handler as PATCH, handler as PUT, handler as DELETE };

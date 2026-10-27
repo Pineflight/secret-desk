@@ -36,15 +36,19 @@ import {
   listEvidence,
   listIssuances,
   listProviders,
+  listRepos,
   listSecrets,
   listVariables,
   overview,
   readAttachment,
   rejectIssuance,
+  removeLink,
   removeVariable,
   requestApplyVariable,
   requestIssuance,
   resolveApproval,
+  scanLocal,
+  setLink,
   submitManualValue,
   teamExport,
   updateSecretMeta,
@@ -112,7 +116,9 @@ const common: [string, RegExp, Handler][] = [
   ["POST", /^variables\/([^/]+)\/apply$/, ({ rt, actor, params, body }) => requestApplyVariable(rt, actor, params[0]!, { ...(optStr(body, "reason") ? { reason: optStr(body, "reason")! } : {}), acknowledgedPublic: body.acknowledgedPublic === true })],
   ["GET", /^approvals$/, ({ rt }) => listApprovals(rt)],
   ["GET", /^approvals\/([^/]+)$/, ({ rt, params }) => getApproval(rt, params[0]!)],
-  ["POST", /^env-export$/, ({ rt, actor, body }) => exportEnv(rt, actor, { repo: str(body, "repo"), path: str(body, "path"), ...(optStr(body, "template") ? { template: optStr(body, "template")! } : {}), ...(optStr(body, "stage") ? { stage: optStr(body, "stage") as Stage } : {}), overwrite: body.overwrite === true, ...(body.prompts && typeof body.prompts === "object" ? { prompts: body.prompts as Record<string, string> } : {}) })],
+  // Agenten sehen die Liste, aber keine lokalen Pfade.
+  ["GET", /^repos$/, ({ rt, actor, query }) => listRepos(rt, { live: query.get("live") === "1", includePaths: actor.kind === "human" })],
+  ["POST", /^env-export$/, ({ rt, actor, body }) => exportEnv(rt, actor, { repo: str(body, "repo"), ...(optStr(body, "path") ? { path: optStr(body, "path")! } : {}), ...(optStr(body, "template") ? { template: optStr(body, "template")! } : {}), ...(optStr(body, "stage") ? { stage: optStr(body, "stage") as Stage } : {}), overwrite: body.overwrite === true, ...(body.prompts && typeof body.prompts === "object" ? { prompts: body.prompts as Record<string, string> } : {}) })],
 ];
 
 /** Nur im Portal (Mensch): Bestaetigen, Eingeben, Freigeben, Verbindungen, Anlagen. */
@@ -125,6 +131,9 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
   ["POST", /^connections\/([^/]+)\/token$/, ({ rt, params, body }) => { rt.connections.session.set(params[0]!, str(body, "token"), tokenExpiry(body)); return rt.connections.status(params[0]!); }],
   ["DELETE", /^connections\/([^/]+)\/token$/, ({ rt, params }) => { rt.connections.session.delete(params[0]!); return rt.connections.status(params[0]!); }],
+  ["PUT", /^repos\/([^/]+)\/link$/, ({ rt, params, body }) => setLink(rt, decodeURIComponent(params[0]!), str(body, "path"))],
+  ["DELETE", /^repos\/([^/]+)\/link$/, ({ rt, params }) => removeLink(rt, decodeURIComponent(params[0]!))],
+  ["POST", /^repos\/scan$/, ({ rt }) => scanLocal(rt)],
   ["POST", /^team-import$/, async ({ rt, body }) => {
     const merged = mergeTeamBundle(rt.inventory, parseTeamBundle(str(body, "text")), body.replace === true ? "replace" : "merge");
     await rt.inventory.save();

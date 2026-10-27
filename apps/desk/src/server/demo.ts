@@ -37,6 +37,9 @@ export async function createDemoFetch(): Promise<typeof fetch> {
     const ok = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     if (url.hostname !== "api.github.com") return ok({ message: "Demo: nur GitHub ist simuliert" }, 501);
 
+    if (method === "GET" && /^\/orgs\/[^/]+\/repos$/.test(path)) {
+      return ok(["wake-miles", "web-studio", "leitfaden", "lupe", "ai-interlink"].map((name) => ({ name, private: true, archived: false, default_branch: "main", pushed_at: now() })));
+    }
     if (path.endsWith("/secrets/public-key")) return ok({ key_id: "demo-key", key: publicKey });
     const secretMatch = /^(.*)\/(?:actions\/)?secrets\/([^/]+)$/.exec(path);
     if (method === "PUT" && secretMatch) {

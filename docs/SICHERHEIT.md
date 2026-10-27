@@ -14,6 +14,14 @@ Werte werden nie gespeichert. Das Portal haelt sie nur im Arbeitsspeicher, nur s
 - **`.env`-Dateien** entstehen mit Modus 600 und nur in freigegebenen Ordnern. Das Portal warnt, wenn Git die Datei nicht ignoriert.
 - **Anlagen** (Screenshots) sind nur PNG, JPEG, WebP bis 5 MB und werden mit `nosniff` und `sandbox` ausgeliefert.
 
+## Ordner-Verknuepfungen
+- Pfade sind rechnerspezifisch und stehen nur in der lokalen Datei `repo-links.json` (Modus 600), nie im Inventar oder im Team-Export.
+- Erlaubt sind nur Ordner **unterhalb** des Home-Ordners oder von `policy.envRoots` (nach Aufloesung von Symlinks), die ein `.git` enthalten.
+  Der Remote wird mit `execFile` gelesen (keine Shell); ein abweichender Remote warnt nur.
+- Nur das Portal setzt und entfernt Verknuepfungen. Agenten sehen die Liste ohne Pfade und koennen nichts verknuepfen.
+- Der verknuepfte Ordner gilt beim `env-export` als erlaubte Wurzel, aber nur fuer sein eigenes Repository. Die Verknuepfung wird bei jeder
+  Nutzung erneut geprueft (Ordner vorhanden, noch unter Home oder `envRoots`).
+
 ## Zugriff auf das Portal
 - Lauscht nur auf `127.0.0.1`. Host-Pruefung gegen DNS-Rebinding, Ursprungspruefung bei Aenderungen.
 - Portal-Sitzung: Cookie (`HttpOnly`, `SameSite=Strict`) plus CSRF-Token in jedem Aufruf.

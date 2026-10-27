@@ -17,6 +17,7 @@ review and confirm them, and write them straight into the project's GitHub secre
 | **Beschreibungen** | Jedes Secret und jede Variable hat Beschreibung (wofür, wo genutzt), Verantwortlichen, Link und Schlagworte. Suche und Filter darüber. |
 | **Variablen** | `vars.*` mit Sollwert im Inventar, Abgleich mit GitHub (Soll/Ist), setzen, aus GitHub uebernehmen. Ein Schutz verhindert, dass ein Geheimnis als Variable landet. |
 | **Dev-`.env`** | Pro Repo eine Vorlage. Der Export erzeugt die Datei jetzt (Defaults, Zufallswerte, persoenliche Dev-Tokens, Variablen), Modus 600, nirgends gespeichert. |
+| **Repositories** | Seite `/repos`: alle Repos aus Inventar und GitHub, lokal mit einem Ordner verknuepfbar (Datei `~/.secret-desk/repo-links.json`, nie im Inventar), „Lokal suchen“ findet Git-Ordner. Die Dev-Seite nimmt den verknuepften Ordner als Standardpfad. Repo-Felder sind Auswahlfelder. |
 | **Team** | Eine Konfigurationsdatei ohne Werte zum Verteilen. Neue Teammitglieder importieren sie, verbinden ihre Konten und legen los. |
 | **Agenten** | MCP-Server und Skill fuer KI-Agenten: Metadaten pflegen, Status abfragen, Anfragen stellen. Nie Werte, nie Bestaetigen, in staging/production nur mit Freigabe. |
 

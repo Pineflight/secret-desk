@@ -1,3 +1,4 @@
+import { join, relative, isAbsolute } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import {
   EnvExportError,
@@ -38,6 +39,7 @@ import {
 } from "@secret-desk/core";
 import type { z } from "zod";
 import type { Approval } from "./approvals.js";
+import { linkedFolder } from "./repos.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
 /**
@@ -504,7 +506,7 @@ export type DevEnvResult =
 export async function exportEnv(
   rt: Runtime,
   actor: Actor,
-  input: { repo: string; stage?: Stage; template?: string; path: string; overwrite?: boolean; prompts?: Record<string, string> },
+  input: { repo: string; stage?: Stage; template?: string; path?: string; overwrite?: boolean; prompts?: Record<string, string> },
 ): Promise<DevEnvResult> {
   const stage: Stage = input.stage ?? "dev";
   if (actor.kind === "agent" && !rt.config.policy.agentStages.includes(stage)) {
@@ -516,13 +518,24 @@ export async function exportEnv(
   const templates = rt.inventory.data.envTemplates.filter((t) => (input.template ? t.id === input.template : t.repo === input.repo && t.stage === stage));
   const template = templates[0];
   if (!template) throw new EnvExportError(`Keine Vorlage fuer ${input.repo} (${stage}) gefunden.`);
-  const roots = rt.config.policy.envRoots;
-  if (actor.kind === "agent" && roots.length === 0) {
+  const configured = rt.config.policy.envRoots;
+  if (actor.kind === "agent" && configured.length === 0) {
     throw new PolicyError("policy.envRoots ist leer: Agenten duerfen keine Dateien schreiben.");
   }
+  // Der verknuepfte Ordner des Repositories gilt als erlaubte Wurzel, aber nur fuer dieses Repository.
+  const folder = await linkedFolder(rt, template.repo);
+  let target = input.path?.trim() ? input.path.trim() : "";
+  if (!target) {
+    if (!folder) throw new EnvExportError(`Kein Pfad angegeben und kein Ordner fuer ${template.repo} verknuepft.`);
+    target = join(folder, template.file);
+    const rel = relative(folder, target);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
+  }
+  // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
+  const roots = configured.length > 0 && folder ? [...configured, folder] : configured;
   try {
     const built = await buildEnvFile(template, { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, ...(input.prompts ? { prompts: input.prompts } : {}) });
-    const written = await writeEnvFile(input.path, built.text, { overwrite: input.overwrite ?? false, allowedRoots: roots });
+    const written = await writeEnvFile(target, built.text, { overwrite: input.overwrite ?? false, allowedRoots: roots });
     const warnings: string[] = [];
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");

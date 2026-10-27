@@ -27,6 +27,19 @@ Anbieter-API ──> Wert im Arbeitsspeicher ──> Pruefung ──> Pruefberic
 - **Pruefberichte und Anlagen** (`.secret-desk-evidence/`, nicht im Git): Berichte als JSON, Screenshots als PNG/JPEG/WebP bis 5 MB.
 - **Arbeitsspeicher:** ausgestellte, noch nicht bestaetigte Werte, Zugangs-Tokens der Sitzung, offene Freigaben.
 
+## Repositories und Verknuepfungen
+
+- Die Seite **Repositories** (`/repos`) fuehrt Inventar (Secrets, Variablen, Vorlagen), GitHub live (`GET repos?live=1`, nur Name und Metadaten)
+  und lokale Verknuepfungen zusammen. Ohne GitHub-Verbindung bleibt es still bei Inventar und Verknuepfungen.
+- Eine **Verknuepfung** ordnet einem Repository einen Ordner auf diesem Rechner zu. Sie steht in `~/.secret-desk/repo-links.json`
+  (Modus 600, Ordner 700; Konfigurationsfeld `linksFile`), nie im geteilten Inventar. Der Server prueft Pfad, `.git` und den Remote
+  (`git remote get-url origin`, Abweichung nur als Warnung).
+- **Lokal suchen** durchsucht `policy.envRoots` bis Tiefe 2 nach Git-Ordnern, deren origin auf den konfigurierten Eigentuemer zeigt, und
+  schlaegt Verknuepfungen vor. Uebernommen wird nur auf Klick.
+- Dev-Seite und `env-export` nehmen bei verknuepftem Repository `<Ordner>/<Vorlagendatei>` als Standardpfad. Ein angegebener Pfad geht vor.
+- Endpunkte (nur Portal): `PUT repos/:name/link`, `DELETE repos/:name/link`, `POST repos/scan`. Agenten duerfen nur `GET repos` (ohne Pfade).
+- Die Repository-Felder in den Formularen sind Auswahlfelder (Inventar, GitHub, verknuepft); freie Eingabe bleibt moeglich.
+
 ## Stages
 
 `dev` (lokal, kein GitHub-Ziel), `staging`, `production`, `shared` (Repository-Secret, gilt fuer alle). Staging und Production teilen nie einen Wert.

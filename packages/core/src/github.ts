@@ -71,6 +71,14 @@ export interface RemoteSecret {
   updatedAt: string;
 }
 
+export interface RemoteRepo {
+  name: string;
+  private: boolean;
+  archived: boolean;
+  defaultBranch: string | null;
+  pushedAt: string | null;
+}
+
 export class GitHubClient {
   readonly #auth: TokenProvider;
   readonly #fetch: FetchLike;
@@ -89,6 +97,28 @@ export class GitHubClient {
       const body = (await res.json()) as { secrets?: { name: string; created_at: string; updated_at: string }[] };
       const items = body.secrets ?? [];
       out.push(...items.map((s) => ({ name: s.name, createdAt: s.created_at, updatedAt: s.updated_at })));
+      if (items.length < 100) break;
+    }
+    return out;
+  }
+
+  /** Repositories des Eigentuemers (Organisation, sonst Nutzer). Nur Metadaten, bis zu 500. */
+  async listRepos(owner: string): Promise<RemoteRepo[]> {
+    try {
+      return await this.#repoPages(`/orgs/${enc(owner)}/repos`);
+    } catch (err) {
+      if (!(err instanceof GitHubError && err.status === 404)) throw err;
+    }
+    return this.#repoPages(`/users/${enc(owner)}/repos`);
+  }
+
+  async #repoPages(path: string): Promise<RemoteRepo[]> {
+    type Item = { name: string; private?: boolean; archived?: boolean; default_branch?: string | null; pushed_at?: string | null };
+    const out: RemoteRepo[] = [];
+    for (let page = 1; page <= 5; page += 1) {
+      const res = await this.#request("GET", `${path}?per_page=100&page=${page}`);
+      const items = (await res.json()) as Item[];
+      out.push(...items.map((r) => ({ name: r.name, private: r.private === true, archived: r.archived === true, defaultBranch: r.default_branch ?? null, pushedAt: r.pushed_at ?? null })));
       if (items.length < 100) break;
     }
     return out;

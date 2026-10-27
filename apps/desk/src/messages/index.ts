@@ -21,8 +21,10 @@ import connectionsDe from "./connections.de";
 import connectionsEn from "./connections.en";
 import teamDe from "./team.de";
 import teamEn from "./team.en";
+import reposDe from "./repos.de";
+import reposEn from "./repos.en";
 
 export const messages: Record<"de" | "en", Record<string, string>> = {
-  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe },
-  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn },
+  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...reposDe },
+  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...reposEn },
 };

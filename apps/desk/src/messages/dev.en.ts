@@ -11,6 +11,8 @@ export default {
   "dev.filePath": "File path",
   "dev.filePathHintFree": "Absolute path, for example /Users/you/projects/web-studio/.env.local",
   "dev.filePathHintTpl": "Absolute path, for example /Users/you/projects/repo/.env.local",
+  "dev.filePathFromLink": "Prefilled from the linked folder. You can change the path.",
+  "dev.filePathHintLinked": "Leave empty to use the linked folder: {folder}",
   "dev.stage": "Stage",
   "dev.template": "Template (optional)",
   "dev.templateHint": "Template ID, otherwise the first one of the repo",

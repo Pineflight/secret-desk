@@ -43,6 +43,11 @@ export default function SecretsPage() {
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
   const [browse, setBrowse] = useState<BrowseState>(BROWSE_DEFAULT);
+  // Link von der Repositories-Seite: /secrets?repo=<name> setzt den Repository-Filter.
+  const repoParam = params.get("repo") ?? "";
+  useEffect(() => {
+    if (repoParam) setBrowse((b) => (b.repo === repoParam ? b : { ...b, repo: repoParam }));
+  }, [repoParam]);
   const [live, setLive] = useState(false);
   const [creating, setCreating] = useState(false);
 

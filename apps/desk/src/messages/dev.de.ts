@@ -11,6 +11,8 @@ export default {
   "dev.filePath": "Pfad der Datei",
   "dev.filePathHintFree": "Absoluter Pfad, zum Beispiel /Users/du/projekte/web-studio/.env.local",
   "dev.filePathHintTpl": "Absoluter Pfad, zum Beispiel /Users/du/projekte/repo/.env.local",
+  "dev.filePathFromLink": "Aus dem verknüpften Ordner vorbelegt. Du kannst den Pfad ändern.",
+  "dev.filePathHintLinked": "Leer lassen, dann wird der verknüpfte Ordner verwendet: {folder}",
   "dev.stage": "Stage",
   "dev.template": "Vorlage (optional)",
   "dev.templateHint": "Kennung der Vorlage, sonst die erste des Repos",

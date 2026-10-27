@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: "/", label: "common.nav.overview", icon: "grid" },
   { href: "/secrets", label: "common.nav.secrets", icon: "key" },
   { href: "/variablen", label: "common.nav.variables", icon: "sliders" },
+  { href: "/repos", label: "common.nav.repos", icon: "folder" },
   { href: "/pruefen", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
   { href: "/freigaben", label: "common.nav.approvals", icon: "inbox", badge: "approvals" },
   { href: "/dev", label: "common.nav.dev", icon: "terminal", divider: true },
