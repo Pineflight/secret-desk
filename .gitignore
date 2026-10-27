@@ -13,3 +13,4 @@ secret-desk.state.json
 *.key
 .DS_Store
 .secret-desk-evidence/
+.evidence/

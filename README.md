@@ -33,6 +33,13 @@ pnpm dev                                                             # http://12
 Das Portal lauscht nur auf `127.0.0.1`. Die Zugangs-Tokens der Anbieter gibst du pro Sitzung im Portal ein oder verweist in der
 Konfiguration auf Umgebungsvariablen bzw. 1Password (`op://...`). Nie der Wert in der Datei.
 
+**Demo ohne Konten** (simuliertes GitHub, erfundene Daten):
+
+```bash
+pnpm build
+SECRET_DESK_DEMO=1 SECRET_DESK_CONFIG=$PWD/examples/demo/secret-desk.config.yaml pnpm dev
+```
+
 CLI: `node packages/cli/dist/bin.js help` (Befehle: `check`, `status`, `renew`, `vars`, `env export`, `team`, `import-legacy`, `vapid`).
 
 ## Aufbau
