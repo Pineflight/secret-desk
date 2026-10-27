@@ -104,6 +104,12 @@ describe("Ablauf ueber die Schnittstelle", () => {
     const evidence = (await (await route(ui(deps, "GET", "evidence/hmac-wakemiles"), deps)).json()) as { id: string }[];
     const svg = await route(ui(deps, "GET", `evidence/hmac-wakemiles/${evidence[0]!.id}/svg`), deps);
     expect(svg.headers.get("content-type")).toBe("image/svg+xml");
+    const imgOnly = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}/svg`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    expect((await route(imgOnly, deps)).status).toBe(200);
+    const noCookie = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}/svg`, { headers: { host: HOST } });
+    expect((await route(noCookie, deps)).status).toBe(401);
+    const jsonNeedsCsrf = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    expect((await route(jsonNeedsCsrf, deps)).status).toBe(401);
     expect(svg.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(await svg.text()).toContain("<svg");
   });

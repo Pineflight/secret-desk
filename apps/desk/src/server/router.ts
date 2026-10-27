@@ -163,7 +163,9 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
     if (!bearerMatches(req, deps.agentToken)) return err(401, "Agenten-Token fehlt oder ist falsch");
     actor = { kind: "agent", name: req.headers.get("x-agent-name") ?? "agent" };
   } else {
-    if (!deps.session.valid(req)) return err(401, "Portal-Sitzung ungueltig. Seite neu laden.");
+    // Beleg-Bilder werden per <img> geladen und koennen keinen CSRF-Header senden: nur lesend, nur mit Cookie.
+    const imageRead = req.method === "GET" && /^evidence\/[^/]+\/[^/]+\/(svg|attachments\/[^/]+)$/.test(path);
+    if (!(imageRead ? deps.session.validCookie(req) : deps.session.valid(req))) return err(401, "Portal-Sitzung ungueltig. Seite neu laden.");
     actor = { kind: "human", name: process.env.SECRET_DESK_USER ?? "niklas" };
   }
 

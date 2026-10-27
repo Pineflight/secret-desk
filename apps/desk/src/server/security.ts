@@ -62,6 +62,12 @@ export class PortalSession {
     return `sd_session=${this.cookie}; Path=/; HttpOnly; SameSite=Strict`;
   }
 
+  /** Nur das Cookie (fuer reine Lese-Aufrufe von Bildern, die keinen eigenen Header senden koennen). */
+  validCookie(req: Request): boolean {
+    const c = cookieValue(req, "sd_session");
+    return Boolean(c && safeEqual(c, this.cookie));
+  }
+
   valid(req: Request): boolean {
     const c = cookieValue(req, "sd_session");
     const h = req.headers.get("x-secret-desk-csrf");
