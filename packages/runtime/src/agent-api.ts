@@ -1,3 +1,4 @@
+import { connectionGuide } from "./connection-guides.js";
 import {
   EnvExportError,
   InventoryError,
@@ -196,7 +197,11 @@ export function listProviders(rt: Runtime) {
 
 export async function listConnections(rt: Runtime) {
   const ids = [...new Set(["github", "github-app-key", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
-  return rt.connections.statuses(ids);
+  const statuses = await rt.connections.statuses(ids);
+  return statuses.map((s) => {
+    const g = connectionGuide(s.id, rt.owner);
+    return { ...s, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+  });
 }
 
 /** Nur Metadaten: neue Eintraege duerfen Agenten anlegen, ausgeloest wird dadurch nichts. */

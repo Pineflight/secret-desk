@@ -23,7 +23,7 @@ const NAV: NavItem[] = [
   { href: "/pruefen", label: "Prüfen", icon: "shield", badge: "reviews" },
   { href: "/freigaben", label: "Freigaben", icon: "inbox", badge: "approvals" },
   { href: "/dev", label: "Dev-Umgebung", icon: "terminal", divider: true },
-  { href: "/verbindungen", label: "Verbindungen", icon: "plug" },
+  { href: "/verbindungen", label: "Integrationen", icon: "plug" },
   { href: "/team", label: "Team", icon: "users" },
 ];
 
