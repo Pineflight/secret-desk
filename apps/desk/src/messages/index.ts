@@ -1,0 +1,28 @@
+/** Sammelt alle Namensraeume. Schluessel beginnen mit dem Namensraum, zum Beispiel "secrets.title". */
+import commonDe from "./common.de";
+import commonEn from "./common.en";
+import homeDe from "./home.de";
+import homeEn from "./home.en";
+import secretsDe from "./secrets.de";
+import secretsEn from "./secrets.en";
+import secretDetailDe from "./secretDetail.de";
+import secretDetailEn from "./secretDetail.en";
+import variablesDe from "./variables.de";
+import variablesEn from "./variables.en";
+import metaDe from "./meta.de";
+import metaEn from "./meta.en";
+import reviewsDe from "./reviews.de";
+import reviewsEn from "./reviews.en";
+import approvalsDe from "./approvals.de";
+import approvalsEn from "./approvals.en";
+import devDe from "./dev.de";
+import devEn from "./dev.en";
+import connectionsDe from "./connections.de";
+import connectionsEn from "./connections.en";
+import teamDe from "./team.de";
+import teamEn from "./team.en";
+
+export const messages: Record<"de" | "en", Record<string, string>> = {
+  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe },
+  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn },
+};
