@@ -1,4 +1,4 @@
-import { join, relative, isAbsolute } from "node:path";
+import { join } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import {
   EnvExportError,
@@ -17,6 +17,7 @@ import {
   discardIssuance,
   exportTeamBundle,
   inspectVariable,
+  isPathInside,
   overallStatus,
   planRotation,
   prepareIssuance,
@@ -203,7 +204,7 @@ export async function listConnections(rt: Runtime) {
   return statuses.map((s) => {
     const g = connectionGuide(s.id, rt.owner);
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
-    return { ...s, daysLeft: days, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
 }
 
@@ -528,8 +529,7 @@ export async function exportEnv(
   if (!target) {
     if (!folder) throw new EnvExportError(`Kein Pfad angegeben und kein Ordner fuer ${template.repo} verknuepft.`);
     target = join(folder, template.file);
-    const rel = relative(folder, target);
-    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
+    if (!isPathInside(folder, target)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
   }
   // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
   const roots = configured.length > 0 && folder ? [...configured, folder] : configured;

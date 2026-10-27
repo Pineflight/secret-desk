@@ -15,3 +15,5 @@ export * from "./env-export.js";
 export * from "./team.js";
 export * from "./legacy-import.js";
 export * from "./config.js";
+export * from "./vault.js";
+export * from "./platform.js";

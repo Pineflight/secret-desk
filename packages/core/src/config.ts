@@ -16,6 +16,20 @@ export const ConfigSchema = z.object({
   evidenceDir: z.string().default(".secret-desk-evidence"),
   /** Lokale Datei mit den Ordner-Verknuepfungen der Repositories (rechnerspezifisch, nie im Inventar). Standard: ~/.secret-desk/repo-links.json. */
   linksFile: z.string().min(1).optional(),
+  /** Tresor fuer Zugangs-Tokens der Integrationen (verschluesselt, Schluessel im Schluesselbund). */
+  vault: z
+    .object({
+      enabled: z.boolean().default(true),
+      /** Datei des Tresors. Standard: ~/.secret-desk/vault.json. */
+      file: z.string().min(1).optional(),
+      /**
+       * Nur wenn ausdruecklich gesetzt. Windows: Ort des DPAPI-geschuetzten Schluessel-Blobs (Standard: <Tresordatei>.key).
+       * Linux/macOS: Datei mit dem Schluessel (Base64, 32 Byte, Modus 600), statt Schluesselbund. Schluessel und Daten liegen dann
+       * auf demselben Datentraeger: nur nutzen, wenn kein Schluesselbund verfuegbar ist.
+       */
+      keyFile: z.string().min(1).optional(),
+    })
+    .default({ enabled: true }),
   github: z.object({
     owner: z.string().min(1),
     auth: z.discriminatedUnion("type", [

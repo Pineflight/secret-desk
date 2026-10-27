@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate } from "@/lib/format";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -16,6 +16,8 @@ interface Connection {
   hint?: string;
   expires?: string | null;
   daysLeft?: number | null;
+  fingerprint?: string;
+  canRemember?: boolean;
   label: string;
   description: string | null;
   url: string | null;
@@ -33,7 +35,7 @@ interface Provider {
 
 const NAMES: Record<string, string> = { github: "GitHub", cloudflare: "Cloudflare", supabase: "Supabase", stripe: "Stripe", resend: "Resend", grafana: "Grafana" };
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", none: "connections.srcNone" };
+const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", none: "connections.srcNone" };
 
 export default function ConnectionsPage() {
   const t = useT();
@@ -66,12 +68,13 @@ export default function ConnectionsPage() {
               <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />
             </div>
             {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
+            {c.fingerprint ? <p className="mt-1 text-xs text-muted">{t("connections.fingerprint", { fp: c.fingerprint })}</p> : null}
             <p className={`mt-2 text-sm ${c.daysLeft != null && c.daysLeft <= 7 ? "font-medium text-danger" : "text-muted"}`}>
               {c.expires === undefined ? t("connections.expiryUnknown") : c.expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(c.expires), days: daysLabel(c.daysLeft ?? null) })}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={() => setPicking(c.id)}>{t("connections.guide")}</Button>
-              {c.source === "session" ? <Button loading={del.pending} onClick={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }}>{t("connections.disconnect")}</Button> : null}
+              {c.source === "session" || c.source === "vault" ? <Button loading={del.pending} onClick={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }}>{t("connections.disconnect")}</Button> : null}
             </div>
           </Card>
         ))}
@@ -174,6 +177,7 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   const [value, setValue] = useState("");
   const [preset, setPreset] = useState("90");
   const [custom, setCustom] = useState("");
+  const [remember, setRemember] = useState(Boolean(c.canRemember));
   const set = useMutation(async (body: unknown) => api<Connection>("POST", `connections/${enc(c.id)}/token`, body));
   const name = labelOf(c);
   const today = new Date().toISOString().slice(0, 10);
@@ -186,8 +190,8 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
     const v = value;
     if (!valid) return;
     setValue("");
-    if (await set.run({ token: v, ...(never ? { neverExpires: true } : { expires }) })) {
-      toast.success(t("connections.connectedSession", { name }));
+    if (await set.run({ token: v, ...(remember ? { remember: true } : {}), ...(never ? { neverExpires: true } : { expires }) })) {
+      toast.success(t(remember ? "connections.connectedVault" : "connections.connectedSession", { name }));
       onChanged();
       onDone();
     }
@@ -223,6 +227,12 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
         <label htmlFor={`tok-${c.id}`} className="block font-medium">{t("connections.step3")}</label>
         <input id={`tok-${c.id}`} type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} font-mono`} />
         <p className="text-xs text-muted">{t("connections.memoryOnly")}</p>
+        {c.canRemember ? (
+          <div className="pt-1">
+            <Checkbox checked={remember} onChange={setRemember}>{t("connections.remember")}</Checkbox>
+            <p className="ml-8 mt-1 text-xs text-muted">{t("connections.rememberHint")}</p>
+          </div>
+        ) : null}
         {set.error ? <Notice tone="danger">{set.error.message}</Notice> : null}
         <Button type="submit" variant="primary" loading={set.pending} disabled={!valid}>{t("connections.connect")}</Button>
       </form>

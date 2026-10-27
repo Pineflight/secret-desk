@@ -27,6 +27,14 @@ Anbieter-API ──> Wert im Arbeitsspeicher ──> Pruefung ──> Pruefberic
 - **Pruefberichte und Anlagen** (`.secret-desk-evidence/`, nicht im Git): Berichte als JSON, Screenshots als PNG/JPEG/WebP bis 5 MB.
 - **Arbeitsspeicher:** ausgestellte, noch nicht bestaetigte Werte, Zugangs-Tokens der Sitzung, offene Freigaben.
 
+## Plattformen
+Pfad-, Rechte- und Schluesselfragen stecken in `packages/core/src/platform.ts` (`securePrivateFile`, `ensurePrivateDir`, `writePrivateFile`,
+`expandHome`, `isPathInside`, `realpathLoose`, `localPathProblem`, `sanitizeFileName`) und in den `KeySource`s von `vault.ts` (macOS Keychain,
+Linux `secret-tool`, Windows DPAPI per PowerShell, optionale Schluesseldatei). Alles nimmt `platform` (und bei Befehlen eine `exec`-Funktion) als
+Parameter, damit sich Windows- und Linux-Verhalten auf jedem System mit `path.win32`/`path.posix` und einem gefaelschten Exec testen laesst.
+Befehle starten nur: `git` (runtime/core), `op` (core), `security`/`secret-tool`/`powershell.exe` (core, Tresor), Chrome (Playwright). Skripte im Repo
+sind Node-Dateien unter `scripts/` (`clean.mjs`, `demo.mjs`), keine Shell-Zeilen.
+
 ## Repositories und Verknuepfungen
 
 - Die Seite **Repositories** (`/repos`) fuehrt Inventar (Secrets, Variablen, Vorlagen), GitHub live (`GET repos?live=1`, nur Name und Metadaten)

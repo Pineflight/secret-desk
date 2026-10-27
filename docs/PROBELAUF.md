@@ -21,6 +21,8 @@ Die Werte kommen in 1Password oder in Umgebungsvariablen, nie in Dateien und nie
 
 ## 1. Vorbereiten
 
+Unter Windows (PowerShell) statt `export`: `$env:SECRET_DESK_GITHUB_TOKEN = "..."`, statt `~` der Ordner `$HOME`, statt `mkdir -p`/`cp`/`rm -rf`: `New-Item -ItemType Directory`, `Copy-Item`, `Remove-Item -Recurse -Force`. Die Befehle unten sind bash.
+
 Vorlagen kopieren: `mkdir -p ~/.secret-desk/trial && cp examples/trial/config.example.yaml ~/.secret-desk/trial/secret-desk.config.yaml && cp examples/trial/inventory.yaml ~/.secret-desk/trial/`
 
 ```bash

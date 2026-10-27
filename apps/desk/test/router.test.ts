@@ -44,8 +44,8 @@ async function setup() {
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-desk-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: ["${dir}"]\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, dir };
 }
@@ -148,5 +148,25 @@ describe("Ablauf ueber die Schnittstelle", () => {
     const r = await route(agent(deps, "POST", "env-export", { repo: "web-studio", stage: "staging", path: "/tmp/x" }), deps);
     expect(r.status).toBe(403);
     expect(JSON.stringify(await r.json())).not.toMatch(/at .*\.ts/);
+  });
+});
+
+describe("Sprache der Servermeldungen", () => {
+  it("ohne Header deutsch, mit x-secret-desk-lang: en englisch", async () => {
+    const { deps } = await setup();
+    const de = await route(ui(deps, "POST", "renewal-requests", {}), deps);
+    expect(de.status).toBe(400);
+    expect(await de.json()).toEqual({ error: "Feld fehlt: secretId" });
+    const en = await route(ui(deps, "POST", "renewal-requests", {}, { "x-secret-desk-lang": "en" }), deps);
+    expect(en.status).toBe(400);
+    expect(await en.json()).toEqual({ error: "Field missing: secretId" });
+    const bogus = await route(ui(deps, "POST", "renewal-requests", {}, { "x-secret-desk-lang": "fr" }), deps);
+    expect(await bogus.json()).toEqual({ error: "Feld fehlt: secretId" });
+  });
+  it("uebersetzt auch frueh abgewiesene Anfragen und Erfolgsantworten", async () => {
+    const { deps } = await setup();
+    const r = await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST, "x-secret-desk-lang": "en" } }), deps);
+    expect(r.status).toBe(401);
+    expect(await r.json()).toEqual({ error: "Portal session invalid. Reload the page." });
   });
 });

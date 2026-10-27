@@ -31,6 +31,9 @@ pnpm build
 pnpm dev                                                             # http://127.0.0.1:4747
 ```
 
+Unter Windows (PowerShell): `Copy-Item examples\secret-desk.config.example.yaml secret-desk.config.yaml` und
+`Copy-Item examples\inventory.example.yaml inventory.yaml`, der Rest ist gleich.
+
 Das Portal lauscht nur auf `127.0.0.1`. Die Zugangs-Tokens der Anbieter gibst du pro Sitzung im Portal ein oder verweist in der
 Konfiguration auf Umgebungsvariablen bzw. 1Password (`op://...`). Nie der Wert in der Datei.
 
@@ -38,8 +41,25 @@ Konfiguration auf Umgebungsvariablen bzw. 1Password (`op://...`). Nie der Wert i
 
 ```bash
 pnpm build
+pnpm demo                                                            # laeuft auf macOS, Linux und Windows
+```
+
+`pnpm demo` setzt `SECRET_DESK_DEMO=1` und `SECRET_DESK_CONFIG` selbst (Skript `scripts/demo.mjs`). Von Hand, je nach Shell:
+
+```bash
+# bash / zsh
 SECRET_DESK_DEMO=1 SECRET_DESK_CONFIG=$PWD/examples/demo/secret-desk.config.yaml pnpm dev
 ```
+```powershell
+# PowerShell
+$env:SECRET_DESK_DEMO = "1"; $env:SECRET_DESK_CONFIG = "$PWD\examples\demo\secret-desk.config.yaml"; pnpm dev
+```
+```bat
+:: cmd
+set SECRET_DESK_DEMO=1 && set SECRET_DESK_CONFIG=%CD%\examples\demo\secret-desk.config.yaml && pnpm dev
+```
+
+Aufraeumen (statt `rm -rf dist`): `pnpm clean` (Build-Ausgaben), `pnpm clean --deps` (zusaetzlich `node_modules`).
 
 CLI: `node packages/cli/dist/bin.js help` (Befehle: `check`, `status`, `renew`, `vars`, `env export`, `team`, `import-legacy`, `vapid`).
 
@@ -59,6 +79,32 @@ Erster Einsatz mit echten Diensten: [docs/PROBELAUF.md](docs/PROBELAUF.md) (Wegw
 
 Mehr: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md), [docs/SICHERHEIT.md](docs/SICHERHEIT.md), [docs/ANBIETER.md](docs/ANBIETER.md),
 [docs/AGENTEN.md](docs/AGENTEN.md), [docs/TEAM.md](docs/TEAM.md).
+
+## Plattformen
+
+secret-desk laeuft auf **macOS, Linux und Windows 10/11** (Portal, CLI, MCP-Server, Browser-Automatisierung). Entwickelt und getestet
+wird bisher auf macOS; Linux und Windows sind ueber simulierte Plattformen (injizierte `platform`/Befehle, `path.win32`) abgesichert.
+Auf echten Runnern laeuft die von Hand startbare CI `Cross-Platform` (Actions, `workflow_dispatch`).
+
+| | macOS | Linux | Windows 10/11 |
+|---|---|---|---|
+| Voraussetzungen | Node 24, pnpm | Node 24, pnpm | Node 24, pnpm (PowerShell 5.1 oder neuer ist dabei) |
+| Tresor-Schluessel | Schluesselbund (`security`) | `secret-tool` (libsecret, z. B. GNOME Keyring/KWallet); sonst `SECRET_DESK_VAULT_KEY` oder `vault.keyFile` | DPAPI (an das Windows-Konto gebunden), Blob in `<tresor>.key` |
+| Browser-Automatisierung | Chrome, Chromium, Edge | Chrome/Chromium/Edge als Distributionspaket; Snap/Flatpak sind sandboxed und gehen oft nicht | Chrome oder Edge (Program Files, Program Files (x86), `%LOCALAPPDATA%`) |
+| Dateirechte | chmod 600/700 | chmod 600/700 | keine POSIX-Modi: Schutz ueber das Benutzerprofil (ACL) |
+| Demo-Start | `pnpm demo` | `pnpm demo` | `pnpm demo` |
+
+Bekannte Grenzen:
+- **Windows:** Netzwerkpfade (`\\server\share`) und `\\?\`-Pfade werden abgelehnt, ebenso reservierte Namen (`CON`, `NUL`, `COM1` ...). Die Ordner-Verknuepfung
+  verlangt einen lokalen Laufwerkspfad unterhalb des Benutzerordners oder von `policy.envRoots`. Der Tresorschluessel laesst sich nicht auf einen
+  anderen Rechner oder ein anderes Konto mitnehmen (gewollt); dort ein neues Token eingeben.
+- **Linux ohne Schluesselbund** (Server, Container, WSL ohne D-Bus): der Tresor meldet das klar und speichert nichts im Klartext. Dann
+  `SECRET_DESK_VAULT_KEY` setzen (`openssl rand -base64 32`) oder `vault.keyFile` auf eine Schluesseldatei mit Modus 600 zeigen lassen.
+  Achtung: Mit `vault.keyFile` liegen Schluessel und Daten auf demselben Datentraeger; das schuetzt nur das Dateisystem.
+- **WSL** zaehlt als Linux: Home-Ordner, Schluesselbund und Chrome sind die der Linux-Seite, nicht die von Windows.
+- Pfade in `secret-desk.config.yaml` duerfen `~` und unter Windows auch `~\` nutzen. YAML-Pfade mit Backslash in einfache Anfuehrungszeichen setzen
+  (`'C:\Users\ich\Projekte'`) oder Schraegstriche nutzen (`C:/Users/ich/Projekte`).
+- Zeilenenden: `.gitattributes` erzwingt LF; unter Windows kein `core.autocrlf` noetig.
 
 ## Status
 

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { SecretValue } from "./secret.js";
+import type { SecretVault } from "./vault.js";
 
 /** Woher ein Zugangs-Token fuer einen Anbieter kommt. Der Wert selbst steht nie in der Konfiguration. */
 export type SourceSpec =
@@ -60,34 +61,40 @@ export class SessionVault {
 export interface ConnectionStatus {
   id: string;
   connected: boolean;
-  source: SourceSpec["type"] | "none";
+  source: SourceSpec["type"] | "vault" | "none";
   hint?: string;
   /** Nur bei Tokens aus der Sitzung: Tag, bis zu dem der Token gilt, null = laeuft nie ab. */
   expires?: string | null;
+  /** Nur bei Tokens aus dem Tresor: Kurzform des SHA-256, um den Token wiederzuerkennen. */
+  fingerprint?: string;
 }
 
 export type ExecFn = (file: string, args: string[]) => Promise<string>;
 
 const defaultExec: ExecFn = (file, args) =>
   new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: 15_000, maxBuffer: 1024 * 1024 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    execFile(file, args, { timeout: 15_000, maxBuffer: 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 
 export interface ConnectionStoreOptions {
   specs?: Record<string, SourceSpec>;
   session?: SessionVault;
+  /** Dauerhafter, verschluesselter Tresor (optional). */
+  vault?: SecretVault;
   env?: NodeJS.ProcessEnv;
   exec?: ExecFn;
 }
 
 export class ConnectionStore {
   readonly session: SessionVault;
+  readonly vault: SecretVault | undefined;
   readonly #specs: Record<string, SourceSpec>;
   readonly #env: NodeJS.ProcessEnv;
   readonly #exec: ExecFn;
 
   constructor(options: ConnectionStoreOptions = {}) {
     this.session = options.session ?? new SessionVault();
+    this.vault = options.vault;
     this.#specs = options.specs ?? {};
     this.#env = options.env ?? process.env;
     this.#exec = options.exec ?? defaultExec;
@@ -97,6 +104,8 @@ export class ConnectionStore {
   async token(id: string): Promise<SecretValue> {
     const fromSession = this.session.get(id);
     if (fromSession) return fromSession;
+    const fromVault = await this.vault?.get(id);
+    if (fromVault) return fromVault;
     const spec = this.#specs[id];
     if (!spec || spec.type === "session") {
       throw new NotConnectedError(id, "Im Portal unter Verbindungen ein Token fuer diese Sitzung eingeben.");
@@ -120,6 +129,8 @@ export class ConnectionStore {
       const expires = this.session.expires(id);
       return { id, connected: true, source: "session", ...(expires !== undefined ? { expires } : {}) };
     }
+    const stored = await this.vault?.info(id).catch(() => null);
+    if (stored) return { id, connected: true, source: "vault", fingerprint: stored.fingerprint, ...(stored.expires !== undefined ? { expires: stored.expires } : {}) };
     const spec = this.#specs[id];
     if (!spec) return { id, connected: false, source: "none", hint: "Nicht konfiguriert" };
     if (spec.type === "env") {

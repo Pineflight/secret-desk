@@ -112,10 +112,10 @@ github:
   auth: { type: pat, source: { type: env, name: GH_TEST } }
 policy:
   agentStages: [${agentStages.join(", ")}]
-  envRoots: ["${dir}"]
+  envRoots: [${JSON.stringify(dir)}]
 `,
   );
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
   return { rt, dir, calls };
 }
 
@@ -228,7 +228,7 @@ describe("Dev-Env und Metadaten", () => {
     const r = await exportEnv(rt, agent, { repo: "leitfaden", path: join(dir, "app", ".env.local") });
     if (r.status !== "written") throw new Error("erwartet");
     expect(r.keys).toEqual(["SITE_URL", "RATE_LIMIT_GEHEIMNIS"]);
-    expect((await stat(r.path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect((await stat(r.path)).mode & 0o777).toBe(0o600); // Windows kennt keine POSIX-Modi
     expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{32}/);
   });
   it("Agenten: keine Stage ausser dev, keine Werte, keine fremden Ordner", async () => {

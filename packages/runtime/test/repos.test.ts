@@ -42,9 +42,9 @@ async function setup(github: (url: string) => Response = () => new Response(JSON
   await mkdir(projects);
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   const linksFile = join(dir, "state", "links.json");
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: "${linksFile}"\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: ["${projects}"]\n`);
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(linksFile)}\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(projects)}]\n`);
   const fetchMock = (async (u: string | URL | Request) => github(String(u))) as unknown as typeof fetch;
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
   return { rt, dir, projects, linksFile };
 }
 
@@ -63,8 +63,8 @@ describe("Verknuepfen", () => {
     const repo = await repoDir(projects, "wake-miles", "git@github.com:Pineflight/wake-miles.git");
     const r = await setLink(rt, "wake-miles", repo);
     expect(r).toMatchObject({ path: repo, remoteMatches: true, warnings: [] });
-    expect((await stat(linksFile)).mode & 0o777).toBe(0o600);
-    expect((await stat(join(dir, "state"))).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect((await stat(linksFile)).mode & 0o777).toBe(0o600); // Windows kennt keine POSIX-Modi
+    if (process.platform !== "win32") expect((await stat(join(dir, "state"))).mode & 0o777).toBe(0o700); // Windows kennt keine POSIX-Modi
     expect(JSON.parse(await readFile(linksFile, "utf8"))).toEqual({ version: 1, links: { "wake-miles": repo } });
     expect(await readFile(join(dir, "inventory.yaml"), "utf8")).not.toContain(repo);
     expect(await linkedFolder(rt, "wake-miles")).toBe(repo);

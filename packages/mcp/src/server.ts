@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { DeskApiError, DeskClient } from "./client.js";
@@ -25,7 +27,17 @@ async function start(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** true, wenn diese Datei direkt gestartet wurde. Vergleicht file-URLs (Windows: file:///C:/..., Symlinks aufgeloest). */
+export function isMainModule(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  try {
+    return metaUrl === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(import.meta.url, process.argv[1])) {
   start().catch((err) => {
     console.error((err as Error).message);
     process.exit(1);

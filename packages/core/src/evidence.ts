@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { ensurePrivateDir, isReservedWindowsName, writePrivateFile } from "./platform.js";
 import type { Attachment, VerificationReport } from "./verification.js";
 
 const ALLOWED_MIME: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -15,7 +16,8 @@ export class EvidenceError extends Error {
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function safe(part: string, what: string): string {
-  if (!SAFE.test(part) || part.includes("..")) throw new EvidenceError(`Ungueltige ${what}`);
+  // Auch auf Windows gueltig: keine reservierten Geraetenamen (con, nul.txt ...), kein Punkt am Ende.
+  if (!SAFE.test(part) || part.includes("..") || part.endsWith(".") || isReservedWindowsName(part)) throw new EvidenceError(`Ungueltige ${what}`);
   return part;
 }
 
@@ -32,7 +34,7 @@ export class EvidenceStore {
 
   async save(report: VerificationReport): Promise<void> {
     const folder = join(this.dir, safe(report.secretId, "secretId"));
-    await mkdir(folder, { recursive: true });
+    await ensurePrivateDir(folder);
     const file = join(folder, `${safe(report.id, "reportId")}.json`);
     const tmp = `${file}.tmp-${process.pid}`;
     await writeFile(tmp, JSON.stringify(report, null, 2), "utf8");
@@ -67,9 +69,9 @@ export class EvidenceStore {
     const report = await this.get(secretId, reportId);
     if (!report) throw new EvidenceError("Bericht nicht gefunden");
     const folder = join(this.dir, safe(secretId, "secretId"), safe(reportId, "reportId"));
-    await mkdir(folder, { recursive: true });
+    await ensurePrivateDir(folder);
     const file = `anlage-${report.attachments.length + 1}.${ext}`;
-    await writeFile(join(folder, file), bytes, { mode: 0o600 });
+    await writePrivateFile(join(folder, file), bytes);
     const attachment: Attachment = { file, mime, addedAt: now.toISOString(), ...(note ? { note } : {}) };
     report.attachments.push(attachment);
     await this.save(report);

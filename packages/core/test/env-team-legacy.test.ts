@@ -48,7 +48,7 @@ describe("writeEnvFile", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-"));
     const path = join(dir, "sub", ".env.local");
     const r = await writeEnvFile(path, "A=1\n", { allowedRoots: [dir] });
-    expect((await stat(r.path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect((await stat(r.path)).mode & 0o777).toBe(0o600); // Windows kennt keine POSIX-Modi
     expect(await readFile(path, "utf8")).toBe("A=1\n");
     await expect(writeEnvFile(path, "B=2\n", { allowedRoots: [dir] })).rejects.toThrow(/existiert/);
     await writeEnvFile(path, "B=2\n", { allowedRoots: [dir], overwrite: true });

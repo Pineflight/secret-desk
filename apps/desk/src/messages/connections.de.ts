@@ -51,4 +51,9 @@ export default {
   "connections.fieldStepsHint": "Ein Schritt pro Zeile, in der Reihenfolge des Anlegens",
   "connections.cancel": "Abbrechen",
   "connections.addProvider": "Hinzufügen",
+  "connections.srcVault": "Tresor",
+  "connections.remember": "Verschlüsselt auf diesem Rechner speichern",
+  "connections.rememberHint": "Der Token wird mit AES-256 verschlüsselt abgelegt. Der Schlüssel liegt im Schlüsselbund des Systems, nie neben den Daten. So musst du ihn nicht bei jedem Start neu eingeben.",
+  "connections.fingerprint": "Fingerabdruck {fp}",
+  "connections.connectedVault": "{name} ist verbunden und verschlüsselt gespeichert.",
 } satisfies Record<string, string>;

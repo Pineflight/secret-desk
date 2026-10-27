@@ -15,6 +15,7 @@ import {
 } from "@secret-desk/core";
 import {
   PolicyError,
+  translateDeep,
   addEnvEntry,
   addEnvTemplate,
   addManualProvider,
@@ -66,12 +67,13 @@ export interface RouterDeps {
 }
 
 type Body = Record<string, unknown>;
-type Ctx = { rt: Runtime; actor: Actor; req: Request; params: string[]; query: URLSearchParams; body: Body };
+type JsonFn = (data: unknown, status?: number) => Response;
+type ErrFn = (status: number, message: string) => Response;
+type Ctx = { rt: Runtime; actor: Actor; req: Request; params: string[]; query: URLSearchParams; body: Body; json: JsonFn; err: ErrFn };
 type Handler = (c: Ctx) => Promise<unknown> | unknown;
 type Raw = (c: Ctx) => Promise<Response>;
 
-const json = (data: unknown, status = 200): Response => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
-const err = (status: number, message: string): Response => json({ error: message }, status);
+const baseJson = (data: unknown, status = 200): Response => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 const stage = (q: URLSearchParams): Stage | undefined => (q.get("stage") ? (q.get("stage") as Stage) : undefined);
 const str = (b: Body, k: string): string => {
@@ -129,8 +131,19 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^approvals\/([^/]+)\/(approve|deny)$/, ({ rt, actor, params }) => resolveApproval(rt, actor, params[0]!, params[1] as "approve" | "deny")],
   ["POST", /^variables\/([^/]+)\/adopt$/, ({ rt, actor, params }) => adoptVariableFromGitHub(rt, actor, params[0]!)],
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
-  ["POST", /^connections\/([^/]+)\/token$/, ({ rt, params, body }) => { rt.connections.session.set(params[0]!, str(body, "token"), tokenExpiry(body)); return rt.connections.status(params[0]!); }],
-  ["DELETE", /^connections\/([^/]+)\/token$/, ({ rt, params }) => { rt.connections.session.delete(params[0]!); return rt.connections.status(params[0]!); }],
+  ["POST", /^connections\/([^/]+)\/token$/, async ({ rt, params, body }) => {
+    const id = params[0]!;
+    const expires = tokenExpiry(body);
+    if (body["remember"] === true) {
+      if (!rt.connections.vault) throw new InventoryError("Der Tresor ist ausgeschaltet (vault.enabled in der Konfiguration).");
+      await rt.connections.vault.set(id, str(body, "token"), expires);
+      rt.connections.session.delete(id);
+    } else {
+      rt.connections.session.set(id, str(body, "token"), expires);
+    }
+    return rt.connections.status(id);
+  }],
+  ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => { rt.connections.session.delete(params[0]!); await rt.connections.vault?.delete(params[0]!); return rt.connections.status(params[0]!); }],
   ["PUT", /^repos\/([^/]+)\/link$/, ({ rt, params, body }) => setLink(rt, decodeURIComponent(params[0]!), str(body, "path"))],
   ["DELETE", /^repos\/([^/]+)\/link$/, ({ rt, params }) => removeLink(rt, decodeURIComponent(params[0]!))],
   ["POST", /^repos\/scan$/, ({ rt }) => scanLocal(rt)],
@@ -147,12 +160,12 @@ const raw: [string, RegExp, Raw][] = [
 
 const rawHuman: [string, RegExp, Raw][] = [
   ["GET", /^evidence\/([^/]+)\/([^/]+)\/svg$/, async ({ rt, params }) => new Response(await evidenceSvg(rt, params[0]!, params[1]!), { headers: { "content-type": "image/svg+xml", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'", "x-content-type-options": "nosniff", "cache-control": "no-store" } })],
-  ["GET", /^evidence\/([^/]+)\/([^/]+)\/attachments\/([^/]+)$/, async ({ rt, params }) => {
+  ["GET", /^evidence\/([^/]+)\/([^/]+)\/attachments\/([^/]+)$/, async ({ rt, params, err }) => {
     const a = await readAttachment(rt, params[0]!, params[1]!, params[2]!);
     if (!a) return err(404, "Anlage nicht gefunden");
     return new Response(new Uint8Array(a.bytes), { headers: { "content-type": a.mime, "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox", "cache-control": "no-store" } });
   }],
-  ["POST", /^evidence\/([^/]+)\/([^/]+)\/attachments$/, async ({ rt, actor, params, req }) => {
+  ["POST", /^evidence\/([^/]+)\/([^/]+)\/attachments$/, async ({ rt, actor, params, req, json, err }) => {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return err(400, "Feld file fehlt");
@@ -169,6 +182,10 @@ const rawHuman: [string, RegExp, Raw][] = [
  * Jede Anfrage prueft zuerst Host (DNS-Rebinding) und bei Aenderungen den Ursprung.
  */
 export async function route(req: Request, deps: RouterDeps): Promise<Response> {
+  // Sprache der Oberflaeche: Backend-Texte sind deutsch und werden an dieser Grenze uebersetzt.
+  const lang: "de" | "en" = req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de";
+  const json: JsonFn = (data, status = 200) => baseJson(translateDeep(data, lang), status);
+  const err: ErrFn = (status, message) => json({ error: message }, status);
   if (!checkHost(req, deps.hosts)) return err(403, "Host nicht erlaubt");
   if (!checkOrigin(req, deps.hosts) && !req.headers.get("authorization")) return err(403, "Ursprung nicht erlaubt");
   const url = new URL(req.url);
@@ -203,19 +220,19 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
   try {
     for (const [method, re, fn] of rawTables) {
       const r = req.method === method ? re.exec(path) : null;
-      if (r) return await fn({ rt: deps.rt, actor, req, params: r.slice(1), query: url.searchParams, body });
+      if (r) return await fn({ rt: deps.rt, actor, req, params: r.slice(1), query: url.searchParams, body, json, err });
     }
     for (const [method, re, fn] of tables) {
       const r = req.method === method ? re.exec(path) : null;
-      if (r) return json(await fn({ rt: deps.rt, actor, req, params: r.slice(1), query: url.searchParams, body }));
+      if (r) return json(await fn({ rt: deps.rt, actor, req, params: r.slice(1), query: url.searchParams, body, json, err }));
     }
     return err(404, "Nicht gefunden");
   } catch (e) {
-    return mapError(e);
+    return mapError(e, json, err);
   }
 }
 
-function mapError(e: unknown): Response {
+function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PolicyError) return err(403, e.message);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
   if (e instanceof InventoryError || e instanceof VariableError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError) return err(400, e.message);

@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, realpath, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { GitHubError, InventoryError, NotConnectedError, type RemoteRepo } from "@secret-desk/core";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { GitHubError, InventoryError, NotConnectedError, ensurePrivateDir, expandHome as expandHomeCore, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -56,9 +56,7 @@ export interface ScanSuggestion {
 }
 
 export function expandHome(p: string): string {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
-  return p;
+  return expandHomeCore(p, homedir());
 }
 
 export function linksPath(rt: Runtime): string {
@@ -79,7 +77,7 @@ function remoteMatches(url: string | null, owner: string, name: string): boolean
 
 function gitOrigin(dir: string): Promise<string | null> {
   return new Promise((res) => {
-    execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, out) => {
+    execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, out) => {
       const url = err ? "" : String(out).trim();
       res(url || null);
     });
@@ -97,10 +95,8 @@ async function real(p: string): Promise<string> {
   }
 }
 
-const strictlyBelow = (base: string, p: string): boolean => {
-  const rel = relative(base, p);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
-};
+// Echt unterhalb (nicht gleich); auf Windows ohne Gross-/Kleinschreibung, Laufwerke muessen passen. Beide Seiten kommen aus `real`.
+const strictlyBelow = (base: string, p: string): boolean => isPathInside(base, p);
 
 /** Erlaubte Wurzeln fuer Verknuepfungen: der Home-Ordner und policy.envRoots (jeweils aufgeloest). */
 async function allowedBases(rt: Runtime): Promise<string[]> {
@@ -126,10 +122,9 @@ async function readLinks(rt: Runtime): Promise<Record<string, string>> {
 
 async function writeLinks(rt: Runtime, links: Record<string, string>): Promise<void> {
   const file = linksPath(rt);
-  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  await ensurePrivateDir(dirname(file));
   const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, `${JSON.stringify({ version: 1, links }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await chmod(tmp, 0o600);
+  await writePrivateFile(tmp, `${JSON.stringify({ version: 1, links }, null, 2)}\n`);
   await rename(tmp, file);
 }
 
@@ -142,6 +137,8 @@ export async function setLink(rt: Runtime, name: string, rawPath: string): Promi
   checkName(name);
   if (typeof rawPath !== "string" || rawPath.trim() === "") throw new InventoryError("Der Pfad fehlt.");
   const expanded = expandHome(rawPath.trim());
+  const pathProblem = localPathProblem(expanded);
+  if (pathProblem) throw new InventoryError(pathProblem);
   if (!isAbsolute(expanded)) throw new InventoryError("Der Pfad muss absolut sein (oder mit ~ beginnen).");
   if (!(await exists(expanded))) throw new InventoryError("Ordner existiert nicht.");
   const path = await real(expanded);

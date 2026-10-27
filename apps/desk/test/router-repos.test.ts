@@ -32,8 +32,8 @@ async function setup() {
   await mkdir(join(projects, "wake-miles"), { recursive: true });
   execFileSync("git", ["init", "-q"], { cwd: join(projects, "wake-miles") });
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: "${join(dir, "links.json")}"\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: ["${projects}"]\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv, fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(projects)}]\n`);
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv, fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, repo: join(projects, "wake-miles") };
 }

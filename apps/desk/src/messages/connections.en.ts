@@ -51,4 +51,9 @@ export default {
   "connections.fieldStepsHint": "One step per line, in the order of creation",
   "connections.cancel": "Cancel",
   "connections.addProvider": "Add",
+  "connections.srcVault": "vault",
+  "connections.remember": "Store encrypted on this machine",
+  "connections.rememberHint": "The token is stored encrypted with AES-256. The key lives in the system keychain, never next to the data. You do not need to enter it again at every start.",
+  "connections.fingerprint": "Fingerprint {fp}",
+  "connections.connectedVault": "{name} is connected and stored encrypted.",
 } satisfies Record<string, string>;

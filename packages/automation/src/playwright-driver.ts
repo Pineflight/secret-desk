@@ -1,6 +1,6 @@
-import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ensurePrivateDir } from "@secret-desk/core";
 import type { BrowserContext, Locator, Page } from "playwright-core";
 import { ChromeNotFoundError, findChrome } from "./chrome.js";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
@@ -9,7 +9,7 @@ import { pollCondition } from "./wait.js";
 
 export interface PlaywrightDriverOptions {
   chromePath?: string;
-  /** Dauerhaftes Profil, damit Anmeldungen erhalten bleiben. Standard ~/.secret-desk/browser-profile (Modus 700). */
+  /** Dauerhaftes Profil, damit Anmeldungen erhalten bleiben. Standard <Home>/.secret-desk/browser-profile (POSIX: Modus 700; Windows: Schutz ueber das Benutzerprofil). */
   profileDir?: string;
   slowMoMs?: number;
   /** Nur fuer Tests; im Betrieb bleibt das Fenster sichtbar. */
@@ -41,8 +41,7 @@ export class PlaywrightDriver implements BrowserDriver {
     }
     const path = findChrome(this.#opts.chromePath);
     const profile = this.#opts.profileDir ?? DEFAULT_PROFILE_DIR;
-    await mkdir(profile, { recursive: true, mode: 0o700 });
-    await chmod(profile, 0o700);
+    await ensurePrivateDir(profile);
     try {
       this.#context = await chromium.launchPersistentContext(profile, {
         ...(path ? { executablePath: path } : { channel: "chrome" }),

@@ -1,0 +1,19 @@
+# Quelltexte, Konfiguration und Skripte immer mit LF, auch bei Windows-Checkouts (CRLF bricht YAML-Blockstrings,
+# Shell-Skripte und Hash-Vergleiche).
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary

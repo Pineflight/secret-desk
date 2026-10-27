@@ -1,0 +1,37 @@
+name: Cross-Platform
+
+# Prueft Installation, Build, Typpruefung und Tests auf Linux, macOS und Windows.
+# Nur von Hand (workflow_dispatch): kein Lauf bei push oder pull_request, damit der Runner-Bestand und die Warteschlange
+# nicht belastet werden. Laeuft auf GitHub-gehosteten Runnern.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # Die pnpm-Version kommt aus "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run typecheck
+      - run: pnpm run test

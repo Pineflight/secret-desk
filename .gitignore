@@ -8,9 +8,11 @@ coverage/
 .env.*
 !.env.example
 secret-desk.config.yaml
+!examples/**/secret-desk.config.yaml
 secret-desk.state.json
 *.pem
 *.key
 .DS_Store
 .secret-desk-evidence/
 .evidence/
+*.tsbuildinfo

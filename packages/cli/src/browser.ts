@@ -7,6 +7,7 @@ import {
   PlaywrightDriver,
   RecipeRunError,
   dryRunRecipe,
+  chromeInstallHint,
   findChrome,
   loadRecipesDetailed,
   playwrightAvailable,
@@ -71,13 +72,13 @@ async function doctor(args: string[], io: Io): Promise<number> {
   try {
     const chrome = findChrome(values["chrome-path"]);
     if (chrome) line(io, "ok", `Chrome gefunden: ${chrome}`);
-    else line(io, "warn", 'Kein Chrome an den ueblichen Orten; es wird channel "chrome" versucht. Sonst --chrome-path angeben.');
+    else line(io, "warn", `Kein Chrome an den ueblichen Orten; es wird channel "chrome" versucht. ${chromeInstallHint()}`);
   } catch (err) {
     bad++;
     line(io, "fail", (err as Error).message);
   }
 
-  line(io, "ok", `Profilordner: ${values["profile-dir"] ?? DEFAULT_PROFILE_DIR} (wird beim ersten Lauf mit Modus 700 angelegt)`);
+  line(io, "ok", `Profilordner: ${values["profile-dir"] ?? DEFAULT_PROFILE_DIR} (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
 
   const { recipes, errors } = await loadRecipesDetailed(dirs(values.recipes));
   for (const r of recipes) line(io, "ok", `Rezept ${r.recipe.id} (${r.recipe.host}): ${await statusComment(r.file)}`);

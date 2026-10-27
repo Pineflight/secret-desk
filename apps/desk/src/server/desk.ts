@@ -19,6 +19,8 @@ async function init(): Promise<Desk> {
   // Demo: simuliertes GitHub, eigener Agenten-Token im Temp-Ordner, keine echten Anfragen.
   const options: RuntimeOptions = demo ? { fetch: await (await import("./demo")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv } : {};
   const rt = await createRuntime(configPath, options);
+  // Demo: erlaubter Ordner im Temp-Ordner des Systems (die Beispielkonfiguration nennt /tmp, das es unter Windows nicht gibt).
+  if (demo) rt.config.policy.envRoots = [join(tmpdir(), "secret-desk-demo")];
   const desk: Desk = {
     rt,
     session: new PortalSession(),

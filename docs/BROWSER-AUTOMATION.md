@@ -63,6 +63,12 @@ Schritte: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `ch
 - CLI: `secret-desk browser doctor` (Chrome gefunden, Profil, Rezepte gültig), `secret-desk browser run <rezept> --dry` (nur bis vor „Erzeugen“).
 - Konfiguration: `automation: { chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs? }`.
 
+## Plattformen
+Chrome wird an den ueblichen Orten gesucht: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge unter `/usr/bin`, Snap, Flatpak),
+Windows (`%PROGRAMFILES%`, `%PROGRAMFILES(X86)%`, `%LOCALAPPDATA%`: Chrome, Chromium, Edge). Sonst `--chrome-path`/`automation.chromePath`. Snap- und
+Flatpak-Browser sind sandboxed und lassen sich oft nicht steuern. Das Profil liegt unter `<Home>/.secret-desk/browser-profile` (Windows:
+`%USERPROFILE%\.secret-desk\browser-profile`); POSIX Modus 700, Windows Schutz ueber das Benutzerprofil.
+
 ## Grenzen
 
 Die mitgelieferten Rezepte sind nicht gegen die echten Seiten geprüft (kein Zugang zu Konten in der Entwicklung). Sie sind gegen

@@ -54,6 +54,6 @@ describe.skipIf(!chrome)("PlaywrightDriver gegen lokales Formular", () => {
     expect(r.externalId).toBe("demo1");
     expect(r.screenshots.map((s) => s.name)).toEqual(["vorher", "nach-erzeugen"]);
     for (const s of r.screenshots) expect(s.png.subarray(1, 4).toString()).toBe("PNG");
-    expect((await stat(profileDir)).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect((await stat(profileDir)).mode & 0o777).toBe(0o700); // Windows kennt keine POSIX-Modi
   }, 60_000);
 });

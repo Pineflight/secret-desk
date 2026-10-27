@@ -5,6 +5,8 @@ import {
   GitHubClient,
   InventoryStore,
   ProviderRegistry,
+  SecretVault,
+  expandHome,
   SessionVault,
   githubAppProvider,
   loadConfig,
@@ -40,6 +42,8 @@ export interface RuntimeOptions {
   env?: NodeJS.ProcessEnv;
   exec?: ExecFn;
   session?: SessionVault;
+  /** Eigener Tresor (Tests); sonst nach config.vault. */
+  vault?: SecretVault | null;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -56,8 +60,10 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   if (config.github.auth.type === "pat") specs[GITHUB_CONNECTION] = config.github.auth.source;
   else specs[GITHUB_APP_KEY_CONNECTION] = config.github.auth.privateKey;
 
+  const vault = options.vault === undefined ? (config.vault.enabled ? new SecretVault({ ...(config.vault.file ? { file: expandHome(config.vault.file) } : {}), ...(config.vault.keyFile ? { keyFile: expandHome(config.vault.keyFile) } : {}) }) : undefined) : (options.vault ?? undefined);
   const connections = new ConnectionStore({
     specs,
+    ...(vault ? { vault } : {}),
     ...(options.session ? { session: options.session } : {}),
     ...(options.env ? { env: options.env } : {}),
     ...(options.exec ? { exec: options.exec } : {}),

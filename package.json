@@ -14,8 +14,10 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "verify": "pnpm run build && pnpm run typecheck && pnpm run test",
+    "clean": "node scripts/clean.mjs",
     "dev": "pnpm --filter @secret-desk/desk run dev",
-    "build:libs": "pnpm --filter @secret-desk/core --filter @secret-desk/providers --filter @secret-desk/runtime --filter @secret-desk/cli --filter @secret-desk/mcp run build"
+    "demo": "node scripts/demo.mjs",
+    "build:libs": "pnpm --filter @secret-desk/core --filter @secret-desk/providers --filter @secret-desk/automation --filter @secret-desk/runtime --filter @secret-desk/cli --filter @secret-desk/mcp run build"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ConnectionStore } from "./connections.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
 import type { EnvTemplate } from "./types.js";
+import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
 
 export class EnvExportError extends Error {
   constructor(message: string) {
@@ -114,7 +115,7 @@ export interface WriteEnvResult {
 
 function checkIgnored(path: string): Promise<boolean | null> {
   return new Promise((res) => {
-    execFile("git", ["check-ignore", "-q", path], { cwd: dirname(path), timeout: 5000 }, (err) => {
+    execFile("git", ["check-ignore", "-q", path], { cwd: dirname(path), timeout: 5000, windowsHide: true }, (err) => {
       if (!err) return res(true);
       const code = (err as { code?: number | string }).code;
       res(code === 1 ? false : null);
@@ -124,14 +125,22 @@ function checkIgnored(path: string): Promise<boolean | null> {
 
 /** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
 export async function writeEnvFile(path: string, text: string, options: { overwrite?: boolean; allowedRoots?: string[] } = {}): Promise<WriteEnvResult> {
+  const problem = localPathProblem(path);
+  if (problem) throw new EnvExportError(problem);
   const target = resolve(path);
   if (options.allowedRoots && options.allowedRoots.length > 0) {
-    const ok = options.allowedRoots.some((root) => target === resolve(root) || target.startsWith(`${resolve(root)}/`));
+    // Symlinks und die Schreibweise auf der Platte aufloesen, dann vergleichen (Windows: ohne Gross-/Kleinschreibung).
+    const realTarget = await realpathLoose(target);
+    let ok = false;
+    for (const root of options.allowedRoots) {
+      const realRoot = await realpathLoose(root);
+      if (isPathInsideOrSame(realRoot, realTarget)) ok = true;
+    }
     if (!ok) throw new EnvExportError(`Pfad liegt ausserhalb der erlaubten Ordner: ${target}`);
   }
   const exists = await stat(target).then(() => true, () => false);
   if (exists && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, text, { encoding: "utf8", mode: 0o600 });
+  await writePrivateFile(target, text);
   return { path: target, gitIgnored: await checkIgnored(target) };
 }
