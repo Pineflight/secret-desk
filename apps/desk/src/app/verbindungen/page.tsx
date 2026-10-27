@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, TextAreaField, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate } from "@/lib/format";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -89,6 +89,20 @@ export default function ConnectionsPage() {
   );
 }
 
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Setzt die Laufzeit im Anbieter-Link, falls dieser expires_in kennt (GitHub: 1 bis 366 Tage oder none). */
+function withExpiry(url: string, days: number | null): string {
+  const u = new URL(url);
+  if (!u.searchParams.has("expires_in")) return url;
+  u.searchParams.set("expires_in", days === null ? "none" : String(Math.min(366, days)));
+  return u.toString();
+}
+
 const labelOf = (c: Connection) => c.label || NAMES[c.id] || c.id;
 
 function IntegrationPicker({ initial, conns, provs, onClose, onChanged, onNewProvider }: { initial: string | null; conns: Connection[]; provs: Provider[]; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
@@ -153,11 +167,15 @@ function ProviderDetail({ p }: { p: Provider }) {
 function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: () => void; onDone: () => void }) {
   const toast = useToast();
   const [value, setValue] = useState("");
-  const [expires, setExpires] = useState("");
-  const [never, setNever] = useState(false);
+  const [preset, setPreset] = useState("90");
+  const [custom, setCustom] = useState("");
   const set = useMutation(async (body: unknown) => api<Connection>("POST", `connections/${enc(c.id)}/token`, body));
   const name = labelOf(c);
   const today = new Date().toISOString().slice(0, 10);
+  const never = preset === "never";
+  const expires = never ? "" : preset === "custom" ? custom : addDays(today, Number(preset));
+  const days = never ? null : Math.max(1, Math.round((Date.parse(`${expires}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000));
+  const link = c.openUrl ? withExpiry(c.openUrl, days) : null;
   const valid = Boolean(value) && (never || (expires !== "" && expires >= today));
   const submit = async () => {
     const v = value;
@@ -172,26 +190,34 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   return (
     <div className="text-sm">
       {c.description ? <p className="text-muted">{c.description}</p> : null}
-      {c.openUrl ? (
-        <a href={c.openUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-medium text-primary underline">
-          {c.openUrl !== c.url ? "Zugang anlegen (Felder sind vorausgefüllt)" : "Zugang beim Anbieter anlegen"}<Icon name="external" className="h-3.5 w-3.5" />
+      <div className="mt-4 grid gap-3 rounded-xl bg-page p-4 sm:grid-cols-2">
+        <SelectField label="1. Laufzeit des Tokens festlegen" value={preset} onChange={(e) => setPreset(e.target.value)}>
+          {[7, 30, 90, 180, 365].map((d) => <option key={d} value={d}>{d} Tage</option>)}
+          <option value="custom">Eigenes Datum</option>
+          <option value="never">Läuft nie ab</option>
+        </SelectField>
+        {preset === "custom" ? (
+          <div className="space-y-1">
+            <label htmlFor={`exp-${c.id}`} className="block text-sm font-medium">Gültig bis</label>
+            <input id={`exp-${c.id}`} type="date" min={today} value={custom} onChange={(e) => setCustom(e.target.value)} className={inputClass} />
+          </div>
+        ) : (
+          <p className="self-end pb-2 text-sm text-muted">{never ? "Ohne Ablauf (nicht empfohlen)." : `Gültig bis ${formatDate(expires)}`}</p>
+        )}
+        <p className="text-xs text-muted sm:col-span-2">Die Laufzeit steckt im Link unten und wird beim Verbinden gespeichert, damit das Portal den Ablauf anzeigen kann.</p>
+      </div>
+      {link ? (
+        <a href={link} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-medium text-primary underline">
+          2. {c.openUrl !== c.url ? "Zugang anlegen (Felder sind vorausgefüllt)" : "Zugang beim Anbieter anlegen"}<Icon name="external" className="h-3.5 w-3.5" />
         </a>
       ) : null}
       {c.permissions.length > 0 ? <ul className="mt-3 flex flex-wrap gap-1.5">{c.permissions.map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted">{r}</li>)}</ul> : null}
       {c.steps.length > 0 ? <ol className="mt-3 list-decimal space-y-1 pl-5 text-muted">{c.steps.map((s, i) => <li key={i}>{s}</li>)}</ol> : null}
       {!c.connected && c.hint ? <p className="mt-3 text-xs text-muted">{c.hint}</p> : null}
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-5 space-y-2 border-t border-line pt-5">
-        <label htmlFor={`tok-${c.id}`} className="block font-medium">Zugangsschlüssel für diese Sitzung eingeben</label>
+        <label htmlFor={`tok-${c.id}`} className="block font-medium">3. Zugangsschlüssel für diese Sitzung eingeben</label>
         <input id={`tok-${c.id}`} type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} font-mono`} />
         <p className="text-xs text-muted">Nur im Arbeitsspeicher, nie gespeichert.</p>
-        <div className="grid gap-3 pt-2 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label htmlFor={`exp-${c.id}`} className="block font-medium">Token gültig bis</label>
-            <input id={`exp-${c.id}`} type="date" min={today} disabled={never} value={expires} onChange={(e) => setExpires(e.target.value)} className={inputClass} />
-            <p className="text-xs text-muted">Das Datum steht beim Anlegen des Tokens beim Anbieter.</p>
-          </div>
-          <div className="flex items-end pb-6"><Checkbox checked={never} onChange={setNever}>Läuft nie ab</Checkbox></div>
-        </div>
         {set.error ? <Notice tone="danger">{set.error.message}</Notice> : null}
         <Button type="submit" variant="primary" loading={set.pending} disabled={!valid}>Verbinden</Button>
       </form>
