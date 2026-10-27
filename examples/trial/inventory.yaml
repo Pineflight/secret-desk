@@ -1,0 +1,80 @@
+# Probelauf-Inventar. Alles zeigt auf das Wegwerf-Repo. Nur Metadaten.
+version: 1
+thresholds: [30, 14, 7]
+
+secrets:
+  # A: nur GitHub, kein Anbieter. Prueft Erzeugen, Pruefbericht, Bestaetigen, Schreiben.
+  - id: trial-random
+    name: SD_TRIAL_RANDOM
+    description: Zufallswert fuer den Probelauf, ohne Anbieter. Prueft den Ablauf bis GitHub.
+    owner: niklas
+    tags: [probelauf]
+    stage: staging
+    service: intern
+    provider: random-hex
+    params: { bytes: 32 }
+    expiry: none
+    places:
+      - { repo: secret-desk-sandbox, scope: environment, environment: staging }
+
+  # B: echter Anbieter. Erzeugt beim Erneuern einen Cloudflare-Token mit nur einem harmlosen Lese-Recht, 7 Tage gueltig.
+  # DEINE_CLOUDFLARE_ACCOUNT_ID ersetzen (Cloudflare Dashboard, Konto, "Copy account ID").
+  - id: trial-cloudflare
+    name: SD_TRIAL_CLOUDFLARE
+    description: Wegwerf-Cloudflare-Token mit nur "Account Settings Read", 7 Tage gueltig.
+    owner: niklas
+    link: https://dash.cloudflare.com/profile/api-tokens
+    tags: [probelauf, cloudflare]
+    stage: staging
+    service: cloudflare
+    provider: cloudflare-token
+    params:
+      accountId: DEINE_CLOUDFLARE_ACCOUNT_ID
+      permissions: ["Account Settings Read"]
+    ttlDays: 7
+    expiry: possible
+    places:
+      - { repo: secret-desk-sandbox, scope: environment, environment: staging }
+
+  # C: von Hand. Du legst einen Wegwerf-Token an (GitHub fine-grained, keine Rechte) und fuegst ihn im Portal ein.
+  - id: trial-manual
+    name: SD_TRIAL_MANUAL
+    description: Von Hand eingefuegter Wegwerf-Token, um die Pruefung manueller Werte zu testen.
+    owner: niklas
+    tags: [probelauf]
+    stage: staging
+    service: github
+    provider: github-fine-grained-token
+    expiry: possible
+    places:
+      - { repo: secret-desk-sandbox, scope: repository }
+
+variables:
+  - id: trial-site-url
+    name: SD_TRIAL_URL
+    description: Basis-Adresse fuer den Probelauf, als Variable (kein Geheimnis).
+    owner: niklas
+    tags: [probelauf, url]
+    stage: staging
+    value: "https://example.com/probelauf"
+    places:
+      - { repo: secret-desk-sandbox, scope: environment, environment: staging }
+  - id: trial-flag
+    name: SD_TRIAL_FLAG
+    description: "Sollwert noch unbekannt. Im Portal aus GitHub uebernehmen testen (vorher einmal von Hand in GitHub setzen)."
+    tags: [probelauf]
+    stage: shared
+    places:
+      - { repo: secret-desk-sandbox, scope: repository }
+
+envTemplates:
+  - id: trial-dev
+    repo: secret-desk-sandbox
+    stage: dev
+    file: .env.local
+    entries:
+      - { key: SD_TRIAL_URL, from: { type: variable, variable: trial-site-url } }
+      - { key: SD_TRIAL_RANDOM, from: { type: generate, kind: hex, bytes: 16 } }
+      - { key: SD_TRIAL_SANDBOX_KEY, from: { type: prompt, hint: "beliebiger Testwert" } }
+
+providers: []

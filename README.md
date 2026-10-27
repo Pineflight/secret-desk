@@ -54,6 +54,8 @@ apps/desk            Portal (Next.js, nur lokal)
 skills/secret-desk   Skill fuer Agenten
 ```
 
+Erster Einsatz mit echten Diensten: [docs/PROBELAUF.md](docs/PROBELAUF.md) (Wegwerf-Repo, `doctor`-Vorpruefung, Abnahmeliste).
+
 Mehr: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md), [docs/SICHERHEIT.md](docs/SICHERHEIT.md), [docs/ANBIETER.md](docs/ANBIETER.md),
 [docs/AGENTEN.md](docs/AGENTEN.md), [docs/TEAM.md](docs/TEAM.md).
 

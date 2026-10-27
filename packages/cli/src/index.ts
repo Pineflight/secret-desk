@@ -30,6 +30,8 @@ import {
   type IssuanceView,
 } from "@secret-desk/runtime";
 
+import { doctorExitCode, runDoctor } from "./doctor.js";
+
 export interface Io {
   out: (line: string) => void;
   err: (line: string) => void;
@@ -41,6 +43,8 @@ const HELP = `secret-desk - Tokens im Blick, Werte nie gespeichert
 
 Aufruf: secret-desk <befehl> [optionen]
 
+  doctor         Vorpruefung vor dem ersten Einsatz (liest nur): Konfiguration, Verbindungen, GitHub-Ziele, Anbieter-Zugang
+                   --config <datei>
   check          Ablaufdaten pruefen (offline), Exit 1 bei abgelaufen oder in <= 7 Tagen
                    --inventory <datei> | --config <datei>   --json   --today JJJJ-MM-TT
   status         Alle Eintraege mit Status, optional live gegen GitHub
@@ -65,6 +69,15 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
   const [command, ...rest] = argv;
   try {
     switch (command) {
+      case "doctor": {
+        const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
+        if (!values.config) throw new Error("doctor --config <datei>");
+        const findings = await runDoctor(await createRuntime(values.config));
+        for (const f of findings) io.out(`[${f.status.padEnd(4)}] ${f.label}${f.detail ? `  (${f.detail})` : ""}`);
+        const bad = findings.filter((f) => f.status === "fail").length;
+        io.out(bad === 0 ? "Bereit fuer den Probelauf." : `${bad} Problem(e) beheben, dann erneut ausfuehren.`);
+        return doctorExitCode(findings);
+      }
       case "check":
         return await check(rest, io);
       case "status":
@@ -315,3 +328,4 @@ async function importLegacy(args: string[], io: Io): Promise<number> {
 }
 
 export { STAGES };
+export * from "./doctor.js";
