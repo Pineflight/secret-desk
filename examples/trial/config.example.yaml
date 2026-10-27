@@ -1,0 +1,22 @@
+# Probelauf gegen das Wegwerf-Repo Pineflight/secret-desk-sandbox. Enthaelt keine Werte, nur Quellen.
+inventory: ./inventory.yaml
+evidenceDir: ./evidence
+
+github:
+  owner: Pineflight
+  auth:
+    type: pat
+    # Fine-grained Token NUR fuer das Sandbox-Repo. Vor dem Start: export SECRET_DESK_GITHUB_TOKEN=...
+    # (oder im Portal unter Verbindungen fuer die Sitzung eingeben und hier { type: session } setzen)
+    source: { type: env, name: SECRET_DESK_GITHUB_TOKEN }
+
+connections:
+  # Token mit "API Tokens: Edit" (kurzlebig, 1 Tag). Vor dem Start: export SECRET_DESK_CLOUDFLARE_TOKEN=...
+  cloudflare: { type: env, name: SECRET_DESK_CLOUDFLARE_TOKEN }
+
+policy:
+  agentStages: [dev]
+  envRoots:
+    - ~/secret-desk-trial
+
+server: { port: 4747 }

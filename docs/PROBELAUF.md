@@ -18,6 +18,8 @@ Die Werte kommen in 1Password oder in Umgebungsvariablen, nie in Dateien und nie
 
 ## 1. Vorbereiten
 
+Vorlagen kopieren: `mkdir -p ~/.secret-desk/trial && cp examples/trial/config.example.yaml ~/.secret-desk/trial/secret-desk.config.yaml && cp examples/trial/inventory.yaml ~/.secret-desk/trial/`
+
 ```bash
 cd ~/Projekte/Privat/Pineflight/secret-desk         # gebaut: pnpm install && pnpm build
 export SECRET_DESK_GITHUB_TOKEN=...                 # Token aus Zeile 1
