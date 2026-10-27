@@ -24,5 +24,9 @@
     "@secret-desk/core": "workspace:*",
     "@secret-desk/providers": "workspace:*",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.8.2",
+    "libsodium-wrappers": "^0.8.4"
   }
 }

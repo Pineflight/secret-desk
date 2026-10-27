@@ -14,7 +14,8 @@ mit Metadaten und stellst Anfragen.
 1. **Nie einen Wert anfassen.** Du bekommst keinen, du fragst keinen ab, du bittest den Menschen nicht, einen im Chat zu nennen.
    Eine erzeugte `.env` liest du nicht aus und gibst sie nicht wieder.
 2. **Stages:** `dev` darfst du direkt anfassen (Metadaten und lokale `.env`). `staging` und `production` loesen nie sofort aus:
-   `desk_request_rotation` erzeugt eine Freigabe-Anfrage, die ein Mensch im Portal bestaetigt. Nenne ihm die Anfrage und frage nicht
+   `desk_request_renewal` und `desk_apply_variable` erzeugen dort eine Freigabe-Anfrage, die ein Mensch im Portal erteilt. Auch ein neuer Wert wird
+   nie sofort geschrieben: Er wird erzeugt, geprueft und wartet auf die Bestaetigung eines Menschen (Pruefbericht, Beleg). Nenne ihm die Anfrage und frage nicht
    nach der Bestaetigung im Chat.
 3. **`production` nie ohne ausdruecklichen Auftrag des Menschen** und nie als Nebeneffekt eines anderen Auftrags.
 4. **Neue Eintraege nur mit Zielen:** ausser `dev` braucht jeder Eintrag `places` (Repo, `repository` oder `environment` mit Name).
@@ -30,7 +31,7 @@ mit Metadaten und stellst Anfragen.
 **Neues Secret fuer ein Projekt:**
 1. `desk_list_providers` (gibt es einen automatischen Anbieter? sonst `manual`), `desk_list_connections` (ist die Verbindung hergestellt?).
 2. `desk_add_secret` mit Stage, Ziel und Anbieter, `ttlDays`/`expires`, wenn der Anbieter einen Ablauf hat.
-3. Automatisch: `desk_request_rotation` (dryRun zuerst). Manuell: dem Menschen die `guide` aus `desk_get_secret` nennen, er traegt den Wert im Portal ein.
+3. Automatisch: `desk_request_renewal` (dryRun zuerst). Manuell: dem Menschen die `guide` aus `desk_get_secret` nennen, er traegt den Wert im Portal ein.
 
 **Neuer Anbieter ohne API:** `desk_add_provider` mit Seite und Schritten, dann Eintraege mit `provider: <id>`.
 
@@ -42,6 +43,12 @@ mit Metadaten und stellst Anfragen.
 
 **Neues Teammitglied:** `desk_team_export` liefert die Konfiguration ohne Werte. Er importiert sie mit `secret-desk team import`, verbindet seine Konten
 und erzeugt seine Dev-Dateien.
+
+**Variablen (vars.*, Konfiguration, kein Geheimnis):** `desk_list_variables`, `desk_variable_status` (Soll gegen Ist in GitHub),
+`desk_add_variable` / `desk_set_variable_value` (Sollwert im Inventar), `desk_apply_variable` (nach GitHub). Nie ein Geheimnis als Variable
+anlegen, das ist dort im Klartext lesbar: Schluessel, Tokens, Passwoerter gehoeren in ein Secret. Das Portal lehnt Werte ab, die wie Schluessel aussehen.
+
+**Nachweis:** `desk_list_reviews` zeigt, was auf die Bestaetigung eines Menschen wartet, `desk_list_evidence` die frueheren Pruefberichte eines Secrets.
 
 ## Fehler
 

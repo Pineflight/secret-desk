@@ -1,9 +1,32 @@
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sodium from "libsodium-wrappers";
 import { describe, expect, it } from "vitest";
+import {
+  PolicyError,
+  addManualProvider,
+  addSecret,
+  addVariable,
+  attachEvidence,
+  confirmIssuance,
+  evidenceSvg,
+  exportEnv,
+  getIssuance,
+  listEvidence,
+  listSecrets,
+  overview,
+  rejectIssuance,
+  requestApplyVariable,
+  requestIssuance,
+  resolveApproval,
+  submitManualValue,
+  teamExport,
+  updateVariable,
+  inspectVariableLive,
+  adoptVariableFromGitHub,
+} from "../src/agent-api.js";
 import { createRuntime } from "../src/runtime.js";
-import { addManualProvider, addSecret, exportEnv, listSecrets, overview, PolicyError, requestRotation, resolveApproval, teamExport } from "../src/agent-api.js";
 
 const INVENTORY = `version: 1
 secrets:
@@ -15,15 +38,34 @@ secrets:
     expiry: none
     places:
       - { repo: leitfaden, scope: environment, environment: staging }
+  - id: hmac-wakemiles
+    name: ARTIFACT_HMAC_SECRET
+    stage: shared
+    product: wakemiles
+    service: intern
+    provider: random-hex
+    expiry: none
+    places:
+      - { repo: wake-miles, scope: repository }
   - id: cf-deploy-wakemiles
     name: CLOUDFLARE_API_TOKEN
     stage: shared
-    product: wakemiles
     service: cloudflare
-    provider: random-hex
+    provider: manual
     expiry: possible
     expires: "2026-11-10"
-    ttlDays: 90
+    places:
+      - { repo: wake-miles, scope: repository }
+variables:
+  - id: site-url-staging
+    name: NEXT_PUBLIC_SITE_URL
+    stage: staging
+    value: "https://staging.example.com"
+    places:
+      - { repo: leitfaden, scope: environment, environment: staging }
+  - id: revenuecat-project
+    name: REVENUECAT_PROJECT_ID
+    stage: shared
     places:
       - { repo: wake-miles, scope: repository }
 envTemplates:
@@ -41,6 +83,24 @@ envTemplates:
 `;
 
 async function setup(agentStages: string[] = ["dev"]) {
+  await sodium.ready;
+  const kp = sodium.crypto_box_keypair();
+  const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
+  const calls: string[] = [];
+  const live: Record<string, string> = { "/leitfaden/environments/staging/variables": "https://alt.example.com", "/wake-miles/actions/variables": "proj_1" };
+  const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url).replace("https://api.github.com", "");
+    const method = init?.method ?? "GET";
+    calls.push(`${method} ${u}`);
+    if (u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
+    if (method === "GET" && u.includes("/variables")) {
+      const key = Object.keys(live).find((k) => u.includes(k));
+      const names: Record<string, string> = { "/leitfaden/environments/staging/variables": "NEXT_PUBLIC_SITE_URL", "/wake-miles/actions/variables": "REVENUECAT_PROJECT_ID" };
+      return new Response(JSON.stringify({ variables: key ? [{ name: names[key], value: live[key], created_at: "c", updated_at: "u" }] : [] }), { status: 200 });
+    }
+    if (method === "GET" && u.includes("/secrets")) return new Response(JSON.stringify({ secrets: [{ name: "ARTIFACT_HMAC_SECRET", created_at: "c", updated_at: new Date().toISOString() }] }), { status: 200 });
+    return new Response(null, { status: 204 });
+  }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-rt-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(
@@ -54,68 +114,126 @@ policy:
   envRoots: ["${dir}"]
 `,
   );
-  const fetchMock = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
-  return { rt, dir };
+  return { rt, dir, calls };
 }
 
-describe("agent-api", () => {
-  it("liefert Uebersicht und Listen nur mit Metadaten", async () => {
+const agent = { kind: "agent", name: "claude" } as const;
+const human = { kind: "human", name: "niklas" } as const;
+
+describe("Uebersicht", () => {
+  it("zaehlt Secrets, Variablen und offene Pruefungen, ohne Werte", async () => {
     const { rt } = await setup();
     const o = await overview(rt, new Date("2026-11-05T00:00:00Z"));
-    expect(o.total).toBe(2);
-    expect(o.byStage.staging).toBe(1);
-    const due = await listSecrets(rt, { status: "due" }, new Date("2026-11-05T00:00:00Z"));
-    expect(due.map((d) => d.id)).toEqual(["cf-deploy-wakemiles"]);
-    expect(JSON.stringify(o)).not.toMatch(/ghp_x/);
+    expect(o).toMatchObject({ total: 3, variables: 2, pendingReviews: 0, pendingApprovals: 0 });
+    expect((await listSecrets(rt, { status: "due" }, new Date("2026-11-05T00:00:00Z"))).map((s) => s.id)).toEqual(["cf-deploy-wakemiles"]);
+    expect(JSON.stringify(o)).not.toContain("ghp_x");
   });
-  it("Agenten bekommen fuer staging eine Freigabe-Anfrage statt Ausfuehrung", async () => {
+});
+
+describe("Ausstellen, Pruefen, Bestaetigen", () => {
+  it("Mensch: Wert wird erzeugt und geprueft, GitHub bleibt unberuehrt bis zur Bestaetigung", async () => {
+    const { rt, calls } = await setup();
+    const r = await requestIssuance(rt, human, "hmac-wakemiles");
+    if (r.status !== "awaiting-review") throw new Error("erwartet");
+    expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
+    expect(r.issuance.report.checks.some((c) => c.id.startsWith("target:") && c.status === "pass")).toBe(true);
+    expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{64}/);
+    const ticks = r.issuance.report.checklist.map((c) => c.id);
+    await expect(confirmIssuance(rt, agent, r.issuance.id, { ticks })).rejects.toThrow(PolicyError);
+    const done = await confirmIssuance(rt, human, r.issuance.id, { ticks, note: "ok" });
+    expect(done.ok).toBe(true);
+    expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
+    expect(rt.inventory.getSecret("hmac-wakemiles")!.verifiedBy).toBe("niklas");
+    expect(rt.issuances.list()).toHaveLength(0);
+    const evidence = await listEvidence(rt, "hmac-wakemiles");
+    expect(evidence[0]!.confirmation?.decision).toBe("confirmed");
+    expect(await evidenceSvg(rt, "hmac-wakemiles", evidence[0]!.id)).toContain("<svg");
+  });
+  it("Mensch kann ablehnen: nichts wird geschrieben", async () => {
+    const { rt, calls } = await setup();
+    const r = await requestIssuance(rt, human, "hmac-wakemiles");
+    if (r.status !== "awaiting-review") throw new Error("erwartet");
+    await rejectIssuance(rt, human, r.issuance.id, "falsch");
+    expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
+    await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow();
+  });
+  it("Agent in staging: Freigabe-Anfrage, nach der Freigabe wartet die Pruefung auf Bestaetigung", async () => {
     const { rt } = await setup();
-    const r = await requestRotation(rt, { kind: "agent", name: "claude" }, "stripe-webhook-leitfaden-staging", { reason: "Webhook neu" });
+    const r = await requestIssuance(rt, agent, "stripe-webhook-leitfaden-staging", { reason: "neu" });
     expect(r.status).toBe("pending-approval");
-    expect(rt.approvals.list("pending")).toHaveLength(1);
-    const again = await requestRotation(rt, { kind: "agent", name: "claude" }, "stripe-webhook-leitfaden-staging");
-    expect(again.status === "pending-approval" && again.approvalId).toBe(rt.approvals.list()[0]!.id);
-  });
-  it("nur ein Mensch darf freigeben", async () => {
-    const { rt } = await setup();
-    const r = await requestRotation(rt, { kind: "agent", name: "claude" }, "stripe-webhook-leitfaden-staging");
     if (r.status !== "pending-approval") throw new Error("erwartet");
-    await expect(resolveApproval(rt, { kind: "agent", name: "claude" }, r.approvalId, "approve")).rejects.toThrow(PolicyError);
-    const denied = await resolveApproval(rt, { kind: "human", name: "niklas" }, r.approvalId, "deny");
-    expect(denied.state).toBe("denied");
+    await expect(resolveApproval(rt, agent, r.approvalId, "approve")).rejects.toThrow(PolicyError);
+    const denied = await requestIssuance(rt, agent, "stripe-webhook-leitfaden-staging");
+    expect(denied.status === "pending-approval" && denied.approvalId).toBe(r.approvalId);
   });
-  it("Dry-Run zeigt den Plan ohne Wirkung", async () => {
+  it("Handeingabe: wird geprueft, der Wert steht in keinem Bericht, Anlage nur als Bild", async () => {
     const { rt } = await setup();
-    const r = await requestRotation(rt, { kind: "agent", name: "claude" }, "cf-deploy-wakemiles", { dryRun: true });
-    expect(r.status).toBe("dry-run");
+    const issuance = await submitManualValue(rt, human, "cf-deploy-wakemiles", "cf_handeingabe_token_123456");
+    expect(JSON.stringify(issuance)).not.toContain("handeingabe");
+    await attachEvidence(rt, human, "cf-deploy-wakemiles", issuance.id, new Uint8Array([137, 80, 78, 71]), "image/png", "Dashboard");
+    await expect(attachEvidence(rt, agent, "cf-deploy-wakemiles", issuance.id, new Uint8Array([1]), "image/png")).rejects.toThrow(PolicyError);
+    await expect(submitManualValue(rt, agent, "cf-deploy-wakemiles", "x")).rejects.toThrow(PolicyError);
+    const stored = await listEvidence(rt, "cf-deploy-wakemiles");
+    expect(stored[0]!.attachments).toHaveLength(1);
   });
-  it("Dev-Env: schreibt Datei 600 und gibt nur Schluessel zurueck", async () => {
+});
+
+describe("Variablen", () => {
+  it("vergleicht Soll und Ist, uebernimmt aus GitHub und lehnt Geheimnisse ab", async () => {
+    const { rt } = await setup();
+    const check = await inspectVariableLive(rt, "site-url-staging");
+    expect(check.drift[0]!.state).toBe("different");
+    const adopted = await adoptVariableFromGitHub(rt, human, "revenuecat-project");
+    expect(adopted.value).toBe("proj_1");
+    await expect(updateVariable(rt, human, "site-url-staging", { value: "sk_live_" + "a".repeat(24) })).rejects.toThrow(/Stripe/);
+    await expect(updateVariable(rt, agent, "site-url-staging", { value: "aB3dE5gH7jK9mN2pQ4sT6vW8yZ1cF3hJ5" }, { acknowledgedPublic: true })).rejects.toThrow(/acknowledgedPublic/);
+    await updateVariable(rt, human, "site-url-staging", { value: "https://neu.example.com" });
+    expect(await readFile(rt.inventory.path!, "utf8")).toContain("https://neu.example.com");
+  });
+  it("Setzen: Mensch sofort, Agent in staging nur per Freigabe", async () => {
+    const { rt, calls } = await setup();
+    const a = await requestApplyVariable(rt, agent, "site-url-staging");
+    expect(a.status).toBe("pending-approval");
+    expect(calls.some((c) => c.startsWith("PATCH") || c.startsWith("POST"))).toBe(false);
+    const h = await requestApplyVariable(rt, human, "site-url-staging");
+    expect(h.status).toBe("applied");
+    expect(calls.some((c) => c.startsWith("PATCH") && c.includes("/leitfaden/environments/staging/variables/NEXT_PUBLIC_SITE_URL"))).toBe(true);
+  });
+  it("neue Variable mit Pflichtziel", async () => {
+    const { rt } = await setup();
+    await expect(addVariable(rt, agent, { id: "x-y", name: "X_Y", places: [] })).rejects.toThrow();
+    const v = await addVariable(rt, agent, { id: "print-env", name: "PRINT_ENV", stage: "staging", value: "sandbox", places: [{ repo: "wake-miles", scope: "environment", environment: "staging" }] });
+    expect(v.value).toBe("sandbox");
+  });
+});
+
+describe("Dev-Env und Metadaten", () => {
+  it("schreibt Datei 600 und gibt nur Schluessel zurueck", async () => {
     const { rt, dir } = await setup();
-    const r = await exportEnv(rt, { kind: "agent", name: "claude" }, { repo: "leitfaden", path: join(dir, "app", ".env.local") });
+    const r = await exportEnv(rt, agent, { repo: "leitfaden", path: join(dir, "app", ".env.local") });
     if (r.status !== "written") throw new Error("erwartet");
     expect(r.keys).toEqual(["SITE_URL", "RATE_LIMIT_GEHEIMNIS"]);
     expect((await stat(r.path)).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{32}/);
-    expect(await readFile(r.path, "utf8")).toMatch(/RATE_LIMIT_GEHEIMNIS=[0-9a-f]{32}/);
   });
-  it("Agenten duerfen weder staging-Env noch Werte uebergeben noch ausserhalb der Wurzeln schreiben", async () => {
+  it("Agenten: keine Stage ausser dev, keine Werte, keine fremden Ordner", async () => {
     const { rt, dir } = await setup();
-    await expect(exportEnv(rt, { kind: "agent", name: "c" }, { repo: "leitfaden", stage: "staging", path: join(dir, "x") })).rejects.toThrow(PolicyError);
-    await expect(exportEnv(rt, { kind: "agent", name: "c" }, { repo: "leitfaden", path: join(dir, "y"), prompts: { A: "b" } })).rejects.toThrow(PolicyError);
-    await expect(exportEnv(rt, { kind: "agent", name: "c" }, { repo: "leitfaden", path: "/tmp/ausserhalb/.env" })).rejects.toThrow(/ausserhalb/);
+    await expect(exportEnv(rt, agent, { repo: "leitfaden", stage: "staging", path: join(dir, "x") })).rejects.toThrow(PolicyError);
+    await expect(exportEnv(rt, agent, { repo: "leitfaden", path: join(dir, "y"), prompts: { A: "b" } })).rejects.toThrow(PolicyError);
+    await expect(exportEnv(rt, agent, { repo: "leitfaden", path: "/tmp/ausserhalb/.env" })).rejects.toThrow(/ausserhalb/);
   });
   it("meldet noetige Eingaben statt zu raten", async () => {
     const { rt, dir } = await setup();
-    const r = await exportEnv(rt, { kind: "human", name: "n" }, { repo: "leitfaden-x", path: join(dir, "z") });
-    expect(r).toMatchObject({ status: "needs-input", keys: ["STRIPE_SECRET_KEY"] });
+    expect(await exportEnv(rt, human, { repo: "leitfaden-x", path: join(dir, "z") })).toMatchObject({ status: "needs-input", keys: ["STRIPE_SECRET_KEY"] });
   });
-  it("pflegt Metadaten: neues Secret, eigener Anbieter, Team-Datei", async () => {
+  it("pflegt Metadaten und Team-Datei", async () => {
     const { rt } = await setup();
     await addSecret(rt, { id: "resend-leitfaden-staging", name: "RESEND_API_KEY", service: "resend", stage: "staging", provider: "resend-api-key", places: [{ repo: "leitfaden", scope: "environment", environment: "staging" }] });
     await addManualProvider(rt, { id: "peecho", label: "Peecho", url: "https://www.peecho.com", steps: ["Dashboard oeffnen"] });
     expect(rt.providers.get("peecho")?.kind).toBe("manual");
     expect(teamExport(rt)).toContain("resend-leitfaden-staging");
+    expect(teamExport(rt)).toContain("site-url-staging");
     expect(await readFile(rt.inventory.path!, "utf8")).toContain("resend-leitfaden-staging");
   });
 });

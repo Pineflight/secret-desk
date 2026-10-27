@@ -17,7 +17,9 @@ import {
   type TokenProvider,
 } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
+import { EvidenceStore, type IssuanceDeps } from "@secret-desk/core";
 import { ApprovalQueue } from "./approvals.js";
+import { IssuanceQueue } from "./issuances.js";
 
 export interface Runtime {
   config: DeskConfig;
@@ -27,6 +29,8 @@ export interface Runtime {
   connections: ConnectionStore;
   providers: ProviderRegistry;
   approvals: ApprovalQueue;
+  issuances: IssuanceQueue;
+  evidence: EvidenceStore;
   owner: string;
   fetch: FetchLike;
 }
@@ -95,9 +99,16 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     connections,
     providers,
     approvals: new ApprovalQueue(),
+    issuances: new IssuanceQueue(),
+    evidence: new EvidenceStore(resolve(dirname(path), config.evidenceDir)),
     owner: config.github.owner,
     fetch: f,
   };
+}
+
+/** Abhaengigkeiten fuer die Funktionen des Kerns, die Ausstellung und Bestaetigung steuern. */
+export function issuanceDeps(rt: Runtime): IssuanceDeps {
+  return { inventory: rt.inventory, github: rt.github, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence };
 }
 
 export async function readOptional(path: string): Promise<string | null> {

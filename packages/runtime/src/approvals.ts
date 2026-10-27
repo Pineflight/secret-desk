@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 export type ApprovalState = "pending" | "approved" | "denied" | "failed";
+export type ApprovalAction = "issue" | "apply-variable";
 
 export interface Approval {
   id: string;
-  secretId: string;
-  action: "rotate";
+  action: ApprovalAction;
+  /** Id des Secrets (issue) oder der Variable (apply-variable). */
+  targetId: string;
   requestedBy: string;
   reason: string | null;
   createdAt: string;
@@ -15,19 +17,19 @@ export interface Approval {
 }
 
 /**
- * Anfragen, die ein Mensch freigeben muss (zum Beispiel Rotation in staging oder production durch einen Agenten).
+ * Anfragen, die ein Mensch freigeben muss (zum Beispiel ein neuer Wert in staging oder production durch einen Agenten).
  * Nur im Arbeitsspeicher: Nach einem Neustart sind offene Anfragen weg und werden neu gestellt.
  */
 export class ApprovalQueue {
   readonly #items = new Map<string, Approval>();
 
-  create(input: { secretId: string; requestedBy: string; reason?: string | null; now?: Date }): Approval {
-    const open = [...this.#items.values()].find((a) => a.secretId === input.secretId && a.state === "pending");
+  create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date }): Approval {
+    const open = [...this.#items.values()].find((a) => a.action === input.action && a.targetId === input.targetId && a.state === "pending");
     if (open) return open;
     const approval: Approval = {
       id: randomUUID(),
-      secretId: input.secretId,
-      action: "rotate",
+      action: input.action,
+      targetId: input.targetId,
       requestedBy: input.requestedBy,
       reason: input.reason ?? null,
       createdAt: (input.now ?? new Date()).toISOString(),

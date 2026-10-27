@@ -12,3 +12,4 @@ secret-desk.state.json
 *.pem
 *.key
 .DS_Store
+.secret-desk-evidence/

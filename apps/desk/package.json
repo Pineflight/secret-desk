@@ -1,0 +1,32 @@
+{
+  "name": "@secret-desk/desk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 4747",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 4747",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@secret-desk/core": "workspace:*",
+    "@secret-desk/runtime": "workspace:*",
+    "libsodium-wrappers": "^0.8.4",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/libsodium-wrappers": "^0.8.2",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

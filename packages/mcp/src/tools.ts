@@ -116,11 +116,54 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "desk_request_rotation",
+    name: "desk_request_renewal",
     description:
-      "Bittet darum, ein Secret beim Anbieter zu erneuern und in GitHub zu schreiben. dryRun zeigt nur den Plan. In staging und production fuehrt das nie sofort aus, sondern erzeugt eine Freigabe-Anfrage, die ein Mensch im Portal bestaetigt. Danach mit desk_get_approval nachsehen.",
+      "Bittet darum, einen neuen Wert fuer ein Secret beim Anbieter zu erzeugen. dryRun zeigt nur den Plan. Es wird NIE sofort in GitHub geschrieben: Der neue Wert wird erzeugt und geprueft (Pruefbericht), ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben und der alte widerrufen. In staging und production erzeugt die Anfrage zuerst eine Freigabe, die ein Mensch erteilt. Danach mit desk_get_approval und desk_list_reviews nachsehen.",
     inputSchema: { secretId: z.string(), reason: z.string().optional(), dryRun: z.boolean().optional() },
-    run: (c, i) => c.request("POST", "/rotation-requests", i),
+    run: (c, i) => c.request("POST", "/renewal-requests", i),
+  },
+  {
+    name: "desk_list_reviews",
+    description: "Offene Pruefungen: neu erzeugte Werte, die auf die Bestaetigung eines Menschen warten, mit Pruefbericht (Befunde, Pruefpunkte, Fingerabdruck). Keine Werte.",
+    inputSchema: {},
+    run: (c) => c.request("GET", "/reviews"),
+  },
+  {
+    name: "desk_list_evidence",
+    description: "Frueher erstellte Pruefberichte eines Secrets (Befunde, Bestaetigung, Anlagen). Keine Werte.",
+    inputSchema: { secretId: z.string() },
+    run: (c, i) => c.request("GET", `/evidence/${encodeURIComponent(String(i.secretId))}`),
+  },
+  {
+    name: "desk_list_variables",
+    description: "Listet GitHub-Actions-Variablen (vars.*) mit Sollwert aus dem Inventar. Variablen sind Konfiguration, kein Geheimnis. Filter: stage, repo, product.",
+    inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional() },
+    run: (c, i) => c.request("GET", `/variables${qs(i)}`),
+  },
+  {
+    name: "desk_variable_status",
+    description: "Soll gegen Ist einer Variable live in GitHub: in-sync, different, missing, unknown-expected, unreachable je Ziel.",
+    inputSchema: { id: z.string() },
+    run: (c, i) => c.request("GET", `/variables/${encodeURIComponent(String(i.id))}/status`),
+  },
+  {
+    name: "desk_add_variable",
+    description:
+      "Legt eine Variable im Inventar an (id kleinbuchstaben-mit-bindestrich, name GROSSBUCHSTABEN, stage, mindestens ein Ziel in places). value ist der Sollwert, oder weglassen, wenn er noch unbekannt ist. NIE ein Geheimnis als Variable: Werte, die wie Schluessel aussehen, werden abgelehnt. Setzt noch nichts in GitHub.",
+    inputSchema: { id: z.string(), name: z.string(), stage: StageEnum, value: z.string().optional(), description: z.string().optional(), product: z.string().optional(), places: z.array(PlaceInput).min(1) },
+    run: (c, i) => c.request("POST", "/variables", i),
+  },
+  {
+    name: "desk_set_variable_value",
+    description: "Aendert den Sollwert einer Variable im Inventar. Setzt noch nichts in GitHub (dafuer desk_apply_variable).",
+    inputSchema: { id: z.string(), value: z.string() },
+    run: (c, i) => c.request("PATCH", `/variables/${encodeURIComponent(String(i.id))}`, { value: i.value }),
+  },
+  {
+    name: "desk_apply_variable",
+    description: "Setzt den Sollwert einer Variable in GitHub. In dev sofort, in staging und production nur als Freigabe-Anfrage, die ein Mensch im Portal erteilt.",
+    inputSchema: { id: z.string(), reason: z.string().optional() },
+    run: (c, i) => c.request("POST", `/variables/${encodeURIComponent(String(i.id))}/apply`, { reason: i.reason }),
   },
   {
     name: "desk_get_approval",

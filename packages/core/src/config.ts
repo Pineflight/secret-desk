@@ -12,6 +12,8 @@ export const SourceSpecSchema = z.discriminatedUnion("type", [
 export const ConfigSchema = z.object({
   /** Pfad zur Inventar-Datei, relativ zur Konfiguration. */
   inventory: z.string().min(1),
+  /** Ordner fuer Pruefberichte und Anlagen, relativ zur Konfiguration. Nicht ins Git. */
+  evidenceDir: z.string().default(".secret-desk-evidence"),
   github: z.object({
     owner: z.string().min(1),
     auth: z.discriminatedUnion("type", [

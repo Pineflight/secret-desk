@@ -1,0 +1,91 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+/** Zugriffsschutz fuer das lokale Portal. Es lauscht nur auf 127.0.0.1, schuetzt aber auch vor fremden Webseiten im Browser. */
+
+export interface SecurityConfig {
+  port: number;
+  /** Erlaubte Host-Namen (Schutz gegen DNS-Rebinding). */
+  hosts?: string[];
+}
+
+export function allowedHosts(port: number, extra: string[] = []): Set<string> {
+  return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...extra]);
+}
+
+export function checkHost(req: Request, hosts: Set<string>): boolean {
+  const host = req.headers.get("host") ?? new URL(req.url).host;
+  return hosts.has(host);
+}
+
+/** Bei Aenderungen muss der Ursprung die eigene Adresse sein (kein fremder Webseiten-Aufruf). */
+export function checkOrigin(req: Request, hosts: Set<string>): boolean {
+  if (req.method === "GET" || req.method === "HEAD") return true;
+  const origin = req.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return hosts.has(new URL(origin).host);
+  } catch {
+    return false;
+  }
+}
+
+const safeEqual = (a: string, b: string): boolean => {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+};
+
+export function bearerMatches(req: Request, token: string): boolean {
+  const header = req.headers.get("authorization") ?? "";
+  const m = /^Bearer (.+)$/.exec(header);
+  return Boolean(m && safeEqual(m[1]!, token));
+}
+
+export function cookieValue(req: Request, name: string): string | null {
+  const raw = req.headers.get("cookie") ?? "";
+  for (const part of raw.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return rest.join("=");
+  }
+  return null;
+}
+
+/** Portal-Sitzung: Cookie (HttpOnly, SameSite=Strict) plus CSRF-Token, den die Seite mitsendet. */
+export class PortalSession {
+  readonly cookie = randomBytes(32).toString("base64url");
+  readonly csrf = randomBytes(32).toString("base64url");
+
+  cookieHeader(): string {
+    return `sd_session=${this.cookie}; Path=/; HttpOnly; SameSite=Strict`;
+  }
+
+  valid(req: Request): boolean {
+    const c = cookieValue(req, "sd_session");
+    const h = req.headers.get("x-secret-desk-csrf");
+    return Boolean(c && h && safeEqual(c, this.cookie) && safeEqual(h, this.csrf));
+  }
+}
+
+export function agentTokenPath(home = homedir()): string {
+  return join(home, ".secret-desk", "agent-token");
+}
+
+/** Liest den Agenten-Token oder legt ihn an (Modus 600). Der Token ist ein Zugangswert fuer die lokale Agenten-Schnittstelle. */
+export async function loadOrCreateAgentToken(path = agentTokenPath(), rotate = false): Promise<string> {
+  if (!rotate) {
+    try {
+      const existing = (await readFile(path, "utf8")).trim();
+      if (existing.length >= 32) return existing;
+    } catch {
+      /* neu anlegen */
+    }
+  }
+  const token = randomBytes(32).toString("base64url");
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${token}\n`, { mode: 0o600 });
+  await chmod(path, 0o600);
+  return token;
+}

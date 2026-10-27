@@ -1,0 +1,126 @@
+# Demo-Inventar mit erfundenen Werten und Zielen. Nur Metadaten.
+version: 1
+thresholds: [30, 14, 7]
+
+secrets:
+  - id: cloudflare-deploy-wakemiles
+    name: CLOUDFLARE_API_TOKEN
+    product: wakemiles
+    stage: shared
+    service: cloudflare
+    provider: random-hex
+    expiry: possible
+    expires: "2026-11-02"
+    ttlDays: 90
+    places:
+      - { repo: wake-miles, scope: repository }
+  - id: vapid-private-wakemiles
+    name: VAPID_PRIVATE_KEY
+    product: wakemiles
+    stage: shared
+    service: web-push
+    provider: random-hex
+    expiry: none
+    places:
+      - { repo: wake-miles, scope: repository }
+  - id: hmac-wakemiles-staging
+    name: ARTIFACT_HMAC_SECRET
+    product: wakemiles
+    stage: staging
+    service: intern
+    provider: random-hex
+    expiry: none
+    places:
+      - { repo: wake-miles, scope: environment, environment: staging }
+  - id: vesselapi-wakemiles-staging
+    name: VESSELAPI_API_KEY
+    product: wakemiles
+    stage: staging
+    service: vesselapi
+    provider: vesselapi
+    expiry: unknown
+    places:
+      - { repo: wake-miles, scope: environment, environment: staging }
+  - id: stripe-webhook-webstudio-staging
+    name: STRIPE_WEBHOOK_SECRET
+    product: web-studio
+    stage: staging
+    service: stripe
+    provider: stripe-restricted-key
+    expiry: none
+    expires: null
+    places:
+      - { repo: web-studio, scope: environment, environment: staging }
+  - id: openai-leitfaden-staging
+    name: OPENAI_API_KEY
+    product: leitfaden
+    stage: staging
+    service: openai
+    provider: openai
+    expiry: none
+    places:
+      - { repo: leitfaden, scope: environment, environment: staging }
+  - id: supabase-access-leitfaden
+    name: SUPABASE_ACCESS_TOKEN
+    product: leitfaden
+    stage: shared
+    service: supabase
+    provider: supabase-access-token
+    expiry: required
+    places:
+      - { repo: leitfaden, scope: repository }
+  - id: lead-token-dev
+    name: LEAD_INTAKE_TOKEN
+    product: web-studio
+    stage: dev
+    service: intern
+    provider: random-hex
+    expiry: none
+
+variables:
+  - id: revenuecat-project-wakemiles
+    name: REVENUECAT_PROJECT_ID
+    product: wakemiles
+    stage: shared
+    description: RevenueCat-Projekt fuer Produkt-Setup
+    value: proj_demo_123
+    places:
+      - { repo: wake-miles, scope: repository }
+  - id: site-url-webstudio-staging
+    name: NEXT_PUBLIC_SITE_URL
+    product: web-studio
+    stage: staging
+    value: "https://web-studio-app-staging.pineflight.com"
+    places:
+      - { repo: web-studio, scope: environment, environment: staging }
+  - id: site-url-leitfaden-staging
+    name: NEXT_PUBLIC_SITE_URL
+    product: leitfaden
+    stage: staging
+    value: "https://leitfaden-staging.pineflight.com"
+    places:
+      - { repo: leitfaden, scope: environment, environment: staging }
+  - id: print-env-wakemiles
+    name: PRINT_ENV
+    product: wakemiles
+    stage: staging
+    description: sandbox oder live
+    places:
+      - { repo: wake-miles, scope: environment, environment: staging }
+
+envTemplates:
+  - id: web-studio-dev
+    repo: web-studio
+    stage: dev
+    entries:
+      - { key: NEXT_PUBLIC_SITE_URL, from: { type: default, value: "http://localhost:3000" } }
+      - { key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 32 } }
+      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" } }
+  - id: leitfaden-dev
+    repo: leitfaden
+    stage: dev
+    entries:
+      - { key: NEXT_PUBLIC_SITE_URL, from: { type: variable, variable: site-url-leitfaden-staging } }
+      - { key: RATE_LIMIT_GEHEIMNIS, from: { type: generate, kind: hex, bytes: 16 } }
+
+providers: []

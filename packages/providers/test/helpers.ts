@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { ConnectionStore, SecretSchema, type IssueContext, type RevokeContext } from "@secret-desk/core";
+import { ConnectionStore, SecretSchema, SecretValue, type IssueContext, type RevokeContext, type Stage, type VerifyContext } from "@secret-desk/core";
 
 export const CONN_TOKEN = "CONN-TOKEN-1234567890";
 export const ISSUED = "ISSUED-VALUE-ABCDEFGH";
@@ -55,3 +55,29 @@ export function issueCtx(f: typeof fetch, params: Record<string, unknown>, opts:
 export function revokeCtx(f: typeof fetch, params: Record<string, unknown>, externalId: string, conns: string[]): RevokeContext {
   return { externalId, secret: secretEntry(), params, connections: connections(...conns), fetch: f };
 }
+
+export function verifyCtx(
+  f: typeof fetch,
+  params: Record<string, unknown>,
+  opts: { value?: string; stage?: Stage; conns?: string[]; ttlDays?: number; externalId?: string; expiresAt?: string | null } = {},
+): VerifyContext {
+  return {
+    secret: secretEntry(opts.ttlDays ? { ttlDays: opts.ttlDays } : {}),
+    params,
+    stage: opts.stage ?? "dev",
+    value: new SecretValue(opts.value ?? ISSUED),
+    ...(opts.externalId ? { externalId: opts.externalId } : {}),
+    ...(opts.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
+    connections: connections(...(opts.conns ?? [])),
+    fetch: f,
+    now: new Date("2026-11-01T10:00:00Z"),
+  };
+}
+
+/** Beleg: weder Wert noch Verbindungs-Token in den Befunden. */
+export function expectNoLeak(checks: unknown, extra: string[] = []): void {
+  const s = JSON.stringify(checks);
+  for (const bad of [ISSUED, CONN_TOKEN, ...extra]) if (s.includes(bad)) throw new Error(`Befunde enthalten einen Wert: ${bad.slice(0, 4)}...`);
+}
+
+export const byId = (checks: { id: string; status: string }[]) => Object.fromEntries(checks.map((c) => [c.id, c.status]));
