@@ -49,4 +49,8 @@ export default {
   "variables.removeTitle": "Remove variable?",
   "variables.removeText": "“{name}” will be removed from the inventory. The variable remains in GitHub.",
   "variables.removed": "Removed.",
+  "variables.unreachable401": "The token is invalid or expired. Reconnect it under Integrations.",
+  "variables.unreachable403": "The token probably lacks the “Variables” permission (Read and write), or this repository is not selected for the token. Adjust it in GitHub under Settings, Developer settings, Fine-grained tokens.",
+  "variables.unreachable404": "The repository or environment was not found, or the token has no access to it. Check the repository name and the token's repository selection.",
+  "variables.unreachableOther": "GitHub rejected the request. The message is shown below.",
 } satisfies Record<string, string>;

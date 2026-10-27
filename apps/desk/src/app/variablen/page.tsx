@@ -204,6 +204,12 @@ function VariableCard({ v, tag, onTag, onChanged, onRemove }: { v: VariableView;
             <li key={i} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
               <span className="flex-1 font-medium">{d.placeLabel}</span>
               <Badge info={driftInfo(d.state as DriftState)} />
+              {d.state === "unreachable" ? (
+                <p className="basis-full text-xs text-muted-text">
+                  {t(d.errorStatus === 401 ? "variables.unreachable401" : d.errorStatus === 403 ? "variables.unreachable403" : d.errorStatus === 404 ? "variables.unreachable404" : "variables.unreachableOther")}
+                  {d.error ? <span className="mt-1 block break-words font-mono text-[11px]">{d.error}</span> : null}
+                </p>
+              ) : null}
               {d.state === "different" ? <span className="text-xs text-muted-text">{t("variables.driftExpected")} <span className="font-mono text-ink">{d.expected ?? "–"}</span>, {t("variables.driftActual")} <span className="font-mono text-ink">{d.actual ?? "–"}</span></span> : null}
             </li>
           ))}

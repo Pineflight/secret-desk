@@ -49,4 +49,8 @@ export default {
   "variables.removeTitle": "Variable entfernen?",
   "variables.removeText": "„{name}“ wird aus dem Inventar entfernt. In GitHub bleibt die Variable bestehen.",
   "variables.removed": "Entfernt.",
+  "variables.unreachable401": "Der Token ist ungültig oder abgelaufen. Unter Integrationen neu verbinden.",
+  "variables.unreachable403": "Dem Token fehlt wahrscheinlich das Recht „Variables“ (Read and write), oder dieses Repository ist beim Token nicht ausgewählt. In GitHub unter Settings, Developer settings, Fine-grained tokens anpassen.",
+  "variables.unreachable404": "Repository oder Umgebung wurde nicht gefunden, oder der Token hat dort keinen Zugriff. Name und Repository-Auswahl des Tokens prüfen.",
+  "variables.unreachableOther": "GitHub hat die Abfrage abgelehnt. Die Meldung steht unten.",
 } satisfies Record<string, string>;

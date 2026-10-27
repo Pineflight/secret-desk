@@ -1,5 +1,6 @@
 import type { GitHubClient, GitHubTarget } from "./github.js";
 import { placeToTarget } from "./github.js";
+import { GitHubError } from "./github.js";
 import { looksSecret } from "./guards.js";
 import type { InventoryStore } from "./inventory.js";
 import type { Place, VariableEntry } from "./types.js";
@@ -14,6 +15,9 @@ export interface VariableDrift {
   expected: string | null;
   actual: string | null;
   updatedAt: string | null;
+  /** Nur bei state "unreachable": Meldung und HTTP-Status von GitHub, damit die Ursache sichtbar ist. */
+  error?: string;
+  errorStatus?: number;
 }
 
 export class VariableError extends Error {
@@ -38,6 +42,7 @@ export function assertPublicValue(name: string, value: string, acknowledgedPubli
 /** Vergleicht Soll (Inventar) und Ist (GitHub) fuer alle Ziele einer Variable. */
 export async function inspectVariable(github: GitHubClient, owner: string, variable: VariableEntry): Promise<VariableDrift[]> {
   const cache = new Map<string, Map<string, { value: string; updatedAt: string }> | null>();
+  const failures = new Map<string, { error: string; errorStatus?: number }>();
   const out: VariableDrift[] = [];
   for (const place of variable.places) {
     const target = placeToTarget(owner, place);
@@ -45,14 +50,15 @@ export async function inspectVariable(github: GitHubClient, owner: string, varia
     if (!cache.has(key)) {
       try {
         cache.set(key, new Map((await github.listVariables(target)).map((v) => [v.name, { value: v.value, updatedAt: v.updatedAt }])));
-      } catch {
+      } catch (err) {
         cache.set(key, null);
+        failures.set(key, { error: err instanceof Error ? err.message : String(err), ...(err instanceof GitHubError ? { errorStatus: err.status } : {}) });
       }
     }
     const live = cache.get(key);
     const name = place.name ?? variable.name;
     const label = placeLabel(place);
-    if (live === null) out.push({ variableId: variable.id, place, placeLabel: label, state: "unreachable", expected: variable.value, actual: null, updatedAt: null });
+    if (live === null) out.push({ variableId: variable.id, place, placeLabel: label, state: "unreachable", expected: variable.value, actual: null, updatedAt: null, ...failures.get(key) });
     else {
       const found = live!.get(name);
       const state: DriftState = !found ? "missing" : variable.value === null ? "unknown-expected" : found.value === variable.value ? "in-sync" : "different";
