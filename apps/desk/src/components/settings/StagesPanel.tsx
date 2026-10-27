@@ -13,7 +13,7 @@ import { publishStages } from "@/lib/use-stages";
 import { useToast } from "@/lib/toast";
 import { StageDialog } from "./StageDialog";
 
-const GRID = "md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] md:items-center md:gap-4";
+const GRID = "xl:grid xl:grid-cols-[minmax(0,1.5fr)_minmax(10rem,max-content)_minmax(0,1fr)_minmax(0,1.3fr)_auto] xl:items-center xl:gap-4";
 const iconBtn = "rounded-xl p-2 text-muted hover:bg-page disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Stage-Liste: kompakt, jede Aenderung wird sofort als ganze Liste gespeichert (der Server prueft wie bisher). */
@@ -87,21 +87,21 @@ export function StagesPanel({ stages }: { stages: StageView[] }) {
           {stages.map((s, i) => {
             const d = drafts[i]!;
             return (
-              <div key={s.id} role="row" className={`space-y-2 px-3 py-3 md:space-y-0 ${GRID}`}>
+              <div key={s.id} role="row" className={`space-y-2 px-3 py-3 xl:space-y-0 ${GRID}`}>
                 <div role="cell" className="min-w-0">
                   <Badge info={stageLook(defs, s.id)} />
                   <p className="mt-1 truncate font-mono text-xs text-muted">{s.id}</p>
                 </div>
                 <div role="cell" className="text-sm">
-                  <span className="mr-2 text-xs text-muted md:hidden">{t("settings.col.kind")}</span>
+                  <span className="mr-2 text-xs text-muted xl:hidden">{t("settings.col.kind")}</span>
                   <Badge info={{ label: t(`settings.kind.${s.kind}`), tone: KIND_TONES[s.kind], icon: "dot" }} />
                 </div>
                 <div role="cell" className="min-w-0 text-sm">
-                  <span className="mr-2 text-xs text-muted md:hidden">{t("settings.col.environment")}</span>
+                  <span className="mr-2 text-xs text-muted xl:hidden">{t("settings.col.environment")}</span>
                   {s.environmentName ? <span className="font-mono text-xs">{s.environmentName}</span> : <span className="text-muted">{t("settings.environmentNone")}</span>}
                 </div>
                 <div role="cell" className="text-sm text-muted-text">
-                  <span className="mr-2 text-xs text-muted md:hidden">{t("settings.col.usage")}</span>
+                  <span className="mr-2 text-xs text-muted xl:hidden">{t("settings.col.usage")}</span>
                   {usageText(d.usage, t)}
                 </div>
                 <div role="cell" className="flex items-center justify-end gap-1">
