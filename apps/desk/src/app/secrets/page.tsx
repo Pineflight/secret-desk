@@ -229,7 +229,7 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
           <TextField label={t("secrets.fieldService")} hint={t("secrets.fieldServiceHint")} required value={f.service} onChange={(e) => set("service", e.target.value)} />
           <SelectField label={t("secrets.provider")} value={f.provider} onChange={(e) => set("provider", e.target.value)}>
             <option value="manual">{t("secrets.providerManual")}</option>
-            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.label} ({p.browser ? t("secrets.providerKindBrowser") : p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})</option>)}
+            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.browser ? p.label : `${p.label} (${p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})`}</option>)}
           </SelectField>
           <SelectField label={t("secrets.expiry")} value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
             <option value="none">{t("secrets.expNone")}</option>

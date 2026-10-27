@@ -31,7 +31,7 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; listMax: number } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -59,7 +59,10 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
     if (!open || !button.current) return;
     const r = button.current.getBoundingClientRect();
     const below = window.innerHeight - r.bottom;
-    setPos(below < 280 && r.top > below ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 4 } : { left: r.left, width: r.width, top: r.bottom + 4 });
+    const up = below < 280 && r.top > below;
+    const avail = (up ? r.top : below) - 16 - (showSearch ? 56 : 0);
+    const listMax = Math.max(112, Math.min(240, avail));
+    setPos(up ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 4, listMax } : { left: r.left, width: r.width, top: r.bottom + 4, listMax });
   }, [open]);
 
   useEffect(() => {
@@ -168,7 +171,7 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
                   </div>
                 </div>
               ) : null}
-              <ul id={listId} role="listbox" className="max-h-60 overflow-y-auto py-1">
+              <ul id={listId} role="listbox" style={{ maxHeight: pos.listMax }} className="overflow-y-auto py-1">
                 {shown.map((o, i) => (
                   <li
                     key={o.value}
