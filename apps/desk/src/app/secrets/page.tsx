@@ -18,6 +18,8 @@ import { emptyPlaceRow, rowsToPlaces, type PlaceRow } from "@/lib/places";
 import { statusInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { useStageDefs } from "@/lib/use-stages";
+import { defaultStageId, environmentOf, kindOf, labelOf, stageOrder } from "@/lib/stages";
 
 interface ProviderRow {
   id: string;
@@ -30,6 +32,7 @@ const STATUSES = ["ok", "soon", "due", "expired", "missing", "no-date", "unknown
 
 export default function SecretsPage() {
   const t = useT();
+  const defs = useStageDefs();
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("q") ?? "";
@@ -71,10 +74,10 @@ export default function SecretsPage() {
 
   const repos = useMemo(() => allRepos(secrets.data ?? []), [secrets.data]);
   const rows = useMemo(
-    () => sortItems((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), browse.sort),
-    [secrets.data, kind, browse.repo, browse.sort],
+    () => sortItems((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), browse.sort, stageOrder(defs)),
+    [secrets.data, kind, browse.repo, browse.sort, defs],
   );
-  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
+  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
 
   return (
     <>
@@ -97,7 +100,7 @@ export default function SecretsPage() {
         <div className="w-40">
           <SelectField label={t("secrets.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
             <option value="">{t("secrets.all")}</option>
-            {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
+            {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
           </SelectField>
         </div>
         <div className="w-48">
@@ -176,28 +179,30 @@ export default function SecretsPage() {
 
 function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const t = useT();
+  const defs = useStageDefs();
   const toast = useToast();
   const providers = useQuery<ProviderRow[]>("providers", () => api<ProviderRow[]>("GET", "providers"));
-  const [f, setF] = useState({ id: "", name: "", title: "", product: "", stage: "staging", service: "", provider: "manual", expiry: "unknown", expires: "", ttlDays: "" });
+  const [f, setF] = useState({ id: "", name: "", title: "", product: "", stage: "", service: "", provider: "manual", expiry: "unknown", expires: "", ttlDays: "" });
   const [rows, setRows] = useState<PlaceRow[]>([emptyPlaceRow()]);
   const [meta, setMeta] = useState<MetaValues>({ description: "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
+  const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const create = useMutation(async (body: unknown) => api<SecretView>("POST", "secrets", body));
 
   const submit = async () => {
     setLocalError(null);
-    const { places, error } = rowsToPlaces(rows);
+    const { places, error } = rowsToPlaces(rows, { stage: stageId, environment: environmentOf(defs, stageId) });
     if (error) return setLocalError(error);
     const metaError = validateMeta(meta);
     if (metaError) return setLocalError(metaError);
-    if (f.stage !== "dev" && places.length === 0) return setLocalError(t("secrets.needTarget"));
+    if (kindOf(defs, stageId) !== "dev" && places.length === 0) return setLocalError(t("secrets.needTarget"));
     const ttl = f.ttlDays.trim() ? Number(f.ttlDays) : undefined;
     if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) return setLocalError(t("secrets.ttlInvalid"));
     const res = await create.run({
       id: f.id.trim(),
       name: f.name.trim(),
-      stage: f.stage,
+      stage: stageId,
       service: f.service.trim(),
       provider: f.provider,
       expiry: f.expiry,
@@ -223,8 +228,8 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
           <TextField label={t("secrets.fieldName")} hint={t("secrets.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
           <TextField label={t("secrets.fieldTitle")} value={f.title} onChange={(e) => set("title", e.target.value)} />
           <TextField label={t("secrets.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
-          <SelectField label={t("secrets.stage")} value={f.stage} onChange={(e) => set("stage", e.target.value)}>
-            {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
+          <SelectField label={t("secrets.stage")} value={stageId} onChange={(e) => set("stage", e.target.value)}>
+            {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
           </SelectField>
           <TextField label={t("secrets.fieldService")} hint={t("secrets.fieldServiceHint")} required value={f.service} onChange={(e) => set("service", e.target.value)} />
           <SelectField label={t("secrets.provider")} value={f.provider} onChange={(e) => set("provider", e.target.value)}>
@@ -240,8 +245,8 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
           <TextField label={t("secrets.expiresOn")} type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
           <TextField label={t("secrets.ttlDays")} inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
         </div>
-        <PlacesEditor rows={rows} onChange={setRows} />
-        {f.stage === "dev" ? <p className="text-xs text-muted">{t("secrets.devNoTarget")}</p> : null}
+        <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
+        {kindOf(defs, stageId) === "dev" ? <p className="text-xs text-muted">{t("secrets.devNoTarget")}</p> : null}
         {localError || create.error ? <Notice tone="danger">{localError ?? create.error?.message}</Notice> : null}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t("secrets.cancel")}</Button>

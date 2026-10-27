@@ -7,7 +7,7 @@ import {
   PromptsRequiredError,
   RotationError,
   SecretValue,
-  STAGES,
+  agentStageIds,
   adoptVariable,
   applyVariable,
   assertPublicValue,
@@ -69,7 +69,7 @@ const requireHuman = (actor: Actor, what: string): void => {
 };
 
 const agentMayRunNow = (rt: Runtime, actor: Actor, stage: Stage, hasPlaces: boolean): boolean =>
-  actor.kind === "human" || (rt.config.policy.agentStages.includes(stage) && hasPlaces);
+  actor.kind === "human" || (agentStageIds(rt.config, rt.inventory.stages).includes(stage) && hasPlaces);
 
 // ---------------------------------------------------------------------------------------------- Secrets
 
@@ -182,10 +182,10 @@ export interface Overview {
 
 export async function overview(rt: Runtime, today = new Date()): Promise<Overview> {
   const all = await listSecrets(rt, {}, today);
-  const byStage = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
+  const byStage: Record<Stage, number> = Object.fromEntries(rt.inventory.stages.map((d) => [d.id, 0]));
   const byStatus: Record<StatusLevel, number> = { ok: 0, unknown: 0, soon: 0, "no-date": 0, due: 0, missing: 0, expired: 0 };
   for (const v of all) {
-    byStage[v.stage] += 1;
+    byStage[v.stage] = (byStage[v.stage] ?? 0) + 1;
     byStatus[v.status] += 1;
   }
   return {
@@ -558,8 +558,8 @@ export async function exportEnv(
   actor: Actor,
   input: { repo: string; stage?: Stage; template?: string; path?: string; overwrite?: boolean; prompts?: Record<string, string> },
 ): Promise<DevEnvResult> {
-  const stage: Stage = input.stage ?? "dev";
-  if (actor.kind === "agent" && !rt.config.policy.agentStages.includes(stage)) {
+  const stage: Stage = input.stage ?? (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
+  if (actor.kind === "agent" && !agentStageIds(rt.config, rt.inventory.stages).includes(stage)) {
     throw new PolicyError(`Agenten duerfen fuer ${stage} keine .env erzeugen.`);
   }
   if (actor.kind === "agent" && input.prompts && Object.keys(input.prompts).length > 0) {

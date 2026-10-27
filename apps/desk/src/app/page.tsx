@@ -8,18 +8,21 @@ import { useQuery } from "@/lib/hooks";
 import { Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, Skeleton, Stat, StageBadge, StatusBadge, Tabs } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { useT } from "@/lib/i18n";
+import { useStageDefs } from "@/lib/use-stages";
+import { labelOf } from "@/lib/stages";
 
-type StageTab = "all" | "dev" | "staging" | "production" | "shared";
+type StageTab = string;
 
 export default function OverviewPage() {
   const t = useT();
+  const defs = useStageDefs();
   const q = useQuery<Overview>("overview", () => api<Overview>("GET", "overview"), { refreshMs: 30000 });
   const [tab, setTab] = useState<StageTab>("all");
   const o = q.data;
 
   const tabs: { id: StageTab; label: string; count?: number }[] = [
     { id: "all", label: t("home.tabAll"), ...(o ? { count: o.total } : {}) },
-    ...(["dev", "staging", "production", "shared"] as const).map((s) => ({ id: s, label: s, ...(o ? { count: o.byStage[s] } : {}) })),
+    ...defs.map((d) => ({ id: d.id, label: labelOf(defs, d.id), ...(o ? { count: o.byStage[d.id] ?? 0 } : {}) })),
   ];
   const list = o ? o.attention.filter((s) => tab === "all" || s.stage === tab) : [];
 

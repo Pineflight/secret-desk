@@ -18,6 +18,8 @@ import { emptyPlaceRow, rowsToPlaces, type PlaceRow } from "@/lib/places";
 import { classifyVariableError, driftInfo, type DriftState } from "@/lib/status";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { useStageDefs } from "@/lib/use-stages";
+import { defaultStageId, environmentOf, labelOf, stageOrder } from "@/lib/stages";
 
 /** Zeigt die Sperre oder die Bestätigungsfrage, je nach Meldung des Servers. */
 function SecretGuard({ error, ack, setAck }: { error: Error | null; ack: boolean; setAck: (v: boolean) => void }) {
@@ -44,6 +46,7 @@ function SecretGuard({ error, ack, setAck }: { error: Error | null; ack: boolean
 
 export default function VariablesPage() {
   const t = useT();
+  const defs = useStageDefs();
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("q") ?? "";
@@ -80,10 +83,10 @@ export default function VariablesPage() {
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
   const rows = useMemo(
-    () => sortItems((list.data ?? []).filter((v) => (browse.repo === "" || repoNames(v.places).includes(browse.repo))), browse.sort),
+    () => sortItems((list.data ?? []).filter((v) => (browse.repo === "" || repoNames(v.places).includes(browse.repo))), browse.sort, stageOrder(defs)),
     [list.data, browse.repo, browse.sort],
   );
-  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
+  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
 
   return (
     <>
@@ -97,7 +100,7 @@ export default function VariablesPage() {
         <div className="w-40">
           <SelectField label={t("variables.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
             <option value="">{t("variables.all")}</option>
-            {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
+            {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
           </SelectField>
         </div>
         <BrowseControls value={browse} onChange={setBrowse} sorts={["name", "repo", "stage"]} />
@@ -232,17 +235,19 @@ function VariableCard({ v, tag, onTag, onChanged, onRemove }: { v: VariableView;
 
 function CreateVariableDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const t = useT();
+  const defs = useStageDefs();
   const toast = useToast();
-  const [f, setF] = useState({ id: "", name: "", stage: "staging", description: "", product: "", value: "" });
+  const [f, setF] = useState({ id: "", name: "", stage: "", description: "", product: "", value: "" });
   const [rows, setRows] = useState<PlaceRow[]>([emptyPlaceRow()]);
   const [ack, setAck] = useState(false);
   const [meta, setMeta] = useState<MetaValues>({ description: "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
+  const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const create = useMutation(async (body: unknown) => api<VariableView>("POST", "variables", body));
   const submit = async () => {
     setLocalError(null);
-    const { places, error } = rowsToPlaces(rows);
+    const { places, error } = rowsToPlaces(rows, { stage: stageId, environment: environmentOf(defs, stageId) });
     if (error) return setLocalError(error);
     if (places.length === 0) return setLocalError(t("variables.needTarget"));
     const metaError = validateMeta(meta);
@@ -250,7 +255,7 @@ function CreateVariableDialog({ onClose, onCreated }: { onClose: () => void; onC
     const res = await create.run({
       id: f.id.trim(),
       name: f.name.trim(),
-      stage: f.stage,
+      stage: stageId,
       places,
       ...metaBody(meta),
       ...(f.product.trim() ? { product: f.product.trim() } : {}),
@@ -269,13 +274,13 @@ function CreateVariableDialog({ onClose, onCreated }: { onClose: () => void; onC
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField label={t("variables.fieldId")} hint={t("variables.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
           <TextField label={t("variables.fieldName")} hint={t("variables.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
-          <SelectField label={t("variables.stage")} value={f.stage} onChange={(e) => set("stage", e.target.value)}>
-            {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
+          <SelectField label={t("variables.stage")} value={stageId} onChange={(e) => set("stage", e.target.value)}>
+            {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
           </SelectField>
           <TextField label={t("variables.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
           <TextField label={t("variables.fieldValue")} value={f.value} onChange={(e) => set("value", e.target.value)} autoComplete="off" spellCheck={false} />
         </div>
-        <PlacesEditor rows={rows} onChange={setRows} />
+        <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
         {localError ? <Notice tone="danger">{localError}</Notice> : null}
         <SecretGuard error={create.error} ack={ack} setAck={setAck} />
         <div className="flex justify-end gap-2">

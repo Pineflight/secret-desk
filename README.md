@@ -10,7 +10,7 @@ review and confirm them, and write them straight into the project's GitHub secre
 
 | | |
 |---|---|
-| **Uebersicht** | Alle Secrets und Variablen nach Stage (dev, staging, production, shared) und Status: ok, bald faellig, abgelaufen, fehlt. Ablauf-Issues per Workflow. |
+| **Uebersicht** | Alle Secrets und Variablen nach Stage (frei konfigurierbar, Standard dev, staging, production, shared) und Status: ok, bald faellig, abgelaufen, fehlt. Ablauf-Issues per Workflow. |
 | **Neuer Wert** | Anbieter-API erzeugt den Token, das Portal **prueft ihn** (Funktionstest, Rechte, Ablauf, Ziele erreichbar) und zeigt einen **Pruefbericht mit Beleg-Bild**. |
 | **Bestaetigen** | Du hakst die Pruefpunkte ab (optional mit eigenem Screenshot). **Erst dann** wird in GitHub geschrieben und der alte Wert widerrufen. Ablehnen loescht den neuen Wert beim Anbieter wieder. |
 | **Von Hand** | Anbieter ohne API: Anleitung, Wert einfuegen, gleiche Pruefung, gleiche Bestaetigung. |
@@ -19,7 +19,7 @@ review and confirm them, and write them straight into the project's GitHub secre
 | **Dev-`.env`** | Pro Repo eine Vorlage. Der Export erzeugt die Datei jetzt (Defaults, Zufallswerte, persoenliche Dev-Tokens, Variablen), Modus 600, nirgends gespeichert. |
 | **Repositories** | Seite `/repos`: alle Repos aus Inventar und GitHub, lokal mit einem Ordner verknuepfbar (Datei `~/.secret-desk/repo-links.json`, nie im Inventar), „Lokal suchen“ findet Git-Ordner. Die Dev-Seite nimmt den verknuepften Ordner als Standardpfad. Repo-Felder sind Auswahlfelder. |
 | **Team** | Eine Konfigurationsdatei ohne Werte zum Verteilen. Neue Teammitglieder importieren sie, verbinden ihre Konten und legen los. |
-| **Agenten** | MCP-Server und Skill fuer KI-Agenten: Metadaten pflegen, Status abfragen, Anfragen stellen. Nie Werte, nie Bestaetigen, in staging/production nur mit Freigabe. |
+| **Agenten** | MCP-Server und Skill fuer KI-Agenten: Metadaten pflegen, Status abfragen, Anfragen stellen. Nie Werte, nie Bestaetigen, ausser in dev-Stages nur mit Freigabe. |
 
 ## Schnellstart
 

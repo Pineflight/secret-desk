@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { DEFAULT_STAGES, StageDefSchema, StageIdSchema, effectiveStages, findStage, resolvePlaces, stageDefIssues, stageKind } from "./stages.js";
 
-/** dev = lokale Entwicklung, shared = gilt fuer alle Stages (Repository-Secret). */
-export const StageSchema = z.enum(["dev", "staging", "production", "shared"]);
-export type Stage = z.infer<typeof StageSchema>;
+/** Id einer Stage (Slug). Ob sie existiert, prueft das Inventar gegen seine `stages`-Definitionen. */
+export const StageSchema = StageIdSchema;
+export type Stage = string;
 
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum als JJJJ-MM-TT");
 const Tag = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Schlagwort in kleinbuchstaben-mit-bindestrich");
@@ -24,11 +25,11 @@ export const PlaceSchema = z
   .object({
     repo: z.string().min(1),
     scope: z.enum(["repository", "environment", "organization"]),
+    /** Fehlt er bei scope environment, kommt der Name aus der Stage des Secrets (siehe stages.ts). */
     environment: z.string().min(1).optional(),
     /** Anderer Name im Ziel als `name` des Secrets (selten). */
     name: SecretName.optional(),
-  })
-  .refine((p) => p.scope !== "environment" || !!p.environment, { message: "environment fehlt" });
+  });
 export type Place = z.infer<typeof PlaceSchema>;
 
 export const ExpiryKindSchema = z.enum(["none", "possible", "required", "unknown"]);
@@ -61,9 +62,6 @@ export const SecretSchema = z
     places: z.array(PlaceSchema).default([]),
   })
   .superRefine((s, ctx) => {
-    if (s.stage !== "dev" && s.places.length === 0) {
-      ctx.addIssue({ code: "custom", message: "places fehlt (nur dev darf ohne Ziel sein)", path: ["places"] });
-    }
     if (s.expiry === "none" && s.expires) {
       ctx.addIssue({ code: "custom", message: "expiry none, aber expires gesetzt", path: ["expires"] });
     }
@@ -120,38 +118,67 @@ export const VariableSchema = z.object({
 });
 export type VariableEntry = z.infer<typeof VariableSchema>;
 
-export const InventorySchema = z
-  .object({
-    version: z.literal(1),
-    thresholds: z.array(z.number().int().positive()).default([30, 14, 7]),
-    secrets: z.array(SecretSchema).default([]),
-    variables: z.array(VariableSchema).default([]),
-    envTemplates: z.array(EnvTemplateSchema).default([]),
-    providers: z.array(ProviderDefSchema).default([]),
-  })
-  .superRefine((inv, ctx) => {
-    const seen = new Set<string>();
-    inv.secrets.forEach((s, i) => {
-      if (seen.has(s.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${s.id}`, path: ["secrets", i, "id"] });
-      seen.add(s.id);
-    });
-    const varIds = new Set<string>();
-    inv.variables.forEach((v, i) => {
-      if (varIds.has(v.id) || seen.has(v.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${v.id}`, path: ["variables", i, "id"] });
-      varIds.add(v.id);
-    });
-    const ids = new Set(inv.secrets.map((s) => s.id));
-    inv.envTemplates.forEach((t, i) =>
-      t.entries.forEach((e, j) => {
-        if (e.from.type === "issue" && !ids.has(e.from.secret)) {
-          ctx.addIssue({ code: "custom", message: `unbekanntes Secret: ${e.from.secret}`, path: ["envTemplates", i, "entries", j] });
-        }
-        if (e.from.type === "variable" && !varIds.has(e.from.variable)) {
-          ctx.addIssue({ code: "custom", message: `unbekannte Variable: ${e.from.variable}`, path: ["envTemplates", i, "entries", j] });
-        }
-      }),
-    );
+const InventoryObject = z.object({
+  version: z.literal(1),
+  thresholds: z.array(z.number().int().positive()).default([30, 14, 7]),
+  /** Stage-Definitionen. Fehlt der Abschnitt oder ist er leer, gelten dev, staging, production, shared. */
+  stages: z.array(StageDefSchema).default([]),
+  secrets: z.array(SecretSchema).default([]),
+  variables: z.array(VariableSchema).default([]),
+  envTemplates: z.array(EnvTemplateSchema).default([]),
+  providers: z.array(ProviderDefSchema).default([]),
+});
+
+export const InventorySchema = InventoryObject.superRefine((inv, ctx) => {
+  for (const msg of stageDefIssues(inv.stages)) ctx.addIssue({ code: "custom", message: msg, path: ["stages"] });
+  const defs = effectiveStages(inv.stages);
+  const checkStage = (stage: string, path: (string | number)[]): boolean => {
+    if (findStage(defs, stage)) return true;
+    ctx.addIssue({ code: "custom", message: `Unbekannte Stage: ${stage}`, path: [...path, "stage"] });
+    return false;
+  };
+  const checkPlaces = (stage: string, places: Place[], path: (string | number)[]): void => {
+    try {
+      resolvePlaces(defs, stage, places);
+    } catch (err) {
+      ctx.addIssue({ code: "custom", message: (err as Error).message, path: [...path, "places"] });
+    }
+  };
+  const seen = new Set<string>();
+  inv.secrets.forEach((s, i) => {
+    if (seen.has(s.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${s.id}`, path: ["secrets", i, "id"] });
+    seen.add(s.id);
+    if (!checkStage(s.stage, ["secrets", i])) return;
+    if (stageKind(defs, s.stage) !== "dev" && s.places.length === 0) {
+      ctx.addIssue({ code: "custom", message: "places fehlt (nur Stages der Art dev duerfen ohne Ziel sein)", path: ["secrets", i, "places"] });
+    }
+    checkPlaces(s.stage, s.places, ["secrets", i]);
   });
+  const varIds = new Set<string>();
+  inv.variables.forEach((v, i) => {
+    if (varIds.has(v.id) || seen.has(v.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${v.id}`, path: ["variables", i, "id"] });
+    varIds.add(v.id);
+    if (checkStage(v.stage, ["variables", i])) checkPlaces(v.stage, v.places, ["variables", i]);
+  });
+  const ids = new Set(inv.secrets.map((s) => s.id));
+  inv.envTemplates.forEach((t, i) => {
+    checkStage(t.stage, ["envTemplates", i]);
+    t.entries.forEach((e, j) => {
+      if (e.from.type === "issue" && !ids.has(e.from.secret)) {
+        ctx.addIssue({ code: "custom", message: `unbekanntes Secret: ${e.from.secret}`, path: ["envTemplates", i, "entries", j] });
+      }
+      if (e.from.type === "variable" && !varIds.has(e.from.variable)) {
+        ctx.addIssue({ code: "custom", message: `unbekannte Variable: ${e.from.variable}`, path: ["envTemplates", i, "entries", j] });
+      }
+    });
+  });
+}).transform((inv) => {
+  // Stages immer ausgeschrieben, fehlende Environment-Namen aus der Stage ergaenzt.
+  const stages = effectiveStages(inv.stages);
+  const fill = <T extends { stage: string; places: Place[] }>(e: T): T => ({ ...e, places: resolvePlaces(stages, e.stage, e.places) });
+  return { ...inv, stages, secrets: inv.secrets.map(fill), variables: inv.variables.map(fill) };
+});
 export type Inventory = z.infer<typeof InventorySchema>;
 
-export const STAGES: readonly Stage[] = ["dev", "staging", "production", "shared"];
+/** Ids der Standard-Stages (nur als Vorgabe, die Inventar-Definitionen gehen vor). */
+export const DEFAULT_STAGE_IDS: readonly string[] = DEFAULT_STAGES.map((d) => d.id);

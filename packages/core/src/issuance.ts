@@ -4,6 +4,7 @@ import type { EvidenceStore } from "./evidence.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
+import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
 import type { SecretValue } from "./secret.js";
 import { fingerprintOf, overallStatus, type Check, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
@@ -69,6 +70,7 @@ export async function prepareIssuance(
   const provider = deps.providers.get(secret.provider);
   const now = (deps.now ?? (() => new Date()))();
   const f = deps.fetch ?? fetch;
+  const kind0 = stageKind(deps.inventory.stages, secret.stage);
   const label = `${secret.id}-${now.toISOString().slice(0, 10)}`;
 
   let value: SecretValue;
@@ -82,7 +84,7 @@ export async function prepareIssuance(
     if (!provider || provider.kind !== "automatic" || !provider.issue) {
       throw new IssuanceError(`Anbieter "${secret.provider}" kann nicht automatisch erzeugen. Wert von Hand eingeben.`);
     }
-    const issued = await provider.issue({ secret, params: secret.params, stage: secret.stage, connections: deps.connections, fetch: f, now, label });
+    const issued = await provider.issue({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label });
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
@@ -105,7 +107,7 @@ export async function prepareIssuance(
   }
   if (provider?.verify) {
     try {
-      checks.push(...(await provider.verify({ secret, params: secret.params, stage: secret.stage, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now })));
+      checks.push(...(await provider.verify({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now })));
     } catch (err) {
       checks.push({ id: "provider-verify", label: "Pruefung beim Anbieter nicht durchfuehrbar", status: "warn", detail: (err as Error).message });
     }
@@ -114,9 +116,9 @@ export async function prepareIssuance(
   if (secret.expiry === "required" && !newExpires) checks.push({ id: "expiry-known", label: "Der Anbieter erzwingt ein Ablaufdatum, es ist nicht bekannt", status: "warn" });
   else checks.push({ id: "expiry", label: "Ablauf", status: "info", actual: newExpires ?? "kein Ablauf" });
 
-  const items = provider?.reviewChecklist?.(secret) ?? DEFAULT_CHECKLIST;
+  const items = provider?.reviewChecklist?.(secret, { stageKind: kind0 }) ?? DEFAULT_CHECKLIST;
   const checklist: ChecklistItem[] = items.map((text, i) => ({ id: `c${i + 1}`, text }));
-  if (secret.stage === "production") checklist.push({ id: `c${checklist.length + 1}`, text: "Ich weiss, dass dieser Wert die Produktion betrifft." });
+  if (kind0 === "live") checklist.push({ id: `c${checklist.length + 1}`, text: "Ich weiss, dass dieser Wert die Produktion betrifft." });
 
   const report: VerificationReport = {
     id: randomUUID(),

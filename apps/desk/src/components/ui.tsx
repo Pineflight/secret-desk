@@ -6,6 +6,7 @@ import type { ChangeEvent, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode,
 import { useId } from "react";
 import type { StatusLevel } from "@secret-desk/core";
 import { ApiError } from "@/lib/api";
+import { useStageDefs } from "@/lib/use-stages";
 import { providerInfo, stageInfo, statusInfo, toneClass, type Info } from "@/lib/status";
 import { Icon } from "./Icons";
 
@@ -39,7 +40,7 @@ export function Badge({ info, className = "" }: { info: Info; className?: string
 }
 
 export const StatusBadge = ({ level }: { level: StatusLevel }) => <Badge info={statusInfo(level)} />;
-export const StageBadge = ({ stage }: { stage: string }) => <Badge info={stageInfo(stage)} />;
+export const StageBadge = ({ stage }: { stage: string }) => <Badge info={stageInfo(stage, useStageDefs())} />;
 export const ProviderChip = ({ automatic, browser = false }: { automatic: boolean; browser?: boolean }) => <Badge info={providerInfo(automatic, browser)} />;
 
 export function Pill({ children }: { children: ReactNode }) {

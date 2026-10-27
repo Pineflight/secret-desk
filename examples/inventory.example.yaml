@@ -1,11 +1,19 @@
-# Inventar: nur Metadaten, nie Werte.
+# Inventory: metadata only, never values.
 version: 1
 thresholds: [30, 14, 7]
+
+# Stages sind frei konfigurierbar; das Verhalten haengt an `kind` (dev | test | live | shared).
+# environment = Name der GitHub-Environment (fehlt: id bei test/live, null = keine). Fehlt der Abschnitt: dev, staging, production, shared.
+stages:
+  - { id: dev, kind: dev, environment: null }
+  - { id: staging, label: Staging, kind: test, environment: staging }
+  - { id: production, label: Produktion, kind: live, environment: production }
+  - { id: shared, kind: shared, environment: null }
 
 secrets:
   - id: cloudflare-deploy-demo
     name: CLOUDFLARE_API_TOKEN
-    description: Deploy-Zugang fuer Workers beider Repos
+    description: Deploy access for the Workers of both repos
     owner: team-platform
     link: https://dash.cloudflare.com/profile/api-tokens
     tags: [deploy, cloudflare]
@@ -37,7 +45,7 @@ secrets:
     name: PEECHO_API_KEY
     stage: staging
     service: peecho
-    provider: peecho            # eigener Anbieter ohne API, siehe providers
+    provider: peecho            # custom provider without an API, see providers
     expiry: unknown
     places:
       - { repo: demo-app, scope: environment, environment: staging }
@@ -50,10 +58,10 @@ envTemplates:
     entries:
       - { key: NEXT_PUBLIC_SITE_URL, from: { type: default, value: "http://localhost:3000" } }
       - { key: RATE_LIMIT_SECRET, from: { type: generate, kind: hex, bytes: 32 } }
-      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" } }
+      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted key from the Stripe sandbox" } }
 
 providers:
   - id: peecho
     label: Peecho
     url: https://www.peecho.com
-    steps: ["Im Peecho-Dashboard anmelden", "API-Zugang oeffnen", "Key erzeugen und im Portal einfuegen"]
+    steps: ["Sign in to the Peecho dashboard", "Open API access", "Create a key and paste it into the portal"]

@@ -2,7 +2,7 @@
 
 ## Konfigurationsdatei verteilen
 `secret-desk team export --config secret-desk.config.yaml --out secret-desk.team.yaml` (oder im Portal: Team, Herunterladen).
-Die Datei enthaelt die Struktur: Secrets (Name, Stage, Anbieter, Ziele), Variablen mit Sollwerten, Dev-Vorlagen, eigene Anbieter.
+Die Datei enthaelt die Struktur: Stage-Definitionen (`stages:`), Secrets (Name, Stage, Anbieter, Ziele), Variablen mit Sollwerten, Dev-Vorlagen, eigene Anbieter.
 **Keine Werte** und keine anbieterinternen Kennungen.
 
 ## Neues Teammitglied
@@ -14,3 +14,6 @@ Die Datei enthaelt die Struktur: Secrets (Name, Stage, Anbieter, Ziele), Variabl
    Werte, die du selbst liefern musst (zum Beispiel ein Sandbox-Key), werden abgefragt (`--prompt KEY=WERT`).
 
 Die `.env` entsteht auf deinem Rechner mit Modus 600. Das Portal speichert sie nicht.
+
+## Stages im Team
+Die Stage-Definitionen werden mit exportiert. Beim Import (merge) kommen unbekannte Stage-Ids dazu, vorhandene bleiben unveraendert (keine stille Aenderung von Art oder Environment); `--replace` uebernimmt die Liste der Datei komplett.

@@ -1,4 +1,4 @@
-# Probelauf gegen das Wegwerf-Repo Pineflight/secret-desk-sandbox. Enthaelt keine Werte, nur Quellen.
+# Trial run against the throwaway repo Pineflight/secret-desk-sandbox. Contains no values, only sources.
 inventory: ./inventory.yaml
 evidenceDir: ./evidence
 
@@ -6,12 +6,12 @@ github:
   owner: Pineflight
   auth:
     type: pat
-    # Fine-grained Token NUR fuer das Sandbox-Repo. Vor dem Start: export SECRET_DESK_GITHUB_TOKEN=...
-    # (oder im Portal unter Verbindungen fuer die Sitzung eingeben und hier { type: session } setzen)
+    # Fine-grained token ONLY for the sandbox repo. Before starting: export SECRET_DESK_GITHUB_TOKEN=...
+    # (or enter it in the portal under Integrations for the session and set { type: session } here)
     source: { type: env, name: SECRET_DESK_GITHUB_TOKEN }
 
 connections:
-  # Token mit "API Tokens: Edit" (kurzlebig, 1 Tag). Vor dem Start: export SECRET_DESK_CLOUDFLARE_TOKEN=...
+  # Token with "API Tokens: Edit" (short-lived, 1 day). Before starting: export SECRET_DESK_CLOUDFLARE_TOKEN=...
   cloudflare: { type: env, name: SECRET_DESK_CLOUDFLARE_TOKEN }
 
 policy:

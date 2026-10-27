@@ -1,6 +1,7 @@
 import type { SecretValue } from "./secret.js";
 import type { ConnectionStore } from "./connections.js";
 import type { FetchLike } from "./github.js";
+import type { StageKind } from "./stages.js";
 import type { SecretEntry, Stage } from "./types.js";
 import type { Check } from "./verification.js";
 
@@ -8,6 +9,8 @@ export interface IssueContext {
   secret: SecretEntry;
   params: Record<string, unknown>;
   stage: Stage;
+  /** Art der Stage (live/test/dev/shared). Fehlt sie, gilt die Art der Standard-Stage gleichen Namens. */
+  stageKind?: StageKind;
   connections: ConnectionStore;
   fetch: FetchLike;
   now: Date;
@@ -35,6 +38,8 @@ export interface VerifyContext {
   secret: SecretEntry;
   params: Record<string, unknown>;
   stage: Stage;
+  /** Art der Stage (live/test/dev/shared). Fehlt sie, gilt die Art der Standard-Stage gleichen Namens. */
+  stageKind?: StageKind;
   /** Der soeben ausgestellte oder eingefuegte Wert. Nur zum Pruefen, nie speichern oder ausgeben. */
   value: SecretValue;
   externalId?: string;
@@ -64,7 +69,7 @@ export interface Provider {
   /** Eigene Pruefungen nach dem Ausstellen (Funktionstest, Rechte, Ablauf). Liefert nur Befunde, nie Werte. */
   verify?(ctx: VerifyContext): Promise<Check[]>;
   /** Punkte, die der Mensch im Anbieter-Dashboard oder auf dem Beleg selbst beurteilt. */
-  reviewChecklist?(secret: SecretEntry): string[];
+  reviewChecklist?(secret: SecretEntry, ctx?: { stageKind: StageKind }): string[];
   revoke?(ctx: RevokeContext): Promise<void>;
 }
 

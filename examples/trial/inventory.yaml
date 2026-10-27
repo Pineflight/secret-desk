@@ -1,12 +1,12 @@
-# Probelauf-Inventar. Alles zeigt auf das Wegwerf-Repo. Nur Metadaten.
+# Trial-run inventory. Everything points at the throwaway repo. Metadata only.
 version: 1
 thresholds: [30, 14, 7]
 
 secrets:
-  # A: nur GitHub, kein Anbieter. Prueft Erzeugen, Pruefbericht, Bestaetigen, Schreiben.
+  # A: GitHub only, no provider. Tests generate, review report, confirm, write.
   - id: trial-random
     name: SD_TRIAL_RANDOM
-    description: Zufallswert fuer den Probelauf, ohne Anbieter. Prueft den Ablauf bis GitHub.
+    description: Random value for the trial run, without a provider. Tests the flow up to GitHub.
     owner: niklas
     tags: [probelauf]
     stage: staging
@@ -17,11 +17,11 @@ secrets:
     places:
       - { repo: secret-desk-sandbox, scope: environment, environment: staging }
 
-  # B: echter Anbieter. Erzeugt beim Erneuern einen Cloudflare-Token mit nur einem harmlosen Lese-Recht, 7 Tage gueltig.
-  # DEINE_CLOUDFLARE_ACCOUNT_ID ersetzen (Cloudflare Dashboard, Konto, "Copy account ID").
+  # B: real provider. On renewal, creates a Cloudflare token with a single harmless read permission, valid for 7 days.
+  # Replace DEINE_CLOUDFLARE_ACCOUNT_ID (Cloudflare dashboard, account, "Copy account ID").
   - id: trial-cloudflare
     name: SD_TRIAL_CLOUDFLARE
-    description: Wegwerf-Cloudflare-Token mit nur "Account Settings Read", 7 Tage gueltig.
+    description: Throwaway Cloudflare token with only "Account Settings Read", valid for 7 days.
     owner: niklas
     link: https://dash.cloudflare.com/profile/api-tokens
     tags: [probelauf, cloudflare]
@@ -36,10 +36,10 @@ secrets:
     places:
       - { repo: secret-desk-sandbox, scope: environment, environment: staging }
 
-  # C: von Hand. Du legst einen Wegwerf-Token an (GitHub fine-grained, keine Rechte) und fuegst ihn im Portal ein.
+  # C: by hand. You create a throwaway token (GitHub fine-grained, no permissions) and paste it into the portal.
   - id: trial-manual
     name: SD_TRIAL_MANUAL
-    description: Von Hand eingefuegter Wegwerf-Token, um die Pruefung manueller Werte zu testen.
+    description: Throwaway token pasted in by hand, to test the verification of manual values.
     owner: niklas
     tags: [probelauf]
     stage: staging
@@ -55,7 +55,7 @@ secrets:
 variables:
   - id: trial-site-url
     name: SD_TRIAL_URL
-    description: Basis-Adresse fuer den Probelauf, als Variable (kein Geheimnis).
+    description: Base URL for the trial run, as a variable (not a secret).
     owner: niklas
     tags: [probelauf, url]
     stage: staging
@@ -64,7 +64,7 @@ variables:
       - { repo: secret-desk-sandbox, scope: environment, environment: staging }
   - id: trial-flag
     name: SD_TRIAL_FLAG
-    description: "Sollwert noch unbekannt. Im Portal aus GitHub uebernehmen testen (vorher einmal von Hand in GitHub setzen)."
+    description: "Target value not known yet. Test importing it from GitHub in the portal (set it once by hand in GitHub beforehand)."
     tags: [probelauf]
     stage: shared
     places:
@@ -78,6 +78,6 @@ envTemplates:
     entries:
       - { key: SD_TRIAL_URL, from: { type: variable, variable: trial-site-url } }
       - { key: SD_TRIAL_RANDOM, from: { type: generate, kind: hex, bytes: 16 } }
-      - { key: SD_TRIAL_SANDBOX_KEY, from: { type: prompt, hint: "beliebiger Testwert" } }
+      - { key: SD_TRIAL_SANDBOX_KEY, from: { type: prompt, hint: "any test value" } }
 
 providers: []

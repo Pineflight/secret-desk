@@ -42,6 +42,7 @@ import {
   listIssuances,
   listProviders,
   listRepos,
+  listStages,
   listSecrets,
   listVariables,
   overview,
@@ -54,6 +55,7 @@ import {
   resolveApproval,
   scanLocal,
   setLink,
+  setStages,
   submitManualValue,
   teamExport,
   updateSecretMeta,
@@ -99,6 +101,7 @@ const optStr = (b: Body, k: string): string | undefined => (typeof b[k] === "str
 /** Gemeinsame Operationen. Alle Antworten sind JSON und enthalten nie einen geheimen Wert. */
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
+  ["GET", /^stages$/, ({ rt }) => listStages(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   ["POST", /^secrets$/, ({ rt, body }) => addSecret(rt, body as never)],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
@@ -129,6 +132,8 @@ const common: [string, RegExp, Handler][] = [
 
 /** Nur im Portal (Mensch): Bestaetigen, Eingeben, Freigeben, Verbindungen, Anlagen, Browser-Laeufe ansehen und abbrechen. */
 const humanOnly: [string, RegExp, Handler][] = [
+  // Stage-Definitionen aendert nur ein Mensch im Portal (Einstellungen); Agenten lesen sie.
+  ["PUT", /^stages$/, ({ rt, body }) => setStages(rt, Array.isArray(body.stages) ? (body.stages as never[]) : (() => { throw new InventoryError("Feld fehlt: stages"); })())],
   // Gestartet wird ein Browser-Lauf ueber renewal-requests (oder die Freigabe); hier nur Zustand und Abbruch. Agenten sehen nichts davon.
   ["GET", /^automation$/, ({ rt, actor }) => getAutomation(rt, actor)],
   ["GET", /^automation\/runs\/([^/]+)$/, ({ rt, actor, params }) => getAutomationRun(rt, actor, decodeURIComponent(params[0]!))],

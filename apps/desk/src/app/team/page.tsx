@@ -5,6 +5,7 @@ import { Button, Card, Checkbox, Notice, PageHeader, SectionLabel, TextAreaField
 import { api } from "@/lib/api";
 import { useMutation } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
+import { loadStages } from "@/lib/use-stages";
 import { useT } from "@/lib/i18n";
 
 interface ImportResult {
@@ -31,6 +32,7 @@ export default function TeamPage() {
     const r = await imp.run();
     if (r) {
       setResult(r);
+      void loadStages(true);
       toast.success(t("team.imported"));
     }
   };

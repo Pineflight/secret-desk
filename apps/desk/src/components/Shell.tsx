@@ -27,6 +27,7 @@ const NAV: NavItem[] = [
   { href: "/dev", label: "common.nav.dev", icon: "terminal", divider: true },
   { href: "/verbindungen", label: "common.nav.integrations", icon: "plug" },
   { href: "/team", label: "common.nav.team", icon: "users" },
+  { href: "/einstellungen", label: "common.nav.settings", icon: "wrench" },
 ];
 
 const isActive = (path: string, href: string): boolean => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));

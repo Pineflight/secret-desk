@@ -50,7 +50,18 @@ sind Node-Dateien unter `scripts/` (`clean.mjs`, `demo.mjs`), keine Shell-Zeilen
 
 ## Stages
 
-`dev` (lokal, kein GitHub-Ziel), `staging`, `production`, `shared` (Repository-Secret, gilt fuer alle). Staging und Production teilen nie einen Wert.
+Stages sind frei konfigurierbar: Abschnitt `stages:` im Inventar (Portal: Einstellungen). Eine Definition: `id` (Slug), `label` (Anzeigename), `kind`, `environment` (Name der GitHub-Environment) und `tone` (Farbe). Ohne `stages:` gelten `dev`, `staging`, `production`, `shared`.
+
+Das Verhalten haengt am `kind`, nie am Namen:
+
+| kind | Bedeutung |
+|---|---|
+| `dev` | lokal: kein GitHub-Ziel noetig, Agenten duerfen direkt (nach `policy.agentStages`, Standard alle dev-Stages), Dev-.env |
+| `test` | Sandbox/Test: Anbieter-Schluessel sollen im Test-Modus sein |
+| `live` | Produktionsgrad: Agenten brauchen immer eine Freigabe, Schluessel im Live-Modus, warnende Optik |
+| `shared` | gilt fuer alle (zum Beispiel Repository-Secret), Modus wird nicht geprueft |
+
+`environment` fehlt: bei `test`/`live` die `id`, bei `dev`/`shared` keine. `null` = ausdruecklich keine. Bei Bereich `environment` ohne Namen setzt secret-desk die Environment der Stage ein (nur mit Namen, wenn abweichend). Staging und Production teilen nie einen Wert. Maximal 12 Stages; Entfernen geht nur, wenn kein Secret, keine Variable, keine Vorlage und keine Richtlinie die Stage nennt. Der Bereich `organization` ist im Schema, aber nicht im Portal-Formular: Org-Secrets brauchen eine Repository-Auswahl, die noch nicht modelliert ist.
 
 ## Pakete
 

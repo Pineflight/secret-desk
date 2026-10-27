@@ -11,17 +11,21 @@ import { useRepoList } from "@/lib/repo-list";
 import { defaultEnvPath } from "@/lib/repos";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { useStageDefs } from "@/lib/use-stages";
+import { defaultStageId, labelOf } from "@/lib/stages";
 
 const SOURCE_KEYS: Record<string, string> = { default: "dev.srcDefault", generate: "dev.srcGenerate", issue: "dev.srcIssue", prompt: "dev.srcPrompt", variable: "dev.srcVariable" };
 
 /** Einfaches Formular statt Vorlagen-Parser: Es gibt keinen Listen-Endpunkt für die Dev-Vorlagen. */
 function FreeExport() {
   const t = useT();
+  const defs = useStageDefs();
   const toast = useToast();
-  const [f, setF] = useState({ repo: "", path: "", template: "", stage: "dev" });
+  const [f, setF] = useState({ repo: "", path: "", template: "", stage: "" });
   const [overwrite, setOverwrite] = useState(false);
   const [prompts, setPrompts] = useState<{ key: string; value: string }[]>([]);
   const [result, setResult] = useState<DevEnvResult | null>(null);
+  const stageId = f.stage || defaultStageId(defs, "dev");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const repoId = useId();
   const repoList = useRepoList();
@@ -34,7 +38,7 @@ function FreeExport() {
     const body = {
       repo: f.repo.trim(),
       ...(f.path.trim() ? { path: f.path.trim() } : {}),
-      stage: f.stage,
+      stage: stageId,
       overwrite,
       ...(f.template.trim() ? { template: f.template.trim() } : {}),
       ...(filled.length ? { prompts: Object.fromEntries(filled.map((p) => [p.key.trim(), p.value])) } : {}),
@@ -63,8 +67,8 @@ function FreeExport() {
             </Field>
             <TextField label={t("dev.filePath")} hint={linked ? t("dev.filePathHintLinked", { folder: linked }) : t("dev.filePathHintFree")} required={!linked} value={f.path} onChange={(e) => set("path", e.target.value)} autoComplete="off" />
             <div className="grid gap-4 sm:grid-cols-2">
-              <SelectField label={t("dev.stage")} value={f.stage} onChange={(e) => set("stage", e.target.value)}>
-                {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
+              <SelectField label={t("dev.stage")} value={stageId} onChange={(e) => set("stage", e.target.value)}>
+                {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
               </SelectField>
               <TextField label={t("dev.template")} hint={t("dev.templateHint")} value={f.template} onChange={(e) => set("template", e.target.value)} autoComplete="off" />
             </div>

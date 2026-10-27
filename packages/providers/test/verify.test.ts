@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Check, Provider, Stage } from "@secret-desk/core";
+import type { Check, Provider, Stage, StageKind } from "@secret-desk/core";
 import { createDefaultRegistry } from "../src/index.js";
 import { CONN_TOKEN, ISSUED, LEAK, byId, expectNoLeak, mockFetch, secretEntry, verifyCtx } from "./helpers.js";
 
@@ -155,6 +155,21 @@ describe("stripe-webhook-secret verify", () => {
   ])("Modus: Stage %s, livemode %s -> %s", async (stage, live, expected) => {
     const m = mockFetch({ body: endpoint({ livemode: live }) });
     expect(byId(await run("stripe-webhook-secret", m.fetch, params, { ...opts, stage }))["mode"]).toBe(expected);
+  });
+  it.each<[string, StageKind, boolean, string]>([
+    ["qa", "test", true, "fail"],
+    ["qa", "test", false, "pass"],
+    ["eu-prod", "live", true, "pass"],
+    ["eu-prod", "live", false, "fail"],
+    ["gemeinsam", "shared", true, "info"],
+  ])("Modus nach Art, nicht nach Name: Stage %s (%s), livemode %s -> %s", async (stage, stageKind, live, expected) => {
+    const m = mockFetch({ body: endpoint({ livemode: live }) });
+    expect(byId(await run("stripe-webhook-secret", m.fetch, params, { ...opts, stage, stageKind }))["mode"]).toBe(expected);
+  });
+  it("Pruefliste folgt der Art der Stage", () => {
+    const secret = secretEntry({ stage: "eu-prod", places: [{ repo: "x", scope: "repository" }] });
+    expect(get("stripe-webhook-secret").reviewChecklist!(secret, { stageKind: "live" }).join(" ")).toContain("Live-Modus");
+    expect(get("stripe-webhook-secret").reviewChecklist!(secret, { stageKind: "test" }).join(" ")).toContain("Sandbox");
   });
   it("deaktiviert, andere Url, andere Ereignisse = fail", async () => {
     const m = mockFetch({ body: endpoint({ status: "disabled", url: "https://other.example/h", enabled_events: ["invoice.paid", "charge.failed"] }) });

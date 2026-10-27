@@ -1,4 +1,4 @@
-import { GitHubError, placeToTarget, type Place } from "@secret-desk/core";
+import { GitHubError, agentStageIds, placeToTarget, stageKind, type Place } from "@secret-desk/core";
 import { listConnections, type Runtime } from "@secret-desk/runtime";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
@@ -64,8 +64,10 @@ export async function runDoctor(rt: Runtime): Promise<DoctorFinding[]> {
       out.push({ id: "cloudflare-token", status: "warn", label: "Cloudflare-Zugangs-Token nicht pruefbar", detail: (err as Error).message.slice(0, 120) });
     }
   }
-  const dev = inv.envTemplates.filter((t) => t.stage === "dev").length;
-  out.push({ id: "policy", status: "ok", label: `Richtlinie: Agenten direkt nur in [${rt.config.policy.agentStages.join(", ")}], ${dev} Dev-Vorlagen` });
+  const dev = inv.envTemplates.filter((t) => stageKind(inv.stages, t.stage) === "dev").length;
+  const direct = agentStageIds(rt.config, inv.stages);
+  const unknown = (rt.config.policy.agentStages ?? []).filter((id) => !inv.stages.some((d) => d.id === id));
+  out.push({ id: "policy", status: unknown.length > 0 ? "warn" : "ok", label: `Richtlinie: Agenten direkt nur in [${direct.join(", ")}], ${dev} Dev-Vorlagen`, ...(unknown.length > 0 ? { detail: `policy.agentStages nennt unbekannte Stages: ${unknown.join(", ")}` } : {}) });
   return out;
 }
 

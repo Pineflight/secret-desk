@@ -2,6 +2,7 @@ import type { ConnectionStore } from "./connections.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
+import { stageKind } from "./stages.js";
 import type { Place, SecretEntry, Stage } from "./types.js";
 
 export type RotationEvent =
@@ -116,6 +117,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     secret,
     params: secret.params,
     stage: secret.stage,
+    stageKind: stageKind(deps.inventory.stages, secret.stage),
     connections: deps.connections,
     fetch: f,
     now,

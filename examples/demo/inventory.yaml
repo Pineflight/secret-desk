@@ -1,4 +1,4 @@
-# Demo-Inventar mit erfundenen Werten und Zielen. Nur Metadaten.
+# Demo inventory with made-up values and targets. Metadata only.
 version: 1
 thresholds: [ 30, 14, 7 ]
 
@@ -6,7 +6,7 @@ secrets:
   - id: cloudflare-deploy-wakemiles
     name: CLOUDFLARE_API_TOKEN
     product: wakemiles
-    description: "Deploy-Zugang fuer Workers und Pages von WakeMiles: wird von den Deploy-Workflows der App und der Landingpage gelesen."
+    description: "Deploy access for the Workers and Pages of WakeMiles: read by the deploy workflows of the app and the landing page."
     owner: niklas
     link: https://dash.cloudflare.com/profile/api-tokens
     tags: [deploy, cloudflare, wakemiles]
@@ -21,7 +21,7 @@ secrets:
   - id: vapid-private-wakemiles
     name: VAPID_PRIVATE_KEY
     product: wakemiles
-    description: Privater Schluessel fuer Web-Push-Benachrichtigungen. Gehoert zum oeffentlichen Schluessel in den Variablen.
+    description: Private key for web push notifications. Pairs with the public key in the variables.
     owner: niklas
     tags: [push, wakemiles]
     stage: shared
@@ -33,7 +33,7 @@ secrets:
   - id: hmac-wakemiles-staging
     name: ARTIFACT_HMAC_SECRET
     product: wakemiles
-    description: Signiert Artefakt-Links im Buch-Worker. Muss im Worker und in der Edge Function gleich sein.
+    description: Signs artifact links in the book worker. Must be identical in the worker and in the edge function.
     owner: niklas
     tags: [signatur, wakemiles]
     stage: staging
@@ -49,7 +49,7 @@ secrets:
   - id: vesselapi-wakemiles-staging
     name: VESSELAPI_API_KEY
     product: wakemiles
-    description: Zugang zur VesselAPI fuer Hafenereignisse und Schiffsdaten (Staging-Tarif).
+    description: Access to the VesselAPI for port events and vessel data (staging plan).
     owner: niklas
     link: https://vesselapi.com
     tags: [ais, wakemiles]
@@ -62,7 +62,7 @@ secrets:
   - id: stripe-webhook-webstudio-staging
     name: STRIPE_WEBHOOK_SECRET
     product: web-studio
-    description: Pruefsignatur der Stripe-Webhooks in der Sandbox, damit Zahlungen im Portal verbucht werden.
+    description: Signature check for Stripe webhooks in the sandbox, so payments are booked in the portal.
     owner: niklas
     link: https://dashboard.stripe.com/test/webhooks
     tags: [zahlung, web-studio]
@@ -76,7 +76,7 @@ secrets:
   - id: openai-leitfaden-staging
     name: OPENAI_API_KEY
     product: leitfaden
-    description: Projekt-Schluessel fuer den Assistenten in Staging, mit Ausgabenlimit.
+    description: Project key for the assistant in staging, with a spending limit.
     owner: niklas
     link: https://platform.openai.com/api-keys
     tags: [ki, leitfaden]
@@ -89,7 +89,7 @@ secrets:
   - id: supabase-access-leitfaden
     name: SUPABASE_ACCESS_TOKEN
     product: leitfaden
-    description: Zugangstoken fuer Migrationen und Deploys der Supabase-Projekte von Leitfaden (CI).
+    description: Access token for migrations and deploys of the Supabase projects of Leitfaden (CI).
     owner: niklas
     link: https://supabase.com/dashboard/account/tokens
     tags: [ci, supabase, leitfaden]
@@ -102,7 +102,7 @@ secrets:
   - id: lead-token-dev
     name: LEAD_INTAKE_TOKEN
     product: web-studio
-    description: Lokales Token fuer den Lead-Eingang in der Entwicklung, jeder Entwickler bekommt ein eigenes.
+    description: Local token for the lead intake during development; every developer gets their own.
     owner: niklas
     tags: [dev, web-studio]
     stage: dev
@@ -114,7 +114,7 @@ variables:
   - id: revenuecat-project-wakemiles
     name: REVENUECAT_PROJECT_ID
     product: wakemiles
-    description: "Kennung des RevenueCat-Projekts, aus dem das Produkt-Setup arbeitet."
+    description: "Identifier of the RevenueCat project the product setup works from."
     owner: niklas
     link: https://app.revenuecat.com
     tags: [revenuecat, wakemiles]
@@ -125,7 +125,7 @@ variables:
   - id: site-url-webstudio-staging
     name: NEXT_PUBLIC_SITE_URL
     product: web-studio
-    description: "Basis-Adresse der Staging-Seite von Web Studio, fuer Links in E-Mails und Webhooks."
+    description: "Base URL of the Web Studio staging site, for links in emails and webhooks."
     owner: niklas
     tags: [url, web-studio]
     stage: staging
@@ -135,7 +135,7 @@ variables:
   - id: site-url-leitfaden-staging
     name: NEXT_PUBLIC_SITE_URL
     product: leitfaden
-    description: "Basis-Adresse der Staging-Seite von Leitfaden."
+    description: "Base URL of the Leitfaden staging site."
     owner: niklas
     tags: [url, leitfaden]
     stage: staging
@@ -145,7 +145,7 @@ variables:
   - id: print-env-wakemiles
     name: PRINT_ENV
     product: wakemiles
-    description: "Druckmodus: sandbox testet ohne echte Bestellung, live loest echte Druckauftraege aus."
+    description: "Print mode: sandbox tests without a real order, live triggers real print jobs."
     owner: niklas
     tags: [druck, wakemiles]
     stage: staging
@@ -164,7 +164,7 @@ envTemplates:
       - { key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 32 } }
       - {
           key: STRIPE_SECRET_KEY,
-          from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" }
+          from: { type: prompt, hint: "Restricted key from the Stripe sandbox" }
         }
   - id: leitfaden-dev
     repo: leitfaden

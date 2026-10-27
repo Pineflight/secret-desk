@@ -13,6 +13,7 @@ import {
   type ProviderDef,
   type SecretEntry,
 } from "./types.js";
+import { StageDefSchema, StageError, resolvePlaces, type StageDef } from "./stages.js";
 import type { z } from "zod";
 
 export class InventoryError extends Error {
@@ -78,7 +79,29 @@ export class InventoryStore {
     const parsed = SecretSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
     if (this.getSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
-    return this.#mutate(() => this.#addNode(["secrets"], entry), () => this.getSecret(parsed.data.id)!);
+    const places = this.#resolve(parsed.data.stage, parsed.data.places);
+    return this.#mutate(() => this.#addNode(["secrets"], { ...entry, places }), () => this.getSecret(parsed.data.id)!);
+  }
+
+  /** Die wirksamen Stage-Definitionen (Standard, wenn das Inventar keine nennt). */
+  get stages(): StageDef[] {
+    return this.#data.stages;
+  }
+
+  /** Ersetzt die Stage-Liste komplett. Unbekannte Stages in Secrets/Variablen/Vorlagen lehnt die Validierung ab. */
+  setStages(defs: z.input<typeof StageDefSchema>[]): StageDef[] {
+    const parsed = StageDefSchema.array().safeParse(defs);
+    if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
+    return this.#mutate(() => this.#doc.set("stages", this.#doc.createNode(clean(parsed.data))), () => this.#data.stages);
+  }
+
+  #resolve<P extends { scope: "repository" | "environment" | "organization"; environment?: string | undefined }>(stage: string, places: P[]): P[] {
+    try {
+      return resolvePlaces(this.#data.stages, stage, places);
+    } catch (err) {
+      if (err instanceof StageError) throw new InventoryError(err.message);
+      throw err;
+    }
   }
 
   getVariable(id: string): VariableEntry | undefined {
@@ -89,7 +112,8 @@ export class InventoryStore {
     const parsed = VariableSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
     if (this.getVariable(parsed.data.id) || this.getSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
-    return this.#mutate(() => this.#addNode(["variables"], entry), () => this.getVariable(parsed.data.id)!);
+    const places = this.#resolve(parsed.data.stage, parsed.data.places);
+    return this.#mutate(() => this.#addNode(["variables"], { ...entry, places }), () => this.getVariable(parsed.data.id)!);
   }
 
   patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null }): VariableEntry {
@@ -144,6 +168,7 @@ export class InventoryStore {
     this.#mutate(() => {
       this.#doc.set("version", 1);
       this.#doc.set("thresholds", this.#doc.createNode(parsed.data.thresholds));
+      this.#doc.set("stages", this.#doc.createNode(clean(parsed.data.stages)));
       this.#doc.set("secrets", this.#doc.createNode(clean(parsed.data.secrets)));
       this.#doc.set("variables", this.#doc.createNode(clean(parsed.data.variables)));
       this.#doc.set("envTemplates", this.#doc.createNode(clean(parsed.data.envTemplates)));

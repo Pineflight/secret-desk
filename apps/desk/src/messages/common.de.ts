@@ -11,6 +11,7 @@ export default {
   "common.nav.dev": "Dev-Umgebung",
   "common.nav.integrations": "Integrationen",
   "common.nav.team": "Team",
+  "common.nav.settings": "Einstellungen",
   "common.pendingBadge": "{count} offen",
   "common.userLocal": "Lokal auf diesem Rechner",
   "common.demo": "Demo, simuliertes GitHub",

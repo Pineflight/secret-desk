@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { DeskClient } from "./client.js";
 
-const StageEnum = z.enum(["dev", "staging", "production", "shared"]);
+/** Id einer konfigurierten Stage (siehe desk_list_stages). Gueltigkeit prueft das Inventar. */
+const StageEnum = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/);
 const PlaceInput = z.object({
   repo: z.string(),
   scope: z.enum(["repository", "environment", "organization"]),
@@ -35,8 +36,14 @@ export const TOOLS: ToolDef[] = [
     run: (c) => c.request("GET", "/overview"),
   },
   {
+    name: "desk_list_stages",
+    description: "Die konfigurierten Stages: id, Anzeigename, Art (dev lokal, test Sandbox, live Produktionsgrad, shared passt zu allen), GitHub-Environment und Nutzung. Nur lesen: Stages aendert ein Mensch im Portal unter Einstellungen.",
+    inputSchema: {},
+    run: (c) => c.request("GET", "/stages"),
+  },
+  {
     name: "desk_list_secrets",
-    description: "Listet Secrets (nur Metadaten, nie Werte). Filter: stage (dev, staging, production, shared), repo, product, status (ok, soon, due, expired, no-date, unknown), provider, q (Freitext in Name, Beschreibung, Schlagworten, Verantwortlichem), tag.",
+    description: "Listet Secrets (nur Metadaten, nie Werte). Filter: stage (Id einer konfigurierten Stage, siehe desk_list_stages), repo, product, status (ok, soon, due, expired, no-date, unknown), provider, q (Freitext in Name, Beschreibung, Schlagworten, Verantwortlichem), tag.",
     inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional(), status: z.string().optional(), provider: z.string().optional(), q: z.string().optional(), tag: z.string().optional() },
     run: (c, i) => c.request("GET", `/secrets${qs(i)}`),
   },
@@ -49,7 +56,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_add_secret",
     description:
-      "Legt einen neuen Eintrag im Inventar an (nur Metadaten). id in kleinbuchstaben-mit-bindestrich, name als GROSSBUCHSTABEN_MIT_UNTERSTRICH, stage dev|staging|production|shared. Ausser dev braucht jeder Eintrag mindestens ein Ziel in places (repo, scope repository|environment, bei environment den Namen). provider ist die Id eines Anbieters (siehe desk_list_providers), sonst manual. Der Wert selbst wird nie angegeben.",
+      "Legt einen neuen Eintrag im Inventar an (nur Metadaten). id in kleinbuchstaben-mit-bindestrich, name als GROSSBUCHSTABEN_MIT_UNTERSTRICH, stage (Id aus desk_list_stages). Ausser Stages der Art dev braucht jeder Eintrag mindestens ein Ziel in places (repo, scope repository|environment; bei environment kann der Name fehlen, dann gilt die Environment der Stage). provider ist die Id eines Anbieters (siehe desk_list_providers), sonst manual. Der Wert selbst wird nie angegeben.",
     inputSchema: {
       id: z.string(),
       name: z.string(),
@@ -187,7 +194,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_export_dev_env",
     description:
-      "Erzeugt die .env fuer die lokale Entwicklung eines Repos (nur Stage dev). Schreibt die Datei in den angegebenen Pfad (muss in einem freigegebenen Ordner liegen), Modus 600. Antwort enthaelt nur Pfad, Schluessel und Herkunft, nie Werte. Lies die Datei danach nicht aus. Fehlen Eingaben (prompt-Eintraege), meldet das Werkzeug needs-input: Die muss ein Mensch im Portal oder in der CLI eintragen.",
+      "Erzeugt die .env fuer die lokale Entwicklung eines Repos (nur Stages der Art dev). Schreibt die Datei in den angegebenen Pfad (muss in einem freigegebenen Ordner liegen), Modus 600. Antwort enthaelt nur Pfad, Schluessel und Herkunft, nie Werte. Lies die Datei danach nicht aus. Fehlen Eingaben (prompt-Eintraege), meldet das Werkzeug needs-input: Die muss ein Mensch im Portal oder in der CLI eintragen.",
     inputSchema: { repo: z.string(), template: z.string().optional(), path: z.string(), overwrite: z.boolean().optional() },
     run: (c, i) => c.request("POST", "/env-export", i),
   },

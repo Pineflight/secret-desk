@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { z } from "zod";
 import { StageSchema } from "./types.js";
+import type { StageDef } from "./stages.js";
 
 export const SourceSpecSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("env"), name: z.string().min(1) }),
@@ -46,12 +47,12 @@ export const ConfigSchema = z.object({
   connections: z.record(z.string(), SourceSpecSchema).default({}),
   policy: z
     .object({
-      /** Stages, die Agenten (MCP) ohne Freigabe anfassen duerfen. */
-      agentStages: z.array(StageSchema).default(["dev"]),
+      /** Stage-Ids, die Agenten (MCP) ohne Freigabe anfassen duerfen. Fehlt die Angabe: alle Stages der Art dev. */
+      agentStages: z.array(StageSchema).optional(),
       /** Ordner, in die Env-Dateien geschrieben werden duerfen. Leer = nur ausdruecklich angegebene Pfade. */
       envRoots: z.array(z.string()).default([]),
     })
-    .default({ agentStages: ["dev"], envRoots: [] }),
+    .default({ envRoots: [] }),
   /** Browser-Automatisierung (Rezepte, siehe docs/BROWSER-AUTOMATION.md). Relative Pfade gelten ab der Konfigurationsdatei, `~` ist das Home-Verzeichnis. */
   automation: z
     .object({
@@ -79,4 +80,11 @@ export async function loadConfig(path: string): Promise<DeskConfig> {
     throw new Error(`Konfiguration ungueltig: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   }
   return parsed.data;
+}
+
+/** Stage-Ids, die Agenten direkt anfassen duerfen: Richtlinie oder, ohne Angabe, alle Stages der Art dev. Nie live. */
+export function agentStageIds(config: Pick<DeskConfig, "policy">, defs: readonly StageDef[]): string[] {
+  const ids = config.policy.agentStages ?? defs.filter((d) => d.kind === "dev").map((d) => d.id);
+  // Produktionsgrad (live) braucht immer eine Freigabe, auch wenn die Richtlinie die Stage nennt.
+  return ids.filter((id) => defs.find((d) => d.id === id)?.kind !== "live");
 }

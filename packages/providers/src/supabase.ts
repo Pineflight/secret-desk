@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type Provider, type VerifyContext } from "@secret-desk/core";
+import { contextKind, SecretValue, type Check, type Provider, type StageKind, type VerifyContext } from "@secret-desk/core";
 import { check, probe, step, steps } from "./checks.js";
 import { badResponse, callWithToken, JSON_HEADERS, ProviderError, requireString, seg } from "./http.js";
 
@@ -43,13 +43,14 @@ async function verifyKey(id: string, expected: "secret" | "publishable" | "servi
   return steps([Promise.resolve(out), Promise.resolve(rest)]);
 }
 
-function keyChecklist(secret: { stage: string; params: Record<string, unknown> }): string[] {
+function keyChecklist(secret: { stage: string; params: Record<string, unknown> }, ctx?: { stageKind: StageKind }): string[] {
+  const kind = ctx?.stageKind ?? contextKind({ stage: secret.stage });
   const ref = typeof secret.params["projectRef"] === "string" ? secret.params["projectRef"] : undefined;
   const type = typeof secret.params["type"] === "string" ? secret.params["type"] : undefined;
   return [
     ref ? `Das Projekt ist ${ref}` : "Das Projekt ist das vorgesehene (Ref pruefen)",
     type ? `Der Typ ist ${type}` : "Der Typ stimmt (secret oder publishable)",
-    secret.stage === "staging" ? "Es ist das Staging-Projekt, nicht das Produktionsprojekt" : secret.stage === "production" ? "Es ist das Produktionsprojekt" : "Das Projekt passt zur Stage",
+    kind === "test" ? "Es ist das Staging-Projekt, nicht das Produktionsprojekt" : kind === "live" ? "Es ist das Produktionsprojekt" : "Das Projekt passt zur Stage",
     "Der Name beim Anbieter traegt das heutige Datum",
   ];
 }

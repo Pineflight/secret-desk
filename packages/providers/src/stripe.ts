@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type Provider } from "@secret-desk/core";
+import { contextKind, SecretValue, type Check, type Provider } from "@secret-desk/core";
 import { check, isRecord, probeWithConnection, sameSet, step, strings } from "./checks.js";
 import { badResponse, callWithToken, optionalString, requireString, requireStringArray, seg } from "./http.js";
 
@@ -52,17 +52,17 @@ export const stripeWebhookProvider: Provider = {
       const live = e["livemode"];
       const actual = live === true ? "Live" : live === false ? "Sandbox" : "unbekannt";
       if (typeof live !== "boolean") out.push(check("mode", "Modus", "warn", { actual }));
-      else if (ctx.stage === "production") out.push(check("mode", "Modus passt zur Stage", live ? "pass" : "fail", { expected: "Live", actual }));
-      else if (ctx.stage === "shared") out.push(check("mode", "Modus", "info", { actual, detail: "Stage shared: Modus bitte selbst beurteilen" }));
+      else if (contextKind(ctx) === "live") out.push(check("mode", "Modus passt zur Stage", live ? "pass" : "fail", { expected: "Live", actual }));
+      else if (contextKind(ctx) === "shared") out.push(check("mode", "Modus", "info", { actual, detail: "Stage shared: Modus bitte selbst beurteilen" }));
       else out.push(check("mode", "Modus passt zur Stage", live ? "fail" : "pass", { expected: "Sandbox", actual }));
       return out;
     });
   },
-  reviewChecklist(secret) {
+  reviewChecklist(secret, ctx) {
     const url = typeof secret.params["url"] === "string" ? secret.params["url"] : undefined;
     return [
       "Das Stripe-Konto ist das des richtigen Produkts",
-      secret.stage === "production" ? "Der Endpunkt liegt im Live-Modus" : "Der Endpunkt liegt in der Sandbox, nicht im Live-Modus",
+      (ctx?.stageKind ?? contextKind({ stage: secret.stage })) === "live" ? "Der Endpunkt liegt im Live-Modus" : "Der Endpunkt liegt in der Sandbox, nicht im Live-Modus",
       url ? `Endpunkt-URL ist ${url}` : "Endpunkt-URL stimmt mit dem Dienst ueberein",
       "Die abonnierten Ereignisse sind genau die, die der Dienst verarbeitet",
     ];

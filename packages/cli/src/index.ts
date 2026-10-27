@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { stringify } from "yaml";
 import {
   InventoryStore,
-  STAGES,
+  DEFAULT_STAGES,
   StageSchema,
   findings,
   importLegacyInventory,
@@ -270,7 +270,7 @@ async function envExport(args: string[], io: Io): Promise<number> {
     if (i > 0) prompts[p.slice(0, i)] = p.slice(i + 1);
   }
   for (const [k, v] of Object.entries(process.env)) if (k.startsWith("SECRET_DESK_PROMPT_") && v) prompts[k.slice("SECRET_DESK_PROMPT_".length)] = v;
-  const stage: Stage = values.stage ? StageSchema.parse(values.stage) : "dev";
+  const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
   const r = await exportEnv(rt, { kind: "human", name: "cli" }, {
     repo: values.repo,
     stage,
@@ -326,11 +326,10 @@ async function importLegacy(args: string[], io: Io): Promise<number> {
     if (repo && product) map.set(repo, product);
   }
   const r = importLegacyInventory(await readFile(input, "utf8"), { productOf: (repo) => map.get(repo) });
-  const body = stringify({ version: 1, thresholds: [30, 14, 7], secrets: r.secrets, variables: r.variables, envTemplates: [], providers: [] }, { lineWidth: 0 });
+  const body = stringify({ version: 1, thresholds: [30, 14, 7], stages: DEFAULT_STAGES, secrets: r.secrets, variables: r.variables, envTemplates: [], providers: [] }, { lineWidth: 0 });
   await writeFile(output, `# Aus dem bisherigen Inventar umgewandelt. Nur Metadaten.\n${body}`, "utf8");
   io.out(`${r.secrets.length} Secrets und ${r.variables.length} Variablen geschrieben, uebersprungen: ${r.skipped.nonGitHub} Nicht-GitHub-Stellen (Worker, Supabase, lokal)`);
   return 0;
 }
 
-export { STAGES };
 export * from "./doctor.js";

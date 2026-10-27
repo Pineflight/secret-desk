@@ -1,7 +1,7 @@
-# Sicherheitshinweise melden
+# Reporting security issues
 
-Bitte Sicherheitsluecken **nicht** oeffentlich als Issue melden, sondern privat ueber GitHub *Security -> Report a vulnerability*
-oder per E-Mail an den Betreiber des Repositories.
+Please do **not** report vulnerabilities as a public issue. Use GitHub's private vulnerability reporting instead:
+on the repository [Pineflight/secret-desk](https://github.com/Pineflight/secret-desk), open the *Security* tab and choose *Report a vulnerability*.
 
-Zum Sicherheitsmodell siehe [docs/SICHERHEIT.md](docs/SICHERHEIT.md). Besonders relevant: Werte duerfen in keinem Bericht, keiner
-Antwort, keinem Protokoll und keiner Fehlermeldung auftauchen, und Agenten duerfen nichts bestaetigen.
+For the security model see [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md). Particularly relevant: values must never appear in any report,
+response, log or error message, and agents must never be able to confirm anything.

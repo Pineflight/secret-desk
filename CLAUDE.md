@@ -1,9 +1,9 @@
-# secret-desk, Regeln fuer Claude
+# secret-desk: rules for Claude
 
-- **Nie einen Wert anfassen, lesen, loggen oder in Tests/Fixtures fest eintragen.** Testwerte sind erfundene Zeichenfolgen. `SecretValue` nie in
-  Ausgaben umgehen (`reveal()` nur dort, wo der Wert wirklich weitergegeben wird).
-- Jede neue Antwort, jeder Bericht, jede Fehlermeldung bekommt einen Test, dass kein Wert und kein Verbindungs-Token darin steht.
-- Richtlinie lebt in `packages/runtime/src/agent-api.ts` (Agenten: nur `policy.agentStages` direkt, nie bestaetigen, keine Werte).
-- GitHub wird erst nach der Bestaetigung eines Menschen beschrieben; der alte Wert erst danach widerrufen.
-- Variablen: Geheimnis-Schutz (`guards.ts`) nie abschwaechen.
-- Pruefen vor dem Commit: `pnpm run verify`.
+- **Never touch, read, log or hard-code a value in tests/fixtures.** Test values are made-up strings. Never bypass `SecretValue` in
+  outputs (call `reveal()` only where the value is actually passed on).
+- Every new response, report and error message gets a test asserting that no value and no connection token appears in it.
+- Policy lives in `packages/runtime/src/agent-api.ts` (agents: only `policy.agentStages` directly, never confirm, no values).
+- GitHub is written only after a human confirms; the old value is revoked only after that.
+- Variables: never weaken the secret guard (`guards.ts`).
+- Before committing, run `pnpm run verify`.

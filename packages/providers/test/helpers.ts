@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { ConnectionStore, SecretSchema, SecretValue, type IssueContext, type RevokeContext, type Stage, type VerifyContext } from "@secret-desk/core";
+import { ConnectionStore, SecretSchema, SecretValue, type IssueContext, type RevokeContext, type Stage, type StageKind, type VerifyContext } from "@secret-desk/core";
 
 export const CONN_TOKEN = "CONN-TOKEN-1234567890";
 export const ISSUED = "ISSUED-VALUE-ABCDEFGH";
@@ -59,12 +59,13 @@ export function revokeCtx(f: typeof fetch, params: Record<string, unknown>, exte
 export function verifyCtx(
   f: typeof fetch,
   params: Record<string, unknown>,
-  opts: { value?: string; stage?: Stage; conns?: string[]; ttlDays?: number; externalId?: string; expiresAt?: string | null } = {},
+  opts: { value?: string; stage?: Stage; stageKind?: StageKind; conns?: string[]; ttlDays?: number; externalId?: string; expiresAt?: string | null } = {},
 ): VerifyContext {
   return {
     secret: secretEntry(opts.ttlDays ? { ttlDays: opts.ttlDays } : {}),
     params,
     stage: opts.stage ?? "dev",
+    ...(opts.stageKind ? { stageKind: opts.stageKind } : {}),
     value: new SecretValue(opts.value ?? ISSUED),
     ...(opts.externalId ? { externalId: opts.externalId } : {}),
     ...(opts.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),

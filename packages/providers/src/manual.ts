@@ -1,4 +1,4 @@
-import type { Check, Provider, ProviderGuide, SecretEntry, Stage, VerifyContext } from "@secret-desk/core";
+import { contextKind, type Check, type Provider, type ProviderGuide, type SecretEntry, type StageKind, type VerifyContext } from "@secret-desk/core";
 import { check, day, isRecord, probeWithValue, step } from "./checks.js";
 
 type Extras = Pick<Provider, "verify" | "reviewChecklist">;
@@ -30,16 +30,17 @@ export function githubTokenUrl(secret: SecretEntry, owner: string, now: Date): s
   return `https://github.com/settings/personal-access-tokens/new?${q.toString()}`;
 }
 
-const stagePhrase = (stage: Stage): string =>
-  stage === "production" ? "Es ist der Zugang fuer Produktion" : stage === "shared" ? "Der Zugang passt zu allen Stages, die ihn nutzen" : "Es ist ein Test- bzw. Sandbox-Zugang, kein Produktionszugang";
+/** Formulierung nach Art der Stage, nie nach ihrem Namen. */
+const stagePhrase = (kind: StageKind): string =>
+  kind === "live" ? "Es ist der Zugang fuer Produktion" : kind === "shared" ? "Der Zugang passt zu allen Stages, die ihn nutzen" : "Es ist ein Test- bzw. Sandbox-Zugang, kein Produktionszugang";
 
 /** Gemeinsame Pruefpunkte: Name, Rechte, Ablauf, Umgebung. */
-function checklist(secret: SecretEntry, what: string, extra: string[] = []): string[] {
+function checklist(secret: SecretEntry, ctx: { stageKind: StageKind } | undefined, what: string, extra: string[] = []): string[] {
   return [
     `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
     `${what} nur die Rechte, die der Dienst braucht`,
     secret.ttlDays ? `Ablauf ist ${secret.ttlDays} Tage nach heute` : "Ablauf ist gesetzt, sofern der Anbieter einen anbietet",
-    stagePhrase(secret.stage),
+    stagePhrase(ctx?.stageKind ?? contextKind({ stage: secret.stage })),
     ...extra,
   ];
 }
@@ -58,9 +59,9 @@ async function verifyStripeKey(ctx: VerifyContext): Promise<Check[]> {
   const actual = info ? (info.mode === "live" ? "Live" : "Sandbox") : "unbekannt";
   if (!info) {
     out.push(check("mode", "Modus des Schluessels", "warn", { actual, detail: "Praefix ist weder rk_/sk_ test noch live" }));
-  } else if (ctx.stage === "production") {
+  } else if (contextKind(ctx) === "live") {
     out.push(check("mode", "Modus passt zur Stage", info.mode === "live" ? "pass" : "fail", { expected: "Live", actual }));
-  } else if (ctx.stage === "shared") {
+  } else if (contextKind(ctx) === "shared") {
     out.push(check("mode", "Modus des Schluessels", "info", { actual, detail: "Stage shared: Modus bitte selbst beurteilen" }));
   } else {
     out.push(check("mode", "Modus passt zur Stage", info.mode === "test" ? "pass" : "fail", { expected: "Sandbox", actual }));
@@ -124,7 +125,7 @@ export const manualProviders: Provider[] = [
     "Schluessel kopieren und im Portal einfuegen; danach den alten Schluessel im Dashboard loeschen.",
   ], {
     verify: verifyStripeKey,
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat", ["Das Stripe-Konto ist das des richtigen Produkts"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Das Stripe-Konto ist das des richtigen Produkts"]),
   }),
   manual("supabase-access-token", "Supabase Access Token", "https://supabase.com/dashboard/account/tokens", [
     "Im Supabase-Dashboard unter Account > Access Tokens oeffnen.",
@@ -133,7 +134,7 @@ export const manualProviders: Provider[] = [
     "Im Portal einfuegen und den alten Token in der Liste loeschen.",
   ], {
     verify: verifySupabaseToken,
-    reviewChecklist: (secret) => checklist(secret, "Der Token hat", ["Der Token gehoert zum richtigen Supabase-Konto"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Token hat", ["Der Token gehoert zum richtigen Supabase-Konto"]),
   }),
   manual("github-fine-grained-token", "GitHub Fine-grained Token", "https://github.com/settings/personal-access-tokens/new", [
     "Token-Namen mit Datum vergeben und Ablaufdatum setzen (hoechstens 90 Tage empfohlen).",
@@ -143,7 +144,7 @@ export const manualProviders: Provider[] = [
     "Alten Token unter Settings > Developer settings widerrufen.",
   ], {
     verify: verifyGithub,
-    reviewChecklist: (secret) => checklist(secret, "Der Token hat", ["Eigentuemer ist die Organisation Pineflight, nur die noetigen Repositories sind gewaehlt"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Token hat", ["Eigentuemer ist die Organisation Pineflight, nur die noetigen Repositories sind gewaehlt"]),
   }, (secret, ctx) => githubTokenUrl(secret, ctx.owner, ctx.now)),
   manual("peecho", "Peecho", "https://www.peecho.com", [
     "Im Peecho-Konto den Bereich fuer API-Zugang oeffnen.",
@@ -151,7 +152,7 @@ export const manualProviders: Provider[] = [
     "Schluessel kopieren und im Portal einfuegen.",
     "Alten Schluessel im Peecho-Konto deaktivieren.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat", ["Sandbox oder Live passt zur Stage"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Sandbox oder Live passt zur Stage"]),
   }),
   manual("vesselapi", "VesselAPI", "https://vesselapi.com", [
     "Im VesselAPI-Konto den Bereich API-Keys oeffnen.",
@@ -159,7 +160,7 @@ export const manualProviders: Provider[] = [
     "Schluessel kopieren und im Portal einfuegen.",
     "Alten Schluessel loeschen.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat"),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat"),
   }),
   manual("dip-bundestag", "DIP Bundestag", "https://dip.bundestag.de/api", [
     "Auf der DIP-API-Seite die Hinweise zum API-Schluessel oeffnen.",
@@ -167,7 +168,7 @@ export const manualProviders: Provider[] = [
     "Wert kopieren und im Portal einfuegen.",
     "Pruefen, ob der alte Schluessel noch gilt, und ihn ersetzen.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat", ["Der Schluessel ist aktuell und nicht abgelaufen"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Der Schluessel ist aktuell und nicht abgelaufen"]),
   }),
   manual("telegram-bot", "Telegram Bot Token", "https://t.me/BotFather", [
     "Im Chat mit @BotFather /mybots senden und den Bot waehlen.",
@@ -175,7 +176,7 @@ export const manualProviders: Provider[] = [
     "Den neuen Token kopieren (der alte ist sofort ungueltig).",
     "Im Portal einfuegen und alle Ziele des Secrets zuegig aktualisieren.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Bot hat", ["Der Token gehoert zum richtigen Bot, bei Staging nicht zum Produktions-Bot"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Bot hat", ["Der Token gehoert zum richtigen Bot, bei Staging nicht zum Produktions-Bot"]),
   }),
   manual("awin", "Awin", "https://ui.awin.com", [
     "Bei Awin anmelden und unter Konto > API Credentials oeffnen.",
@@ -183,7 +184,7 @@ export const manualProviders: Provider[] = [
     "Wert kopieren und im Portal einfuegen.",
     "Alten Schluessel entfernen, sobald alle Ziele aktualisiert sind.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Zugang hat"),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Zugang hat"),
   }),
   manual("revenuecat", "RevenueCat", "https://app.revenuecat.com", [
     "Im RevenueCat-Dashboard das richtige Projekt waehlen.",
@@ -191,7 +192,7 @@ export const manualProviders: Provider[] = [
     "Schluessel kopieren und im Portal einfuegen.",
     "Alten Schluessel in der Liste loeschen.",
   ], {
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat", ["Das Projekt und der Schluesseltyp (public/secret) stimmen"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Das Projekt und der Schluesseltyp (public/secret) stimmen"]),
   }),
   manual("openai", "OpenAI API-Key", "https://platform.openai.com/api-keys", [
     "Im richtigen Projekt der OpenAI-Plattform \"Create new secret key\" waehlen.",
@@ -201,6 +202,6 @@ export const manualProviders: Provider[] = [
     "Kostenlimit des Projekts pruefen.",
   ], {
     verify: verifyOpenai,
-    reviewChecklist: (secret) => checklist(secret, "Der Schluessel hat", ["Das Projekt ist das richtige und hat ein Kostenlimit"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Das Projekt ist das richtige und hat ein Kostenlimit"]),
   }),
 ];

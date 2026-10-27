@@ -43,6 +43,8 @@ export function parseTeamBundle(text: string): Inventory {
 export interface MergeResult {
   added: string[];
   skipped: string[];
+  /** Neu uebernommene Stage-Ids. */
+  addedStages?: string[];
 }
 
 /** merge: vorhandene ids bleiben unveraendert, Neues kommt dazu. replace: ersetzt alles. */
@@ -53,6 +55,10 @@ export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: 
   }
   const added: string[] = [];
   const skipped: string[] = [];
+  // Stages: vorhandene Ids bleiben wie sie sind (kein stilles Ueberschreiben), neue kommen dazu.
+  const known = new Set(store.stages.map((d) => d.id));
+  const newStages = bundle.stages.filter((d) => !known.has(d.id));
+  if (newStages.length > 0) store.setStages([...store.stages, ...newStages]);
   for (const s of bundle.secrets) {
     if (store.getSecret(s.id)) skipped.push(s.id);
     else {
@@ -63,5 +69,5 @@ export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: 
   for (const v of bundle.variables) if (!store.getVariable(v.id)) store.addVariable(v);
   for (const p of bundle.providers) if (!store.data.providers.some((x) => x.id === p.id)) store.addProvider(p);
   for (const t of bundle.envTemplates) if (!store.data.envTemplates.some((x) => x.id === t.id)) store.addEnvTemplate(t);
-  return { added, skipped };
+  return { added, skipped, addedStages: newStages.map((d) => d.id) };
 }

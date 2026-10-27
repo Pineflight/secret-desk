@@ -6,6 +6,7 @@ import type { ConnectionStore } from "./connections.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
+import { stageKind } from "./stages.js";
 import type { EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
 
@@ -92,6 +93,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         secret,
         params: secret.params,
         stage: template.stage,
+        stageKind: stageKind(deps.inventory.stages, template.stage),
         connections: deps.connections,
         fetch: deps.fetch ?? fetch,
         now,

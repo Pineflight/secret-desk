@@ -1,123 +1,123 @@
-# Browser-Automatisierung (Anbieter ohne API)
+# Browser automation (providers without an API)
 
-Für Anbieter, bei denen ein Token nur über die Weboberfläche entsteht (GitHub fine-grained PAT, Supabase Access Token,
-Stripe Restricted Key), führt secret-desk einen echten Browser durch das Formular. Es ist derselbe Ablauf wie bei API-Anbietern:
-Wert erzeugen, prüfen, Bericht mit Beleg, **Mensch bestätigt**, erst dann Schreiben nach GitHub.
+For providers where a token can only be created through the web interface (GitHub fine-grained PAT, Supabase access token,
+Stripe restricted key), secret-desk drives a real browser through the form. It is the same flow as for API providers:
+generate the value, review it, report with evidence, **a human confirms**, and only then is it written to GitHub.
 
-## Grundsätze
+## Principles
 
-1. **Der Mensch meldet sich selbst an.** Der Browser ist ein sichtbares Fenster (kein Headless) mit eigenem dauerhaften Profil
-   (`~/.secret-desk/browser-profile`, Modus 700). secret-desk tippt nie ein Passwort, kein 2FA, löst kein CAPTCHA. Erscheint
-   Anmeldung, 2FA, CAPTCHA oder eine Passwortbestätigung, wartet es (Standard 10 Minuten) und macht danach weiter.
-2. **Der Wert bleibt im Arbeitsspeicher.** Der Token wird aus der Seite gelesen und als `SecretValue` an `prepareIssuance` gegeben.
-   Er steht nie in Logs, Rezeptausgaben, Fehlermeldungen oder Screenshots. Screenshots werden aufgenommen, bevor der Wert
-   sichtbar ist, oder mit maskierten Bereichen (`mask`).
-3. **Fail closed.** Jeder unerwartete Zustand (Element fehlt, falsche Seite, Zeitüberschreitung) bricht ab, es wird nichts nach GitHub
-   geschrieben. Wurde beim Anbieter schon ein Token erzeugt, steht im Fehler und im Bericht der Name, damit er dort gelöscht werden kann.
-4. **Rezepte sind Daten, kein Code.** Eine Weboberfläche ändert sich; die Korrektur ist dann eine YAML-Änderung per Pull Request.
-   Andere im Team können Anbieter ergänzen, ohne TypeScript zu schreiben.
-5. **Nur lokal, nur Systembrowser.** `playwright-core` mit dem installierten Chrome/Chromium (`channel: "chrome"` oder
-   `automation.chromePath`), kein Download von Browsern.
-6. **Keine Umgehung.** Keine Stealth-Plugins, keine CAPTCHA-Dienste, keine Anmeldedaten aus Dateien. Verlangt eine Seite Bot-Prüfung,
-   macht der Mensch sie im Fenster.
+1. **The human signs in themselves.** The browser is a visible window (not headless) with its own persistent profile
+   (`~/.secret-desk/browser-profile`, mode 700). secret-desk never types a password or 2FA code and never solves a CAPTCHA. When a
+   login, 2FA, CAPTCHA or password confirmation appears, it waits (10 minutes by default) and then continues.
+2. **The value stays in memory.** The token is read from the page and handed to `prepareIssuance` as a `SecretValue`.
+   It never appears in logs, recipe output, error messages or screenshots. Screenshots are taken before the value
+   becomes visible, or with masked regions (`mask`).
+3. **Fail closed.** Any unexpected state (element missing, wrong page, timeout) aborts, and nothing is written to GitHub.
+   If a token was already created at the provider, its name appears in the error and in the report so it can be deleted there.
+4. **Recipes are data, not code.** A web interface changes; the fix is then a YAML change via pull request.
+   Others on the team can add providers without writing TypeScript.
+5. **Local only, system browser only.** `playwright-core` with the installed Chrome/Chromium (`channel: "chrome"` or
+   `automation.chromePath`); no browser download.
+6. **No circumvention.** No stealth plugins, no CAPTCHA services, no credentials from files. If a page demands a bot check,
+   the human completes it in the window.
 
-## Rezept (YAML)
+## Recipe (YAML)
 
 ```yaml
 id: github-fine-grained-token
 label: GitHub Fine-grained Token
-host: github.com                   # Seiten außerhalb dieses Hosts (und listed hosts) werden nicht bedient
+host: github.com                   # pages outside this host (and listed hosts) are not served
 login:
-  # Angemeldet, wenn nach goto dieser Test besteht; sonst auf den Menschen warten.
+  # Signed in when this test passes after goto; otherwise wait for the human.
   expect: { url: "^https://github\\.com/settings/" }
 steps:
   - goto: "https://github.com/settings/personal-access-tokens/new?name={{name}}&target_name={{owner}}&expires_in={{days}}"
   - fill: { label: "Token name", value: "{{name}}" }
   - click: { role: button, name: "Generate token" }
-  - screenshot: form-before            # Beleg vor dem Wert
+  - screenshot: form-before            # evidence before the value
 capture:
   token:
-    find: { css: "#new-access-token" }  # role/label/text/testid bevorzugt, css nur wenn nötig
+    find: { css: "#new-access-token" }  # prefer role/label/text/testid, css only if necessary
     pattern: "^github_pat_[A-Za-z0-9_]+$"
-  externalId: { from: name }            # Kennung für späteres Widerrufen
+  externalId: { from: name }            # identifier for later revocation
   expires: { from: days }
-mask: [{ css: "#new-access-token" }]    # in allen späteren Screenshots verdeckt
+mask: [{ css: "#new-access-token" }]    # hidden in all later screenshots
 revoke:
-  steps: [ ... ]                         # optional; sonst Hinweis für den Menschen
+  steps: [ ... ]                         # optional; otherwise a hint for the human
 ```
 
-Schritte: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check`, `click`, `press`, `waitFor` (url/visible/text),
-`pause: human` (Mensch muss etwas tun, Text wird im Portal gezeigt), `screenshot: <name>`. Variablen in `{{ }}`: `name`, `owner`,
-`days`, `date`, `description`, `repos`, `permissions`, `stage`, `secretId`. Unbekannte Variablen sind ein Fehler.
+Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check`, `click`, `press`, `waitFor` (url/visible/text),
+`pause: human` (the human has to do something; the text is shown in the portal), `screenshot: <name>`. Variables in `{{ }}`: `name`, `owner`,
+`days`, `date`, `description`, `repos`, `permissions`, `stage`, `secretId`. Unknown variables are an error.
 
-## Bausteine
+## Components
 
-- Paket `@secret-desk/automation` (optionale Abhängigkeit `playwright-core`):
+- Package `@secret-desk/automation` (optional dependency `playwright-core`):
   `RecipeSchema` (zod), `loadRecipes(dirs)`, `renderTemplate`, `runRecipe(recipe, vars, driver, hooks)`,
-  `BrowserDriver`-Schnittstelle (Playwright-Implementierung `PlaywrightDriver`, Testimplementierung ohne Browser),
-  Maskierung, Anmeldewarten mit Zeitlimit, Abbruch.
-- Provider, der `issue` über ein Rezept ausführt und `IssuedSecret` zurückgibt (Beleg-PNGs gehen an den `EvidenceStore`). Die Runtime
-  (`createRuntime`) registriert Rezepte aus `recipes/` (mitgeliefert), `<Inventarordner>/recipes/` und `automation.recipesDirs` als Anbieter `<rezept-id>-browser`.
-- Rezepte mitgeliefert: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` als Gerüst (ungeprüft markiert).
-- Portal: Anbieter-Chip „Browser“, beim Lauf Status „Browser läuft, bitte im Fenster anmelden/bestätigen“ mit Abbrechen, Zeitlimit.
-- CLI: `secret-desk browser doctor` (Chrome gefunden, Profil, Rezepte gültig), `secret-desk browser run <rezept> --dry` (nur bis vor „Erzeugen“).
-- Konfiguration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs? }` (Details unten).
+  the `BrowserDriver` interface (Playwright implementation `PlaywrightDriver`, test implementation without a browser),
+  masking, login waiting with a timeout, abort.
+- A provider that runs `issue` through a recipe and returns `IssuedSecret` (evidence PNGs go to the `EvidenceStore`). The runtime
+  (`createRuntime`) registers recipes from `recipes/` (bundled), `<inventory folder>/recipes/` and `automation.recipesDirs` as provider `<recipe-id>-browser`.
+- Bundled recipes: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` as a scaffold (marked unverified).
+- Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
+- CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
+- Configuration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs? }` (details below).
 
-## Plattformen
-Chrome wird an den ueblichen Orten gesucht: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge unter `/usr/bin`, Snap, Flatpak),
-Windows (`%PROGRAMFILES%`, `%PROGRAMFILES(X86)%`, `%LOCALAPPDATA%`: Chrome, Chromium, Edge). Sonst `--chrome-path`/`automation.chromePath`. Snap- und
-Flatpak-Browser sind sandboxed und lassen sich oft nicht steuern. Das Profil liegt unter `<Home>/.secret-desk/browser-profile` (Windows:
-`%USERPROFILE%\.secret-desk\browser-profile`); POSIX Modus 700, Windows Schutz ueber das Benutzerprofil.
+## Platforms
+Chrome is searched for in the usual locations: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge under `/usr/bin`, Snap, Flatpak),
+Windows (`%PROGRAMFILES%`, `%PROGRAMFILES(X86)%`, `%LOCALAPPDATA%`: Chrome, Chromium, Edge). Otherwise use `--chrome-path`/`automation.chromePath`. Snap and
+Flatpak browsers are sandboxed and often cannot be driven. The profile lives under `<home>/.secret-desk/browser-profile` (Windows:
+`%USERPROFILE%\.secret-desk\browser-profile`); POSIX mode 700, on Windows protection via the user profile.
 
-## Grenzen
+## Limits
 
-Die mitgelieferten Rezepte sind nicht gegen die echten Seiten geprüft (kein Zugang zu Konten in der Entwicklung). Sie sind gegen
-lokale Nachbildungen der Formulare getestet. Der erste echte Lauf ist ein Probelauf mit Wegwerf-Token und menschlicher Aufsicht;
-Auswahlfelder, die ein Anbieter ändert, brechen den Lauf ab statt zu raten. Anbieter dürfen Automatisierung ihrer Oberfläche in den
-Nutzungsbedingungen einschränken: das Team entscheidet pro Anbieter, ob es das Rezept nutzt.
+The bundled recipes have not been verified against the real sites (no account access during development). They are tested against
+local replicas of the forms. The first real run is a trial run with a throwaway token and human supervision;
+select fields that a provider changes abort the run instead of guessing. Providers may restrict automation of their interface in their
+terms of use: the team decides per provider whether to use the recipe.
 
-## Stand der Umsetzung
+## Implementation status
 
-Gebaut (Paket `packages/automation`, Rezepte in `recipes/`, CLI `packages/cli/src/browser.ts`):
+Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/src/browser.ts`):
 
-- `RecipeSchema` (zod) mit Schrittarten `goto`, `fill`, `select`, `check`, `click` (`createsToken: true` markiert den Punkt, ab dem beim Anbieter
-  etwas entsteht), `press`, `waitFor` (`url`/`visible`/`text`), `pause` (`human` + `until`-Bedingung) und `screenshot`. Jeder Schritt (ausser goto,
-  waitFor, pause, screenshot) darf `each: repos` tragen und laeuft dann je Repository mit `{{item}}`. Selektoren: `role`+`name`, `label`, `text`,
-  `placeholder`, `testid`, `css` (letzte Wahl). Zusatzvariablen: `permissionsQuery` (schon kodierter Query-Teil der Rechte), `externalId` (nur `revoke`), `item`.
-- Das Schema prueft: unbekannte Variablen, `http` nur fuer localhost, fester Host in `goto` (Host oder `allowHosts`, auch `*.beispiel.de`), mindestens ein
-  `createsToken`. `loadRecipes(dirs)` wirft mit Dateiname und Pfad (`datei.yaml: steps.3.click: ...`); `loadRecipesDetailed` sammelt Fehler. Spaetere Ordner ueberstimmen gleiche Ids.
-- `renderTemplate`: unbekannte Variable = Fehler, in `goto` wird jeder Wert mit `encodeURIComponent` kodiert.
-- `BrowserDriver` mit `PlaywrightDriver` (sichtbares Chrome, `launchPersistentContext`, Profil Modus 700, `slowMoMs`; Chrome-Suche: `chromePath`, macOS/Linux/Windows-Standardpfade,
-  sonst `channel: "chrome"`; kein Download) und `FakeDriver` (Tests, ohne Browser).
-- `runRecipe` / `dryRunRecipe` / `revokeRecipe`: Anmeldewarten (`login.expect` nach dem ersten `goto`, danach wird die Zielseite erneut geladen), Zeitlimit,
-  AbortSignal, Host-Pruefung vor jeder Aktion, Maskierung in jedem Screenshot (Playwright-`mask`, zusaetzlich automatischer Beleg `nach-erzeugen`), Fehler ohne Seiteninhalt,
-  `RecipeRunError.createdName` nach `createsToken`.
-- `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` passt zum `Provider`-Interface (`kind: "automatic"`, zusaetzlich `automation.recipeId`).
-- Rezepte: `github-fine-grained-token`, `supabase-access-token`, `stripe-restricted-key` (Geruest). Alle tragen `# STATUS: nicht gegen die echte Seite geprueft`.
+- `RecipeSchema` (zod) with the step kinds `goto`, `fill`, `select`, `check`, `click` (`createsToken: true` marks the point from which
+  something is created at the provider), `press`, `waitFor` (`url`/`visible`/`text`), `pause` (`human` + an `until` condition) and `screenshot`. Every step (except goto,
+  waitFor, pause, screenshot) may carry `each: repos` and then runs once per repository with `{{item}}`. Selectors: `role`+`name`, `label`, `text`,
+  `placeholder`, `testid`, `css` (last resort). Additional variables: `permissionsQuery` (the already-encoded query part of the permissions), `externalId` (`revoke` only), `item`.
+- The schema checks: unknown variables, `http` only for localhost, a fixed host in `goto` (host or `allowHosts`, also `*.example.com`), at least one
+  `createsToken`. `loadRecipes(dirs)` throws with file name and path (`file.yaml: steps.3.click: ...`); `loadRecipesDetailed` collects errors. Later folders override equal ids.
+- `renderTemplate`: an unknown variable is an error; in `goto`, every value is encoded with `encodeURIComponent`.
+- `BrowserDriver` with `PlaywrightDriver` (visible Chrome, `launchPersistentContext`, profile mode 700, `slowMoMs`; Chrome lookup: `chromePath`, macOS/Linux/Windows default paths,
+  otherwise `channel: "chrome"`; no download) and `FakeDriver` (tests, no browser).
+- `runRecipe` / `dryRunRecipe` / `revokeRecipe`: login waiting (`login.expect` after the first `goto`, after which the target page is reloaded), timeout,
+  AbortSignal, host check before every action, masking in every screenshot (Playwright `mask`, plus an automatic evidence image `nach-erzeugen`), errors without page content,
+  `RecipeRunError.createdName` after `createsToken`.
+- `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` fits the `Provider` interface (`kind: "automatic"`, plus `automation.recipeId`).
+- Recipes: `github-fine-grained-token`, `supabase-access-token`, `stripe-restricted-key` (scaffold). All carry `# STATUS: nicht gegen die echte Seite geprueft` (not verified against the real site).
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
-- Tests: Schema, Template, Host, Fake-Laeufe, Rezepte laden, Provider, Integration mit `PlaywrightDriver` gegen ein lokales Formular (nur mit Chrome, headless, kein Internet).
+- Tests: schema, template, host, fake runs, loading recipes, provider, integration with `PlaywrightDriver` against a local form (only with Chrome, headless, no internet).
 
-### Verdrahtung in Runtime und Portal (gebaut)
+### Wiring in runtime and portal (built)
 
-- **Konfiguration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[] }`.
-  Relative Pfade gelten ab der Konfigurationsdatei, `~` wird aufgelöst. Beispiel: `examples/secret-desk.config.example.yaml`.
-- **Runtime** (`packages/runtime/src/automation.ts`): `rt.automation` (`AutomationManager`). `createRuntime` lädt die Rezepte (mitgeliefert aus `<Repo>/recipes` über
-  `bundledRecipesDir()`, dazu `<Inventarordner>/recipes` und `recipesDirs`, spätere Ordner überstimmen gleiche Ids) und registriert je Rezept den Anbieter `<id>-browser`.
-  Ungültige Rezepte brechen nichts ab, sie stehen in `rt.automation.problems`. Ohne Chrome/Playwright ist der Anbieter trotzdem da; der Lauf scheitert mit der Meldung samt Installationshinweis.
-- **Laufzustand** je `secretId`: `idle | running | waiting-human | done | failed | cancelled` mit Text, Host der Seite (ohne Pfad/Query), Schritt `n von m`, Startzeit, bei `done` die Prüfungs-id,
-  bei Fehlern `createdName`. Nur **ein** Lauf gleichzeitig (ein Profil, ein Fenster); ein zweiter Start gibt 409. Der Zustand liegt in der Runtime, nicht im Browser des Portals:
-  ein Neuladen der Seite verwaist den Lauf nicht, die Seite fragt weiter ab. Werte stehen nie im Zustand; Fehlertexte sind geschwärzt.
-- **Ablauf**: `requestIssuance` (und die Freigabe eines Agentenantrags) führt bei einem Browser-Anbieter `prepareIssuance` als verfolgten Lauf aus und hängt danach die Belege
-  (`attachScreenshots`) an den Bericht. Die Anfrage läuft bis zum Anmelde-Zeitlimit; der Next-Handler hat dafür `maxDuration = 3600`.
-- **Agenten** (MCP/Agent-API) bekommen für einen Browser-Anbieter in **jeder** Stage nur eine Freigabe im Portal (es öffnet sich ein Fenster am Rechner), auch bei `agentStages: [dev]`.
-  Zustand und Abbruch sind reine Portal-Routen.
-- **Portal-Routen** (nur `/api/ui`, Cookie + CSRF): `GET automation` (Chrome, Profilordner, Wartezeit, Rezepte mit Status-Kommentar, Probleme, Läufe),
-  `GET automation/runs/:secretId`, `POST automation/runs/:secretId/cancel`. Gestartet wird über die bestehende Route `POST renewal-requests`.
-- **Oberfläche**: Secret-Seite mit Lauf-Panel (alle 2 s, Hinweis zur eigenen Anmeldung, „Rezept nicht gegen die echte Seite geprüft“, Abbrechen, Link zur Prüfung);
-  Integrationen mit Abschnitt „Browser-Automatisierung“; Chip „Browser“ bei Secret und in der Anbieter-Auswahl. Alle Texte zweisprachig.
-- **Build-Hinweis**: `apps/desk` markiert `@secret-desk/automation` und `playwright-core` in `serverExternalPackages`, damit Next den Browser-Treiber nicht bündelt.
+- **Configuration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[] }`.
+  Relative paths are resolved from the configuration file, `~` is expanded. Example: `examples/secret-desk.config.example.yaml`.
+- **Runtime** (`packages/runtime/src/automation.ts`): `rt.automation` (`AutomationManager`). `createRuntime` loads the recipes (bundled from `<repo>/recipes` via
+  `bundledRecipesDir()`, plus `<inventory folder>/recipes` and `recipesDirs`; later folders override equal ids) and registers the provider `<id>-browser` per recipe.
+  Invalid recipes do not abort anything; they are listed in `rt.automation.problems`. Without Chrome/Playwright the provider is still present; the run fails with a message including an installation hint.
+- **Run state** per `secretId`: `idle | running | waiting-human | done | failed | cancelled` with text, the page's host (without path/query), step `n of m`, start time, on `done` the review id,
+  on errors `createdName`. Only **one** run at a time (one profile, one window); a second start returns 409. The state lives in the runtime, not in the portal's browser:
+  reloading the page does not orphan the run, and the page keeps polling. Values never appear in the state; error texts are redacted.
+- **Flow**: `requestIssuance` (and the approval of an agent request) runs `prepareIssuance` for a browser provider as a tracked run and then attaches the evidence
+  (`attachScreenshots`) to the report. The request runs up to the login timeout; the Next handler has `maxDuration = 3600` for this.
+- **Agents** (MCP/agent API) get only an approval in the portal for a browser provider in **every** stage (a window opens on the machine), even with `agentStages: [dev]`.
+  State and cancel are portal-only routes.
+- **Portal routes** (only `/api/ui`, cookie + CSRF): `GET automation` (Chrome, profile folder, wait time, recipes with status comment, problems, runs),
+  `GET automation/runs/:secretId`, `POST automation/runs/:secretId/cancel`. Runs are started through the existing route `POST renewal-requests`.
+- **UI**: secret page with a run panel (every 2 s, hint about signing in yourself, "Recipe not verified against the real site", Cancel, link to the review);
+  Integrations with a "Browser automation" section; a "Browser" chip on the secret and in the provider picker. All texts are bilingual (DE/EN).
+- **Build note**: `apps/desk` lists `@secret-desk/automation` and `playwright-core` in `serverExternalPackages` so that Next does not bundle the browser driver.
 
-### API fuer die Integration (Runtime und Portal)
+### API for the integration (runtime and portal)
 
 ```ts
 import {
@@ -129,26 +129,26 @@ const { recipes, errors } = await loadRecipesDetailed([bundledRecipesDir, join(i
 for (const { recipe } of recipes) {
   registry.register(createBrowserProvider({
     recipe,
-    driverFactory: () => new PlaywrightDriver({ chromePath, profileDir, slowMoMs }),   // aus config.automation
+    driverFactory: () => new PlaywrightDriver({ chromePath, profileDir, slowMoMs }),   // from config.automation
     hooks: (secretId) => ({ onWaitingForHuman: (w) => portal.setStatus(secretId, w), onResumed: () => portal.clear(secretId) }),
     runOptions: (secretId) => ({ loginTimeoutMinutes, signal: portal.abortSignal(secretId) }),
     evidence,
   }));
 }
-// Nach prepareIssuance: Belege an den Bericht haengen (der Bericht entsteht erst nach issue):
+// After prepareIssuance: attach the evidence to the report (the report only exists after issue):
 await (provider as BrowserProvider).attachScreenshots(secret.id, report.id);
 ```
 
-- Die Runtime benennt den Anbieter `<recipe.id>-browser` (Label `<Label> (Browser)`) und ersetzt den bisherigen Anleitungs-Anbieter gleichen Rezepts nicht: beide bleiben wählbar.
-- `RecipeRunError` (`kind`: abort | timeout | host | step | capture; `createdName`) gehoert in Fehlerbericht und Portal: bei `createdName` den Namen anzeigen, damit der Mensch ihn beim Anbieter loescht.
-- Der Beleg-Anhang geht ueber `attachScreenshots`, weil `EvidenceStore.attach` einen bestehenden Bericht braucht, `issue` aber vor dem Bericht laeuft.
+- The runtime names the provider `<recipe.id>-browser` (label `<label> (Browser)`) and does not replace the existing guide provider for the same recipe: both stay selectable.
+- `RecipeRunError` (`kind`: abort | timeout | host | step | capture; `createdName`) belongs in the error report and the portal: with `createdName`, show the name so the human can delete it at the provider.
+- The evidence attachment goes through `attachScreenshots` because `EvidenceStore.attach` needs an existing report, whereas `issue` runs before the report.
 
-### Offene Punkte
+### Open items
 
-- `next build` und ein echter Lauf im Portal sind noch nicht gemeinsam geprüft (Bündelung von `playwright-core`, Pfad der mitgelieferten Rezepte im Produktionsbuild).
+- `next build` and a real run in the portal have not yet been verified together (bundling of `playwright-core`, path of the bundled recipes in the production build).
 
-- Rezepte gegen die echten Seiten pruefen (Probelauf mit Wegwerf-Token, Aufsicht); besonders GitHub-Bestaetigungsdialog, Token-Element, Supabase-Ablauffeld.
-- Eigener Schritt fuer Elemente innerhalb eines Dialogs (Selektoren kennen keinen Bereich); bis dahin `css`.
-- Stripe: Rechtematrix je Ressource aus `params` abbilden.
-- Widerruf per Rezept (`revoke.steps`) fuer GitHub und Supabase schreiben; bisher Hinweis fuer den Menschen.
-- Anbieter-Nutzungsbedingungen zur Automatisierung pro Anbieter klaeren (Entscheidung des Teams).
+- Verify recipes against the real sites (trial run with a throwaway token, supervised); in particular the GitHub confirmation dialog, the token element and the Supabase expiry field.
+- A dedicated step for elements inside a dialog (selectors have no notion of a scope); until then use `css`.
+- Stripe: map the permission matrix per resource from `params`.
+- Write revocation via recipe (`revoke.steps`) for GitHub and Supabase; so far a hint for the human.
+- Clarify each provider's terms of use regarding automation (a team decision).

@@ -1,5 +1,6 @@
 import type { StatusLevel } from "@secret-desk/core";
 import { translate } from "./i18n";
+import { FALLBACK_STAGES, stageLook, type StageDefLite } from "./stages";
 
 export type Tone = "success" | "warn" | "warn-strong" | "danger" | "neutral" | "info" | "ki" | "primary" | "stage-prod";
 export type IconName =
@@ -26,15 +27,9 @@ export function statusInfo(level: StatusLevel): Info {
   return { ...i, label: translate(i.label) };
 }
 
-const STAGE: Record<string, Info> = {
-  dev: { label: "dev", tone: "info", icon: "dot" },
-  staging: { label: "staging", tone: "ki", icon: "dot" },
-  production: { label: "production", tone: "stage-prod", icon: "shield" },
-  shared: { label: "shared", tone: "neutral", icon: "dot" },
-};
-
-export function stageInfo(stage: string): Info {
-  return STAGE[stage] ?? { label: stage, tone: "neutral", icon: "dot" };
+/** Anzeigename, Farbe und Symbol einer Stage aus den Definitionen (Farbe: tone, sonst Standard der Art). */
+export function stageInfo(stage: string, defs: readonly StageDefLite[] = FALLBACK_STAGES): Info {
+  return stageLook(defs, stage);
 }
 
 export function providerInfo(automatic: boolean, browser = false): Info {

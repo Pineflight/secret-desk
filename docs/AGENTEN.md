@@ -10,16 +10,16 @@ Der Agenten-Token liegt in `~/.secret-desk/agent-token` (wird beim ersten Start 
 Das Portal muss laufen (`pnpm dev`).
 
 ## Werkzeuge
-`desk_overview`, `desk_list_secrets`, `desk_get_secret`, `desk_add_secret`, `desk_update_secret`, `desk_list_providers`, `desk_list_connections`,
+`desk_overview`, `desk_list_stages`, `desk_list_secrets`, `desk_get_secret`, `desk_add_secret`, `desk_update_secret`, `desk_list_providers`, `desk_list_connections`,
 `desk_add_provider`, `desk_add_env_template`, `desk_add_env_entry`, `desk_request_renewal`, `desk_list_reviews`, `desk_list_evidence`,
 `desk_list_variables`, `desk_variable_status`, `desk_update_variable_meta`, `desk_add_variable`, `desk_set_variable_value`, `desk_apply_variable`, `desk_get_approval`,
 `desk_export_dev_env`, `desk_team_export`.
 
 ## Regeln der Richtlinie (erzwingt das Portal, nicht der Agent)
-- Stages in `policy.agentStages` (Standard nur `dev`) darf ein Agent direkt anfassen, alles andere nur per **Freigabe** eines Menschen.
+- Stages in `policy.agentStages` (Standard: alle Stages der Art `dev`) darf ein Agent direkt anfassen, alles andere nur per **Freigabe** eines Menschen. Stages der Art `live` brauchen immer eine Freigabe, auch wenn die Richtlinie sie nennt. Stage-Definitionen kann ein Agent lesen (`desk_list_stages`), aendern nur ein Mensch im Portal (Einstellungen).
 - Ein neuer Wert wird **nie** sofort geschrieben: Er wartet auf die **Bestaetigung eines Menschen** (Reiter Pruefen).
 - Agenten bestaetigen nicht, geben keine Werte ein, setzen keine Verbindungen, laden keine Anlagen hoch.
-- `.env`-Dateien nur fuer `dev` und nur in `policy.envRoots`. Der Agent bekommt Pfad und Schluesselnamen, nie Inhalte.
+- `.env`-Dateien nur fuer Stages der Art `dev` und nur in `policy.envRoots`. Der Agent bekommt Pfad und Schluesselnamen, nie Inhalte.
 
 ## Skill
 `skills/secret-desk/SKILL.md` beschreibt dem Agenten die Regeln und typischen Ablaeufe. In `~/.claude/skills/secret-desk/` kopieren oder als Plugin einbinden.
