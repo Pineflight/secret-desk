@@ -1,6 +1,8 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseDocument, type Document } from "yaml";
 import {
+  VariableSchema,
+  type VariableEntry,
   EnvEntrySchema,
   EnvTemplateSchema,
   InventorySchema,
@@ -20,7 +22,7 @@ export class InventoryError extends Error {
   }
 }
 
-type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "externalId" | "notes" | "ttlDays" | "expiry" | "title">;
+type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title">;
 
 /**
  * Das Inventar als YAML-Datei. Nur Metadaten, nie Werte. Aenderungen gehen ueber das
@@ -79,6 +81,35 @@ export class InventoryStore {
     return this.#mutate(() => this.#addNode(["secrets"], entry), () => this.getSecret(parsed.data.id)!);
   }
 
+  getVariable(id: string): VariableEntry | undefined {
+    return this.#data.variables.find((v) => v.id === id);
+  }
+
+  addVariable(entry: z.input<typeof VariableSchema>): VariableEntry {
+    const parsed = VariableSchema.safeParse(entry);
+    if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
+    if (this.getVariable(parsed.data.id) || this.getSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
+    return this.#mutate(() => this.#addNode(["variables"], entry), () => this.getVariable(parsed.data.id)!);
+  }
+
+  patchVariable(id: string, patch: { value?: string | null; description?: string | null }): VariableEntry {
+    const idx = this.#data.variables.findIndex((v) => v.id === id);
+    if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
+    return this.#mutate(() => {
+      if ("value" in patch) this.#doc.setIn(["variables", idx, "value"], patch.value ?? null);
+      if ("description" in patch) {
+        if (patch.description === null || patch.description === undefined) this.#doc.deleteIn(["variables", idx, "description"]);
+        else this.#doc.setIn(["variables", idx, "description"], patch.description);
+      }
+    }, () => this.getVariable(id)!);
+  }
+
+  removeVariable(id: string): void {
+    const idx = this.#data.variables.findIndex((v) => v.id === id);
+    if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
+    this.#mutate(() => this.#doc.deleteIn(["variables", idx]), () => undefined);
+  }
+
   addProvider(def: z.input<typeof ProviderDefSchema>): ProviderDef {
     const parsed = ProviderDefSchema.safeParse(def);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
@@ -112,6 +143,7 @@ export class InventoryStore {
       this.#doc.set("version", 1);
       this.#doc.set("thresholds", this.#doc.createNode(parsed.data.thresholds));
       this.#doc.set("secrets", this.#doc.createNode(clean(parsed.data.secrets)));
+      this.#doc.set("variables", this.#doc.createNode(clean(parsed.data.variables)));
       this.#doc.set("envTemplates", this.#doc.createNode(clean(parsed.data.envTemplates)));
       this.#doc.set("providers", this.#doc.createNode(clean(parsed.data.providers)));
     }, () => undefined);

@@ -60,6 +60,7 @@ export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: 
       added.push(s.id);
     }
   }
+  for (const v of bundle.variables) if (!store.getVariable(v.id)) store.addVariable(v);
   for (const p of bundle.providers) if (!store.data.providers.some((x) => x.id === p.id)) store.addProvider(p);
   for (const t of bundle.envTemplates) if (!store.data.envTemplates.some((x) => x.id === t.id)) store.addEnvTemplate(t);
   return { added, skipped };

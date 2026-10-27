@@ -91,7 +91,9 @@ describe("importLegacyInventory", () => {
   it("macht aus Name x Stellen einzelne Secrets je Repo und Stage", () => {
     const r = importLegacyInventory(legacy, { productOf: () => "wakemiles" });
     expect(r.secrets.map((s) => s.id)).toEqual(["artifact-hmac-secret-wake-miles-production", "cloudflare-api-token-wake-miles-repo", "cloudflare-api-token-wake-miles-staging"]);
-    expect(r.skipped).toEqual({ variables: 1, nonGitHub: 1 });
+    expect(r.skipped).toEqual({ variables: 0, nonGitHub: 1 });
+    expect(r.variables.map((v) => v.id)).toEqual(["var-cloudflare-api-token-wake-miles-repo"]);
+    expect(r.variables[0]!.value).toBeNull();
     const cf = r.secrets.find((s) => s.id.endsWith("repo"))!;
     expect(cf).toMatchObject({ provider: "cloudflare-token", ttlDays: 90, stage: "shared", product: "wakemiles" });
     const hmac = r.secrets[0]!;

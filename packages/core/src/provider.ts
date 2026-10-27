@@ -2,6 +2,7 @@ import type { SecretValue } from "./secret.js";
 import type { ConnectionStore } from "./connections.js";
 import type { FetchLike } from "./github.js";
 import type { SecretEntry, Stage } from "./types.js";
+import type { Check } from "./verification.js";
 
 export interface IssueContext {
   secret: SecretEntry;
@@ -30,6 +31,19 @@ export interface RevokeContext {
   fetch: FetchLike;
 }
 
+export interface VerifyContext {
+  secret: SecretEntry;
+  params: Record<string, unknown>;
+  stage: Stage;
+  /** Der soeben ausgestellte oder eingefuegte Wert. Nur zum Pruefen, nie speichern oder ausgeben. */
+  value: SecretValue;
+  externalId?: string;
+  expiresAt?: string | null;
+  connections: ConnectionStore;
+  fetch: FetchLike;
+  now: Date;
+}
+
 export interface ProviderGuide {
   url: string;
   steps: string[];
@@ -45,6 +59,10 @@ export interface Provider {
   guide?: ProviderGuide;
   /** Wie viele Stunden der Anbieter fuer den Wert maximal vorsieht, falls bekannt. */
   issue?(ctx: IssueContext): Promise<IssuedSecret>;
+  /** Eigene Pruefungen nach dem Ausstellen (Funktionstest, Rechte, Ablauf). Liefert nur Befunde, nie Werte. */
+  verify?(ctx: VerifyContext): Promise<Check[]>;
+  /** Punkte, die der Mensch im Anbieter-Dashboard oder auf dem Beleg selbst beurteilt. */
+  reviewChecklist?(secret: SecretEntry): string[];
   revoke?(ctx: RevokeContext): Promise<void>;
 }
 

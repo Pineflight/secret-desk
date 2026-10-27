@@ -36,7 +36,7 @@ export interface EnvBuildResult {
   text: string;
   keys: string[];
   /** Zuordnung Schluessel -> Herkunft, ohne Werte. */
-  sources: Record<string, "default" | "generate" | "issue" | "prompt">;
+  sources: Record<string, "default" | "generate" | "issue" | "prompt" | "variable">;
   issuedSecretIds: string[];
 }
 
@@ -75,6 +75,11 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     if (from.type === "default") value = from.value;
     else if (from.type === "generate") value = generateValue(from.kind, from.bytes);
     else if (from.type === "prompt") value = deps.prompts![entry.key]!;
+    else if (from.type === "variable") {
+      const variable = deps.inventory.getVariable(from.variable);
+      if (!variable || variable.value === null) throw new EnvExportError(`Variable ${from.variable} hat keinen Sollwert. Im Portal setzen oder aus GitHub uebernehmen.`);
+      value = variable.value;
+    }
     else {
       const secret = deps.inventory.getSecret(from.secret);
       if (!secret) throw new EnvExportError(`Unbekanntes Secret: ${from.secret}`);

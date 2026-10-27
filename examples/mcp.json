@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "secret-desk": {
+      "command": "node",
+      "args": ["/PFAD/ZU/secret-desk/packages/mcp/dist/server.js"],
+      "env": { "SECRET_DESK_URL": "http://127.0.0.1:4747" }
+    }
+  }
+}

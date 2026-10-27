@@ -38,6 +38,9 @@ export const SecretSchema = z
     expires: DateString.nullable().default(null),
     ttlDays: z.number().int().positive().optional(),
     rotatedAt: DateString.optional(),
+    /** Wann und von wem der Wert nach der Pruefung bestaetigt wurde. */
+    verifiedAt: DateString.optional(),
+    verifiedBy: z.string().optional(),
     /** Kennung beim Anbieter (zum Widerrufen), kein Geheimnis. */
     externalId: z.string().optional(),
     source: z.string().optional(),
@@ -61,6 +64,8 @@ export const EnvSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("generate"), kind: z.enum(["hex", "base64", "uuid"]).default("hex"), bytes: z.number().int().min(8).max(128).default(32) }),
   z.object({ type: z.literal("issue"), secret: Slug }),
   z.object({ type: z.literal("prompt"), hint: z.string().optional() }),
+  /** Wert einer Variable aus dem Inventar (Konfiguration, kein Geheimnis). */
+  z.object({ type: z.literal("variable"), variable: Slug }),
 ]);
 export type EnvSource = z.infer<typeof EnvSourceSchema>;
 
@@ -88,11 +93,27 @@ export const ProviderDefSchema = z.object({
 });
 export type ProviderDef = z.infer<typeof ProviderDefSchema>;
 
+/**
+ * Eine GitHub-Actions-Variable (vars.*): Konfiguration, kein Geheimnis. Der Sollwert steht im Inventar,
+ * das Portal gleicht ihn mit GitHub ab und setzt ihn. null = Sollwert noch unbekannt, aus GitHub uebernehmen.
+ */
+export const VariableSchema = z.object({
+  id: Slug,
+  name: SecretName,
+  description: z.string().optional(),
+  product: z.string().optional(),
+  stage: StageSchema.default("shared"),
+  value: z.string().max(1000).nullable().default(null),
+  places: z.array(PlaceSchema).min(1, "mindestens ein Ziel"),
+});
+export type VariableEntry = z.infer<typeof VariableSchema>;
+
 export const InventorySchema = z
   .object({
     version: z.literal(1),
     thresholds: z.array(z.number().int().positive()).default([30, 14, 7]),
     secrets: z.array(SecretSchema).default([]),
+    variables: z.array(VariableSchema).default([]),
     envTemplates: z.array(EnvTemplateSchema).default([]),
     providers: z.array(ProviderDefSchema).default([]),
   })
@@ -102,11 +123,19 @@ export const InventorySchema = z
       if (seen.has(s.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${s.id}`, path: ["secrets", i, "id"] });
       seen.add(s.id);
     });
+    const varIds = new Set<string>();
+    inv.variables.forEach((v, i) => {
+      if (varIds.has(v.id) || seen.has(v.id)) ctx.addIssue({ code: "custom", message: `id doppelt: ${v.id}`, path: ["variables", i, "id"] });
+      varIds.add(v.id);
+    });
     const ids = new Set(inv.secrets.map((s) => s.id));
     inv.envTemplates.forEach((t, i) =>
       t.entries.forEach((e, j) => {
         if (e.from.type === "issue" && !ids.has(e.from.secret)) {
           ctx.addIssue({ code: "custom", message: `unbekanntes Secret: ${e.from.secret}`, path: ["envTemplates", i, "entries", j] });
+        }
+        if (e.from.type === "variable" && !varIds.has(e.from.variable)) {
+          ctx.addIssue({ code: "custom", message: `unbekannte Variable: ${e.from.variable}`, path: ["envTemplates", i, "entries", j] });
         }
       }),
     );

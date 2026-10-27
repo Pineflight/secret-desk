@@ -46,12 +46,23 @@ function secretsPath(t: GitHubTarget): string {
   return `/repos/${enc(t.owner)}/${enc(t.repo)}/actions/secrets`;
 }
 
+function variablesPath(t: GitHubTarget): string {
+  return secretsPath(t).replace(/\/secrets$/, "/variables");
+}
+
 const enc = encodeURIComponent;
 
 export interface GitHubClientOptions {
   auth: TokenProvider;
   fetch?: FetchLike;
   baseUrl?: string;
+}
+
+export interface RemoteVariable {
+  name: string;
+  value: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RemoteSecret {
@@ -102,6 +113,37 @@ export class GitHubClient {
     const { keyId, key } = await this.publicKey(target);
     const encrypted = await sealForGitHub(key, value.reveal());
     return this.putEncrypted(target, name, encrypted, keyId);
+  }
+
+  /** Variablen sind lesbar: Name und Wert. */
+  async listVariables(target: GitHubTarget): Promise<RemoteVariable[]> {
+    const out: RemoteVariable[] = [];
+    for (let page = 1; page <= 20; page += 1) {
+      const res = await this.#request("GET", `${variablesPath(target)}?per_page=30&page=${page}`);
+      const body = (await res.json()) as { variables?: { name: string; value: string; created_at: string; updated_at: string }[] };
+      const items = body.variables ?? [];
+      out.push(...items.map((v) => ({ name: v.name, value: v.value, createdAt: v.created_at, updatedAt: v.updated_at })));
+      if (items.length < 30) break;
+    }
+    return out;
+  }
+
+  /** Legt eine Variable an oder aendert sie. */
+  async putVariable(target: GitHubTarget, name: string, value: string): Promise<"created" | "updated"> {
+    try {
+      await this.#request("PATCH", `${variablesPath(target)}/${enc(name)}`, { name, value });
+      return "updated";
+    } catch (err) {
+      if (!(err instanceof GitHubError && err.status === 404)) throw err;
+    }
+    const body: Record<string, unknown> = { name, value };
+    if (target.scope === "organization") body.visibility = "selected";
+    await this.#request("POST", variablesPath(target), body);
+    return "created";
+  }
+
+  async deleteVariable(target: GitHubTarget, name: string): Promise<void> {
+    await this.#request("DELETE", `${variablesPath(target)}/${enc(name)}`);
   }
 
   async deleteSecret(target: GitHubTarget, name: string): Promise<void> {

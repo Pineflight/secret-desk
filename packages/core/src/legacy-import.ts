@@ -1,5 +1,5 @@
 import { parse } from "yaml";
-import type { SecretEntry, Stage } from "./types.js";
+import type { SecretEntry, Stage, VariableEntry } from "./types.js";
 
 /** Form des bisherigen Inventars aus ai-interlink (docs/secrets/secrets-inventory.yaml). */
 interface LegacyPlace {
@@ -29,6 +29,8 @@ export interface LegacyImportOptions {
 
 export interface LegacyImportResult {
   secrets: SecretEntry[];
+  /** Variablen aus dem alten Inventar, Sollwert unbekannt (null) bis sie aus GitHub uebernommen werden. */
+  variables: VariableEntry[];
   skipped: { variables: number; nonGitHub: number };
 }
 
@@ -61,15 +63,31 @@ export function importLegacyInventory(yamlText: string, options: LegacyImportOpt
   const credentials = raw?.credentials ?? [];
   const providerFor = options.providerFor ?? defaultProviderFor;
   const out = new Map<string, SecretEntry>();
+  const vars = new Map<string, VariableEntry>();
   const skipped = { variables: 0, nonGitHub: 0 };
 
   for (const c of credentials) {
     for (const p of c.places) {
+      const mapped = GITHUB_SCOPES[p.scope];
       if (p.kind === "variable") {
-        skipped.variables += 1;
+        if (!mapped) {
+          skipped.nonGitHub += 1;
+          continue;
+        }
+        const vid = slug(`var-${c.name}-${p.repo}-${mapped.stage === "shared" ? "repo" : mapped.environment ?? mapped.stage}`);
+        if (!vars.has(vid)) {
+          const product = options.productOf?.(p.repo);
+          vars.set(vid, {
+            id: vid,
+            name: c.name,
+            ...(product ? { product } : {}),
+            stage: mapped.stage,
+            value: null,
+            places: [mapped.environment ? { repo: p.repo, scope: "environment", environment: mapped.environment } : { repo: p.repo, scope: "repository" }],
+          });
+        }
         continue;
       }
-      const mapped = GITHUB_SCOPES[p.scope];
       if (!mapped) {
         skipped.nonGitHub += 1;
         continue;
@@ -100,5 +118,5 @@ export function importLegacyInventory(yamlText: string, options: LegacyImportOpt
       });
     }
   }
-  return { secrets: [...out.values()].sort((a, b) => a.id.localeCompare(b.id)), skipped };
+  return { secrets: [...out.values()].sort((a, b) => a.id.localeCompare(b.id)), variables: [...vars.values()].sort((a, b) => a.id.localeCompare(b.id)), skipped };
 }

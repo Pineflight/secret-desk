@@ -1,0 +1,26 @@
+{
+  "name": "@secret-desk/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "secret-desk": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@secret-desk/core": "workspace:*",
+    "@secret-desk/providers": "workspace:*",
+    "@secret-desk/runtime": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

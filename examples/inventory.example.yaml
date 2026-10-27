@@ -1,0 +1,55 @@
+# Inventar: nur Metadaten, nie Werte.
+version: 1
+thresholds: [30, 14, 7]
+
+secrets:
+  - id: cloudflare-deploy-demo
+    name: CLOUDFLARE_API_TOKEN
+    product: demo
+    stage: shared
+    service: cloudflare
+    provider: cloudflare-token
+    params:
+      accountId: "0123456789abcdef0123456789abcdef"
+      permissions: ["Workers Scripts Write", "Account Settings Read"]
+    ttlDays: 90
+    expiry: possible
+    places:
+      - { repo: demo-app, scope: repository }
+      - { repo: demo-website, scope: repository }
+
+  - id: stripe-webhook-demo-staging
+    name: STRIPE_WEBHOOK_SECRET
+    product: demo
+    stage: staging
+    service: stripe
+    provider: stripe-webhook-secret
+    params: { url: "https://staging.example.com/api/stripe", events: ["checkout.session.completed"] }
+    expiry: none
+    places:
+      - { repo: demo-app, scope: environment, environment: staging }
+
+  - id: peecho-key-demo-staging
+    name: PEECHO_API_KEY
+    stage: staging
+    service: peecho
+    provider: peecho            # eigener Anbieter ohne API, siehe providers
+    expiry: unknown
+    places:
+      - { repo: demo-app, scope: environment, environment: staging }
+
+envTemplates:
+  - id: demo-app-dev
+    repo: demo-app
+    stage: dev
+    file: .env.local
+    entries:
+      - { key: NEXT_PUBLIC_SITE_URL, from: { type: default, value: "http://localhost:3000" } }
+      - { key: RATE_LIMIT_SECRET, from: { type: generate, kind: hex, bytes: 32 } }
+      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted Key aus der Stripe-Sandbox" } }
+
+providers:
+  - id: peecho
+    label: Peecho
+    url: https://www.peecho.com
+    steps: ["Im Peecho-Dashboard anmelden", "API-Zugang oeffnen", "Key erzeugen und im Portal einfuegen"]
