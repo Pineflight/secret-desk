@@ -115,8 +115,14 @@ describe("Ablauf ueber die Schnittstelle", () => {
   });
   it("Verbindungs-Token werden gesetzt, aber nie ausgegeben", async () => {
     const { deps } = await setup();
-    const set = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim" }), deps);
-    expect(await set.json()).toMatchObject({ id: "cloudflare", connected: true, source: "session" });
+    const noDate = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim" }), deps);
+    expect(noDate.status).toBe(400);
+    const past = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim", expires: "2020-01-01" }), deps);
+    expect(past.status).toBe(400);
+    const set = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim", expires: "2999-01-01" }), deps);
+    expect(await set.json()).toMatchObject({ id: "cloudflare", connected: true, source: "session", expires: "2999-01-01" });
+    const never = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim", neverExpires: true }), deps);
+    expect(await never.json()).toMatchObject({ connected: true, expires: null });
     const all = JSON.stringify(await (await route(ui(deps, "GET", "connections"), deps)).json());
     expect(all).not.toContain("cf_sitzungs_token_geheim");
     expect(all).not.toContain("ghp_geheim_token_1");

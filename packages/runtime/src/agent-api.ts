@@ -200,7 +200,8 @@ export async function listConnections(rt: Runtime) {
   const statuses = await rt.connections.statuses(ids);
   return statuses.map((s) => {
     const g = connectionGuide(s.id, rt.owner);
-    return { ...s, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+    const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
+    return { ...s, daysLeft: days, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
 }
 

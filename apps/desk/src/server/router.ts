@@ -75,6 +75,15 @@ const str = (b: Body, k: string): string => {
   if (typeof v !== "string" || v === "") throw new InventoryError(`Feld fehlt: ${k}`);
   return v;
 };
+/** Gueltigkeit des Zugangs-Tokens: ein Datum in der Zukunft oder ausdruecklich "laeuft nie ab". */
+function tokenExpiry(b: Body): string | null {
+  if (b["neverExpires"] === true) return null;
+  const d = optStr(b, "expires");
+  if (!d) throw new InventoryError("Bis wann der Token gueltig ist, muss angegeben werden (Datum oder laeuft nie ab).");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) throw new InventoryError("Das Datum ist ungueltig (JJJJ-MM-TT).");
+  if (d < new Date().toISOString().slice(0, 10)) throw new InventoryError("Das Datum liegt in der Vergangenheit: Der Token waere schon abgelaufen.");
+  return d;
+}
 const optStr = (b: Body, k: string): string | undefined => (typeof b[k] === "string" ? (b[k] as string) : undefined);
 
 /** Gemeinsame Operationen. Alle Antworten sind JSON und enthalten nie einen geheimen Wert. */
@@ -114,7 +123,7 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^approvals\/([^/]+)\/(approve|deny)$/, ({ rt, actor, params }) => resolveApproval(rt, actor, params[0]!, params[1] as "approve" | "deny")],
   ["POST", /^variables\/([^/]+)\/adopt$/, ({ rt, actor, params }) => adoptVariableFromGitHub(rt, actor, params[0]!)],
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
-  ["POST", /^connections\/([^/]+)\/token$/, ({ rt, params, body }) => { rt.connections.session.set(params[0]!, str(body, "token")); return rt.connections.status(params[0]!); }],
+  ["POST", /^connections\/([^/]+)\/token$/, ({ rt, params, body }) => { rt.connections.session.set(params[0]!, str(body, "token"), tokenExpiry(body)); return rt.connections.status(params[0]!); }],
   ["DELETE", /^connections\/([^/]+)\/token$/, ({ rt, params }) => { rt.connections.session.delete(params[0]!); return rt.connections.status(params[0]!); }],
   ["POST", /^team-import$/, async ({ rt, body }) => {
     const merged = mergeTeamBundle(rt.inventory, parseTeamBundle(str(body, "text")), body.replace === true ? "replace" : "merge");

@@ -20,9 +20,18 @@ export class NotConnectedError extends Error {
 /** Zugangs-Tokens, die der Nutzer fuer diese Sitzung eingegeben hat. Nur im Arbeitsspeicher. */
 export class SessionVault {
   readonly #values = new Map<string, SecretValue>();
+  readonly #expires = new Map<string, string | null>();
 
-  set(id: string, value: SecretValue | string): void {
+  /** expires = Tag (YYYY-MM-DD), bis zu dem der Token gilt; null = laeuft nie ab. Kein Geheimnis. */
+  set(id: string, value: SecretValue | string, expires?: string | null): void {
     this.#values.set(id, typeof value === "string" ? new SecretValue(value) : value);
+    if (expires === undefined) this.#expires.delete(id);
+    else this.#expires.set(id, expires);
+  }
+
+  /** undefined = nicht angegeben, null = laeuft nie ab. */
+  expires(id: string): string | null | undefined {
+    return this.#expires.get(id);
   }
 
   get(id: string): SecretValue | undefined {
@@ -35,10 +44,12 @@ export class SessionVault {
 
   delete(id: string): void {
     this.#values.delete(id);
+    this.#expires.delete(id);
   }
 
   clear(): void {
     this.#values.clear();
+    this.#expires.clear();
   }
 
   ids(): string[] {
@@ -51,6 +62,8 @@ export interface ConnectionStatus {
   connected: boolean;
   source: SourceSpec["type"] | "none";
   hint?: string;
+  /** Nur bei Tokens aus der Sitzung: Tag, bis zu dem der Token gilt, null = laeuft nie ab. */
+  expires?: string | null;
 }
 
 export type ExecFn = (file: string, args: string[]) => Promise<string>;
@@ -103,7 +116,10 @@ export class ConnectionStore {
   }
 
   async status(id: string): Promise<ConnectionStatus> {
-    if (this.session.has(id)) return { id, connected: true, source: "session" };
+    if (this.session.has(id)) {
+      const expires = this.session.expires(id);
+      return { id, connected: true, source: "session", ...(expires !== undefined ? { expires } : {}) };
+    }
     const spec = this.#specs[id];
     if (!spec) return { id, connected: false, source: "none", hint: "Nicht konfiguriert" };
     if (spec.type === "env") {
