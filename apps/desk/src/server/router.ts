@@ -35,6 +35,7 @@ import {
   addVariable,
   adoptVariableFromGitHub,
   attachEvidence,
+  compareStages,
   confirmIssuance,
   evidenceSvg,
   exportEnv,
@@ -115,6 +116,17 @@ function tokenExpiry(b: Body): string | null {
   if (d < new Date().toISOString().slice(0, 10)) throw new InventoryError("Das Datum liegt in der Vergangenheit: Der Token waere schon abgelaufen.");
   return d;
 }
+/** Kommagetrennte Liste aus dem Query, ohne Leereintraege. */
+const csv = (q: URLSearchParams, k: string): string[] => (q.get(k) ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+/** Art-Liste des Stage-Vergleichs: secret(s) und variable(s), alles andere wird ignoriert. */
+function compareKinds(q: URLSearchParams): ("secret" | "variable")[] {
+  const out = new Set<"secret" | "variable">();
+  for (const k of csv(q, "kinds")) {
+    if (k === "secret" || k === "secrets") out.add("secret");
+    else if (k === "variable" || k === "variables") out.add("variable");
+  }
+  return [...out];
+}
 const optStr = (b: Body, k: string): string | undefined => (typeof b[k] === "string" ? (b[k] as string) : undefined);
 
 /** Der Name kommt vom Agenten selbst (Kopf x-agent-name) und ist nicht verifiziert: gekuerzt und auf harmlose Zeichen beschraenkt. */
@@ -128,6 +140,8 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
+  // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.
+  ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
   ["POST", /^secrets$/, ({ rt, actor, body }) => addSecret(rt, actor, body)],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
   // Der Akteur bestimmt die erlaubten Felder (strikt, unbekannte Felder -> 400): Agenten nur Metadaten, Menschen alle bearbeitbaren.

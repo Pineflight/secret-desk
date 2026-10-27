@@ -19,3 +19,4 @@ export * from "./team.js";
 export * from "./config.js";
 export * from "./vault.js";
 export * from "./platform.js";
+export * from "./compare.js";

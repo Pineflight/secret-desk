@@ -24,6 +24,7 @@ Typen kommen aus `@secret-desk/runtime` und `@secret-desk/core` (nur `import typ
 | GET `evidence/:secretId/:reportId/svg` | Beleg als Bild (`image/svg+xml`, in `<img>` einbinden) |
 | POST `evidence/:secretId/:reportId/attachments` (multipart `file`, `note`) | `Attachment` (PNG/JPEG/WebP bis 5 MB) |
 | GET `evidence/:secretId/:reportId/attachments/:file` | Bild |
+| GET `compare?live=1&compare=a,b&kinds=secret,variable&repo&normalize=1` | `CompareResult` (Matrix aus Repository/Name und Stage mit Zellzustand, `parity`, `summary`, `errors`; Portal und Agent, nur lesend, nie Werte; `live=1` liest GitHub) |
 | GET `variables?stage&repo&product&q&tag` | `VariableView[]` |
 | POST `variables` | Variable anlegen (`acknowledgedPublic` bei Warnung) |
 | PATCH `variables/:id` `{ value?, description?, owner?, link?, tags?, acknowledgedPublic? }` | Sollwert und Beschreibung im Inventar aendern |

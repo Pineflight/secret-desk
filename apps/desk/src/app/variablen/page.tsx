@@ -21,6 +21,7 @@ import { DRIFT_FILTERS, anyCompared, countDrift, filterByDrift, progressText, sh
 import { truncate } from "@/lib/tags";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { usePersistedState } from "@/lib/persisted-state";
 import { useStageDefs } from "@/lib/use-stages";
 import { defaultStageId, environmentOf, labelOf, stageOrder } from "@/lib/stages";
 
@@ -64,9 +65,10 @@ export default function VariablesPage() {
     else next.delete("tag");
     router.replace(next.toString() ? `/variablen?${next}` : "/variablen");
   };
-  const [stage, setStage] = useState("");
-  const [status, setStatus] = useState("");
-  const [browse, setBrowse] = useState<BrowseState>(BROWSE_DEFAULT);
+  // Filter bleiben beim Wechsel in einen Eintrag und zurueck erhalten (Browser-Sitzung).
+  const [stage, setStage] = usePersistedState("variables.stage", "");
+  const [status, setStatus] = usePersistedState("variables.status", "");
+  const [browse, setBrowse] = usePersistedState<BrowseState>("variables.browse", BROWSE_DEFAULT);
   // Link von der Repositories-Seite: /variablen?repo=<name> setzt den Repository-Filter.
   const repoParam = params.get("repo") ?? "";
   useEffect(() => {
@@ -81,6 +83,8 @@ export default function VariablesPage() {
   const [comparing, setComparing] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const cancelRef = useRef(false);
+  const [confirmAdoptAll, setConfirmAdoptAll] = useState(false);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (params.get("neu") === "1") {
@@ -134,6 +138,55 @@ export default function VariablesPage() {
     if (failed > 0) toast.error(t("variables.compareAllFailed", { count: failed }));
   };
 
+  /** Zeilenaktion ohne Dialog: sofort ausfuehren, Ergebnis als Meldung. Nur bei Geheimnis-Sperre oeffnet sich das Detail. */
+  const quick = async (v: VariableView, mode: Auto) => {
+    setBusy((s) => new Set(s).add(v.id));
+    try {
+      if (mode === "adopt") {
+        await api<VariableView>("POST", `variables/${enc(v.id)}/adopt`);
+        toast.success(t("variables.adoptedOne", { name: v.name }));
+        list.reload();
+      } else {
+        const r = await api<VariableApplyResult>("POST", `variables/${enc(v.id)}/apply`, {});
+        if (r.status === "pending-approval") toast.info(t("variables.approvalNeeded"));
+        else if (r.outcomes.some((o) => o.outcome === "failed")) toast.error(t("variables.appliedFailed", { name: v.name }));
+        else toast.success(t("variables.appliedOne", { name: v.name }));
+      }
+      await compareOne(v.id);
+    } catch (e) {
+      const code = e instanceof ApiError ? e.code : undefined;
+      if (code === "secret-blocked" || code === "secret-ack") setDetail({ id: v.id, auto: mode });
+      else toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy((s) => { const n = new Set(s); n.delete(v.id); return n; });
+    }
+  };
+
+  /** Alle sichtbaren Variablen nacheinander aus GitHub uebernehmen (Sollwert im Inventar = Wert in GitHub). */
+  const adoptAll = async () => {
+    setConfirmAdoptAll(false);
+    const targets = rows.slice();
+    cancelRef.current = false;
+    setProgress({ done: 0, total: targets.length });
+    let ok = 0;
+    let failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (cancelRef.current) break;
+      try {
+        await api<VariableView>("POST", `variables/${enc(targets[i]!.id)}/adopt`);
+        ok++;
+      } catch {
+        failed++;
+      }
+      setProgress({ done: i + 1, total: targets.length });
+    }
+    setProgress(null);
+    list.reload();
+    if (failed > 0) toast.error(t("variables.adoptAllDone", { ok, failed }));
+    else toast.success(t("variables.adoptAllDoneOk", { ok }));
+    for (const v of targets) if (!cancelRef.current) await compareOne(v.id);
+  };
+
   const detailVar = detail ? (list.data ?? []).find((v) => v.id === detail.id) : undefined;
   const running = progress !== null;
 
@@ -147,7 +200,10 @@ export default function VariablesPage() {
             {running ? (
               <Button variant="secondary" onClick={() => { cancelRef.current = true; }}><Icon name="x" />{t("variables.stopCompare")} ({progressText(progress.done, progress.total)})</Button>
             ) : (
-              <Button variant="secondary" disabled={rows.length === 0} onClick={() => void compareAll()}><Icon name="refresh" />{t("variables.compareAll")}</Button>
+              <>
+                <Button variant="secondary" disabled={rows.length === 0} onClick={() => void compareAll()}><Icon name="refresh" />{t("variables.compareAll")}</Button>
+                <Button variant="secondary" disabled={rows.length === 0} onClick={() => setConfirmAdoptAll(true)}><Icon name="download" />{t("variables.adoptAll")}</Button>
+              </>
             )}
             <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("variables.newVariable")}</Button>
           </>
@@ -207,8 +263,8 @@ export default function VariablesPage() {
                   <td className={LIST_CELL_CLASS} onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-0.5">
                       <RowIconButton label={t("variables.compare")} icon="refresh" loading={comparing.has(v.id)} onClick={() => void compareOne(v.id)} />
-                      <RowIconButton label={t("variables.apply")} icon="upload" disabled={v.value === null} onClick={() => setDetail({ id: v.id, auto: "apply" })} />
-                      <RowIconButton label={t("variables.adopt")} icon="download" onClick={() => setDetail({ id: v.id, auto: "adopt" })} />
+                      <RowIconButton label={t("variables.apply")} icon="upload" disabled={v.value === null} loading={busy.has(v.id)} onClick={() => void quick(v, "apply")} />
+                      <RowIconButton label={t("variables.adopt")} icon="download" loading={busy.has(v.id)} onClick={() => void quick(v, "adopt")} />
                       <RowIconButton label={t("variables.edit")} icon="wrench" onClick={() => setEditing(v)} />
                       <RowIconButton label={t("variables.remove")} icon="trash" danger onClick={() => setRemoving(v)} />
                     </div>
@@ -233,6 +289,14 @@ export default function VariablesPage() {
           onRemove={() => { setDetail(null); setRemoving(detailVar); }}
           onClose={() => setDetail(null)}
         />
+      ) : null}
+      {confirmAdoptAll ? (
+        <Dialog title={t("variables.adoptAllTitle")} description={t("variables.adoptAllText", { count: rows.length })} onClose={() => setConfirmAdoptAll(false)}>
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setConfirmAdoptAll(false)} data-autofocus>{t("variables.cancel")}</Button>
+            <Button variant="primary" onClick={() => void adoptAll()}><Icon name="download" />{t("variables.adoptAllConfirm", { count: rows.length })}</Button>
+          </div>
+        </Dialog>
       ) : null}
       {editing ? <EditMetaDialog path={`variables/${enc(editing.id)}`} initial={metaFrom(editing)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); list.reload(); }} /> : null}
       {creating ? <CreateVariableDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); list.reload(); }} /> : null}

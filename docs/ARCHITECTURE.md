@@ -67,6 +67,19 @@ secret-desk fills in the stage's environment (a name is only stored when it diff
 a stage can only be removed when no secret, variable, template or policy refers to it. The `organization` scope is in the schema but not in the portal form:
 organization secrets need a repository selection that is not modeled yet.
 
+## Stage comparison
+
+The **Compare** page (`/vergleich`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value (variable target values only appear as a comparison with GitHub).
+
+The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, fully testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`.
+
+- **Rows** are `(repository, name)` per kind (secret or variable); the name is `place.name ?? entry.name`. **Columns** are all configured stages.
+- **Targets:** a stage lives in the GitHub environment of its definition. Stages without an environment (`dev`, `shared`) have no target, except one: the repository level belongs to the first environment-less stage of kind `shared` (otherwise the first environment-less stage); other environment-less stages show `not-applicable`. An inventory entry always counts for its own stage and is checked at its own places (repository, environment or organization).
+- **Cell states:** `ok` (expected and present), `missing` (expected, absent in GitHub, also when the environment does not exist), `unexpected` (present in GitHub, unknown to the inventory for that stage), `different` (variable value differs from the target value), `unknown` (not checked live, expectation only), `error` (target unreadable, for example 403 or 429, with the message), `not-expected` (neither) and `not-applicable`.
+- **Parity:** per row over the compared stages (default: all of kind `test` and `live`; parameter `compare`). Live the actual presence counts, otherwise the expectation. Cells with `error` or `not-applicable` are left out. With fewer than two comparable stages, or if the name is present nowhere, the parity is `n/a`; if present everywhere it is `consistent`; otherwise `gap` with `missingIn`. Names that differ only by a stage word (`SUPABASE_STAGING_URL`, `SUPABASE_PRODUCTION_URL`) are not equated unless `normalize` is set (it drops `STAGING`, `PRODUCTION`, `PROD`, `DEV` and the stage ids from names and merges the rows).
+- **Orphans:** with `live`, names found in GitHub at a stage target but not in the inventory become their own rows (`unexpected`, no `ids`).
+- **Cost:** with `live`, each target (repository level, environment per stage, organization) is read once per kind, at most four requests in parallel. A failing target becomes `error` cells; only a missing GitHub connection fails the whole call. The portal never reads GitHub on opening the page: the live check is an explicit switch.
+
 ## Packages
 
 `core` knows no user interface. `runtime` bundles the operations and enforces the policy (`agent-api.ts`).

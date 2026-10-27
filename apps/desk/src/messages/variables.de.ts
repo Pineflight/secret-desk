@@ -68,4 +68,13 @@ export default {
   "variables.summaryCount": "{ok} von {total} Zielen stimmen überein",
   "variables.compareError": "Fehler",
   "variables.openDetails": "Details von {name} öffnen",
+  "variables.adoptAll": "Alle aus GitHub übernehmen",
+  "variables.adoptedOne": "{name} aus GitHub übernommen.",
+  "variables.appliedOne": "{name} in GitHub gesetzt.",
+  "variables.appliedFailed": "{name}: Setzen in GitHub ist an mindestens einem Ziel fehlgeschlagen.",
+  "variables.adoptAllTitle": "Alle aus GitHub übernehmen?",
+  "variables.adoptAllText": "Der Sollwert im Inventar wird bei {count} sichtbaren Variablen durch den aktuellen Wert in GitHub ersetzt. Variablen, die in GitHub fehlen, werden übersprungen und als Fehler gezählt.",
+  "variables.adoptAllConfirm": "{count} übernehmen",
+  "variables.adoptAllDone": "{ok} übernommen, {failed} nicht möglich.",
+  "variables.adoptAllDoneOk": "{ok} Variablen aus GitHub übernommen.",
 } satisfies Record<string, string>;

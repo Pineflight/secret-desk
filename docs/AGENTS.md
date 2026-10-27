@@ -13,7 +13,9 @@ The portal must be running (`pnpm dev`).
 `desk_overview`, `desk_list_stages`, `desk_list_secrets`, `desk_get_secret`, `desk_add_secret`, `desk_update_secret`, `desk_list_providers`, `desk_list_connections`,
 `desk_add_provider`, `desk_add_env_template`, `desk_add_env_entry`, `desk_request_renewal`, `desk_list_reviews`, `desk_list_evidence`,
 `desk_list_variables`, `desk_variable_status`, `desk_update_variable_meta`, `desk_add_variable`, `desk_set_variable_value`, `desk_apply_variable`, `desk_get_approval`,
-`desk_export_dev_env`, `desk_team_export`.
+`desk_export_dev_env`, `desk_team_export`, `desk_compare_stages`.
+
+`desk_compare_stages` (read-only) compares secrets and variables across all stages: per repository and name, which stage expects it (inventory) and, with `live: true`, which stage really has it in GitHub. Cell states `ok`, `missing`, `unexpected`, `different`, `unknown`, `error`; each row has `parity` `consistent` or `gap` with `missingIn`. Options: `compare` (stage ids for parity, default kinds test and live), `kinds` (`secret`, `variable`), `repo`, `normalize` (merge names that differ only by a stage word). It never returns values. `live` reads GitHub, so use it deliberately.
 
 ## Policy rules (enforced by the portal, not by the agent)
 - An agent may act directly on stages in `policy.agentStages` (default: all stages of kind `dev`); everything else only with a human **approval**. Stages of kind `live` always need an approval, even if the policy lists them. Agents can read stage definitions (`desk_list_stages`); only a human can change them in the portal (Settings).

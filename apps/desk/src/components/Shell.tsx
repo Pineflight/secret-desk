@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
 import { ApiError, api, ensureSession, type SessionInfo } from "@/lib/api";
 import { useDebounced, useQuery } from "@/lib/hooks";
@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/", label: "common.nav.overview", icon: "grid" },
   { href: "/secrets", label: "common.nav.secrets", icon: "key" },
   { href: "/variablen", label: "common.nav.variables", icon: "sliders" },
+  { href: "/vergleich", label: "common.nav.compare", icon: "compare" },
   { href: "/repos", label: "common.nav.repos", icon: "folder" },
   { href: "/pruefen", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
   { href: "/freigaben", label: "common.nav.approvals", icon: "inbox", badge: "approvals" },
@@ -53,6 +54,39 @@ export function Shell({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => setOpen(false), [path]);
   useEffect(() => setQ(params.get("q") ?? ""), [params]);
+  // Suche, Schlagwort und Repository-Filter pro Seite merken: Wer in einen Eintrag springt und per Seitenleiste
+  // oder Zurueck-Knopf wiederkommt, findet die Liste so vor, wie er sie verlassen hat.
+  const arrivedAt = useRef("");
+  useEffect(() => {
+    if (!SEARCHABLE.includes(path)) {
+      arrivedAt.current = "";
+      return;
+    }
+    const key = `sd:query:${path}`;
+    const keep = new URLSearchParams();
+    for (const k of ["q", "tag", "repo"]) {
+      const v = params.get(k);
+      if (v) keep.set(k, v);
+    }
+    const arriving = arrivedAt.current !== path;
+    arrivedAt.current = path;
+    try {
+      if (arriving && keep.toString() === "") {
+        const saved = window.sessionStorage.getItem(key);
+        if (saved) {
+          const next = new URLSearchParams(saved);
+          if (params.get("neu") === "1") next.set("neu", "1");
+          router.replace(`${path}?${next}`);
+          return;
+        }
+      }
+      if (keep.toString()) window.sessionStorage.setItem(key, keep.toString());
+      else window.sessionStorage.removeItem(key);
+    } catch {
+      /* Speicher gesperrt: dann gilt der Filter nur bis zum Verlassen der Seite */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, params]);
   useEffect(() => {
     if (!SEARCHABLE.includes(path)) return;
     if ((params.get("q") ?? "") === dq) return;

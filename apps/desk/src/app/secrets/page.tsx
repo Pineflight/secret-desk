@@ -19,6 +19,7 @@ import { emptyPlaceRow, rowsToPlaces, type PlaceRow } from "@/lib/places";
 import { statusInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { usePersistedState } from "@/lib/persisted-state";
 import { useStageDefs } from "@/lib/use-stages";
 import { defaultStageId, environmentOf, kindOf, labelOf, stageOrder } from "@/lib/stages";
 
@@ -44,10 +45,11 @@ export default function SecretsPage() {
     else next.delete("tag");
     router.replace(next.toString() ? `/secrets?${next}` : "/secrets");
   };
-  const [stage, setStage] = useState("");
-  const [status, setStatus] = useState("");
-  const [kind, setKind] = useState("");
-  const [browse, setBrowse] = useState<BrowseState>(BROWSE_DEFAULT);
+  // Filter bleiben beim Wechsel in einen Eintrag und zurueck erhalten (Browser-Sitzung).
+  const [stage, setStage] = usePersistedState("secrets.stage", "");
+  const [status, setStatus] = usePersistedState("secrets.status", "");
+  const [kind, setKind] = usePersistedState("secrets.kind", "");
+  const [browse, setBrowse] = usePersistedState<BrowseState>("secrets.browse", BROWSE_DEFAULT);
   // Link von der Repositories-Seite: /secrets?repo=<name> setzt den Repository-Filter.
   const repoParam = params.get("repo") ?? "";
   useEffect(() => {

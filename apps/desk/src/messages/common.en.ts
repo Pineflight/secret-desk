@@ -5,6 +5,7 @@ export default {
   "common.nav.overview": "Overview",
   "common.nav.secrets": "Secrets",
   "common.nav.variables": "Variables",
+  "common.nav.compare": "Compare",
   "common.nav.repos": "Repositories",
   "common.nav.reviews": "Reviews",
   "common.nav.approvals": "Approvals",

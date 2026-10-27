@@ -90,3 +90,36 @@ describe("Stages", () => {
     expect((await route(agent(deps, "PUT", "stages", { stages: [{ id: "x", kind: "dev" }] }), deps)).status).toBe(404);
   });
 });
+
+describe("Stage-Vergleich (GET compare)", () => {
+  const json = async (res: Response) => (await res.json()) as { live: boolean; rows: { name: string; kind: string; cells: Record<string, { state: string }> }[]; stages: { id: string }[]; errors: unknown[] };
+  it("Portal und Agent duerfen lesen, ohne live bleibt es im Inventar", async () => {
+    const { deps } = await setup();
+    for (const req of [ui(deps, "GET", "compare"), agent(deps, "GET", "compare")]) {
+      const res = await route(req, deps);
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.live).toBe(false);
+      expect(body.stages.map((s) => s.id)).toEqual(["dev", "staging", "production", "shared"]);
+      expect(body.rows.find((r) => r.name === "NEXT_PUBLIC_SITE_URL")!.cells.staging!.state).toBe("unknown");
+    }
+  });
+  it("live=1, kinds und repo wirken; keine Werte in der Antwort", async () => {
+    const { deps } = await setup();
+    const res = await route(agent(deps, "GET", "compare?live=1&kinds=secret&repo=acme-app&compare=staging,production&normalize=1"), deps);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const body = JSON.parse(text) as Awaited<ReturnType<typeof json>>;
+    expect(body.live).toBe(true);
+    expect(body.rows.map((r) => `${r.kind}:${r.name}`)).toEqual(["secret:ARTIFACT_HMAC_SECRET"]);
+    expect(body.rows[0]!.cells.shared!.state).toBe("ok");
+    expect(text).not.toContain("ghp_geheim_token_1");
+    expect(text).not.toContain("https://staging.example.com");
+  });
+  it("Agent ohne Token wird abgewiesen, schreibende Methode gibt es nicht", async () => {
+    const { deps } = await setup();
+    const bad = new Request(`${base}/api/agent/compare`, { headers: { host: HOST } });
+    expect((await route(bad, deps)).status).toBe(401);
+    expect((await route(agent(deps, "POST", "compare", {}), deps)).status).toBe(404);
+  });
+});

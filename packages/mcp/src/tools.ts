@@ -42,6 +42,16 @@ export const TOOLS: ToolDef[] = [
     run: (c) => c.request("GET", "/stages"),
   },
   {
+    name: "desk_compare_stages",
+    description:
+      "Vergleicht Secrets und Variablen ueber alle Stages (dev, staging, production, eigene): welche Namen sind je Repository und Stage erwartet (Inventar) und, mit live=true, tatsaechlich in GitHub vorhanden. Zellzustaende: ok, missing (erwartet, fehlt), unexpected (nur in GitHub), different (Variable: Wert weicht ab), unknown (nicht live geprueft), error (Ziel nicht lesbar), not-expected, not-applicable. Jede Zeile hat parity consistent oder gap (fehlt in welcher der verglichenen Stages, Standard: Art test und live). Nur lesen, nie Werte; live liest GitHub (Rate-Limit beachten). Optionen: compare = Stage-Ids fuer die Paritaet, kinds = secret und/oder variable, repo, normalize = Stage-Woerter im Namen weglassen (SUPABASE_STAGING_URL und SUPABASE_PRODUCTION_URL zusammenfuehren).",
+    inputSchema: { live: z.boolean().optional(), compare: z.array(StageEnum).optional(), kinds: z.array(z.enum(["secret", "variable"])).optional(), repo: z.string().optional(), normalize: z.boolean().optional() },
+    run: (c, i) => {
+      const { live, compare, kinds, repo, normalize } = i as { live?: boolean; compare?: string[]; kinds?: string[]; repo?: string; normalize?: boolean };
+      return c.request("GET", `/compare${qs({ live: live ? 1 : undefined, compare: compare?.length ? compare.join(",") : undefined, kinds: kinds?.length ? kinds.join(",") : undefined, repo, normalize: normalize ? 1 : undefined })}`);
+    },
+  },
+  {
     name: "desk_list_secrets",
     description: "Listet Secrets (nur Metadaten, nie Werte). Filter: stage (Id einer konfigurierten Stage, siehe desk_list_stages), repo, product, status (ok, soon, due, expired, no-date, unknown), provider, q (Freitext in Name, Beschreibung, Schlagworten, Verantwortlichem), tag.",
     inputSchema: { stage: StageEnum.optional(), repo: z.string().optional(), product: z.string().optional(), status: z.string().optional(), provider: z.string().optional(), q: z.string().optional(), tag: z.string().optional() },

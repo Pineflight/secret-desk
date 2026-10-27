@@ -68,4 +68,13 @@ export default {
   "variables.summaryCount": "{ok} of {total} targets match",
   "variables.compareError": "Error",
   "variables.openDetails": "Open details of {name}",
+  "variables.adoptAll": "Adopt all from GitHub",
+  "variables.adoptedOne": "{name} adopted from GitHub.",
+  "variables.appliedOne": "{name} set in GitHub.",
+  "variables.appliedFailed": "{name}: setting in GitHub failed for at least one target.",
+  "variables.adoptAllTitle": "Adopt all from GitHub?",
+  "variables.adoptAllText": "For {count} visible variables the target value in the inventory will be replaced by the current value in GitHub. Variables missing in GitHub are skipped and counted as errors.",
+  "variables.adoptAllConfirm": "Adopt {count}",
+  "variables.adoptAllDone": "{ok} adopted, {failed} not possible.",
+  "variables.adoptAllDoneOk": "{ok} variables adopted from GitHub.",
 } satisfies Record<string, string>;
