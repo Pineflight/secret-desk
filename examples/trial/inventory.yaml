@@ -1,4 +1,4 @@
-# Trial-run inventory. Everything points at the throwaway repo. Metadata only.
+# Trial-run inventory. Everything points at the throwaway repo secret-desk-sandbox in your GitHub account or organization. Metadata only.
 version: 1
 thresholds: [30, 14, 7]
 
@@ -7,7 +7,7 @@ secrets:
   - id: trial-random
     name: SD_TRIAL_RANDOM
     description: Random value for the trial run, without a provider. Tests the flow up to GitHub.
-    owner: niklas
+    owner: you
     tags: [probelauf]
     stage: staging
     service: intern
@@ -18,18 +18,18 @@ secrets:
       - { repo: secret-desk-sandbox, scope: environment, environment: staging }
 
   # B: real provider. On renewal, creates a Cloudflare token with a single harmless read permission, valid for 7 days.
-  # Replace DEINE_CLOUDFLARE_ACCOUNT_ID (Cloudflare dashboard, account, "Copy account ID").
+  # Replace YOUR_CLOUDFLARE_ACCOUNT_ID (Cloudflare dashboard, account, "Copy account ID").
   - id: trial-cloudflare
     name: SD_TRIAL_CLOUDFLARE
     description: Throwaway Cloudflare token with only "Account Settings Read", valid for 7 days.
-    owner: niklas
+    owner: you
     link: https://dash.cloudflare.com/profile/api-tokens
     tags: [probelauf, cloudflare]
     stage: staging
     service: cloudflare
     provider: cloudflare-token
     params:
-      accountId: DEINE_CLOUDFLARE_ACCOUNT_ID
+      accountId: YOUR_CLOUDFLARE_ACCOUNT_ID
       permissions: ["Account Settings Read"]
     ttlDays: 7
     expiry: possible
@@ -40,7 +40,7 @@ secrets:
   - id: trial-manual
     name: SD_TRIAL_MANUAL
     description: Throwaway token pasted in by hand, to test the verification of manual values.
-    owner: niklas
+    owner: you
     tags: [probelauf]
     stage: staging
     service: github
@@ -56,7 +56,7 @@ variables:
   - id: trial-site-url
     name: SD_TRIAL_URL
     description: Base URL for the trial run, as a variable (not a secret).
-    owner: niklas
+    owner: you
     tags: [probelauf, url]
     stage: staging
     value: "https://example.com/probelauf"

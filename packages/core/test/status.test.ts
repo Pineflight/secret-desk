@@ -4,7 +4,7 @@ import { computeStatus, findings, placeKey, type LiveSnapshot } from "../src/sta
 import { INVENTORY_YAML } from "./fixtures.js";
 
 const store = InventoryStore.fromText(INVENTORY_YAML);
-const cf = store.getSecret("cf-deploy-wakemiles")!;
+const cf = store.getSecret("cf-deploy-acme-app")!;
 const day = (d: string) => new Date(`${d}T12:00:00Z`);
 
 describe("computeStatus", () => {
@@ -19,11 +19,11 @@ describe("computeStatus", () => {
   it("heute ist faellig, nicht abgelaufen", () => expect(computeStatus(cf, day("2027-01-21")).status).toBe("due"));
   it("no-date bei erzwungenem Ablauf ohne Datum", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML.replace('expiry: possible\n    expires: "2027-01-21"', "expiry: required"));
-    expect(computeStatus(s.getSecret("cf-deploy-wakemiles")!, day("2026-10-23")).status).toBe("no-date");
+    expect(computeStatus(s.getSecret("cf-deploy-acme-app")!, day("2026-10-23")).status).toBe("no-date");
   });
   it("missing, wenn ein Ziel im Live-Stand fehlt", () => {
-    const live: LiveSnapshot = new Map([[placeKey("Pineflight", cf.places[0]!, cf.name), { name: cf.name, updatedAt: "x" }]]);
-    const r = computeStatus(cf, day("2026-10-23"), { live, owner: "Pineflight" });
+    const live: LiveSnapshot = new Map([[placeKey("acme", cf.places[0]!, cf.name), { name: cf.name, updatedAt: "x" }]]);
+    const r = computeStatus(cf, day("2026-10-23"), { live, owner: "acme" });
     expect(r.status).toBe("missing");
     expect(r.missingPlaces).toHaveLength(1);
   });

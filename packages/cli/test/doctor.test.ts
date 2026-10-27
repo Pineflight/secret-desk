@@ -40,8 +40,8 @@ async function setup(env: Record<string, string>, goneStatus = 404) {
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-doc-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_X } }\nconnections:\n  cloudflare: { type: env, name: CF_X }\n`);
-  return createRuntime(join(dir, "c.yaml"), { env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
+  await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_X } }\nconnections:\n  cloudflare: { type: env, name: CF_X }\n`);
+  return createRuntime(join(dir, "c.yaml"), { vault: null, env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
 }
 
 describe("doctor", () => {

@@ -154,7 +154,7 @@ const turnstileProvider: Provider = {
   id: "cloudflare-turnstile",
   label: "Cloudflare Turnstile Secret (experimentell)",
   kind: "automatic",
-  connection: "cloudflare",
+  connection: "cloudflare-turnstile",
   async verify() {
     return [check("old-key", "Alter Schluessel", "info", { detail: "Der alte Schluessel bleibt bis zur Bestaetigung gueltig" })];
   },
@@ -170,7 +170,7 @@ const turnstileProvider: Provider = {
     const id = "cloudflare-turnstile";
     const accountId = requireString(id, ctx.params, "accountId");
     const sitekey = requireString(id, ctx.params, "sitekey");
-    const res = await callWithToken<Envelope<{ secret: string }>>(id, ctx, "cloudflare", `${API}/accounts/${seg(accountId)}/challenges/widgets/${seg(sitekey)}/${TURNSTILE_ACTION}`, {
+    const res = await callWithToken<Envelope<{ secret: string }>>(id, ctx, "cloudflare-turnstile", `${API}/accounts/${seg(accountId)}/challenges/widgets/${seg(sitekey)}/${TURNSTILE_ACTION}`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ invalidate_immediately: false }),

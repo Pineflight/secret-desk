@@ -1,10 +1,10 @@
 name: CI
 
-# Typpruefung, Tests und Build. Laeuft auf dem Pineflight-Runner; vor der Veroeffentlichung als Open Source
-# auf ubuntu-latest umstellen.
-# Nur bei Pull Requests und von Hand: Der Pineflight-Runner ist ein einzelner Rechner, ein Lauf je Push auf main staut die Warteschlange.
+# Typpruefung, Tests und Build auf einem GitHub-gehosteten Runner.
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

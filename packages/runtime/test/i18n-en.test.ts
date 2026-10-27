@@ -10,7 +10,7 @@ describe("translateEn: Stichproben", () => {
   const cases: [string, string][] = [
     ["Ungueltiges JSON", "Invalid JSON"],
     ["Feld fehlt: secretId", "Field missing: secretId"],
-    ["Secret nicht gefunden: hmac-wakemiles", "Secret not found: hmac-wakemiles"],
+    ["Secret nicht gefunden: hmac-acme-app", "Secret not found: hmac-acme-app"],
     ["Stage production ist fuer diese Anfrage nicht freigegeben.", "Stage production is not approved for this request."],
     ["Verbindung \"github\" ist nicht hergestellt. Token fuer diese Sitzung eingeben", "Connection \"github\" is not established. Enter a token for this session"],
     ["Anbieter \"manual\" kann nicht automatisch erzeugen. Wert von Hand eingeben.", "Provider \"manual\" cannot generate automatically. Enter the value by hand."],

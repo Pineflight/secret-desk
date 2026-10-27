@@ -28,7 +28,7 @@ export function sampleRecipe(over: Record<string, unknown> = {}): Recipe {
 
 export const VARS = {
   name: "demo-20261027",
-  owner: "Pineflight",
+  owner: "acme",
   days: "30",
   date: "2026-10-27",
   description: "Test & Co",

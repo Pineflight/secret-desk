@@ -3,7 +3,7 @@ export default {
   "meta.linkInvalid": "The link must start with http:// or https://.",
   "meta.tags": "Tags",
   "meta.tagRemove": "Remove tag {tag}",
-  "meta.tagPlaceholder": "for example payments, web-studio (Enter or comma)",
+  "meta.tagPlaceholder": "for example payments, acme-web (Enter or comma)",
   "meta.tagHint": "Lowercase letters, digits and hyphens, at most 12.",
   "meta.description": "Description (recommended)",
   "meta.descriptionHint": "What is the value needed for and where is it used?",

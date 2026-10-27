@@ -11,8 +11,8 @@ const secret = SecretSchema.parse({
   ttlDays: 30,
   owner: "team",
   description: "Zum Testen",
-  params: { owner: "Pineflight", permissions: { contents: "read", metadata: "read" } },
-  places: [{ repo: "Pineflight/alpha", scope: "repository" }, { repo: "beta", scope: "repository" }],
+  params: { owner: "acme", permissions: { contents: "read", metadata: "read" } },
+  places: [{ repo: "acme/alpha", scope: "repository" }, { repo: "beta", scope: "repository" }],
 });
 const now = new Date("2026-10-27T10:00:00Z");
 
@@ -20,7 +20,7 @@ describe("recipeVars", () => {
   it("baut Variablen aus dem Eintrag", () => {
     expect(recipeVars(secret, "dev", now)).toMatchObject({
       name: "demo-20261027",
-      owner: "Pineflight",
+      owner: "acme",
       days: "30",
       date: "2026-10-27",
       repos: "alpha,beta",

@@ -3,7 +3,7 @@ export default {
   "meta.linkInvalid": "Der Link muss mit http:// oder https:// beginnen.",
   "meta.tags": "Schlagworte",
   "meta.tagRemove": "Schlagwort {tag} entfernen",
-  "meta.tagPlaceholder": "zum Beispiel zahlungen, web-studio (Enter oder Komma)",
+  "meta.tagPlaceholder": "zum Beispiel zahlungen, acme-web (Enter oder Komma)",
   "meta.tagHint": "Kleinbuchstaben, Ziffern und Bindestriche, höchstens 12.",
   "meta.description": "Beschreibung (empfohlen)",
   "meta.descriptionHint": "Wofür wird der Wert gebraucht und wo wird er genutzt?",

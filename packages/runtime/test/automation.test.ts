@@ -42,14 +42,14 @@ secrets:
     provider: sample-token-browser
     expiry: none
     ttlDays: 30
-    places: [{ repo: wake-miles, scope: repository }]
+    places: [{ repo: acme-app, scope: repository }]
   - id: sample-b
     name: SAMPLE_B
     stage: dev
     service: example
     provider: sample-token-browser
     expiry: none
-    places: [{ repo: wake-miles, scope: repository }]
+    places: [{ repo: acme-app, scope: repository }]
 `;
 
 interface Opts {
@@ -74,7 +74,7 @@ async function setup(opts: Opts = {}) {
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(
     join(dir, "secret-desk.config.yaml"),
-    `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n${opts.automation ?? ""}`,
+    `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n${opts.automation ?? ""}`,
   );
   const drivers: FakeDriver[] = [];
   const login = { done: false };
@@ -104,7 +104,7 @@ async function setup(opts: Opts = {}) {
   return { rt, drivers, login };
 }
 
-const human = { kind: "human", name: "niklas" } as const;
+const human = { kind: "human", name: "alice" } as const;
 const agent = { kind: "agent", name: "claude" } as const;
 const until = async (fn: () => boolean, ms = 3000) => {
   const t = Date.now();

@@ -19,12 +19,12 @@ export async function createDemoFetch(): Promise<typeof fetch> {
   const store: Store = {
     secrets: new Map([
       ["/repos/acme/acme-app", new Map([["CLOUDFLARE_API_TOKEN", "2026-08-12T09:00:00Z"], ["VAPID_PRIVATE_KEY", "2026-08-12T09:00:00Z"]])],
-      ["/repos/acme/acme-app/environments/staging", new Map([["VESSELAPI_API_KEY", "2026-09-02T10:00:00Z"], ["ARTIFACT_HMAC_SECRET", "2026-09-02T10:00:00Z"]])],
+      ["/repos/acme/acme-app/environments/staging", new Map([["ACME_API_KEY", "2026-09-02T10:00:00Z"], ["ARTIFACT_HMAC_SECRET", "2026-09-02T10:00:00Z"]])],
       ["/repos/acme/acme-web/environments/staging", new Map([["STRIPE_WEBHOOK_SECRET", "2026-09-29T08:00:00Z"]])],
       ["/repos/acme/acme-docs/environments/staging", new Map()],
     ]),
     variables: new Map([
-      ["/repos/acme/acme-app", new Map([["REVENUECAT_PROJECT_ID", "proj_demo_123"]])],
+      ["/repos/acme/acme-app", new Map([["ACME_PROJECT_ID", "proj_demo_123"]])],
       ["/repos/acme/acme-web/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://app-staging.example.com"]])],
       ["/repos/acme/acme-docs/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://alt.example.com"]])],
     ]),

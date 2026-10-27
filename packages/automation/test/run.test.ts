@@ -30,7 +30,7 @@ describe("runRecipe", () => {
     expect(r.createdName).toBe("demo-20261027");
     expect(r.screenshots.map((s) => s.name)).toEqual(["vorher", "nach-erzeugen"]);
     expect(d.opened && d.closed).toBe(true);
-    expect(d.calls).toContain("goto https://example.test/tokens/new?name=demo-20261027&owner=Pineflight");
+    expect(d.calls).toContain("goto https://example.test/tokens/new?name=demo-20261027&owner=acme");
     expect(d.calls.filter((c) => c.startsWith('fill Platzhalter'))).toHaveLength(2); // je Repo
     expect(progress.length).toBeGreaterThan(3);
   });

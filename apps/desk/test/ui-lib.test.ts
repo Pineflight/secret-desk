@@ -26,7 +26,7 @@ describe("format", () => {
   });
   it("Suche und Ziel", () => {
     expect(matchesQuery("", "x")).toBe(true);
-    expect(matchesQuery("WAKE", "wake-miles")).toBe(true);
+    expect(matchesQuery("ACME", "acme-app")).toBe(true);
     expect(matchesQuery("zzz", "a", null)).toBe(false);
     expect(placeText({ repo: "r", scope: "environment", environment: "staging" })).toBe("r / staging");
     expect(placeText({ repo: "r", scope: "repository" })).toBe("r / Repository");

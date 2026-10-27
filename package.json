@@ -4,6 +4,9 @@
   "private": true,
   "description": "Local-first portal for tokens and secrets: see expiry, issue or renew tokens at providers and write them directly to the GitHub secret store. Values are never stored.",
   "license": "MIT",
+  "repository": "github:Pineflight/secret-desk",
+  "homepage": "https://github.com/Pineflight/secret-desk#readme",
+  "bugs": "https://github.com/Pineflight/secret-desk/issues",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"

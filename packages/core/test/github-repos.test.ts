@@ -9,8 +9,8 @@ const client = (f: (url: string) => Response) => new GitHubClient({ auth: patPro
 describe("GitHubClient.listRepos", () => {
   it("liest zuerst den Organisationspfad und liefert nur Metadaten", async () => {
     const urls: string[] = [];
-    const repos = await client((u) => { urls.push(u); return json([item(1), item(2)]); }).listRepos("Pineflight");
-    expect(urls).toEqual(["https://api.github.com/orgs/Pineflight/repos?per_page=100&page=1"]);
+    const repos = await client((u) => { urls.push(u); return json([item(1), item(2)]); }).listRepos("acme");
+    expect(urls).toEqual(["https://api.github.com/orgs/acme/repos?per_page=100&page=1"]);
     expect(repos).toEqual([
       { name: "r1", private: false, archived: false, defaultBranch: "main", pushedAt: "2026-10-01T00:00:00Z" },
       { name: "r2", private: true, archived: false, defaultBranch: "main", pushedAt: "2026-10-01T00:00:00Z" },
@@ -19,8 +19,8 @@ describe("GitHubClient.listRepos", () => {
 
   it("faellt bei 404 auf den Nutzerpfad zurueck", async () => {
     const urls: string[] = [];
-    const repos = await client((u) => { urls.push(u); return u.includes("/orgs/") ? json({ message: "Not Found" }, 404) : json([item(1)]); }).listRepos("niklas");
-    expect(urls[1]).toBe("https://api.github.com/users/niklas/repos?per_page=100&page=1");
+    const repos = await client((u) => { urls.push(u); return u.includes("/orgs/") ? json({ message: "Not Found" }, 404) : json([item(1)]); }).listRepos("alice");
+    expect(urls[1]).toBe("https://api.github.com/users/alice/repos?per_page=100&page=1");
     expect(repos.map((r) => r.name)).toEqual(["r1"]);
   });
 

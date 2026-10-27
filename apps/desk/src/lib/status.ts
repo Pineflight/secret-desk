@@ -78,6 +78,12 @@ export function driftInfo(state: DriftState): Info {
   }
 }
 
+/** Zusammengefasster Abgleich einer Variable ("not-compared" bis zum ersten Vergleich). */
+export function summaryInfo(summary: DriftState | "not-compared"): Info {
+  if (summary === "not-compared") return { label: translate("variables.notCompared"), tone: "neutral", icon: "help" };
+  return driftInfo(summary);
+}
+
 export function approvalStateInfo(state: string): Info {
   switch (state) {
     case "pending":

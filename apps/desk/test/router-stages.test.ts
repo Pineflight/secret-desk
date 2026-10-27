@@ -9,24 +9,24 @@ import { PortalSession, allowedHosts } from "../src/server/security.js";
 
 const INVENTORY = `version: 1
 secrets:
-  - id: hmac-wakemiles
+  - id: hmac-acme-app
     name: ARTIFACT_HMAC_SECRET
     stage: shared
     service: intern
     provider: random-hex
     expiry: none
     places:
-      - { repo: wake-miles, scope: repository }
+      - { repo: acme-app, scope: repository }
 variables:
   - id: site-url
     name: NEXT_PUBLIC_SITE_URL
     stage: staging
     value: "https://staging.example.com"
     places:
-      - { repo: web-studio, scope: environment, environment: staging }
+      - { repo: acme-web, scope: environment, environment: staging }
 envTemplates:
   - id: ws-dev
-    repo: web-studio
+    repo: acme-web
     stage: dev
     entries:
       - { key: SITE_URL, from: { type: variable, variable: site-url } }
@@ -44,7 +44,7 @@ async function setup() {
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-desk-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, dir };

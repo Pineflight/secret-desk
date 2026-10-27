@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConfigSchema, loadConfig } from "../src/config.js";
 
-const BASE = { inventory: "./inventory.yaml", github: { owner: "Pineflight", auth: { type: "pat" } } };
+const BASE = { inventory: "./inventory.yaml", github: { owner: "acme", auth: { type: "pat" } } };
 
 describe("Konfiguration: automation", () => {
   it("hat ohne Angabe sichere Vorgaben", () => {

@@ -1,13 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { stringify } from "yaml";
 import {
   InventoryStore,
-  DEFAULT_STAGES,
   StageSchema,
   findings,
-  importLegacyInventory,
   mergeTeamBundle,
   parseTeamBundle,
   type Stage,
@@ -62,7 +59,6 @@ Aufruf: secret-desk <befehl> [optionen]
                    --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
-  import-legacy  Altes Inventar (ai-interlink) umwandeln   <eingabe> <ausgabe> [--product repo=produkt]...
   browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   vapid          Neues VAPID-Schluesselpaar ausgeben
@@ -93,8 +89,6 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return rest[0] === "export" ? await envExport(rest.slice(1), io) : usage(io);
       case "team":
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : usage(io);
-      case "import-legacy":
-        return await importLegacy(rest, io);
       case "browser":
         return await browserCmd(rest, io);
       case "vapid": {
@@ -313,22 +307,6 @@ async function teamImportCmd(args: string[], io: Io): Promise<number> {
   const r = mergeTeamBundle(store, bundle, values.replace ? "replace" : "merge");
   await store.save();
   io.out(`${r.added.length} hinzugefuegt, ${r.skipped.length} uebersprungen`);
-  return 0;
-}
-
-async function importLegacy(args: string[], io: Io): Promise<number> {
-  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { product: { type: "string", multiple: true } } });
-  const [input, output] = positionals;
-  if (!input || !output) throw new Error("import-legacy <eingabe> <ausgabe>");
-  const map = new Map<string, string>();
-  for (const p of values.product ?? []) {
-    const [repo, product] = p.split("=");
-    if (repo && product) map.set(repo, product);
-  }
-  const r = importLegacyInventory(await readFile(input, "utf8"), { productOf: (repo) => map.get(repo) });
-  const body = stringify({ version: 1, thresholds: [30, 14, 7], stages: DEFAULT_STAGES, secrets: r.secrets, variables: r.variables, envTemplates: [], providers: [] }, { lineWidth: 0 });
-  await writeFile(output, `# Aus dem bisherigen Inventar umgewandelt. Nur Metadaten.\n${body}`, "utf8");
-  io.out(`${r.secrets.length} Secrets und ${r.variables.length} Variablen geschrieben, uebersprungen: ${r.skipped.nonGitHub} Nicht-GitHub-Stellen (Worker, Supabase, lokal)`);
   return 0;
 }
 

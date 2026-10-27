@@ -1,18 +1,18 @@
 # Trial run with real services
 
 Goal: try every path once with **real** accounts without touching anything important. Everything goes into the throwaway repository
-`Pineflight/secret-desk-sandbox` (private, empty, environment `staging`). Nothing there needs protecting.
+`YOUR-ORG/secret-desk-sandbox` (private, empty, environment `staging`; replace `YOUR-ORG` with your GitHub account or organization everywhere below). Nothing there needs protecting.
 Already verified (self-test against the real GitHub, 27 Oct 2026): encryption, creating, overwriting and deleting secrets
 and variables on the repository and on the environment.
 
 Tip: in the portal, every manual secret has an "Open the provider's page with presets" button. For GitHub, name, owner, expiry and permissions (`params.permissions` in the inventory) are prefilled; you only pick the repository yourself. For the first token (secret-desk itself) use this link:
-`https://github.com/settings/personal-access-tokens/new?name=secret-desk-sandbox&description=secret-desk+trial+run&target_name=Pineflight&expires_in=7&secrets=write&actions_variables=write&environments=read&metadata=read`
+`https://github.com/settings/personal-access-tokens/new?name=secret-desk-sandbox&description=secret-desk+trial+run&target_name=YOUR-ORG&expires_in=7&secrets=write&actions_variables=write&environments=read&metadata=read`
 
 ## 0. What to create beforehand (everything short-lived and with minimal permissions)
 
 | What | Where | Permissions | Expiry |
 |---|---|---|---|
-| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `Pineflight`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read, Metadata: Read | 7 days |
+| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `YOUR-ORG`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read, Metadata: Read | 7 days |
 | **Cloudflare bootstrap token** (test B only) | Cloudflare, My Profile, API Tokens, Custom token | **User > API Tokens > Edit** (nothing else) | 1 day |
 | **Cloudflare account ID** (test B) | Cloudflare dashboard, account, "Copy account ID" | none | none |
 | **Throwaway token to paste in** (test C, optional) | GitHub, fine-grained token, resource owner your own account, **no** permissions except Public Repositories (read-only) | none | 1 day |
@@ -31,7 +31,7 @@ export SECRET_DESK_GITHUB_TOKEN=...                 # token from row 1
 export SECRET_DESK_CLOUDFLARE_TOKEN=...             # token from row 2 (test B only)
 ```
 
-In `~/.secret-desk/trial/inventory.yaml`, replace the line `accountId: DEINE_CLOUDFLARE_ACCOUNT_ID` under `trial-cloudflare`.
+In `~/.secret-desk/trial/inventory.yaml`, replace the line `accountId: YOUR_CLOUDFLARE_ACCOUNT_ID` under `trial-cloudflare`.
 Without Cloudflare, simply drop `trial-cloudflare` and skip test B.
 
 ## 2. Pre-check (reads only, writes nothing)
@@ -53,14 +53,14 @@ SECRET_DESK_CONFIG=~/.secret-desk/trial/secret-desk.config.yaml pnpm dev      # 
 
 | # | Test | Steps | Expectation |
 |---|---|---|---|
-| A | Flow without a provider | Secrets, `SD_TRIAL_RANDOM`, "Generate new value" | Review page with evidence image, finding "Target reachable with write access", checklist. The button is enabled only after all boxes are ticked. After "Confirm": the secret `SD_TRIAL_RANDOM` exists in the sandbox repo under Environments > staging (`gh secret list -R Pineflight/secret-desk-sandbox --env staging`). The secret shows "Last confirmed by ...". |
+| A | Flow without a provider | Secrets, `SD_TRIAL_RANDOM`, "Generate new value" | Review page with evidence image, finding "Target reachable with write access", checklist. The button is enabled only after all boxes are ticked. After "Confirm": the secret `SD_TRIAL_RANDOM` exists in the sandbox repo under Environments > staging (`gh secret list -R YOUR-ORG/secret-desk-sandbox --env staging`). The secret shows "Last confirmed by ...". |
 | B | Real provider | `SD_TRIAL_CLOUDFLARE`, "Generate new value" | Findings "Token active", "Permissions exact: Account Settings Read", "Account only ...", expiry in 7 days. **In the Cloudflare dashboard** (My Profile, API Tokens) there is now a token named `trial-cloudflare-<date>` with exactly this one permission. Before confirming, **nothing** has been written to GitHub. After confirming, `SD_TRIAL_CLOUDFLARE` exists in the sandbox repo. |
 | B2 | Revoke the old value | Repeat B | After confirming, the report says "Old value revoked at the provider", and in the Cloudflare dashboard the **first** token is gone and the second one is there. |
 | B3 | Reject | Start B, "Reject and delete new value" | The new token is **gone again** from the Cloudflare dashboard, nothing is written to GitHub, and the secret still shows the old state. |
 | C | By hand | `SD_TRIAL_MANUAL`, "Paste value", paste the throwaway token | Findings "works (login name)" and the expiry date from GitHub's response; the field is cleared; after confirming, the secret exists in the repo. |
 | D | Variables | Variables, `SD_TRIAL_URL`: "Compare with GitHub" -> "Missing in GitHub"; "Set in GitHub"; compare again -> matches; change the target value -> "Differs" | The variable appears under environment staging. |
 | D2 | Import | In GitHub (browser) set `SD_TRIAL_FLAG` as a repository variable, then in the portal "Import from GitHub" | The target value is filled in. |
-| D3 | Secret guard | Set `SD_TRIAL_URL` to `sk_live_aaaaaaaaaaaaaaaaaaaaaaaa` | Rejected: "This looks like a secret". |
+| D3 | Secret guard | Set `SD_TRIAL_URL` to a value starting with `sk_live_` followed by 24 letters | Rejected: "This looks like a secret". |
 | E | Dev `.env` | Dev environment, template `trial-dev`, path `~/secret-desk-trial/.env.local`, enter a test value | File with mode 600 (`ls -l`), variable and random value inside, only key names shown in the portal. |
 | F | Agent (optional) | Connect the MCP server, `desk_request_renewal` for `trial-random` | An approval is created (staging); nothing is written until you approve in the portal **and** confirm. |
 | G | History | Open the secret `trial-random` | Two reports with evidence image and confirmation. |
@@ -68,7 +68,7 @@ SECRET_DESK_CONFIG=~/.secret-desk/trial/secret-desk.config.yaml pnpm dev      # 
 ## 5. Clean up
 
 ```bash
-gh repo delete Pineflight/secret-desk-sandbox --yes            # needs the delete_repo permission, otherwise use the browser
+gh repo delete YOUR-ORG/secret-desk-sandbox --yes            # needs the delete_repo permission, otherwise use the browser
 rm -rf ~/.secret-desk/trial ~/secret-desk-trial
 ```
 

@@ -4,7 +4,7 @@ import { refreshCounts, refreshVersion, subscribeRefresh } from "../src/lib/refr
 
 describe("Schlagworte", () => {
   it("zerlegt Eingaben, klein und ohne Dubletten", () => {
-    expect(parseTags("Zahlungen, web-studio;zahlungen  neu")).toEqual(["zahlungen", "web-studio", "neu"]);
+    expect(parseTags("Zahlungen, acme-web;zahlungen  neu")).toEqual(["zahlungen", "acme-web", "neu"]);
     expect(parseTags(" , ")).toEqual([]);
   });
   it("prüft das Format", () => {

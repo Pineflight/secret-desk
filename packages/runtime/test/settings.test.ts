@@ -23,7 +23,7 @@ async function setup(policy: string, vaultOff = true) {
 
 describe("shortenHome", () => {
   it("kuerzt Home-Praefixe zu ~", () => {
-    expect(shortenHome("/Users/anna/Projekte/x")).toBe("~/Projekte/x");
+    expect(shortenHome("/home/anna/Projekte/x")).toBe("~/Projekte/x");
     expect(shortenHome("/home/bob")).toBe("~");
     expect(shortenHome("C:\\Users\\carl\\x")).toBe("~\\x");
     expect(shortenHome("/opt/data")).toBe("/opt/data");

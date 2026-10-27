@@ -9,18 +9,18 @@ import { createRuntime } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
 secrets:
-  - id: hmac-wakemiles
+  - id: hmac-acme-app
     name: ARTIFACT_HMAC_SECRET
     stage: shared
     service: intern
     provider: random-hex
     expiry: none
     places:
-      - { repo: wake-miles, scope: repository }
+      - { repo: acme-app, scope: repository }
 variables: []
 envTemplates:
   - id: wm-dev
-    repo: wake-miles
+    repo: acme-app
     stage: dev
     file: .env.local
     entries:
@@ -42,7 +42,7 @@ async function setup(github: (url: string) => Response = () => new Response(JSON
   await mkdir(projects);
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   const linksFile = join(dir, "state", "links.json");
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(linksFile)}\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(projects)}]\n`);
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(linksFile)}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(projects)}]\n`);
   const fetchMock = (async (u: string | URL | Request) => github(String(u))) as unknown as typeof fetch;
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
   return { rt, dir, projects, linksFile };
@@ -50,9 +50,9 @@ async function setup(github: (url: string) => Response = () => new Response(JSON
 
 describe("parseGitRemote", () => {
   it("versteht https, ssh und scp-Form", () => {
-    expect(parseGitRemote("https://github.com/Pineflight/wake-miles.git")).toEqual({ owner: "Pineflight", repo: "wake-miles" });
-    expect(parseGitRemote("git@github.com:Pineflight/wake-miles.git")).toEqual({ owner: "Pineflight", repo: "wake-miles" });
-    expect(parseGitRemote("ssh://git@github.com/Pineflight/wake-miles")).toEqual({ owner: "Pineflight", repo: "wake-miles" });
+    expect(parseGitRemote("https://github.com/acme/acme-app.git")).toEqual({ owner: "acme", repo: "acme-app" });
+    expect(parseGitRemote("git@github.com:acme/acme-app.git")).toEqual({ owner: "acme", repo: "acme-app" });
+    expect(parseGitRemote("ssh://git@github.com/acme/acme-app")).toEqual({ owner: "acme", repo: "acme-app" });
     expect(parseGitRemote("kaputt")).toBeNull();
   });
 });
@@ -60,32 +60,32 @@ describe("parseGitRemote", () => {
 describe("Verknuepfen", () => {
   it("speichert den absoluten Pfad lokal mit Modus 600 (Ordner 700)", async () => {
     const { rt, projects, linksFile, dir } = await setup();
-    const repo = await repoDir(projects, "wake-miles", "git@github.com:Pineflight/wake-miles.git");
-    const r = await setLink(rt, "wake-miles", repo);
+    const repo = await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git");
+    const r = await setLink(rt, "acme-app", repo);
     expect(r).toMatchObject({ path: repo, remoteMatches: true, warnings: [] });
     if (process.platform !== "win32") expect((await stat(linksFile)).mode & 0o777).toBe(0o600); // Windows kennt keine POSIX-Modi
     if (process.platform !== "win32") expect((await stat(join(dir, "state"))).mode & 0o777).toBe(0o700); // Windows kennt keine POSIX-Modi
-    expect(JSON.parse(await readFile(linksFile, "utf8"))).toEqual({ version: 1, links: { "wake-miles": repo } });
+    expect(JSON.parse(await readFile(linksFile, "utf8"))).toEqual({ version: 1, links: { "acme-app": repo } });
     expect(await readFile(join(dir, "inventory.yaml"), "utf8")).not.toContain(repo);
-    expect(await linkedFolder(rt, "wake-miles")).toBe(repo);
+    expect(await linkedFolder(rt, "acme-app")).toBe(repo);
   });
 
   it("entfernt eine Verknuepfung", async () => {
     const { rt, projects } = await setup();
-    await setLink(rt, "wake-miles", await repoDir(projects, "wake-miles"));
-    expect(await removeLink(rt, "wake-miles")).toEqual({ ok: true, removed: true });
-    expect(await linkedFolder(rt, "wake-miles")).toBeNull();
-    expect(await removeLink(rt, "wake-miles")).toEqual({ ok: true, removed: false });
+    await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
+    expect(await removeLink(rt, "acme-app")).toEqual({ ok: true, removed: true });
+    expect(await linkedFolder(rt, "acme-app")).toBeNull();
+    expect(await removeLink(rt, "acme-app")).toEqual({ ok: true, removed: false });
   });
 
   it("lehnt ungueltige Pfade ab", async () => {
     const { rt, projects, dir } = await setup();
-    await expect(setLink(rt, "wake-miles", join(projects, "gibt-es-nicht"))).rejects.toThrow("Ordner existiert nicht");
-    await expect(setLink(rt, "wake-miles", "relativ/pfad")).rejects.toThrow("absolut");
+    await expect(setLink(rt, "acme-app", join(projects, "gibt-es-nicht"))).rejects.toThrow("Ordner existiert nicht");
+    await expect(setLink(rt, "acme-app", "relativ/pfad")).rejects.toThrow("absolut");
     await writeFile(join(projects, "datei"), "x");
-    await expect(setLink(rt, "wake-miles", join(projects, "datei"))).rejects.toThrow("kein Ordner");
+    await expect(setLink(rt, "acme-app", join(projects, "datei"))).rejects.toThrow("kein Ordner");
     await mkdir(join(projects, "ohne-git"));
-    await expect(setLink(rt, "wake-miles", join(projects, "ohne-git"))).rejects.toThrow(".git fehlt");
+    await expect(setLink(rt, "acme-app", join(projects, "ohne-git"))).rejects.toThrow(".git fehlt");
     await expect(setLink(rt, "../boese", projects)).rejects.toThrow("Repository-Name");
     expect(await stat(join(dir, "state")).then(() => true, () => false)).toBe(false);
   });
@@ -94,8 +94,8 @@ describe("Verknuepfen", () => {
     const { rt } = await setup();
     const fremd = await repoDir(await realpath("/private/tmp"), `sd-fremd-${process.pid}`);
     try {
-      await expect(setLink(rt, "wake-miles", fremd)).rejects.toThrow("ausserhalb");
-      await expect(setLink(rt, "wake-miles", "/etc")).rejects.toThrow("ausserhalb");
+      await expect(setLink(rt, "acme-app", fremd)).rejects.toThrow("ausserhalb");
+      await expect(setLink(rt, "acme-app", "/etc")).rejects.toThrow("ausserhalb");
     } finally {
       await rm(fremd, { recursive: true, force: true });
     }
@@ -103,12 +103,12 @@ describe("Verknuepfen", () => {
 
   it("warnt bei fremdem oder fehlendem Remote, blockiert aber nicht", async () => {
     const { rt, projects } = await setup();
-    const fremd = await repoDir(projects, "a", "https://github.com/Andere/wake-miles.git");
-    const r1 = await setLink(rt, "wake-miles", fremd);
+    const fremd = await repoDir(projects, "a", "https://github.com/Andere/acme-app.git");
+    const r1 = await setLink(rt, "acme-app", fremd);
     expect(r1.remoteMatches).toBe(false);
-    expect(r1.warnings[0]).toContain("zeigt nicht auf Pineflight/wake-miles");
+    expect(r1.warnings[0]).toContain("zeigt nicht auf acme/acme-app");
     const ohne = await repoDir(projects, "b");
-    const r2 = await setLink(rt, "wake-miles", ohne);
+    const r2 = await setLink(rt, "acme-app", ohne);
     expect(r2.remote).toBeNull();
     expect(r2.warnings).toHaveLength(1);
   });
@@ -117,16 +117,16 @@ describe("Verknuepfen", () => {
 describe("Lokal suchen", () => {
   it("findet Git-Ordner mit passendem origin (Tiefe 2), sonst nichts", async () => {
     const { rt, projects } = await setup();
-    const a = await repoDir(projects, "wake-miles", "git@github.com:Pineflight/wake-miles.git");
-    const b = await repoDir(join(projects, "gruppe"), "lupe", "https://github.com/pineflight/lupe.git");
+    const a = await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git");
+    const b = await repoDir(join(projects, "gruppe"), "acme-api", "https://github.com/acme/acme-api.git");
     await repoDir(projects, "fremd", "https://github.com/Andere/x.git");
     await repoDir(projects, "ohne-remote");
-    await repoDir(join(projects, "x", "y"), "zu-tief", "https://github.com/Pineflight/zu-tief.git");
-    await setLink(rt, "wake-miles", a);
+    await repoDir(join(projects, "x", "y"), "zu-tief", "https://github.com/acme/zu-tief.git");
+    await setLink(rt, "acme-app", a);
     const found = await scanLocal(rt);
     expect(found).toEqual([
-      { name: "lupe", path: b, remote: "https://github.com/pineflight/lupe.git", linked: false },
-      { name: "wake-miles", path: a, remote: "git@github.com:Pineflight/wake-miles.git", linked: true },
+      { name: "acme-api", path: b, remote: "https://github.com/acme/acme-api.git", linked: false },
+      { name: "acme-app", path: a, remote: "git@github.com:acme/acme-app.git", linked: true },
     ]);
   });
 });
@@ -134,27 +134,27 @@ describe("Lokal suchen", () => {
 describe("Liste", () => {
   it("fasst Inventar, Verknuepfungen und GitHub zusammen; GitHub-Fehler blockieren nicht", async () => {
     const { rt, projects } = await setup();
-    await setLink(rt, "wake-miles", await repoDir(projects, "wake-miles", "git@github.com:Pineflight/wake-miles.git"));
+    await setLink(rt, "acme-app", await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git"));
     const off = await listRepos(rt);
     expect(off.github).toBe("off");
     expect(off.repos).toHaveLength(1);
-    expect(off.repos[0]).toMatchObject({ name: "wake-miles", secrets: 1, variables: 0, templates: 1, inInventory: true, link: { exists: true, remoteMatches: true } });
+    expect(off.repos[0]).toMatchObject({ name: "acme-app", secrets: 1, variables: 0, templates: 1, inInventory: true, link: { exists: true, remoteMatches: true } });
     const failed = await listRepos(rt, { live: true });
     expect(failed.github).toBe("unavailable");
-    expect(failed.repos.map((r) => r.name)).toEqual(["wake-miles"]);
+    expect(failed.repos.map((r) => r.name)).toEqual(["acme-app"]);
   });
 
   it("markiert Repositories, die nur auf GitHub existieren", async () => {
-    const { rt } = await setup(() => new Response(JSON.stringify([{ name: "nur-github", private: true, archived: false, default_branch: "main", pushed_at: null }, { name: "wake-miles" }]), { status: 200 }));
+    const { rt } = await setup(() => new Response(JSON.stringify([{ name: "nur-github", private: true, archived: false, default_branch: "main", pushed_at: null }, { name: "acme-app" }]), { status: 200 }));
     const list = await listRepos(rt, { live: true });
     expect(list.github).toBe("ok");
     expect(list.repos.find((r) => r.name === "nur-github")).toMatchObject({ inInventory: false, github: { private: true }, link: null });
-    expect(list.repos.find((r) => r.name === "wake-miles")?.inInventory).toBe(true);
+    expect(list.repos.find((r) => r.name === "acme-app")?.inInventory).toBe(true);
   });
 
   it("zeigt Agenten keine Pfade", async () => {
     const { rt, projects } = await setup();
-    await setLink(rt, "wake-miles", await repoDir(projects, "wake-miles"));
+    await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
     expect((await listRepos(rt, { includePaths: false })).repos[0]?.link).toMatchObject({ path: null, exists: true });
   });
 });
@@ -162,21 +162,21 @@ describe("Liste", () => {
 describe("Env-Export mit Verknuepfung", () => {
   it("nimmt <ordner>/<template.file> als Standardpfad", async () => {
     const { rt, projects } = await setup();
-    const repo = await repoDir(projects, "wake-miles");
-    await setLink(rt, "wake-miles", repo);
-    const r = await exportEnv(rt, { kind: "human", name: "n" }, { repo: "wake-miles" });
+    const repo = await repoDir(projects, "acme-app");
+    await setLink(rt, "acme-app", repo);
+    const r = await exportEnv(rt, { kind: "human", name: "n" }, { repo: "acme-app" });
     expect(r).toMatchObject({ status: "written", path: join(repo, ".env.local") });
     expect(await readFile(join(repo, ".env.local"), "utf8")).toContain("SITE_URL=");
   });
 
   it("verlangt Pfad oder Verknuepfung", async () => {
     const { rt } = await setup();
-    await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "wake-miles" })).rejects.toThrow("kein Ordner");
+    await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "acme-app" })).rejects.toThrow("kein Ordner");
   });
 
   it("explizite Pfade ausserhalb der Wurzeln bleiben abgelehnt", async () => {
     const { rt, projects, dir } = await setup();
-    await setLink(rt, "wake-miles", await repoDir(projects, "wake-miles"));
-    await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "wake-miles", path: join(dir, "anderswo", ".env") })).rejects.toThrow("ausserhalb");
+    await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
+    await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "acme-app", path: join(dir, "anderswo", ".env") })).rejects.toThrow("ausserhalb");
   });
 });

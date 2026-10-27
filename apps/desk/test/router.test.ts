@@ -9,24 +9,24 @@ import { PortalSession, allowedHosts } from "../src/server/security.js";
 
 const INVENTORY = `version: 1
 secrets:
-  - id: hmac-wakemiles
+  - id: hmac-acme-app
     name: ARTIFACT_HMAC_SECRET
     stage: shared
     service: intern
     provider: random-hex
     expiry: none
     places:
-      - { repo: wake-miles, scope: repository }
+      - { repo: acme-app, scope: repository }
 variables:
   - id: site-url
     name: NEXT_PUBLIC_SITE_URL
     stage: staging
     value: "https://staging.example.com"
     places:
-      - { repo: web-studio, scope: environment, environment: staging }
+      - { repo: acme-web, scope: environment, environment: staging }
 envTemplates:
   - id: ws-dev
-    repo: web-studio
+    repo: acme-web
     stage: dev
     entries:
       - { key: SITE_URL, from: { type: variable, variable: site-url } }
@@ -44,7 +44,7 @@ async function setup() {
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-desk-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, dir };
@@ -76,7 +76,7 @@ describe("Zugriffsschutz", () => {
     expect((await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST } }), deps)).status).toBe(401);
     expect((await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } }), deps)).status).toBe(401);
     expect((await route(ui(deps, "GET", "overview"), deps)).status).toBe(200);
-    const foreign = ui(deps, "POST", "renewal-requests", { secretId: "hmac-wakemiles", dryRun: true }, { origin: "https://evil.example.com" });
+    const foreign = ui(deps, "POST", "renewal-requests", { secretId: "hmac-acme-app", dryRun: true }, { origin: "https://evil.example.com" });
     expect((await route(foreign, deps)).status).toBe(403);
   });
   it("Agenten brauchen den Token und koennen weder bestaetigen noch Verbindungen setzen", async () => {
@@ -85,14 +85,14 @@ describe("Zugriffsschutz", () => {
     expect((await route(agent(deps, "GET", "overview"), deps)).status).toBe(200);
     expect((await route(agent(deps, "POST", "reviews/x/confirm", { ticks: [] }), deps)).status).toBe(404);
     expect((await route(agent(deps, "POST", "connections/github/token", { token: "x" }), deps)).status).toBe(404);
-    expect((await route(agent(deps, "GET", "evidence/hmac-wakemiles/abc/svg"), deps)).status).toBe(404);
+    expect((await route(agent(deps, "GET", "evidence/hmac-acme-app/abc/svg"), deps)).status).toBe(404);
   });
 });
 
 describe("Ablauf ueber die Schnittstelle", () => {
   it("neuer Wert: Pruefung, Beleg-Bild, Bestaetigung, danach geschrieben", async () => {
     const { deps } = await setup();
-    const started = (await (await route(ui(deps, "POST", "renewal-requests", { secretId: "hmac-wakemiles" }), deps)).json()) as { status: string; issuance: { id: string; report: { checklist: { id: string }[] } } };
+    const started = (await (await route(ui(deps, "POST", "renewal-requests", { secretId: "hmac-acme-app" }), deps)).json()) as { status: string; issuance: { id: string; report: { checklist: { id: string }[] } } };
     expect(started.status).toBe("awaiting-review");
     expect(JSON.stringify(started)).not.toMatch(/[0-9a-f]{64}/);
     const id = started.issuance.id;
@@ -101,14 +101,14 @@ describe("Ablauf ueber die Schnittstelle", () => {
     const confirm = await route(ui(deps, "POST", `reviews/${id}/confirm`, { ticks, note: "ok" }), deps);
     expect(confirm.status).toBe(200);
     expect(((await confirm.json()) as { ok: boolean }).ok).toBe(true);
-    const evidence = (await (await route(ui(deps, "GET", "evidence/hmac-wakemiles"), deps)).json()) as { id: string }[];
-    const svg = await route(ui(deps, "GET", `evidence/hmac-wakemiles/${evidence[0]!.id}/svg`), deps);
+    const evidence = (await (await route(ui(deps, "GET", "evidence/hmac-acme-app"), deps)).json()) as { id: string }[];
+    const svg = await route(ui(deps, "GET", `evidence/hmac-acme-app/${evidence[0]!.id}/svg`), deps);
     expect(svg.headers.get("content-type")).toBe("image/svg+xml");
-    const imgOnly = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}/svg`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    const imgOnly = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}/svg`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
     expect((await route(imgOnly, deps)).status).toBe(200);
-    const noCookie = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}/svg`, { headers: { host: HOST } });
+    const noCookie = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}/svg`, { headers: { host: HOST } });
     expect((await route(noCookie, deps)).status).toBe(401);
-    const jsonNeedsCsrf = new Request(`${base}/api/ui/evidence/hmac-wakemiles/${evidence[0]!.id}`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    const jsonNeedsCsrf = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
     expect((await route(jsonNeedsCsrf, deps)).status).toBe(401);
     expect(svg.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(await svg.text()).toContain("<svg");
@@ -133,7 +133,7 @@ describe("Ablauf ueber die Schnittstelle", () => {
     expect(bad.status).toBe(400);
     const ok = await route(ui(deps, "PATCH", "variables/site-url", { value: "https://neu.example.com" }), deps);
     expect(ok.status).toBe(200);
-    const env = await route(ui(deps, "POST", "env-export", { repo: "web-studio", path: join(dir, "a", ".env.local") }), deps);
+    const env = await route(ui(deps, "POST", "env-export", { repo: "acme-web", path: join(dir, "a", ".env.local") }), deps);
     expect(((await env.json()) as { status: string }).status).toBe("written");
   });
   it("Agent: Variable setzen in staging erzeugt eine Freigabe, Mensch gibt frei", async () => {
@@ -145,7 +145,7 @@ describe("Ablauf ueber die Schnittstelle", () => {
   });
   it("Fehler werden ohne Interna gemeldet", async () => {
     const { deps } = await setup();
-    const r = await route(agent(deps, "POST", "env-export", { repo: "web-studio", stage: "staging", path: "/tmp/x" }), deps);
+    const r = await route(agent(deps, "POST", "env-export", { repo: "acme-web", stage: "staging", path: "/tmp/x" }), deps);
     expect(r.status).toBe(403);
     expect(JSON.stringify(await r.json())).not.toMatch(/at .*\.ts/);
   });

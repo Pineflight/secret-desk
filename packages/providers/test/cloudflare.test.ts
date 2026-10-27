@@ -66,7 +66,7 @@ describe("cloudflare-token", () => {
 describe("cloudflare-turnstile", () => {
   it("gibt das neue Secret zurueck", async () => {
     const m = mockFetch({ body: { result: { secret: ISSUED } } });
-    const r = await turnstile.issue!(issueCtx(m.fetch, { accountId: "acc1", sitekey: "sk1" }, { conns: ["cloudflare"] }));
+    const r = await turnstile.issue!(issueCtx(m.fetch, { accountId: "acc1", sitekey: "sk1" }, { conns: ["cloudflare-turnstile"] }));
     expect(m.calls[0]!.url).toBe("https://api.cloudflare.com/client/v4/accounts/acc1/challenges/widgets/sk1/rotate_secret");
     expect(m.calls[0]!.method).toBe("POST");
     expect(JSON.parse(m.calls[0]!.body!)).toEqual({ invalidate_immediately: false });
@@ -77,7 +77,7 @@ describe("cloudflare-turnstile", () => {
   });
   it("Fehler ohne Werte", async () => {
     const m = mockFetch({ status: 403, body: `nope ${CONN_TOKEN}` });
-    const err = await turnstile.issue!(issueCtx(m.fetch, { accountId: "a", sitekey: "s" }, { conns: ["cloudflare"] })).catch((e: unknown) => e as Error);
+    const err = await turnstile.issue!(issueCtx(m.fetch, { accountId: "a", sitekey: "s" }, { conns: ["cloudflare-turnstile"] })).catch((e: unknown) => e as Error);
     expect(err.message).not.toContain(CONN_TOKEN);
   });
 });

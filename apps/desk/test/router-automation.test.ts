@@ -30,7 +30,7 @@ secrets:
     service: example
     provider: sample-token-browser
     expiry: none
-    places: [{ repo: wake-miles, scope: repository }]
+    places: [{ repo: acme-app, scope: repository }]
 `;
 
 async function setup(login: boolean) {
@@ -42,7 +42,7 @@ async function setup(login: boolean) {
   await mkdir(join(dir, "recipes"));
   await writeFile(join(dir, "recipes", "sample.yaml"), RECIPE);
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
-  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: Pineflight\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n`);
+  await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n`);
   const opened: FakeDriver[] = [];
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,

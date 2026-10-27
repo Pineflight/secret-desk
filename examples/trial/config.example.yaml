@@ -1,9 +1,9 @@
-# Trial run against the throwaway repo Pineflight/secret-desk-sandbox. Contains no values, only sources.
+# Trial run against a throwaway repo YOUR-ORG/secret-desk-sandbox (create it first, private and empty). Contains no values, only sources.
 inventory: ./inventory.yaml
 evidenceDir: ./evidence
 
 github:
-  owner: Pineflight
+  owner: YOUR-ORG   # replace with your GitHub account or organization
   auth:
     type: pat
     # Fine-grained token ONLY for the sandbox repo. Before starting: export SECRET_DESK_GITHUB_TOKEN=...

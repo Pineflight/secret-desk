@@ -1,3 +1,4 @@
+import { userInfo } from "node:os";
 import {
   EnvExportError,
   EvidenceError,
@@ -65,6 +66,16 @@ import {
   type Runtime,
 } from "@secret-desk/runtime";
 import { bearerMatches, checkHost, checkOrigin, type PortalSession } from "./security";
+
+/** Standardbenutzer: SECRET_DESK_USER, sonst der Betriebssystem-Benutzer, sonst "local". */
+export function defaultUser(): string {
+  if (process.env.SECRET_DESK_USER) return process.env.SECRET_DESK_USER;
+  try {
+    return userInfo().username || "local";
+  } catch {
+    return "local";
+  }
+}
 
 export interface RouterDeps {
   rt: Runtime;
@@ -218,7 +229,7 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
     // Beleg-Bilder werden per <img> geladen und koennen keinen CSRF-Header senden: nur lesend, nur mit Cookie.
     const imageRead = req.method === "GET" && /^evidence\/[^/]+\/[^/]+\/(svg|attachments\/[^/]+)$/.test(path);
     if (!(imageRead ? deps.session.validCookie(req) : deps.session.valid(req))) return err(401, "Portal-Sitzung ungueltig. Seite neu laden.");
-    actor = { kind: "human", name: process.env.SECRET_DESK_USER ?? "niklas" };
+    actor = { kind: "human", name: defaultUser() };
   }
 
   let body: Body = {};

@@ -34,21 +34,21 @@ async function setup(options: { failRepo?: string } = {}) {
   const provider: Provider = { id: "cloudflare-token", label: "Cloudflare", kind: "automatic", connection: "cloudflare", issue, revoke };
   const providers = new ProviderRegistry().register(provider);
   const events: RotationEvent[] = [];
-  const deps = { inventory, github, providers, connections: new ConnectionStore(), owner: "Pineflight", now: () => new Date("2026-11-01T10:00:00Z"), onEvent: (e: RotationEvent) => events.push(e) };
+  const deps = { inventory, github, providers, connections: new ConnectionStore(), owner: "acme", now: () => new Date("2026-11-01T10:00:00Z"), onEvent: (e: RotationEvent) => events.push(e) };
   return { deps, inventory, issue, revoke, written, events };
 }
 
 describe("rotateSecret", () => {
   it("erzeugt, schreibt in alle Ziele, widerruft den alten und traegt das Datum ein", async () => {
     const { deps, inventory, issue, revoke, written, events } = await setup();
-    const result = await rotateSecret("cf-deploy-wakemiles", deps);
+    const result = await rotateSecret("cf-deploy-acme-app", deps);
     expect(result.ok).toBe(true);
     expect(written.map((w) => w.plaintext)).toEqual(["NEUER-TOKEN-WERT", "NEUER-TOKEN-WERT"]);
-    expect(written[0]!.url).toContain("/wake-miles/actions/secrets/CLOUDFLARE_API_TOKEN");
-    expect(written[1]!.url).toContain("/wake-miles-landingpage/");
+    expect(written[0]!.url).toContain("/acme-app/actions/secrets/CLOUDFLARE_API_TOKEN");
+    expect(written[1]!.url).toContain("/acme-app-landing/");
     expect(issue).toHaveBeenCalledOnce();
     expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "old-token-id" }));
-    const s = inventory.getSecret("cf-deploy-wakemiles")!;
+    const s = inventory.getSecret("cf-deploy-acme-app")!;
     expect(s.expires).toBe("2027-01-30");
     expect(s.rotatedAt).toBe("2026-11-01");
     expect(s.externalId).toBe("new-id");
@@ -56,27 +56,27 @@ describe("rotateSecret", () => {
     expect(JSON.stringify({ result, events })).not.toContain("NEUER-TOKEN-WERT");
   });
   it("widerruft nicht und traegt nichts ein, wenn ein Ziel fehlschlaegt", async () => {
-    const { deps, inventory, revoke } = await setup({ failRepo: "wake-miles-landingpage" });
-    const result = await rotateSecret("cf-deploy-wakemiles", deps);
+    const { deps, inventory, revoke } = await setup({ failRepo: "acme-app-landing" });
+    const result = await rotateSecret("cf-deploy-acme-app", deps);
     expect(result.ok).toBe(false);
     expect(result.partial).toBe(true);
     expect(revoke).not.toHaveBeenCalled();
-    expect(inventory.getSecret("cf-deploy-wakemiles")!.expires).toBe("2027-01-21");
-    expect(inventory.getSecret("cf-deploy-wakemiles")!.externalId).toBe("old-token-id");
+    expect(inventory.getSecret("cf-deploy-acme-app")!.expires).toBe("2027-01-21");
+    expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("old-token-id");
   });
   it("verweigert Stages, die nicht freigegeben sind", async () => {
     const { deps } = await setup();
-    await expect(rotateSecret("stripe-webhook-leitfaden-staging", deps, { allowedStages: ["dev"] })).rejects.toThrow(RotationError);
-    expect(() => planRotation("cf-deploy-wakemiles", deps, { allowedStages: ["dev"] })).toThrow(/nicht freigegeben/);
+    await expect(rotateSecret("stripe-webhook-acme-docs-staging", deps, { allowedStages: ["dev"] })).rejects.toThrow(RotationError);
+    expect(() => planRotation("cf-deploy-acme-app", deps, { allowedStages: ["dev"] })).toThrow(/nicht freigegeben/);
   });
   it("kann manuelle Secrets nicht automatisch rotieren", async () => {
     const { deps } = await setup();
-    await expect(rotateSecret("stripe-webhook-leitfaden-staging", deps)).rejects.toThrow(/von Hand/);
+    await expect(rotateSecret("stripe-webhook-acme-docs-staging", deps)).rejects.toThrow(/von Hand/);
   });
   it("planRotation zeigt Ziele, ohne etwas auszufuehren", async () => {
     const { deps, issue } = await setup();
-    const plan = planRotation("cf-deploy-wakemiles", deps);
-    expect(plan).toMatchObject({ automatic: true, revokesOld: true, places: ["wake-miles/repo", "wake-miles-landingpage/repo"] });
+    const plan = planRotation("cf-deploy-acme-app", deps);
+    expect(plan).toMatchObject({ automatic: true, revokesOld: true, places: ["acme-app/repo", "acme-app-landing/repo"] });
     expect(issue).not.toHaveBeenCalled();
   });
 });
@@ -84,14 +84,14 @@ describe("rotateSecret", () => {
 describe("uploadEncrypted", () => {
   it("leitet vorverschluesselte Werte weiter und traegt das Datum ein", async () => {
     const { deps, inventory } = await setup();
-    const s = inventory.getSecret("stripe-webhook-leitfaden-staging")!;
+    const s = inventory.getSecret("stripe-webhook-acme-docs-staging")!;
     const res = await uploadEncrypted(s.id, [{ place: s.places[0]!, keyId: "k", encryptedValue: "YWJj" }], deps, { expires: null });
     expect(res.ok).toBe(true);
     expect(inventory.getSecret(s.id)!.rotatedAt).toBe("2026-11-01");
   });
   it("lehnt Ziele ab, die nicht zum Secret gehoeren", async () => {
     const { deps } = await setup();
-    const res = await uploadEncrypted("stripe-webhook-leitfaden-staging", [{ place: { repo: "fremd", scope: "repository" }, keyId: "k", encryptedValue: "x" }], deps);
+    const res = await uploadEncrypted("stripe-webhook-acme-docs-staging", [{ place: { repo: "fremd", scope: "repository" }, keyId: "k", encryptedValue: "x" }], deps);
     expect(res.ok).toBe(false);
   });
 });

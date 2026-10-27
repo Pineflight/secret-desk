@@ -1,8 +1,7 @@
 name: Cross-Platform
 
 # Prueft Installation, Build, Typpruefung und Tests auf Linux, macOS und Windows.
-# Nur von Hand (workflow_dispatch): kein Lauf bei push oder pull_request, damit der Runner-Bestand und die Warteschlange
-# nicht belastet werden. Laeuft auf GitHub-gehosteten Runnern.
+# Nur von Hand (workflow_dispatch). Laeuft auf GitHub-gehosteten Runnern.
 on:
   workflow_dispatch:
 

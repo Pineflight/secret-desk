@@ -46,16 +46,16 @@ secrets:
     verifiedAt: 2026-10-27
     verifiedBy: alice
     expires: null
-  - id: vesselapi-acme-app-staging
-    name: VESSELAPI_API_KEY
+  - id: acme-api-key-acme-app-staging
+    name: ACME_API_KEY
     product: acme-app
-    description: Access to the VesselAPI for port events and vessel data (staging plan).
+    description: Key for the Acme API (staging plan), a custom provider without an API.
     owner: alice
-    link: https://vesselapi.com
-    tags: [ais, acme-app]
+    link: https://acme.example.com
+    tags: [api, acme-app]
     stage: staging
-    service: vesselapi
-    provider: vesselapi
+    service: acme-api
+    provider: acme-api
     expiry: unknown
     places:
       - { repo: acme-app, scope: environment, environment: staging }
@@ -111,13 +111,13 @@ secrets:
     expiry: none
 
 variables:
-  - id: revenuecat-project-acme-app
-    name: REVENUECAT_PROJECT_ID
+  - id: acme-project-acme-app
+    name: ACME_PROJECT_ID
     product: acme-app
-    description: "Identifier of the RevenueCat project the product setup works from."
+    description: "Identifier of the project the product setup works from."
     owner: alice
-    link: https://app.revenuecat.com
-    tags: [revenuecat, acme-app]
+    link: https://app.example.com
+    tags: [config, acme-app]
     stage: shared
     value: proj_demo_123
     places:
@@ -176,4 +176,8 @@ envTemplates:
         }
       - { key: RATE_LIMIT_SECRET, from: { type: generate, kind: hex, bytes: 16 } }
 
-providers: []
+providers:
+  - id: acme-api
+    label: Acme API
+    url: https://acme.example.com
+    steps: ["Sign in to the Acme API dashboard", "Open API access", "Create a key and paste it into the portal"]

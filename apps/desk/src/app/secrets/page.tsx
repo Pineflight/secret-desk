@@ -6,10 +6,11 @@ import type { SecretView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { MetaFields, TagPills, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
+import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, TagFilterChip } from "@/components/ListTable";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
 import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
-import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SelectField, StageBadge, StatusBadge, TextField } from "@/components/ui";
+import { Button, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SelectField, StageBadge, StatusBadge, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
 import { truncate } from "@/lib/tags";
@@ -95,7 +96,7 @@ export default function SecretsPage() {
       />
       {live ? <div className="mb-4"><Notice tone="info">{t("secrets.liveNotice")}</Notice></div> : null}
 
-      <div className="mb-4 flex flex-wrap gap-3">
+      <FilterRow>
         <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
           <SelectField label={t("secrets.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
@@ -117,14 +118,9 @@ export default function SecretsPage() {
           </SelectField>
         </div>
         <BrowseControls value={browse} onChange={setBrowse} />
-      </div>
+      </FilterRow>
 
-      {tag ? (
-        <div className="mb-4 flex items-center gap-2 text-sm">
-          <span className="text-muted-text">{t("secrets.filteredByTag")}</span>
-          <button type="button" onClick={() => setTag("")} aria-label={t("secrets.removeFilter", { tag })} className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-medium text-primary">#{tag}<Icon name="x" className="h-3 w-3" /></button>
-        </div>
-      ) : null}
+      <TagFilterChip tag={tag} label={t("secrets.filteredByTag")} removeLabel={t("secrets.removeFilter", { tag })} onClear={() => setTag("")} />
       {secrets.error ? <ErrorState error={secrets.error} onRetry={secrets.reload} /> : null}
       {secrets.loading && !secrets.data ? <ListSkeleton rows={6} /> : null}
       {secrets.data && rows.length === 0 ? (
@@ -133,42 +129,28 @@ export default function SecretsPage() {
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
-          <Card className="overflow-x-auto !p-0">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colName")}</th>
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colStage")}</th>
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colProvider")}</th>
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colExpiry")}</th>
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colTargets")}</th>
-                  <th className="px-4 py-3 font-semibold">{t("secrets.colConfirmed")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+          <ListTable columns={[t("secrets.colName"), t("secrets.colStage"), t("secrets.colProvider"), t("secrets.colExpiry"), t("secrets.colTargets"), t("secrets.colConfirmed")]}>
                 {g.items.map((s) => (
-                  <tr key={s.id} className="align-top hover:bg-page">
-                    <td className="px-4 py-3">
+                  <tr key={s.id} className={LIST_ROW_CLASS}>
+                    <td className={LIST_CELL_CLASS}>
                       <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline">{s.name}</Link>
                       <p className="text-xs text-muted">{s.id}</p>
                       {s.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
                       {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
                     </td>
-                    <td className="px-4 py-3"><StageBadge stage={s.stage} /></td>
-                    <td className="px-4 py-3"><ProviderChip automatic={s.automatic} browser={s.browser} /></td>
-                    <td className="px-4 py-3">
+                    <td className={LIST_CELL_CLASS}><StageBadge stage={s.stage} /></td>
+                    <td className={LIST_CELL_CLASS}><ProviderChip automatic={s.automatic} browser={s.browser} /></td>
+                    <td className={LIST_CELL_CLASS}>
                       <div className="tabular">{formatDate(s.expires)}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2"><StatusBadge level={s.status} /><span className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</span></div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={LIST_CELL_CLASS}>
                       <div className="flex flex-wrap gap-1">{s.places.length ? s.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-text">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : t("secrets.never")}</td>
+                    <td className={`${LIST_CELL_CLASS} text-xs text-muted-text`}>{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : t("secrets.never")}</td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </Card>
+          </ListTable>
         </div>
       ))}
 

@@ -20,7 +20,7 @@ describe("stripe-webhook-secret", () => {
   });
   it("nutzt die Verbindung aus params.connection", async () => {
     const m = mockFetch({ body: { id: "we_1", secret: "whsec_x" } });
-    await p.issue!(issueCtx(m.fetch, { ...params, connection: "stripe-leitfaden" }, { conns: ["stripe-leitfaden"] }));
+    await p.issue!(issueCtx(m.fetch, { ...params, connection: "stripe-acme-docs" }, { conns: ["stripe-acme-docs"] }));
     expect(m.calls).toHaveLength(1);
   });
   it("widerruft per DELETE", async () => {

@@ -31,9 +31,9 @@ describe("GitHubClient", () => {
       return new Response(null, { status: 201 });
     });
     const gh = new GitHubClient({ auth: patProvider(new SecretValue("ghp_test")), fetch: fetchMock as unknown as typeof fetch });
-    const out = await gh.putSecret({ owner: "Pineflight", repo: "wake-miles", scope: "environment", environment: "staging" }, "X_TOKEN", new SecretValue("klartext-wert"));
+    const out = await gh.putSecret({ owner: "acme", repo: "acme-app", scope: "environment", environment: "staging" }, "X_TOKEN", new SecretValue("klartext-wert"));
     expect(out).toBe("created");
-    expect(calls[0]!.url).toBe("https://api.github.com/repos/Pineflight/wake-miles/environments/staging/secrets/public-key");
+    expect(calls[0]!.url).toBe("https://api.github.com/repos/acme/acme-app/environments/staging/secrets/public-key");
     const put = calls[1]!;
     expect(put.method).toBe("PUT");
     expect(put.body).not.toContain("klartext-wert");
@@ -67,16 +67,16 @@ describe("githubAppProvider", () => {
     const bodies: string[] = [];
     const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
-      if (u.includes("/app/installations?")) return jsonResponse([{ id: 7, account: { login: "Pineflight" } }]);
+      if (u.includes("/app/installations?")) return jsonResponse([{ id: 7, account: { login: "acme" } }]);
       bodies.push(String(init?.body));
       return jsonResponse({ token: "ghs_installationstoken", expires_at: new Date(Date.now() + 3_600_000).toISOString() });
     });
-    const provider = githubAppProvider({ appId: "123", privateKey: new SecretValue(privateKey), owner: "Pineflight", repositories: ["wake-miles"], permissions: { secrets: "write" }, fetch: fetchMock as unknown as typeof fetch });
+    const provider = githubAppProvider({ appId: "123", privateKey: new SecretValue(privateKey), owner: "acme", repositories: ["acme-app"], permissions: { secrets: "write" }, fetch: fetchMock as unknown as typeof fetch });
     const t1 = await provider();
     const t2 = await provider();
     expect(t1.reveal()).toBe("ghs_installationstoken");
     expect(t2).toBe(t1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(bodies[0]!)).toEqual({ repositories: ["wake-miles"], permissions: { secrets: "write" } });
+    expect(JSON.parse(bodies[0]!)).toEqual({ repositories: ["acme-app"], permissions: { secrets: "write" } });
   });
 });

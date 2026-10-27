@@ -12,7 +12,7 @@ describe("createDefaultRegistry", () => {
   });
   it("alle manuellen Anbieter haben eine Anleitung mit URL", () => {
     const manual = list.filter((p) => p.kind === "manual");
-    expect(manual).toHaveLength(10);
+    expect(manual).toHaveLength(5);
     for (const p of manual) {
       expect(p.guide?.url).toMatch(/^https:\/\//);
       expect(p.guide!.steps.length).toBeGreaterThanOrEqual(3);
@@ -47,10 +47,10 @@ import { githubTokenUrl } from "../src/manual.js";
 describe("githubTokenUrl", () => {
   const secret = { id: "sd-trial", description: "Probe", ttlDays: 7, params: { permissions: { secrets: "write", environments: "read", evil: "root", "x y": "read" } } } as never;
   it("fuellt Name, Eigentuemer, Ablauf und gueltige Rechte vor", () => {
-    const u = new URL(githubTokenUrl(secret, "Pineflight", new Date("2026-10-27T12:00:00Z")));
+    const u = new URL(githubTokenUrl(secret, "acme", new Date("2026-10-27T12:00:00Z")));
     expect(u.origin + u.pathname).toBe("https://github.com/settings/personal-access-tokens/new");
     expect(u.searchParams.get("name")).toBe("sd-trial-20261027");
-    expect(u.searchParams.get("target_name")).toBe("Pineflight");
+    expect(u.searchParams.get("target_name")).toBe("acme");
     expect(u.searchParams.get("expires_in")).toBe("7");
     expect(u.searchParams.get("secrets")).toBe("write");
     expect(u.searchParams.get("environments")).toBe("read");

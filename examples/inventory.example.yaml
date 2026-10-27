@@ -41,11 +41,11 @@ secrets:
     places:
       - { repo: demo-app, scope: environment, environment: staging }
 
-  - id: peecho-key-demo-staging
-    name: PEECHO_API_KEY
+  - id: acme-key-demo-staging
+    name: ACME_API_KEY
     stage: staging
-    service: peecho
-    provider: peecho            # custom provider without an API, see providers
+    service: acme-api
+    provider: acme-api            # custom provider without an API, see providers
     expiry: unknown
     places:
       - { repo: demo-app, scope: environment, environment: staging }
@@ -61,7 +61,7 @@ envTemplates:
       - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted key from the Stripe sandbox" } }
 
 providers:
-  - id: peecho
-    label: Peecho
-    url: https://www.peecho.com
-    steps: ["Sign in to the Peecho dashboard", "Open API access", "Create a key and paste it into the portal"]
+  - id: acme-api
+    label: Acme API
+    url: https://acme.example.com
+    steps: ["Sign in to the Acme API dashboard", "Open API access", "Create a key and paste it into the portal"]

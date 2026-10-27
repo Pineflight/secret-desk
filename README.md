@@ -83,7 +83,7 @@ Then run `pnpm dev` (http://127.0.0.1:4747). Provider access tokens are entered 
 variables or 1Password (`op://...`); never put the value in the file.
 
 Clean up with `pnpm clean` (build output) or `pnpm clean --deps` (also `node_modules`).
-CLI: `node packages/cli/dist/bin.js help` (commands: `check`, `status`, `renew`, `vars`, `env export`, `team`, `import-legacy`, `vapid`).
+CLI: `node packages/cli/dist/bin.js help` (commands: `check`, `status`, `renew`, `vars`, `env export`, `team`, `vapid`).
 
 ## Repository layout
 
@@ -121,7 +121,7 @@ Known limits:
   Note: with `vault.keyFile`, key and data sit on the same disk; this only protects the file system.
 - **WSL** counts as Linux: home folder, keyring and Chrome are those of the Linux side, not of Windows.
 - Paths in `secret-desk.config.yaml` may use `~` (and `~\` on Windows). Put YAML paths with backslashes in single quotes
-  (`'C:\Users\me\projects'`) or use forward slashes (`C:/Users/me/projects`).
+  (`'C:\path\to\projects'`) or use forward slashes (`C:/path/to/projects`).
 - Line endings: `.gitattributes` enforces LF; on Windows no `core.autocrlf` is needed.
 
 ## Documentation

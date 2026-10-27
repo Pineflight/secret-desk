@@ -3,27 +3,27 @@ import { buildSuggestions, defaultEnvPath, filterSuggestions, linkState } from "
 
 const all = buildSuggestions({
   repos: [
-    { name: "wake-miles", secrets: 1, variables: 0, templates: 0, inInventory: true, github: { private: true, archived: false, pushedAt: null }, link: { path: "/p/wm", exists: true, remote: null, remoteMatches: null } },
-    { name: "wake-miles-landingpage", secrets: 0, variables: 0, templates: 0, inInventory: false, github: { private: false, archived: false, pushedAt: null }, link: null },
-    { name: "lupe", secrets: 2, variables: 0, templates: 0, inInventory: true, github: null, link: null },
-    { name: "my-wake", secrets: 0, variables: 0, templates: 0, inInventory: false, github: { private: false, archived: true, pushedAt: null }, link: null },
+    { name: "acme-app", secrets: 1, variables: 0, templates: 0, inInventory: true, github: { private: true, archived: false, pushedAt: null }, link: { path: "/p/wm", exists: true, remote: null, remoteMatches: null } },
+    { name: "acme-app-landing", secrets: 0, variables: 0, templates: 0, inInventory: false, github: { private: false, archived: false, pushedAt: null }, link: null },
+    { name: "acme-api", secrets: 2, variables: 0, templates: 0, inInventory: true, github: null, link: null },
+    { name: "my-acme-app", secrets: 0, variables: 0, templates: 0, inInventory: false, github: { private: false, archived: true, pushedAt: null }, link: null },
   ],
 });
 
 describe("Repository-Vorschlaege", () => {
   it("fuehrt die Quellen je Repository zusammen", () => {
-    expect(all.find((s) => s.name === "wake-miles")?.sources).toEqual(["inventory", "github", "linked"]);
-    expect(all.find((s) => s.name === "lupe")?.sources).toEqual(["inventory"]);
+    expect(all.find((s) => s.name === "acme-app")?.sources).toEqual(["inventory", "github", "linked"]);
+    expect(all.find((s) => s.name === "acme-api")?.sources).toEqual(["inventory"]);
     expect(buildSuggestions(null)).toEqual([]);
   });
   it("leere Eingabe zeigt alles alphabetisch, begrenzt", () => {
-    expect(filterSuggestions(all, "").map((s) => s.name)).toEqual(["lupe", "my-wake", "wake-miles", "wake-miles-landingpage"]);
+    expect(filterSuggestions(all, "").map((s) => s.name)).toEqual(["acme-api", "acme-app", "acme-app-landing", "my-acme-app"]);
     expect(filterSuggestions(all, "", 2)).toHaveLength(2);
   });
   it("filtert ohne Gross-/Kleinschreibung, genau vor Praefix vor Teilstring", () => {
-    expect(filterSuggestions(all, "WAKE").map((s) => s.name)).toEqual(["wake-miles", "wake-miles-landingpage", "my-wake"]);
-    expect(filterSuggestions(all, "wake-miles").map((s) => s.name)).toEqual(["wake-miles", "wake-miles-landingpage"]);
-    expect(filterSuggestions(all, "  lupe ").map((s) => s.name)).toEqual(["lupe"]);
+    expect(filterSuggestions(all, "ACME-APP").map((s) => s.name)).toEqual(["acme-app", "acme-app-landing", "my-acme-app"]);
+    expect(filterSuggestions(all, "my-acme").map((s) => s.name)).toEqual(["my-acme-app"]);
+    expect(filterSuggestions(all, "  acme-api ").map((s) => s.name)).toEqual(["acme-api"]);
   });
   it("liefert nichts bei Nichttreffer (freie Eingabe bleibt Sache des Feldes)", () => {
     expect(filterSuggestions(all, "zzz")).toEqual([]);

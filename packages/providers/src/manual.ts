@@ -144,32 +144,8 @@ export const manualProviders: Provider[] = [
     "Alten Token unter Settings > Developer settings widerrufen.",
   ], {
     verify: verifyGithub,
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Token hat", ["Eigentuemer ist die Organisation Pineflight, nur die noetigen Repositories sind gewaehlt"]),
+    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Token hat", ["Eigentuemer ist die vorgesehene Organisation bzw. das vorgesehene Konto, nur die noetigen Repositories sind gewaehlt"]),
   }, (secret, ctx) => githubTokenUrl(secret, ctx.owner, ctx.now)),
-  manual("peecho", "Peecho", "https://www.peecho.com", [
-    "Im Peecho-Konto den Bereich fuer API-Zugang oeffnen.",
-    "Neuen API-Schluessel erzeugen (Sandbox oder Live passend zur Stage).",
-    "Schluessel kopieren und im Portal einfuegen.",
-    "Alten Schluessel im Peecho-Konto deaktivieren.",
-  ], {
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Sandbox oder Live passt zur Stage"]),
-  }),
-  manual("vesselapi", "VesselAPI", "https://vesselapi.com", [
-    "Im VesselAPI-Konto den Bereich API-Keys oeffnen.",
-    "Neuen Schluessel erzeugen und einen Namen mit Datum setzen.",
-    "Schluessel kopieren und im Portal einfuegen.",
-    "Alten Schluessel loeschen.",
-  ], {
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat"),
-  }),
-  manual("dip-bundestag", "DIP Bundestag", "https://dip.bundestag.de/api", [
-    "Auf der DIP-API-Seite die Hinweise zum API-Schluessel oeffnen.",
-    "Aktuellen oeffentlichen Schluessel bzw. einen neu beantragten Schluessel uebernehmen.",
-    "Wert kopieren und im Portal einfuegen.",
-    "Pruefen, ob der alte Schluessel noch gilt, und ihn ersetzen.",
-  ], {
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Der Schluessel ist aktuell und nicht abgelaufen"]),
-  }),
   manual("telegram-bot", "Telegram Bot Token", "https://t.me/BotFather", [
     "Im Chat mit @BotFather /mybots senden und den Bot waehlen.",
     "Bot Settings > API Token > Revoke current token waehlen.",
@@ -177,22 +153,6 @@ export const manualProviders: Provider[] = [
     "Im Portal einfuegen und alle Ziele des Secrets zuegig aktualisieren.",
   ], {
     reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Bot hat", ["Der Token gehoert zum richtigen Bot, bei Staging nicht zum Produktions-Bot"]),
-  }),
-  manual("awin", "Awin", "https://ui.awin.com", [
-    "Bei Awin anmelden und unter Konto > API Credentials oeffnen.",
-    "Neues OAuth2-Token bzw. neuen Publisher-API-Schluessel erzeugen.",
-    "Wert kopieren und im Portal einfuegen.",
-    "Alten Schluessel entfernen, sobald alle Ziele aktualisiert sind.",
-  ], {
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Zugang hat"),
-  }),
-  manual("revenuecat", "RevenueCat", "https://app.revenuecat.com", [
-    "Im RevenueCat-Dashboard das richtige Projekt waehlen.",
-    "Unter Projekteinstellungen > API keys einen neuen Schluessel anlegen (passenden Typ waehlen).",
-    "Schluessel kopieren und im Portal einfuegen.",
-    "Alten Schluessel in der Liste loeschen.",
-  ], {
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Das Projekt und der Schluesseltyp (public/secret) stimmen"]),
   }),
   manual("openai", "OpenAI API-Key", "https://platform.openai.com/api-keys", [
     "Im richtigen Projekt der OpenAI-Plattform \"Create new secret key\" waehlen.",

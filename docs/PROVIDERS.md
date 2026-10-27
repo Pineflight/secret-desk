@@ -12,7 +12,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `stripe-webhook-secret` | automatic | `stripe` (key of the respective account) | search, fields **not verified** |
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
-| `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `openai`, `peecho`, `vesselapi`, `dip-bundestag`, `telegram-bot`, `awin`, `revenuecat` | manual | none | guides; landing pages where no sub-page is known |
+| `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `openai`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
 
 **Before the first real use**, test every `automatic` provider with a throwaway entry in dev or staging.
 
