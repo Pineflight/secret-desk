@@ -2,7 +2,9 @@ import type { StageView } from "@secret-desk/runtime";
 import { describe, expect, it } from "vitest";
 import { groupItems, sortItems, type Browsable } from "../src/lib/browse";
 import { rowsToPlaces } from "../src/lib/places";
-import { defaultEnvironment, newDraft, toDrafts, toPayload, usageTotal, validateDrafts } from "../src/lib/stage-draft";
+import { applyDraft, defaultEnvironment, moveItem, newDraft, removeBlock, toDrafts, toPayload, usageText, usageTotal, validateDraft, validateDrafts } from "../src/lib/stage-draft";
+import { nextTab, parseTab } from "../src/lib/tabs";
+import { translate } from "../src/lib/i18n";
 import { FALLBACK_STAGES, defaultStageId, environmentOf, kindOf, labelOf, slugifyStage, stageLook, stageOrder, toneOf, type StageDefLite } from "../src/lib/stages";
 import { stageInfo } from "../src/lib/status";
 
@@ -79,5 +81,53 @@ describe("Einstellungen: Entwurf", () => {
     expect(defaultEnvironment({ id: "qa", kind: "shared" })).toBeNull();
     expect(usageTotal({ secrets: 1, variables: 0, templates: 0, policy: false })).toBe(1);
     expect(usageTotal({ secrets: 0, variables: 0, templates: 0, policy: true })).toBe(1);
+  });
+});
+
+describe("Einstellungen: Reihenfolge, Entwurf, Verwendung", () => {
+  it("moveItem verschiebt um eine Stelle und laesst Raender in Ruhe", () => {
+    expect(moveItem(["a", "b", "c"], 1, -1)).toEqual(["b", "a", "c"]);
+    expect(moveItem(["a", "b", "c"], 1, 1)).toEqual(["a", "c", "b"]);
+    expect(moveItem(["a", "b", "c"], 0, -1)).toEqual(["a", "b", "c"]);
+    expect(moveItem(["a", "b", "c"], 2, 1)).toEqual(["a", "b", "c"]);
+    const src = ["a", "b"];
+    moveItem(src, 0, 1);
+    expect(src).toEqual(["a", "b"]);
+  });
+  it("applyDraft ersetzt oder haengt an", () => {
+    const a = { ...newDraft(), id: "a" };
+    const b = { ...newDraft(), id: "b" };
+    expect(applyDraft([a], null, b).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(applyDraft([a, b], 0, { ...a, label: "X" }).map((d) => d.label)).toEqual(["X", ""]);
+  });
+  it("validateDraft: Id-Form und Duplikate", () => {
+    expect(validateDraft({ id: "" }, [])).toEqual({ code: "id" });
+    expect(validateDraft({ id: "Gross" }, [])).toEqual({ code: "id" });
+    expect(validateDraft({ id: "qa" }, [{ id: "dev" }])).toBeNull();
+    expect(validateDraft({ id: "qa " }, [{ id: "qa" }])).toEqual({ code: "duplicate", id: "qa" });
+  });
+  it("removeBlock unterscheidet Richtlinie, Nutzung und frei", () => {
+    expect(removeBlock({ secrets: 0, variables: 0, templates: 0, policy: true })).toBe("policy");
+    expect(removeBlock({ secrets: 0, variables: 1, templates: 0, policy: false })).toBe("used");
+    expect(removeBlock({ secrets: 0, variables: 0, templates: 0, policy: false })).toBeNull();
+  });
+  it("usageText laesst Nullen weg und nutzt Einzahl/Mehrzahl", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => translate(key, vars, "en");
+    expect(usageText({ secrets: 3, variables: 2, templates: 1, policy: false }, t)).toBe("3 secrets, 2 variables, 1 template");
+    expect(usageText({ secrets: 0, variables: 0, templates: 0, policy: false }, t)).toBe("Unused");
+    expect(usageText({ secrets: 1, variables: 0, templates: 0, policy: true }, t)).toBe("1 secret \u00b7 In the agent policy");
+    expect(usageText({ secrets: 0, variables: 2, templates: 0, policy: false }, (k, v) => translate(k, v, "de"))).toBe("2 Variablen");
+  });
+  it("Tabs: Wert aus der Adresse und Pfeiltasten im Ring", () => {
+    const ids = ["stages", "policy", "storage", "language"] as const;
+    expect(parseTab(ids, "storage")).toBe("storage");
+    expect(parseTab(ids, "kaputt")).toBe("stages");
+    expect(parseTab(ids, null)).toBe("stages");
+    expect(nextTab(ids, "stages", "ArrowRight")).toBe("policy");
+    expect(nextTab(ids, "language", "ArrowRight")).toBe("stages");
+    expect(nextTab(ids, "stages", "ArrowLeft")).toBe("language");
+    expect(nextTab(ids, "policy", "Home")).toBe("stages");
+    expect(nextTab(ids, "policy", "End")).toBe("language");
+    expect(nextTab(ids, "policy", "a")).toBeNull();
   });
 });

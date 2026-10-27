@@ -497,6 +497,7 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Datei (.+)$/, "File $1"],
   [/^Der Pfad enthaelt den unter Windows reservierten Namen "(.+)"\.$/, "The path contains the name \"$1\", which Windows reserves."],
   [/^(.+?) Es wird kein Schluessel im Klartext gespeichert\. (.+)$/s, "$1 No key is stored in plain text. $2"],
+  [/^Schluesseldatei (.+)$/, "Key file $1"],
   [/^Die Schluesseldatei (.+) ist nicht lesbar\.$/, "The key file $1 is not readable."],
   [/^Die Schluesseldatei (.+) ist beschaedigt\. Sie wird nicht ueberschrieben\.$/, "The key file $1 is corrupted. It will not be overwritten."],
   [/^Die Schluesseldatei (.+) laesst sich mit DPAPI nicht oeffnen \(anderes Windows-Konto oder anderer Rechner\?\)\. Sie wird nicht ueberschrieben\.$/, "The key file $1 cannot be opened with DPAPI (different Windows account or different machine?). It will not be overwritten."],

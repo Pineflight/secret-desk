@@ -3,13 +3,13 @@ version: 1
 thresholds: [ 30, 14, 7 ]
 
 secrets:
-  - id: cloudflare-deploy-wakemiles
+  - id: cloudflare-deploy-acme-app
     name: CLOUDFLARE_API_TOKEN
-    product: wakemiles
-    description: "Deploy access for the Workers and Pages of WakeMiles: read by the deploy workflows of the app and the landing page."
-    owner: niklas
+    product: acme-app
+    description: "Deploy access for the Workers and Pages of Acme App: read by the deploy workflows of the app and the landing page."
+    owner: alice
     link: https://dash.cloudflare.com/profile/api-tokens
-    tags: [deploy, cloudflare, wakemiles]
+    tags: [deploy, cloudflare, acme-app]
     stage: shared
     service: cloudflare
     provider: random-hex
@@ -17,144 +17,144 @@ secrets:
     expires: "2026-11-02"
     ttlDays: 90
     places:
-      - { repo: wake-miles, scope: repository }
-  - id: vapid-private-wakemiles
+      - { repo: acme-app, scope: repository }
+  - id: vapid-private-acme-app
     name: VAPID_PRIVATE_KEY
-    product: wakemiles
+    product: acme-app
     description: Private key for web push notifications. Pairs with the public key in the variables.
-    owner: niklas
-    tags: [push, wakemiles]
+    owner: alice
+    tags: [push, acme-app]
     stage: shared
     service: web-push
     provider: random-hex
     expiry: none
     places:
-      - { repo: wake-miles, scope: repository }
-  - id: hmac-wakemiles-staging
+      - { repo: acme-app, scope: repository }
+  - id: hmac-acme-app-staging
     name: ARTIFACT_HMAC_SECRET
-    product: wakemiles
+    product: acme-app
     description: Signs artifact links in the book worker. Must be identical in the worker and in the edge function.
-    owner: niklas
-    tags: [signatur, wakemiles]
+    owner: alice
+    tags: [signature, acme-app]
     stage: staging
     service: intern
     provider: random-hex
     expiry: none
     places:
-      - { repo: wake-miles, scope: environment, environment: staging }
+      - { repo: acme-app, scope: environment, environment: staging }
     rotatedAt: 2026-10-27
     verifiedAt: 2026-10-27
-    verifiedBy: niklas
+    verifiedBy: alice
     expires: null
-  - id: vesselapi-wakemiles-staging
+  - id: vesselapi-acme-app-staging
     name: VESSELAPI_API_KEY
-    product: wakemiles
+    product: acme-app
     description: Access to the VesselAPI for port events and vessel data (staging plan).
-    owner: niklas
+    owner: alice
     link: https://vesselapi.com
-    tags: [ais, wakemiles]
+    tags: [ais, acme-app]
     stage: staging
     service: vesselapi
     provider: vesselapi
     expiry: unknown
     places:
-      - { repo: wake-miles, scope: environment, environment: staging }
-  - id: stripe-webhook-webstudio-staging
+      - { repo: acme-app, scope: environment, environment: staging }
+  - id: stripe-webhook-acme-web-staging
     name: STRIPE_WEBHOOK_SECRET
-    product: web-studio
+    product: acme-web
     description: Signature check for Stripe webhooks in the sandbox, so payments are booked in the portal.
-    owner: niklas
+    owner: alice
     link: https://dashboard.stripe.com/test/webhooks
-    tags: [zahlung, web-studio]
+    tags: [payment, acme-web]
     stage: staging
     service: stripe
     provider: stripe-restricted-key
     expiry: none
     expires: null
     places:
-      - { repo: web-studio, scope: environment, environment: staging }
-  - id: openai-leitfaden-staging
+      - { repo: acme-web, scope: environment, environment: staging }
+  - id: openai-acme-docs-staging
     name: OPENAI_API_KEY
-    product: leitfaden
+    product: acme-docs
     description: Project key for the assistant in staging, with a spending limit.
-    owner: niklas
+    owner: alice
     link: https://platform.openai.com/api-keys
-    tags: [ki, leitfaden]
+    tags: [ai, acme-docs]
     stage: staging
     service: openai
     provider: openai
     expiry: none
     places:
-      - { repo: leitfaden, scope: environment, environment: staging }
-  - id: supabase-access-leitfaden
+      - { repo: acme-docs, scope: environment, environment: staging }
+  - id: supabase-access-acme-docs
     name: SUPABASE_ACCESS_TOKEN
-    product: leitfaden
-    description: Access token for migrations and deploys of the Supabase projects of Leitfaden (CI).
-    owner: niklas
+    product: acme-docs
+    description: Access token for migrations and deploys of the Supabase projects of Acme Docs (CI).
+    owner: alice
     link: https://supabase.com/dashboard/account/tokens
-    tags: [ci, supabase, leitfaden]
+    tags: [ci, supabase, acme-docs]
     stage: shared
     service: supabase
     provider: supabase-access-token
     expiry: required
     places:
-      - { repo: leitfaden, scope: repository }
+      - { repo: acme-docs, scope: repository }
   - id: lead-token-dev
     name: LEAD_INTAKE_TOKEN
-    product: web-studio
+    product: acme-web
     description: Local token for the lead intake during development; every developer gets their own.
-    owner: niklas
-    tags: [dev, web-studio]
+    owner: alice
+    tags: [dev, acme-web]
     stage: dev
     service: intern
     provider: random-hex
     expiry: none
 
 variables:
-  - id: revenuecat-project-wakemiles
+  - id: revenuecat-project-acme-app
     name: REVENUECAT_PROJECT_ID
-    product: wakemiles
+    product: acme-app
     description: "Identifier of the RevenueCat project the product setup works from."
-    owner: niklas
+    owner: alice
     link: https://app.revenuecat.com
-    tags: [revenuecat, wakemiles]
+    tags: [revenuecat, acme-app]
     stage: shared
     value: proj_demo_123
     places:
-      - { repo: wake-miles, scope: repository }
-  - id: site-url-webstudio-staging
+      - { repo: acme-app, scope: repository }
+  - id: site-url-acme-web-staging
     name: NEXT_PUBLIC_SITE_URL
-    product: web-studio
-    description: "Base URL of the Web Studio staging site, for links in emails and webhooks."
-    owner: niklas
-    tags: [url, web-studio]
+    product: acme-web
+    description: "Base URL of the Acme Web staging site, for links in emails and webhooks."
+    owner: alice
+    tags: [url, acme-web]
     stage: staging
-    value: "https://web-studio-app-staging.pineflight.com"
+    value: "https://app-staging.example.com"
     places:
-      - { repo: web-studio, scope: environment, environment: staging }
-  - id: site-url-leitfaden-staging
+      - { repo: acme-web, scope: environment, environment: staging }
+  - id: site-url-acme-docs-staging
     name: NEXT_PUBLIC_SITE_URL
-    product: leitfaden
-    description: "Base URL of the Leitfaden staging site."
-    owner: niklas
-    tags: [url, leitfaden]
+    product: acme-docs
+    description: "Base URL of the Acme Docs staging site."
+    owner: alice
+    tags: [url, acme-docs]
     stage: staging
-    value: "https://leitfaden-staging.pineflight.com"
+    value: "https://docs-staging.example.com"
     places:
-      - { repo: leitfaden, scope: environment, environment: staging }
-  - id: print-env-wakemiles
+      - { repo: acme-docs, scope: environment, environment: staging }
+  - id: print-env-acme-app
     name: PRINT_ENV
-    product: wakemiles
+    product: acme-app
     description: "Print mode: sandbox tests without a real order, live triggers real print jobs."
-    owner: niklas
-    tags: [druck, wakemiles]
+    owner: alice
+    tags: [print, acme-app]
     stage: staging
     places:
-      - { repo: wake-miles, scope: environment, environment: staging }
+      - { repo: acme-app, scope: environment, environment: staging }
 
 envTemplates:
-  - id: web-studio-dev
-    repo: web-studio
+  - id: acme-web-dev
+    repo: acme-web
     stage: dev
     entries:
       - {
@@ -166,14 +166,14 @@ envTemplates:
           key: STRIPE_SECRET_KEY,
           from: { type: prompt, hint: "Restricted key from the Stripe sandbox" }
         }
-  - id: leitfaden-dev
-    repo: leitfaden
+  - id: acme-docs-dev
+    repo: acme-docs
     stage: dev
     entries:
       - {
           key: NEXT_PUBLIC_SITE_URL,
-          from: { type: variable, variable: site-url-leitfaden-staging }
+          from: { type: variable, variable: site-url-acme-docs-staging }
         }
-      - { key: RATE_LIMIT_GEHEIMNIS, from: { type: generate, kind: hex, bytes: 16 } }
+      - { key: RATE_LIMIT_SECRET, from: { type: generate, kind: hex, bytes: 16 } }
 
 providers: []

@@ -18,15 +18,15 @@ export async function createDemoFetch(): Promise<typeof fetch> {
   const now = (): string => new Date().toISOString();
   const store: Store = {
     secrets: new Map([
-      ["/repos/Pineflight/wake-miles", new Map([["CLOUDFLARE_API_TOKEN", "2026-08-12T09:00:00Z"], ["VAPID_PRIVATE_KEY", "2026-08-12T09:00:00Z"]])],
-      ["/repos/Pineflight/wake-miles/environments/staging", new Map([["VESSELAPI_API_KEY", "2026-09-02T10:00:00Z"], ["ARTIFACT_HMAC_SECRET", "2026-09-02T10:00:00Z"]])],
-      ["/repos/Pineflight/web-studio/environments/staging", new Map([["STRIPE_WEBHOOK_SECRET", "2026-09-29T08:00:00Z"]])],
-      ["/repos/Pineflight/leitfaden/environments/staging", new Map()],
+      ["/repos/acme/acme-app", new Map([["CLOUDFLARE_API_TOKEN", "2026-08-12T09:00:00Z"], ["VAPID_PRIVATE_KEY", "2026-08-12T09:00:00Z"]])],
+      ["/repos/acme/acme-app/environments/staging", new Map([["VESSELAPI_API_KEY", "2026-09-02T10:00:00Z"], ["ARTIFACT_HMAC_SECRET", "2026-09-02T10:00:00Z"]])],
+      ["/repos/acme/acme-web/environments/staging", new Map([["STRIPE_WEBHOOK_SECRET", "2026-09-29T08:00:00Z"]])],
+      ["/repos/acme/acme-docs/environments/staging", new Map()],
     ]),
     variables: new Map([
-      ["/repos/Pineflight/wake-miles", new Map([["REVENUECAT_PROJECT_ID", "proj_demo_123"]])],
-      ["/repos/Pineflight/web-studio/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://web-studio-app-staging.pineflight.com"]])],
-      ["/repos/Pineflight/leitfaden/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://alt.example.com"]])],
+      ["/repos/acme/acme-app", new Map([["REVENUECAT_PROJECT_ID", "proj_demo_123"]])],
+      ["/repos/acme/acme-web/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://app-staging.example.com"]])],
+      ["/repos/acme/acme-docs/environments/staging", new Map([["NEXT_PUBLIC_SITE_URL", "https://alt.example.com"]])],
     ]),
   };
 
@@ -35,10 +35,10 @@ export async function createDemoFetch(): Promise<typeof fetch> {
     const path = decodeURIComponent(url.pathname);
     const method = init?.method ?? "GET";
     const ok = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-    if (url.hostname !== "api.github.com") return ok({ message: "Demo: nur GitHub ist simuliert" }, 501);
+    if (url.hostname !== "api.github.com") return ok({ message: "Demo: only GitHub is simulated" }, 501);
 
     if (method === "GET" && /^\/orgs\/[^/]+\/repos$/.test(path)) {
-      return ok(["wake-miles", "web-studio", "leitfaden", "lupe", "ai-interlink"].map((name) => ({ name, private: true, archived: false, default_branch: "main", pushed_at: now() })));
+      return ok(["acme-app", "acme-web", "acme-docs", "acme-lab", "acme-tools"].map((name) => ({ name, private: true, archived: false, default_branch: "main", pushed_at: now() })));
     }
     if (path.endsWith("/secrets/public-key")) return ok({ key_id: "demo-key", key: publicKey });
     const secretMatch = /^(.*)\/(?:actions\/)?secrets\/([^/]+)$/.exec(path);

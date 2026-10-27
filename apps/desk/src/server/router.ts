@@ -42,6 +42,7 @@ import {
   listIssuances,
   listProviders,
   listRepos,
+  getSettings,
   listStages,
   listSecrets,
   listVariables,
@@ -135,6 +136,8 @@ const humanOnly: [string, RegExp, Handler][] = [
   // Stage-Definitionen aendert nur ein Mensch im Portal (Einstellungen); Agenten lesen sie.
   ["PUT", /^stages$/, ({ rt, body }) => setStages(rt, Array.isArray(body.stages) ? (body.stages as never[]) : (() => { throw new InventoryError("Feld fehlt: stages"); })())],
   // Gestartet wird ein Browser-Lauf ueber renewal-requests (oder die Freigabe); hier nur Zustand und Abbruch. Agenten sehen nichts davon.
+  // Reine Metadaten der Konfiguration (Pfade, Schalter, aufgeloeste Richtlinie), nie Werte. Agenten bekommen 404.
+  ["GET", /^settings$/, ({ rt }) => getSettings(rt)],
   ["GET", /^automation$/, ({ rt, actor }) => getAutomation(rt, actor)],
   ["GET", /^automation\/runs\/([^/]+)$/, ({ rt, actor, params }) => getAutomationRun(rt, actor, decodeURIComponent(params[0]!))],
   ["POST", /^automation\/runs\/([^/]+)\/cancel$/, ({ rt, actor, params }) => cancelAutomationRun(rt, actor, decodeURIComponent(params[0]!))],

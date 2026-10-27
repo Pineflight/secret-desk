@@ -2,10 +2,11 @@
 import { useT } from "@/lib/i18n";
 import { SelectBox } from "./SelectBox";
 import Link from "next/link";
-import type { ChangeEvent, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ChangeEvent, ButtonHTMLAttributes, KeyboardEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useId } from "react";
 import type { StatusLevel } from "@secret-desk/core";
 import { ApiError } from "@/lib/api";
+import { nextTab } from "@/lib/tabs";
 import { useStageDefs } from "@/lib/use-stages";
 import { providerInfo, stageInfo, statusInfo, toneClass, type Info } from "@/lib/status";
 import { Icon } from "./Icons";
@@ -181,11 +182,29 @@ export function Notice({ tone = "info", title, children, icon }: { tone?: "info"
   );
 }
 
-export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
+export function Tabs<T extends string>({ tabs, value, onChange, label, idPrefix }: { tabs: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string; idPrefix?: string }) {
+  const ids = tabs.map((x) => x.id);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const target = nextTab(ids, value, e.key);
+    if (target === null) return;
+    e.preventDefault();
+    onChange(target);
+    e.currentTarget.querySelector<HTMLElement>(`[data-tab="${target}"]`)?.focus();
+  };
   return (
-    <div role="tablist" aria-label={label} className="flex flex-wrap gap-1 rounded-xl bg-page p-1 ring-1 ring-inset ring-line">
+    <div role="tablist" aria-label={label} onKeyDown={onKeyDown} className="flex flex-wrap gap-1 rounded-xl bg-page p-1 ring-1 ring-inset ring-line">
       {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${value === t.id ? "bg-card text-ink shadow-sm" : "text-muted-text hover:text-ink"}`}>
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          data-tab={t.id}
+          {...(idPrefix ? { id: `${idPrefix}-tab-${t.id}`, "aria-controls": `${idPrefix}-panel-${t.id}` } : {})}
+          aria-selected={value === t.id}
+          tabIndex={value === t.id ? 0 : -1}
+          onClick={() => onChange(t.id)}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${value === t.id ? "bg-card text-ink shadow-sm" : "text-muted-text hover:text-ink"}`}
+        >
           {t.label}
           {t.count !== undefined ? <span className="tabular ml-1.5 text-xs text-muted">{t.count}</span> : null}
         </button>

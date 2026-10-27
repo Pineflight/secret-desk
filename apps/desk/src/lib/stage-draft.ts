@@ -76,3 +76,46 @@ export const suggestId = (label: string): string => slugifyStage(label);
 
 export const kindTone = (kind: StageKind): StageToneName => KIND_TONES[kind];
 export { STAGE_KINDS };
+
+/** Verschiebt die Zeile i um eine Stelle (-1 nach oben, +1 nach unten). Ausserhalb der Liste: unveraendert. */
+export function moveItem<T>(list: readonly T[], i: number, dir: -1 | 1): T[] {
+  const j = i + dir;
+  if (i < 0 || i >= list.length || j < 0 || j >= list.length) return [...list];
+  const out = [...list];
+  [out[i], out[j]] = [out[j]!, out[i]!];
+  return out;
+}
+
+/** Ersetzt die Zeile `index` durch den Entwurf, oder haengt ihn an (index null). */
+export function applyDraft(list: readonly StageDraft[], index: number | null, draft: StageDraft): StageDraft[] {
+  if (index === null) return [...list, draft];
+  return list.map((d, j) => (j === index ? draft : d));
+}
+
+export type DraftError = { code: "id" } | { code: "duplicate"; id: string };
+
+/** Pruefung eines einzelnen Entwurfs im Dialog gegen die uebrigen Zeilen (Server prueft erneut). */
+export function validateDraft(draft: Pick<StageDraft, "id">, others: readonly Pick<StageDraft, "id">[]): DraftError | null {
+  const id = draft.id.trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(id)) return { code: "id" };
+  if (others.some((o) => o.id.trim() === id)) return { code: "duplicate", id };
+  return null;
+}
+
+/** Warum eine Stage nicht entfernt werden darf: Agenten-Richtlinie, Nutzung oder gar nicht. */
+export function removeBlock(usage: StageDraft["usage"]): "policy" | "used" | null {
+  if (usage.policy) return "policy";
+  return usage.secrets + usage.variables + usage.templates > 0 ? "used" : null;
+}
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/** "3 Secrets, 2 Variablen, 1 Vorlage" (Nullen entfallen), "Unbenutzt", plus Hinweis auf die Agenten-Richtlinie. */
+export function usageText(u: StageDraft["usage"], t: Translate): string {
+  const parts: string[] = [];
+  if (u.secrets > 0) parts.push(t("settings.usage.secrets", { count: u.secrets }));
+  if (u.variables > 0) parts.push(t("settings.usage.variables", { count: u.variables }));
+  if (u.templates > 0) parts.push(t("settings.usage.templates", { count: u.templates }));
+  const base = parts.length > 0 ? parts.join(", ") : t("settings.usageNone");
+  return u.policy ? `${base} · ${t("settings.usagePolicy")}` : base;
+}

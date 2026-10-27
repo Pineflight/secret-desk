@@ -2,7 +2,7 @@
   "name": "secret-desk",
   "version": "0.1.0",
   "private": true,
-  "description": "Lokales Portal fuer Tokens und Secrets: Ablauf sehen, Tokens bei Anbietern erzeugen oder rotieren und direkt in den GitHub-Secret-Speicher schreiben. Werte werden nie gespeichert.",
+  "description": "Local-first portal for tokens and secrets: see expiry, issue or renew tokens at providers and write them directly to the GitHub secret store. Values are never stored.",
   "license": "MIT",
   "type": "module",
   "engines": {

@@ -23,6 +23,7 @@ describe("translateEn: Stichproben", () => {
     ["Konfiguration ungueltig: server.port: Datum als JJJJ-MM-TT", "Invalid configuration: server.port: Date as YYYY-MM-DD"],
     ["Schritt 2 (click Feld \"Name\") fehlgeschlagen: Aktion nicht moeglich.", "Step 2 (click Field \"Name\") failed: Action not possible."],
     ["Die Vorlage ws-dev verweist mit \"../x\" aus dem verknuepften Ordner hinaus.", "The template ws-dev points outside the linked folder with \"../x\"."],
+    ["Schluesseldatei ~/x/vault.key", "Key file ~/x/vault.key"],
     ["Already English text", "Already English text"],
     ["", ""],
   ];
