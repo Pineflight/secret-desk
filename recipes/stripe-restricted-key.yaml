@@ -1,0 +1,27 @@
+# STATUS: nicht gegen die echte Seite geprueft
+# unverified: Geruest. Stripe legt Restricted Keys mit Rechtematrix an; die Rechte je Ressource sind hier
+# noch nicht abgebildet und muessen je Schluessel (params) ergaenzt werden, bevor das Rezept nutzbar ist.
+# Der Live-Modus braucht zusaetzlich eine Passwortbestaetigung im Fenster.
+id: stripe-restricted-key
+label: Stripe Restricted Key
+host: dashboard.stripe.com
+login:
+  expect: { url: "^https://dashboard\\.stripe\\.com/(test/)?apikeys" }
+  message: Bei Stripe anmelden und den richtigen Modus (Test/Live) waehlen.
+steps:
+  - goto: "https://dashboard.stripe.com/apikeys"
+  - click: { role: button, name: "Create restricted key" }
+  - fill: { label: "Key name", value: "{{name}}" }
+  - pause:
+      human: Rechte fuer den Schluessel in der Rechtematrix setzen (noch nicht automatisiert), dann im Fenster "Create key" waehlen.
+      until: { text: "Reveal" }
+  - screenshot: rechte-vorher
+  - click: { role: button, name: "Reveal live key", createsToken: true }
+capture:
+  token:
+    find: { css: "[data-testid=revealed-key]" }
+    pattern: "^(rk_(test|live)_[A-Za-z0-9]+)$"
+  externalId: { from: name }
+mask:
+  - { css: "[data-testid=revealed-key]" }
+# revoke: nicht automatisiert.

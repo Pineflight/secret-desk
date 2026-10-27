@@ -1,0 +1,28 @@
+# STATUS: nicht gegen die echte Seite geprueft
+# Selektoren sind aus der Oberflaeche von Supabase abgeleitet und noch nie gegen ein echtes Konto gelaufen.
+# Supabase zeigt den Token nur einmal an. Das Ablauf-Auswahlfeld kennt feste Werte; passt {{days}} nicht,
+# bricht der Lauf ab, statt zu raten.
+id: supabase-access-token
+label: Supabase Access Token
+host: supabase.com
+login:
+  expect: { url: "^https://supabase\\.com/dashboard/account/tokens" }
+  message: Bei Supabase anmelden (Passwort, 2FA).
+steps:
+  - goto: "https://supabase.com/dashboard/account/tokens"
+  - click: { role: button, name: "Generate new token" }
+  - fill: { label: "Name", value: "{{name}}" }
+  # UNGEPRUEFT: Bezeichnung des Ablauf-Felds und seiner Werte ("30 days" o. ae.).
+  - select: { label: "Expires", value: "{{days}} days" }
+  - screenshot: formular-vorher
+  - click: { role: button, name: "Generate token", createsToken: true }
+capture:
+  token:
+    # UNGEPRUEFT: Der Token steht in einem schreibgeschuetzten Feld des Dialogs.
+    find: { css: "input[readonly]" }
+    pattern: "^(sbp_[A-Za-z0-9]+)$"
+  externalId: { from: name }
+  expires: { from: days }
+mask:
+  - { css: "input[readonly]" }
+# revoke: nicht automatisiert. Alten Token unter dashboard/account/tokens von Hand loeschen.

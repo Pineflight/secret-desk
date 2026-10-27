@@ -69,3 +69,60 @@ Die mitgelieferten Rezepte sind nicht gegen die echten Seiten geprüft (kein Zug
 lokale Nachbildungen der Formulare getestet. Der erste echte Lauf ist ein Probelauf mit Wegwerf-Token und menschlicher Aufsicht;
 Auswahlfelder, die ein Anbieter ändert, brechen den Lauf ab statt zu raten. Anbieter dürfen Automatisierung ihrer Oberfläche in den
 Nutzungsbedingungen einschränken: das Team entscheidet pro Anbieter, ob es das Rezept nutzt.
+
+## Stand der Umsetzung
+
+Gebaut (Paket `packages/automation`, Rezepte in `recipes/`, CLI `packages/cli/src/browser.ts`):
+
+- `RecipeSchema` (zod) mit Schrittarten `goto`, `fill`, `select`, `check`, `click` (`createsToken: true` markiert den Punkt, ab dem beim Anbieter
+  etwas entsteht), `press`, `waitFor` (`url`/`visible`/`text`), `pause` (`human` + `until`-Bedingung) und `screenshot`. Jeder Schritt (ausser goto,
+  waitFor, pause, screenshot) darf `each: repos` tragen und laeuft dann je Repository mit `{{item}}`. Selektoren: `role`+`name`, `label`, `text`,
+  `placeholder`, `testid`, `css` (letzte Wahl). Zusatzvariablen: `permissionsQuery` (schon kodierter Query-Teil der Rechte), `externalId` (nur `revoke`), `item`.
+- Das Schema prueft: unbekannte Variablen, `http` nur fuer localhost, fester Host in `goto` (Host oder `allowHosts`, auch `*.beispiel.de`), mindestens ein
+  `createsToken`. `loadRecipes(dirs)` wirft mit Dateiname und Pfad (`datei.yaml: steps.3.click: ...`); `loadRecipesDetailed` sammelt Fehler. Spaetere Ordner ueberstimmen gleiche Ids.
+- `renderTemplate`: unbekannte Variable = Fehler, in `goto` wird jeder Wert mit `encodeURIComponent` kodiert.
+- `BrowserDriver` mit `PlaywrightDriver` (sichtbares Chrome, `launchPersistentContext`, Profil Modus 700, `slowMoMs`; Chrome-Suche: `chromePath`, macOS/Linux/Windows-Standardpfade,
+  sonst `channel: "chrome"`; kein Download) und `FakeDriver` (Tests, ohne Browser).
+- `runRecipe` / `dryRunRecipe` / `revokeRecipe`: Anmeldewarten (`login.expect` nach dem ersten `goto`, danach wird die Zielseite erneut geladen), Zeitlimit,
+  AbortSignal, Host-Pruefung vor jeder Aktion, Maskierung in jedem Screenshot (Playwright-`mask`, zusaetzlich automatischer Beleg `nach-erzeugen`), Fehler ohne Seiteninhalt,
+  `RecipeRunError.createdName` nach `createsToken`.
+- `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` passt zum `Provider`-Interface (`kind: "automatic"`, zusaetzlich `automation.recipeId`).
+- Rezepte: `github-fine-grained-token`, `supabase-access-token`, `stripe-restricted-key` (Geruest). Alle tragen `# STATUS: nicht gegen die echte Seite geprueft`.
+- CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
+- Tests: Schema, Template, Host, Fake-Laeufe, Rezepte laden, Provider, Integration mit `PlaywrightDriver` gegen ein lokales Formular (nur mit Chrome, headless, kein Internet).
+
+### API fuer die Integration (Runtime und Portal)
+
+```ts
+import {
+  createBrowserProvider, loadRecipesDetailed, PlaywrightDriver, RecipeRunError,
+  type RunHooks, type RunOptions, type BrowserProvider,
+} from "@secret-desk/automation";
+
+const { recipes, errors } = await loadRecipesDetailed([bundledRecipesDir, join(inventoryDir, "recipes")]);
+for (const { recipe } of recipes) {
+  registry.register(createBrowserProvider({
+    recipe,
+    driverFactory: () => new PlaywrightDriver({ chromePath, profileDir, slowMoMs }),   // aus config.automation
+    hooks: (secretId) => ({ onWaitingForHuman: (w) => portal.setStatus(secretId, w), onResumed: () => portal.clear(secretId) }),
+    runOptions: (secretId) => ({ loginTimeoutMinutes, signal: portal.abortSignal(secretId) }),
+    evidence,
+  }));
+}
+// Nach prepareIssuance: Belege an den Bericht haengen (der Bericht entsteht erst nach issue):
+await (provider as BrowserProvider).attachScreenshots(secret.id, report.id);
+```
+
+- Die Provider-Id ist `recipe.provider ?? recipe.id`; die Rezept-Ids entsprechen den Ids der bisherigen Anleitungs-Anbieter und ersetzen sie in der Registry.
+- `RecipeRunError` (`kind`: abort | timeout | host | step | capture; `createdName`) gehoert in Fehlerbericht und Portal: bei `createdName` den Namen anzeigen, damit der Mensch ihn beim Anbieter loescht.
+- Konfiguration `automation` (`chromePath`, `profileDir`, `loginTimeoutMinutes`, `slowMoMs`) ist noch nicht im Config-Schema des Core; sie wird von der Integration an `PlaywrightDriver` bzw. `RunOptions` gereicht.
+- Der Beleg-Anhang geht ueber `attachScreenshots`, weil `EvidenceStore.attach` einen bestehenden Bericht braucht, `issue` aber vor dem Bericht laeuft.
+
+### Offene Punkte
+
+- Rezepte gegen die echten Seiten pruefen (Probelauf mit Wegwerf-Token, Aufsicht); besonders GitHub-Bestaetigungsdialog, Token-Element, Supabase-Ablauffeld.
+- Eigener Schritt fuer Elemente innerhalb eines Dialogs (Selektoren kennen keinen Bereich); bis dahin `css`.
+- Stripe: Rechtematrix je Ressource aus `params` abbilden.
+- Widerruf per Rezept (`revoke.steps`) fuer GitHub und Supabase schreiben; bisher Hinweis fuer den Menschen.
+- Core: `automation`-Block im Config-Schema, Registry-Verdrahtung, Portalstatus mit Abbrechen.
+- Anbieter-Nutzungsbedingungen zur Automatisierung pro Anbieter klaeren (Entscheidung des Teams).

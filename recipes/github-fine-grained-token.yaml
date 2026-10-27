@@ -1,0 +1,39 @@
+# STATUS: nicht gegen die echte Seite geprueft
+# Selektoren sind aus der Oberflaeche von GitHub abgeleitet und noch nie gegen ein echtes Konto gelaufen.
+# Erster Lauf: Wegwerf-Token, mit Aufsicht. Aendert GitHub das Formular, hier anpassen (Pull Request).
+# Name, Beschreibung, Eigentuemer, Ablauf und Rechte kommen per Query-Vorbelegung ins Formular
+# ({{permissionsQuery}} ist schon kodiert, z. B. contents=read&metadata=read).
+id: github-fine-grained-token
+label: GitHub Fine-grained Token
+host: github.com
+login:
+  # Angemeldet, wenn die Einstellungsseite erreicht ist; sonst wartet secret-desk auf den Menschen.
+  expect: { url: "^https://github\\.com/settings/" }
+  message: Bei GitHub anmelden (Passwort, 2FA) und ggf. "Confirm access" bestaetigen.
+steps:
+  - goto: "https://github.com/settings/personal-access-tokens/new?name={{name}}&description={{description}}&target_name={{owner}}&expires_in={{days}}&{{permissionsQuery}}"
+  - pause:
+      human: GitHub verlangt eine Bestaetigung (Confirm access / 2FA). Bitte im Fenster erledigen.
+      until: { visible: { label: "Token name" } }
+  - fill: { label: "Token name", value: "{{name}}" }
+  - click: { role: radio, name: "Only select repositories" }
+  - click: { role: button, name: "Select repositories" }
+  - fill: { placeholder: "Search for a repository", value: "{{item}}" }
+    each: repos
+  - click: { role: option, name: "{{item}}" }
+    each: repos
+  - screenshot: formular-vorher
+  # Erste Bestaetigung oeffnet einen Dialog; ab hier entsteht ein Token.
+  - click: { role: button, name: "Generate token", createsToken: true }
+  # Zweiter Button im Dialog. UNGEPRUEFT: der Dialog hat denselben Namen wie der erste Button.
+  - click: { css: "[role=dialog] button[type=submit]" }
+capture:
+  token:
+    # UNGEPRUEFT: Element, in dem GitHub den neuen Token zeigt.
+    find: { css: "#new-access-token" }
+    pattern: "^(github_pat_[A-Za-z0-9_]+)$"
+  externalId: { from: name }
+  expires: { from: days }
+mask:
+  - { css: "#new-access-token" }
+# revoke: nicht automatisiert. Alten Token unter Settings > Developer settings > Fine-grained tokens von Hand loeschen.

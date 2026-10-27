@@ -30,6 +30,7 @@ import {
   type IssuanceView,
 } from "@secret-desk/runtime";
 
+import { browserCmd } from "./browser.js";
 import { doctorExitCode, runDoctor } from "./doctor.js";
 
 export interface Io {
@@ -62,6 +63,8 @@ Aufruf: secret-desk <befehl> [optionen]
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
   import-legacy  Altes Inventar (ai-interlink) umwandeln   <eingabe> <ausgabe> [--product repo=produkt]...
+  browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
+  browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   vapid          Neues VAPID-Schluesselpaar ausgeben
 `;
 
@@ -92,6 +95,8 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : usage(io);
       case "import-legacy":
         return await importLegacy(rest, io);
+      case "browser":
+        return await browserCmd(rest, io);
       case "vapid": {
         const keys = generateVapidKeys();
         io.out(`VAPID_PUBLIC_KEY=${keys.publicKey}`);
