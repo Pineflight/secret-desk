@@ -36,15 +36,16 @@ function safeStorage(): Storage | null {
  */
 export function usePersistedState<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const [value, setValue] = useState<T>(initial);
-  const ready = useRef(false);
+  // ready wird erst im selben Render wie der gelesene Wert true: so ueberschreibt der Schreib-Effekt den gespeicherten
+  // Wert nie mit dem Vorgabewert, bevor das Lesen angekommen ist.
+  const [ready, setReady] = useState(false);
   const first = useRef(initial);
   useEffect(() => {
-    const stored = readStored<T>(key, first.current);
-    setValue(stored);
-    ready.current = true;
+    setValue(readStored<T>(key, first.current));
+    setReady(true);
   }, [key]);
   useEffect(() => {
-    if (ready.current) writeStored(key, value, first.current);
-  }, [key, value]);
+    if (ready) writeStored(key, value, first.current);
+  }, [key, value, ready]);
   return [value, setValue];
 }
