@@ -41,3 +41,20 @@ describe("callJson", () => {
     await expect(callJson("x", f, "https://a.example", { method: "GET" }, [])).rejects.toThrow(/20 s/);
   });
 });
+
+import { githubTokenUrl } from "../src/manual.js";
+
+describe("githubTokenUrl", () => {
+  const secret = { id: "sd-trial", description: "Probe", ttlDays: 7, params: { permissions: { secrets: "write", environments: "read", evil: "root", "x y": "read" } } } as never;
+  it("fuellt Name, Eigentuemer, Ablauf und gueltige Rechte vor", () => {
+    const u = new URL(githubTokenUrl(secret, "Pineflight", new Date("2026-10-27T12:00:00Z")));
+    expect(u.origin + u.pathname).toBe("https://github.com/settings/personal-access-tokens/new");
+    expect(u.searchParams.get("name")).toBe("sd-trial-20261027");
+    expect(u.searchParams.get("target_name")).toBe("Pineflight");
+    expect(u.searchParams.get("expires_in")).toBe("7");
+    expect(u.searchParams.get("secrets")).toBe("write");
+    expect(u.searchParams.get("environments")).toBe("read");
+    expect(u.searchParams.has("evil")).toBe(false);
+    expect(u.searchParams.has("x y")).toBe(false);
+  });
+});

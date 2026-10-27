@@ -45,6 +45,9 @@ secrets:
     stage: staging
     service: github
     provider: github-fine-grained-token
+    params:
+      permissions: { metadata: read }
+    ttlDays: 1
     expiry: possible
     places:
       - { repo: secret-desk-sandbox, scope: repository }

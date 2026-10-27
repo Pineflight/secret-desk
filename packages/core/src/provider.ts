@@ -47,6 +47,8 @@ export interface VerifyContext {
 export interface ProviderGuide {
   url: string;
   steps: string[];
+  /** Seite des Anbieters mit bereits vorausgefuellten Feldern, soweit dieser es per Link erlaubt. */
+  openUrl?(secret: SecretEntry, ctx: { owner: string; now: Date }): string;
 }
 
 export interface Provider {

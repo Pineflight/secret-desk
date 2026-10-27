@@ -5,6 +5,9 @@ Ziel: Alle Wege einmal mit **echten** Konten ausprobieren, ohne etwas Wichtiges 
 Bereits geprueft (Selbsttest gegen das echte GitHub, 27.10.2026): Verschluesselung, Anlegen, Ueberschreiben, Loeschen von Secrets
 und Variablen am Repo und am Environment.
 
+Tipp: Im Portal steht an jedem manuellen Secret der Knopf "Seite des Anbieters mit Vorgaben oeffnen". Bei GitHub sind Name, Eigentuemer, Ablauf und Rechte (`params.permissions` im Inventar) vorausgefuellt; nur das Repository waehlst du selbst. Beim ersten Token (secret-desk selbst) nimm diesen Link:
+`https://github.com/settings/personal-access-tokens/new?name=secret-desk-sandbox&description=secret-desk+Probelauf&target_name=Pineflight&expires_in=7&secrets=write&variables=write&environments=read&metadata=read`
+
 ## 0. Was du vorher anlegst (alles kurzlebig und mit minimalen Rechten)
 
 | Was | Wo | Rechte | Ablauf |

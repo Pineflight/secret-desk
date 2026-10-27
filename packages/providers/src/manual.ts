@@ -1,10 +1,33 @@
-import type { Check, Provider, SecretEntry, Stage, VerifyContext } from "@secret-desk/core";
+import type { Check, Provider, ProviderGuide, SecretEntry, Stage, VerifyContext } from "@secret-desk/core";
 import { check, day, isRecord, probeWithValue, step } from "./checks.js";
 
 type Extras = Pick<Provider, "verify" | "reviewChecklist">;
 
-function manual(id: string, label: string, url: string, steps: string[], extras: Extras): Provider {
-  return { id, label, kind: "manual", guide: { url, steps }, ...extras };
+function manual(id: string, label: string, url: string, steps: string[], extras: Extras, openUrl?: ProviderGuide["openUrl"]): Provider {
+  return { id, label, kind: "manual", guide: { url, steps, ...(openUrl ? { openUrl } : {}) }, ...extras };
+}
+
+const GITHUB_PERMISSION = /^[a-z_]{3,40}$/;
+const GITHUB_LEVELS = new Set(["read", "write", "admin"]);
+
+/**
+ * Link auf GitHubs Formular fuer fine-grained Tokens mit vorausgefuellten Feldern
+ * (Name, Beschreibung, Eigentuemer, Ablauf, Rechte aus params.permissions).
+ * Die Repository-Auswahl laesst GitHub nicht per Link zu; sie bleibt bewusst beim Menschen.
+ */
+export function githubTokenUrl(secret: SecretEntry, owner: string, now: Date): string {
+  const q = new URLSearchParams();
+  q.set("name", `${secret.id}-${now.toISOString().slice(0, 10).replaceAll("-", "")}`.slice(0, 40));
+  if (secret.description) q.set("description", secret.description.slice(0, 1024));
+  q.set("target_name", owner);
+  q.set("expires_in", String(Math.min(366, Math.max(1, secret.ttlDays ?? 30))));
+  const perms = secret.params["permissions"];
+  if (isRecord(perms)) {
+    for (const [key, level] of Object.entries(perms)) {
+      if (GITHUB_PERMISSION.test(key) && typeof level === "string" && GITHUB_LEVELS.has(level)) q.set(key, level);
+    }
+  }
+  return `https://github.com/settings/personal-access-tokens/new?${q.toString()}`;
 }
 
 const stagePhrase = (stage: Stage): string =>
@@ -114,14 +137,14 @@ export const manualProviders: Provider[] = [
   }),
   manual("github-fine-grained-token", "GitHub Fine-grained Token", "https://github.com/settings/personal-access-tokens/new", [
     "Token-Namen mit Datum vergeben und Ablaufdatum setzen (hoechstens 90 Tage empfohlen).",
-    "Als Ressourcen-Eigentuemer die Organisation Pineflight waehlen.",
-    "Nur die benoetigten Repositories und minimalen Rechte auswaehlen.",
+    "Name, Eigentuemer, Ablauf und Rechte sind ueber den Knopf bereits vorausgefuellt: kurz gegenpruefen.",
+    "Unter Repository access nur die benoetigten Repositories waehlen (das kann GitHub nicht vorausfuellen).",
     "Token erzeugen, kopieren und im Portal einfuegen.",
     "Alten Token unter Settings > Developer settings widerrufen.",
   ], {
     verify: verifyGithub,
     reviewChecklist: (secret) => checklist(secret, "Der Token hat", ["Eigentuemer ist die Organisation Pineflight, nur die noetigen Repositories sind gewaehlt"]),
-  }),
+  }, (secret, ctx) => githubTokenUrl(secret, ctx.owner, ctx.now)),
   manual("peecho", "Peecho", "https://www.peecho.com", [
     "Im Peecho-Konto den Bereich fuer API-Zugang oeffnen.",
     "Neuen API-Schluessel erzeugen (Sandbox oder Live passend zur Stage).",

@@ -174,7 +174,7 @@ function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: (
       {secret.guide ? (
         <div className="mb-4 rounded-xl bg-page p-4 text-sm">
           <p className="mb-2 font-medium">So bekommst du den Wert</p>
-          <a href={secret.guide.url} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex items-center gap-1 text-primary underline">Anleitung des Anbieters öffnen<Icon name="external" className="h-3.5 w-3.5" /></a>
+          <a href={secret.guide.openUrl} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex items-center gap-1 text-primary underline">{secret.guide.openUrl !== secret.guide.url ? "Seite des Anbieters mit Vorgaben öffnen" : "Anleitung des Anbieters öffnen"}<Icon name="external" className="h-3.5 w-3.5" /></a>
           {secret.guide.steps.length > 0 ? <ol className="list-decimal space-y-1 pl-5">{secret.guide.steps.map((st, i) => <li key={i}>{st}</li>)}</ol> : null}
         </div>
       ) : null}

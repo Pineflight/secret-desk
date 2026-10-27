@@ -89,7 +89,7 @@ export interface SecretView {
   verifiedBy: string | null;
   ttlDays: number | null;
   places: Place[];
-  guide: { url: string; steps: string[] } | null;
+  guide: { url: string; steps: string[]; openUrl: string } | null;
   connection: string | null;
   notes: string | null;
 }
@@ -119,7 +119,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, live?: Awaited<ReturnTyp
     verifiedBy: s.verifiedBy ?? null,
     ttlDays: s.ttlDays ?? null,
     places: s.places,
-    guide: provider?.guide ?? null,
+    guide: provider?.guide ? { url: provider.guide.url, steps: provider.guide.steps, openUrl: provider.guide.openUrl?.(s, { owner: rt.owner, now: today }) ?? provider.guide.url } : null,
     connection: provider?.connection ?? null,
     notes: s.notes ?? null,
   };
@@ -191,7 +191,7 @@ export async function overview(rt: Runtime, today = new Date()): Promise<Overvie
 }
 
 export function listProviders(rt: Runtime) {
-  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, connection: p.connection ?? null, guide: p.guide ?? null }));
+  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, connection: p.connection ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
 }
 
 export async function listConnections(rt: Runtime) {
