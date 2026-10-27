@@ -70,4 +70,5 @@ export default {
   "connections.browserProblems": "Probleme",
   "connections.browserNoProblems": "Keine.",
   "connections.browserLoadError": "Der Stand der Browser-Automatisierung konnte nicht geladen werden.",
+  "connections.browserChromeFoundShort": "Gefunden",
 } satisfies Record<string, string>;

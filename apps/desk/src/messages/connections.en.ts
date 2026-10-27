@@ -70,4 +70,5 @@ export default {
   "connections.browserProblems": "Problems",
   "connections.browserNoProblems": "None.",
   "connections.browserLoadError": "The browser automation state could not be loaded.",
+  "connections.browserChromeFoundShort": "Found",
 } satisfies Record<string, string>;
