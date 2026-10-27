@@ -67,4 +67,6 @@ export default {
   "common.approval.denied": "Denied",
   "common.approval.failed": "Failed",
   "common.provider.browser": "Browser",
+  "common.selectSearch": "Search…",
+  "common.noMatches": "No matches",
 } satisfies Record<string, string>;

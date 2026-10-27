@@ -4,7 +4,8 @@ import { emptyPlaceRow, type PlaceRow } from "@/lib/places";
 import { Button } from "./ui";
 import { RepoPicker } from "./RepoPicker";
 import { Icon } from "./Icons";
-import { inputClass, selectClass } from "./ui";
+import { inputClass } from "./ui";
+import { SelectBox } from "./SelectBox";
 
 export function PlacesEditor({ rows, onChange }: { rows: PlaceRow[]; onChange: (rows: PlaceRow[]) => void }) {
   const t = useT();
@@ -15,10 +16,10 @@ export function PlacesEditor({ rows, onChange }: { rows: PlaceRow[]; onChange: (
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]">
           <RepoPicker ariaLabel={t("meta.placeRepoAria", { n: i + 1 })} placeholder={t("meta.placeRepo")} value={r.repo} onChange={(v) => set(i, { repo: v })} />
-          <select aria-label={t("meta.placeScopeAria", { n: i + 1 })} value={r.scope} onChange={(e) => set(i, { scope: e.target.value as PlaceRow["scope"] })} className={selectClass}>
+          <SelectBox aria-label={t("meta.placeScopeAria", { n: i + 1 })} value={r.scope} onChange={(e) => set(i, { scope: e.target.value as PlaceRow["scope"] })}>
             <option value="repository">{t("meta.scopeRepository")}</option>
             <option value="environment">{t("meta.scopeEnvironment")}</option>
-          </select>
+          </SelectBox>
           <input aria-label={t("meta.placeEnvAria", { n: i + 1 })} placeholder={t("meta.placeEnv")} disabled={r.scope !== "environment"} value={r.environment} onChange={(e) => set(i, { environment: e.target.value })} className={inputClass} autoComplete="off" />
           <button type="button" aria-label={t("meta.placeRemove", { n: i + 1 })} onClick={() => onChange(rows.filter((_, j) => j !== i))} className="rounded-xl p-2 text-muted hover:bg-page">
             <Icon name="trash" className="h-4 w-4" />

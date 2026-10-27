@@ -1,7 +1,8 @@
 "use client";
 import { useT } from "@/lib/i18n";
+import { SelectBox } from "./SelectBox";
 import Link from "next/link";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ChangeEvent, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useId } from "react";
 import type { StatusLevel } from "@secret-desk/core";
 import { ApiError } from "@/lib/api";
@@ -97,11 +98,11 @@ export function TextField({ label, hint, className = "", ...rest }: InputHTMLAtt
   );
 }
 
-export function SelectField({ label, hint, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; hint?: ReactNode }) {
+export function SelectField({ label, hint, children, value, onChange, disabled, required, searchable }: { label: string; hint?: ReactNode; children: ReactNode; value: string; onChange: (e: ChangeEvent<HTMLSelectElement>) => void; disabled?: boolean; required?: boolean; searchable?: boolean }) {
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
-      <select id={id} {...rest} className={selectClass}>{children}</select>
+      <SelectBox id={id} value={value} onChange={onChange} {...(disabled !== undefined ? { disabled } : {})} {...(required !== undefined ? { required } : {})} {...(searchable !== undefined ? { searchable } : {})}>{children}</SelectBox>
     </Field>
   );
 }
