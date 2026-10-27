@@ -337,6 +337,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Agenten-Token fehlt oder ist falsch", "Agent token is missing or wrong"],
   ["Portal-Sitzung ungueltig. Seite neu laden.", "Portal session invalid. Reload the page."],
   ["Interner Fehler", "Internal error"],
+  ["nicht gegen die echte Seite geprueft", "not verified against the real page"],
   ["Ungueltiges JSON", "Invalid JSON"],
   ["Netzwerk- und Geraetepfade (UNC, \\\\?\\) sind nicht erlaubt. Bitte einen lokalen Laufwerkspfad angeben.", "Network and device paths (UNC, \\\\?\\) are not allowed. Please give a local drive path."],
   ["Der Pfad enthaelt Zeichen, die Windows nicht erlaubt (< > : \" | ? *).", "The path contains characters Windows does not allow (< > : \" | ? *)."],
