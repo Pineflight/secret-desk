@@ -20,7 +20,7 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
         target_name: owner,
         expires_in: "90",
         secrets: "write",
-        variables: "write",
+        actions_variables: "write",
         environments: "read",
         metadata: "read",
       });
