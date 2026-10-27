@@ -7,6 +7,8 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { MetaFields, TagPills, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
+import { BROWSE_DEFAULT, BrowseControls, GroupHeading, type BrowseState } from "@/components/BrowseControls";
+import { allProducts, allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
 import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SelectField, StageBadge, StatusBadge, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
@@ -38,6 +40,7 @@ export default function SecretsPage() {
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
+  const [browse, setBrowse] = useState<BrowseState>(BROWSE_DEFAULT);
   const [live, setLive] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -58,7 +61,13 @@ export default function SecretsPage() {
   if (tag) qs.set("tag", tag);
   const secrets = useQuery<SecretView[]>(`secrets?${qs}`, () => api<SecretView[]>("GET", `secrets?${qs}`));
 
-  const rows = useMemo(() => (secrets.data ?? []).filter((s) => kind === "" || (kind === "auto" ? s.automatic : !s.automatic)), [secrets.data, kind]);
+  const repos = useMemo(() => allRepos(secrets.data ?? []), [secrets.data]);
+  const products = useMemo(() => allProducts(secrets.data ?? []), [secrets.data]);
+  const rows = useMemo(
+    () => sortItems((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo)) && (browse.product === "" || s.product === browse.product)), browse.sort),
+    [secrets.data, kind, browse.repo, browse.product, browse.sort],
+  );
+  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
 
   return (
     <>
@@ -96,6 +105,7 @@ export default function SecretsPage() {
             <option value="manual">von Hand</option>
           </SelectField>
         </div>
+        <BrowseControls value={browse} onChange={setBrowse} repos={repos} products={products} />
       </div>
 
       {tag ? (
@@ -107,46 +117,49 @@ export default function SecretsPage() {
       {secrets.error ? <ErrorState error={secrets.error} onRetry={secrets.reload} /> : null}
       {secrets.loading && !secrets.data ? <ListSkeleton rows={6} /> : null}
       {secrets.data && rows.length === 0 ? (
-        <EmptyState title="Keine Einträge gefunden" icon="key">{q || tag || stage || status || kind ? "Mit diesen Filtern gibt es keinen Treffer." : "Lege den ersten Eintrag mit „Neuer Eintrag“ an."}</EmptyState>
+        <EmptyState title="Keine Einträge gefunden" icon="key">{q || tag || stage || status || kind || browse.repo || browse.product ? "Mit diesen Filtern gibt es keinen Treffer." : "Lege den ersten Eintrag mit „Neuer Eintrag“ an."}</EmptyState>
       ) : null}
-      {rows.length > 0 ? (
-        <Card className="overflow-x-auto !p-0">
-          <table className="w-full min-w-[860px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-                <th className="px-4 py-3 font-semibold">Name</th>
-                <th className="px-4 py-3 font-semibold">Stage</th>
-                <th className="px-4 py-3 font-semibold">Anbieter</th>
-                <th className="px-4 py-3 font-semibold">Ablauf</th>
-                <th className="px-4 py-3 font-semibold">Ziele</th>
-                <th className="px-4 py-3 font-semibold">Bestätigt</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((s) => (
-                <tr key={s.id} className="align-top hover:bg-page">
-                  <td className="px-4 py-3">
-                    <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline">{s.name}</Link>
-                    <p className="text-xs text-muted">{s.id}</p>
-                    {s.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
-                    {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
-                  </td>
-                  <td className="px-4 py-3"><StageBadge stage={s.stage} /></td>
-                  <td className="px-4 py-3"><ProviderChip automatic={s.automatic} /></td>
-                  <td className="px-4 py-3">
-                    <div className="tabular">{formatDate(s.expires)}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2"><StatusBadge level={s.status} /><span className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</span></div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">{s.places.length ? s.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-text">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : "noch nie"}</td>
+      {groups.map((g) => (
+        <div key={g.key}>
+          {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
+          <Card className="overflow-x-auto !p-0">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
+                  <th className="px-4 py-3 font-semibold">Name</th>
+                  <th className="px-4 py-3 font-semibold">Stage</th>
+                  <th className="px-4 py-3 font-semibold">Anbieter</th>
+                  <th className="px-4 py-3 font-semibold">Ablauf</th>
+                  <th className="px-4 py-3 font-semibold">Ziele</th>
+                  <th className="px-4 py-3 font-semibold">Bestätigt</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      ) : null}
+              </thead>
+              <tbody className="divide-y divide-line">
+                {g.items.map((s) => (
+                  <tr key={s.id} className="align-top hover:bg-page">
+                    <td className="px-4 py-3">
+                      <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline">{s.name}</Link>
+                      <p className="text-xs text-muted">{s.id}</p>
+                      {s.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
+                      {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
+                    </td>
+                    <td className="px-4 py-3"><StageBadge stage={s.stage} /></td>
+                    <td className="px-4 py-3"><ProviderChip automatic={s.automatic} /></td>
+                    <td className="px-4 py-3">
+                      <div className="tabular">{formatDate(s.expires)}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2"><StatusBadge level={s.status} /><span className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</span></div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">{s.places.length ? s.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-text">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : "noch nie"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      ))}
 
       {creating ? <CreateSecretDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); secrets.reload(); }} /> : null}
     </>

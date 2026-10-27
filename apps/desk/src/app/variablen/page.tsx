@@ -8,6 +8,8 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
+import { BROWSE_DEFAULT, BrowseControls, GroupHeading, type BrowseState } from "@/components/BrowseControls";
+import { allProducts, allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { ApiError, api, enc } from "@/lib/api";
 import { placeText } from "@/lib/format";
@@ -50,7 +52,7 @@ export default function VariablesPage() {
     router.replace(next.toString() ? `/variablen?${next}` : "/variablen");
   };
   const [stage, setStage] = useState("");
-  const [product, setProduct] = useState("");
+  const [browse, setBrowse] = useState<BrowseState>(BROWSE_DEFAULT);
   const [creating, setCreating] = useState(false);
   const [removing, setRemoving] = useState<VariableView | null>(null);
 
@@ -65,12 +67,16 @@ export default function VariablesPage() {
 
   const qs = new URLSearchParams();
   if (stage) qs.set("stage", stage);
-  if (product) qs.set("product", product);
   if (q.trim()) qs.set("q", q.trim());
   if (tag) qs.set("tag", tag);
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
-  const products = useMemo(() => [...new Set((list.data ?? []).map((v) => v.product).filter((p): p is string => Boolean(p)))].sort(), [list.data]);
-  const rows = list.data ?? [];
+  const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
+  const products = useMemo(() => allProducts(list.data ?? []), [list.data]);
+  const rows = useMemo(
+    () => sortItems((list.data ?? []).filter((v) => (browse.repo === "" || repoNames(v.places).includes(browse.repo)) && (browse.product === "" || v.product === browse.product)), browse.sort),
+    [list.data, browse.repo, browse.product, browse.sort],
+  );
+  const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
 
   return (
     <>
@@ -86,12 +92,7 @@ export default function VariablesPage() {
             {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
           </SelectField>
         </div>
-        <div className="w-48">
-          <SelectField label="Produkt" value={product} onChange={(e) => setProduct(e.target.value)}>
-            <option value="">Alle</option>
-            {products.map((p) => <option key={p} value={p}>{p}</option>)}
-          </SelectField>
-        </div>
+        <BrowseControls value={browse} onChange={setBrowse} repos={repos} products={products} sorts={["name", "repo", "stage", "product"]} />
       </div>
       {tag ? (
         <div className="mb-4 flex items-center gap-2 text-sm">
@@ -101,10 +102,15 @@ export default function VariablesPage() {
       ) : null}
       {list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : null}
       {list.loading && !list.data ? <ListSkeleton rows={5} /> : null}
-      {list.data && rows.length === 0 ? <EmptyState title="Keine Variablen gefunden" icon="sliders">{q || tag || stage || product ? "Mit diesen Filtern gibt es keinen Treffer." : "Lege die erste Variable mit „Neue Variable“ an."}</EmptyState> : null}
-      <div className="space-y-4">
-        {rows.map((v) => <VariableCard key={v.id} v={v} tag={tag} onTag={setTag} onChanged={list.reload} onRemove={() => setRemoving(v)} />)}
-      </div>
+      {list.data && rows.length === 0 ? <EmptyState title="Keine Variablen gefunden" icon="sliders">{q || tag || stage || browse.repo || browse.product ? "Mit diesen Filtern gibt es keinen Treffer." : "Lege die erste Variable mit „Neue Variable“ an."}</EmptyState> : null}
+      {groups.map((g) => (
+        <div key={g.key}>
+          {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
+          <div className="space-y-4">
+            {g.items.map((v) => <VariableCard key={`${g.key}:${v.id}`} v={v} tag={tag} onTag={setTag} onChanged={list.reload} onRemove={() => setRemoving(v)} />)}
+          </div>
+        </div>
+      ))}
       {creating ? <CreateVariableDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); list.reload(); }} /> : null}
       {removing ? <RemoveDialog v={removing} onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); list.reload(); }} /> : null}
     </>
