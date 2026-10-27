@@ -6,8 +6,8 @@ const repo = (r: string) => ({ repo: r, scope: "repository" as const });
 
 describe("browse", () => {
   const items = [
-    item("b", { places: [repo("wake-miles"), repo("lupe")], product: "WakeMiles", daysLeft: 20 }),
-    item("a", { places: [repo("lupe")], product: "Lupe", stage: "production", daysLeft: 3 }),
+    item("b", { places: [repo("wake-miles"), repo("lupe")], daysLeft: 20 }),
+    item("a", { places: [repo("lupe")], stage: "production", daysLeft: 3 }),
     item("c", { daysLeft: null }),
   ];
   it("listet alle Repositories", () => expect(allRepos(items)).toEqual(["lupe", "wake-miles"]));

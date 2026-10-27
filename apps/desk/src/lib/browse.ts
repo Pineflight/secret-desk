@@ -3,8 +3,8 @@ import type { SecretView } from "@secret-desk/runtime";
 
 type Place = SecretView["places"][number];
 
-export type SortKey = "name" | "expires" | "repo" | "stage" | "product";
-export type GroupKey = "none" | "repo" | "product" | "stage";
+export type SortKey = "name" | "expires" | "repo" | "stage";
+export type GroupKey = "none" | "repo" | "stage";
 
 
 const STAGE_ORDER = ["production", "staging", "dev", "shared"];
@@ -13,7 +13,6 @@ export interface Browsable {
   id: string;
   name: string;
   stage: string;
-  product?: string | null;
   places: Place[];
   expires?: string | null;
   daysLeft?: number | null;
@@ -26,10 +25,6 @@ export function repoNames(places: Place[]): string[] {
 
 export function allRepos(items: Browsable[]): string[] {
   return [...new Set(items.flatMap((i) => repoNames(i.places)))].sort((a, b) => a.localeCompare(b));
-}
-
-export function allProducts(items: Browsable[]): string[] {
-  return [...new Set(items.map((i) => i.product).filter((p): p is string => Boolean(p)))].sort((a, b) => a.localeCompare(b));
 }
 
 const cmp = (a: string, b: string) => a.localeCompare(b, "de");
@@ -51,8 +46,6 @@ export function sortItems<T extends Browsable>(items: T[], key: SortKey): T[] {
         return cmp(repoNames(a.places)[0] ?? "~", repoNames(b.places)[0] ?? "~") || cmp(a.name, b.name);
       case "stage":
         return stageRank(a.stage) - stageRank(b.stage) || cmp(a.name, b.name);
-      case "product":
-        return cmp(a.product ?? "~", b.product ?? "~") || cmp(a.name, b.name);
       default:
         return cmp(a.name, b.name);
     }
@@ -76,9 +69,8 @@ export function groupItems<T extends Browsable>(items: T[], by: GroupKey): Group
       const repos = repoNames(item.places);
       if (repos.length === 0) add("", item);
       else repos.forEach((r) => add(r, item));
-    } else if (by === "product") add(item.product ?? "", item);
-    else add(item.stage, item);
+    } else add(item.stage, item);
   }
   const keys = [...map.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : by === "stage" ? stageRank(a) - stageRank(b) : cmp(a, b)));
-  return keys.map((k) => ({ key: k, label: k || (by === "repo" ? translate("meta.noRepo") : translate("meta.noProduct")), items: map.get(k)! }));
+  return keys.map((k) => ({ key: k, label: k || translate("meta.noRepo"), items: map.get(k)! }));
 }

@@ -7,8 +7,8 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { MetaFields, TagPills, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
-import { BROWSE_DEFAULT, BrowseControls, GroupHeading, type BrowseState } from "@/components/BrowseControls";
-import { allProducts, allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
+import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
+import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
 import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SelectField, StageBadge, StatusBadge, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
@@ -64,10 +64,9 @@ export default function SecretsPage() {
   const secrets = useQuery<SecretView[]>(`secrets?${qs}`, () => api<SecretView[]>("GET", `secrets?${qs}`));
 
   const repos = useMemo(() => allRepos(secrets.data ?? []), [secrets.data]);
-  const products = useMemo(() => allProducts(secrets.data ?? []), [secrets.data]);
   const rows = useMemo(
-    () => sortItems((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo)) && (browse.product === "" || s.product === browse.product)), browse.sort),
-    [secrets.data, kind, browse.repo, browse.product, browse.sort],
+    () => sortItems((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), browse.sort),
+    [secrets.data, kind, browse.repo, browse.sort],
   );
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
 
@@ -88,6 +87,7 @@ export default function SecretsPage() {
       {live ? <div className="mb-4"><Notice tone="info">{t("secrets.liveNotice")}</Notice></div> : null}
 
       <div className="mb-4 flex flex-wrap gap-3">
+        <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
           <SelectField label={t("secrets.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
             <option value="">{t("secrets.all")}</option>
@@ -107,7 +107,7 @@ export default function SecretsPage() {
             <option value="manual">{t("secrets.manual")}</option>
           </SelectField>
         </div>
-        <BrowseControls value={browse} onChange={setBrowse} repos={repos} products={products} />
+        <BrowseControls value={browse} onChange={setBrowse} />
       </div>
 
       {tag ? (
@@ -119,7 +119,7 @@ export default function SecretsPage() {
       {secrets.error ? <ErrorState error={secrets.error} onRetry={secrets.reload} /> : null}
       {secrets.loading && !secrets.data ? <ListSkeleton rows={6} /> : null}
       {secrets.data && rows.length === 0 ? (
-        <EmptyState title={t("secrets.emptyTitle")} icon="key">{q || tag || stage || status || kind || browse.repo || browse.product ? t("secrets.emptyFiltered") : t("secrets.emptyFirst")}</EmptyState>
+        <EmptyState title={t("secrets.emptyTitle")} icon="key">{q || tag || stage || status || kind || browse.repo ? t("secrets.emptyFiltered") : t("secrets.emptyFirst")}</EmptyState>
       ) : null}
       {groups.map((g) => (
         <div key={g.key}>

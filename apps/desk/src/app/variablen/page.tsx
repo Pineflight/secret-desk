@@ -8,8 +8,8 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
-import { BROWSE_DEFAULT, BrowseControls, GroupHeading, type BrowseState } from "@/components/BrowseControls";
-import { allProducts, allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
+import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
+import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { ApiError, api, enc } from "@/lib/api";
 import { placeText } from "@/lib/format";
@@ -74,10 +74,9 @@ export default function VariablesPage() {
   if (tag) qs.set("tag", tag);
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
-  const products = useMemo(() => allProducts(list.data ?? []), [list.data]);
   const rows = useMemo(
-    () => sortItems((list.data ?? []).filter((v) => (browse.repo === "" || repoNames(v.places).includes(browse.repo)) && (browse.product === "" || v.product === browse.product)), browse.sort),
-    [list.data, browse.repo, browse.product, browse.sort],
+    () => sortItems((list.data ?? []).filter((v) => (browse.repo === "" || repoNames(v.places).includes(browse.repo))), browse.sort),
+    [list.data, browse.repo, browse.sort],
   );
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group) : []), [rows, browse.group]);
 
@@ -89,13 +88,14 @@ export default function VariablesPage() {
         actions={<Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("variables.newVariable")}</Button>}
       />
       <div className="mb-4 flex flex-wrap gap-3">
+        <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
           <SelectField label={t("variables.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
             <option value="">{t("variables.all")}</option>
             {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
           </SelectField>
         </div>
-        <BrowseControls value={browse} onChange={setBrowse} repos={repos} products={products} sorts={["name", "repo", "stage", "product"]} />
+        <BrowseControls value={browse} onChange={setBrowse} sorts={["name", "repo", "stage"]} />
       </div>
       {tag ? (
         <div className="mb-4 flex items-center gap-2 text-sm">
@@ -105,7 +105,7 @@ export default function VariablesPage() {
       ) : null}
       {list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : null}
       {list.loading && !list.data ? <ListSkeleton rows={5} /> : null}
-      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q || tag || stage || browse.repo || browse.product ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
+      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q || tag || stage || browse.repo ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
