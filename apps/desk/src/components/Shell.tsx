@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
 import { api, ensureSession, type SessionInfo } from "@/lib/api";
 import { useDebounced, useQuery } from "@/lib/hooks";
+import { LOCALES, LOCALE_NAMES, useI18n } from "@/lib/i18n";
 import { subscribeRefresh } from "@/lib/refresh";
 import { Icon } from "./Icons";
 
@@ -17,20 +18,21 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: "/", label: "Übersicht", icon: "grid" },
-  { href: "/secrets", label: "Secrets", icon: "key" },
-  { href: "/variablen", label: "Variablen", icon: "sliders" },
-  { href: "/pruefen", label: "Prüfen", icon: "shield", badge: "reviews" },
-  { href: "/freigaben", label: "Freigaben", icon: "inbox", badge: "approvals" },
-  { href: "/dev", label: "Dev-Umgebung", icon: "terminal", divider: true },
-  { href: "/verbindungen", label: "Integrationen", icon: "plug" },
-  { href: "/team", label: "Team", icon: "users" },
+  { href: "/", label: "common.nav.overview", icon: "grid" },
+  { href: "/secrets", label: "common.nav.secrets", icon: "key" },
+  { href: "/variablen", label: "common.nav.variables", icon: "sliders" },
+  { href: "/pruefen", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
+  { href: "/freigaben", label: "common.nav.approvals", icon: "inbox", badge: "approvals" },
+  { href: "/dev", label: "common.nav.dev", icon: "terminal", divider: true },
+  { href: "/verbindungen", label: "common.nav.integrations", icon: "plug" },
+  { href: "/team", label: "common.nav.team", icon: "users" },
 ];
 
 const isActive = (path: string, href: string): boolean => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 const SEARCHABLE = ["/secrets", "/variablen", "/freigaben"];
 
 export function Shell({ children }: { children: ReactNode }) {
+  const { t, locale, setLocale } = useI18n();
   const path = usePathname();
   const router = useRouter();
   const params = useSearchParams();
@@ -64,14 +66,14 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen lg:pl-[248px]">
-      <a href="#inhalt" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-card focus:p-2">Zum Inhalt springen</a>
+      <a href="#inhalt" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-card focus:p-2">{t("common.skip")}</a>
       {open ? <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setOpen(false)} aria-hidden="true" /> : null}
-      <aside id="seitenleiste" className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line bg-card transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`} aria-label="Seitenleiste">
+      <aside id="seitenleiste" className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line bg-card transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`} aria-label={t("common.sidebar")}>
         <div className="flex items-center gap-2.5 px-5 py-5">
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-white"><Icon name="lock" className="h-4 w-4" /></span>
           <span className="text-base font-semibold tracking-tight">secret-desk</span>
         </div>
-        <nav aria-label="Hauptnavigation" className="flex-1 overflow-y-auto px-3 pb-3">
+        <nav aria-label={t("common.mainNav")} className="flex-1 overflow-y-auto px-3 pb-3">
           <ul className="space-y-1">
             {NAV.map((n) => {
               const active = isActive(path, n.href);
@@ -80,8 +82,8 @@ export function Shell({ children }: { children: ReactNode }) {
                 <li key={n.href} className={n.divider ? "mt-3 border-t border-line pt-3" : ""}>
                   <Link href={n.href} aria-current={active ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium ${active ? "bg-primary-light text-primary" : "text-muted-text hover:bg-page hover:text-ink"}`}>
                     <Icon name={n.icon} className="h-[18px] w-[18px]" />
-                    <span className="flex-1">{n.label}</span>
-                    {count > 0 ? <span className="tabular rounded-full bg-danger-fill px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white" aria-label={`${count} offen`}>{count}</span> : null}
+                    <span className="flex-1">{t(n.label)}</span>
+                    {count > 0 ? <span className="tabular rounded-full bg-danger-fill px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white" aria-label={t("common.pendingBadge", { count })}>{count}</span> : null}
                   </Link>
                 </li>
               );
@@ -90,13 +92,18 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
         <div className="m-3 rounded-2xl border border-line bg-page p-3 text-sm">
           <p className="font-medium">{session?.user ?? "…"}</p>
-          <p className="text-xs text-muted">Lokal auf diesem Rechner</p>
-          {session?.demo ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-[11px] font-medium text-[#a8420f]">Demo, simuliertes GitHub</p> : null}
+          <p className="text-xs text-muted">{t("common.userLocal")}</p>
+          {session?.demo ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-[11px] font-medium text-[#a8420f]">{t("common.demo")}</p> : null}
+          <div role="group" aria-label={t("common.language")} className="mt-3 flex gap-1 rounded-xl bg-card p-1 ring-1 ring-inset ring-line">
+            {LOCALES.map((l) => (
+              <button key={l} type="button" lang={l} aria-pressed={locale === l} title={LOCALE_NAMES[l]} onClick={() => setLocale(l)} className={`flex-1 rounded-lg px-2 py-1 text-xs font-medium ${locale === l ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}>{l.toUpperCase()}</button>
+            ))}
+          </div>
         </div>
       </aside>
 
       <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur sm:px-8">
-        <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-xl p-2 hover:bg-card lg:hidden" aria-label="Menü öffnen oder schließen" aria-expanded={open} aria-controls="seitenleiste">
+        <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-xl p-2 hover:bg-card lg:hidden" aria-label={t("common.menuToggle")} aria-expanded={open} aria-controls="seitenleiste">
           <Icon name="menu" className="h-5 w-5" />
         </button>
         <form
@@ -108,12 +115,12 @@ export function Shell({ children }: { children: ReactNode }) {
           }}
         >
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Suchen nach Name, Repository oder Produkt" aria-label="Suchen" autoComplete="off" className="w-full rounded-xl border border-line bg-card py-2 pl-9 pr-3 text-sm placeholder:text-muted" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("common.searchPlaceholder")} aria-label={t("common.search")} autoComplete="off" className="w-full rounded-xl border border-line bg-card py-2 pl-9 pr-3 text-sm placeholder:text-muted" />
         </form>
         <Link href={newHref} className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-white hover:brightness-95">
-          <Icon name="plus" /><span className="hidden sm:inline">Neuer Eintrag</span><span className="sr-only sm:hidden">Neuer Eintrag</span>
+          <Icon name="plus" /><span className="hidden sm:inline">{t("common.newEntry")}</span><span className="sr-only sm:hidden">{t("common.newEntry")}</span>
         </Link>
-        <Link href={counts.reviews > 0 || counts.approvals === 0 ? "/pruefen" : "/freigaben"} className="relative rounded-xl p-2 hover:bg-card" aria-label={alerts > 0 ? `${alerts} offene Prüfungen und Freigaben` : "Keine offenen Prüfungen oder Freigaben"}>
+        <Link href={counts.reviews > 0 || counts.approvals === 0 ? "/pruefen" : "/freigaben"} className="relative rounded-xl p-2 hover:bg-card" aria-label={alerts > 0 ? t("common.alertsSome", { count: alerts }) : t("common.alertsNone")}>
           <Icon name="bell" className="h-5 w-5" />
           {alerts > 0 ? <span className="tabular absolute -right-0.5 -top-0.5 rounded-full bg-danger-fill px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">{alerts}</span> : null}
         </Link>

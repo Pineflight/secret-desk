@@ -19,6 +19,10 @@ describe("i18n", () => {
     expect(Object.entries(messages.en).filter(([, v]) => v.trim() === "").map(([k]) => k)).toEqual([]);
   });
   it("ersetzt Platzhalter und waehlt Pluralformen", () => {
-    expect(translate("unbekannt.{x}", { x: 1 })).toBe("unbekannt.{x}");
+    expect(translate("common.days.future", { count: 1 }, "de")).toBe("in 1 Tag");
+    expect(translate("common.days.future", { count: 3 }, "de")).toBe("in 3 Tagen");
+    expect(translate("common.days.future", { count: 1 }, "en")).toBe("in 1 day");
+    expect(translate("common.days.past", { count: 2 }, "en")).toBe("expired 2 days ago");
+    expect(translate("gibt.es.nicht", undefined, "en")).toBe("gibt.es.nicht");
   });
 });

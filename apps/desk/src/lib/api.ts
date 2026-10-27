@@ -1,3 +1,4 @@
+import { getLocale, translate } from "./i18n";
 import { refreshCounts } from "./refresh";
 /** Client fuer die Portal-Schnittstelle. Haelt nur die CSRF-Kennung im Speicher, nie einen Wert. */
 export interface SessionInfo {
@@ -45,7 +46,7 @@ export async function ensureSession(force = false): Promise<SessionInfo> {
       const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string } | null;
-        throw new ApiError(res.status, body?.error ?? "Sitzung konnte nicht gestartet werden.");
+        throw new ApiError(res.status, body?.error ?? translate("common.err.session"));
       }
       const data = (await res.json()) as SessionInfo;
       session = data;
@@ -67,7 +68,7 @@ async function safeJson(res: Response): Promise<unknown> {
 
 export function toApiError(status: number, body: unknown): ApiError {
   const b = (body ?? {}) as { error?: unknown; code?: unknown; hint?: unknown; connection?: unknown };
-  const message = typeof b.error === "string" && b.error ? b.error : `Anfrage fehlgeschlagen (${status}).`;
+  const message = typeof b.error === "string" && b.error ? b.error : translate("common.err.request", { status });
   return new ApiError(status, message, {
     ...(typeof b.code === "string" ? { code: b.code } : {}),
     ...(typeof b.hint === "string" ? { hint: b.hint } : {}),
@@ -81,7 +82,7 @@ export function apiPath(path: string): string {
 
 export async function api<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
   const s = await ensureSession();
-  const headers: Record<string, string> = { "x-secret-desk-csrf": s.csrf };
+  const headers: Record<string, string> = { "x-secret-desk-csrf": s.csrf, "x-secret-desk-lang": getLocale() };
   let payload: BodyInit | undefined;
   if (body instanceof FormData) payload = body;
   else if (body !== undefined) {
@@ -92,7 +93,7 @@ export async function api<T>(method: string, path: string, body?: unknown, retri
   try {
     res = await fetch(apiPath(path), { method, headers, ...(payload !== undefined ? { body: payload } : {}), credentials: "same-origin", cache: "no-store" });
   } catch {
-    throw new ApiError(0, "Das Portal ist nicht erreichbar. Läuft es noch?");
+    throw new ApiError(0, translate("common.err.unreachable"));
   }
   if (res.status === 401 && !retried) {
     await ensureSession(true);

@@ -1,3 +1,4 @@
+import { translate } from "./i18n";
 import type { SecretView } from "@secret-desk/runtime";
 
 type Place = SecretView["places"][number];
@@ -5,8 +6,6 @@ type Place = SecretView["places"][number];
 export type SortKey = "name" | "expires" | "repo" | "stage" | "product";
 export type GroupKey = "none" | "repo" | "product" | "stage";
 
-export const SORT_LABELS: Record<SortKey, string> = { name: "Name", expires: "Ablauf", repo: "Repository", stage: "Stage", product: "Produkt" };
-export const GROUP_LABELS: Record<GroupKey, string> = { none: "Keine", repo: "Repository", product: "Produkt", stage: "Stage" };
 
 const STAGE_ORDER = ["production", "staging", "dev", "shared"];
 
@@ -81,5 +80,5 @@ export function groupItems<T extends Browsable>(items: T[], by: GroupKey): Group
     else add(item.stage, item);
   }
   const keys = [...map.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : by === "stage" ? stageRank(a) - stageRank(b) : cmp(a, b)));
-  return keys.map((k) => ({ key: k, label: k || (by === "repo" ? "Ohne Repository" : "Ohne Produkt"), items: map.get(k)! }));
+  return keys.map((k) => ({ key: k, label: k || (by === "repo" ? translate("meta.noRepo") : translate("meta.noProduct")), items: map.get(k)! }));
 }

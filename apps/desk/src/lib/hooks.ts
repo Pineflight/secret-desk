@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "./api";
+import { translate } from "./i18n";
 
 export interface QueryState<T> {
   data: T | undefined;
@@ -32,7 +33,7 @@ export function useQuery<T>(key: string | null, fetcher: () => Promise<T>, opts:
         })
         .catch((e: unknown) => {
           if (run.current !== id) return;
-          setError(e instanceof Error ? e : new Error("Unbekannter Fehler"));
+          setError(e instanceof Error ? e : new Error(translate("common.unknownError")));
         })
         .finally(() => {
           if (run.current === id) setLoading(false);
@@ -79,7 +80,7 @@ export function useMutation<A extends unknown[], R>(fn: (...args: A) => Promise<
     try {
       return await fnRef.current(...args);
     } catch (e) {
-      setError(e instanceof Error ? e : new Error("Unbekannter Fehler"));
+      setError(e instanceof Error ? e : new Error(translate("common.unknownError")));
       return undefined;
     } finally {
       setPending(false);

@@ -17,6 +17,7 @@ import { useMutation, useQuery } from "@/lib/hooks";
 import { emptyPlaceRow, rowsToPlaces, type PlaceRow } from "@/lib/places";
 import { statusInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
+import { useT } from "@/lib/i18n";
 
 interface ProviderRow {
   id: string;
@@ -27,13 +28,14 @@ interface ProviderRow {
 const STATUSES = ["ok", "soon", "due", "expired", "missing", "no-date", "unknown"] as const;
 
 export default function SecretsPage() {
+  const t = useT();
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("q") ?? "";
   const tag = params.get("tag") ?? "";
-  const setTag = (t: string) => {
+  const setTag = (v: string) => {
     const next = new URLSearchParams(params.toString());
-    if (t) next.set("tag", t);
+    if (v) next.set("tag", v);
     else next.delete("tag");
     router.replace(next.toString() ? `/secrets?${next}` : "/secrets");
   };
@@ -72,37 +74,37 @@ export default function SecretsPage() {
   return (
     <>
       <PageHeader
-        title="Secrets"
-        subtitle="Nur Metadaten: Die Werte selbst liegen nie hier."
+        title={t("secrets.title")}
+        subtitle={t("secrets.subtitle")}
         actions={
           <>
             <Button variant="secondary" loading={secrets.loading && live} onClick={() => (live ? secrets.reload() : setLive(true))}>
-              <Icon name="refresh" />Mit GitHub abgleichen
+              <Icon name="refresh" />{t("secrets.syncGithub")}
             </Button>
-            <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" />Neuer Eintrag</Button>
+            <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("secrets.newEntry")}</Button>
           </>
         }
       />
-      {live ? <div className="mb-4"><Notice tone="info">Die Stände wurden live mit GitHub abgeglichen. Fehlt ein Secret dort, steht „Fehlt in GitHub“.</Notice></div> : null}
+      {live ? <div className="mb-4"><Notice tone="info">{t("secrets.liveNotice")}</Notice></div> : null}
 
       <div className="mb-4 flex flex-wrap gap-3">
         <div className="w-40">
-          <SelectField label="Stage" value={stage} onChange={(e) => setStage(e.target.value)}>
-            <option value="">Alle</option>
+          <SelectField label={t("secrets.stage")} value={stage} onChange={(e) => setStage(e.target.value)}>
+            <option value="">{t("secrets.all")}</option>
             {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
           </SelectField>
         </div>
         <div className="w-48">
-          <SelectField label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Alle</option>
+          <SelectField label={t("secrets.status")} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">{t("secrets.all")}</option>
             {STATUSES.map((s) => <option key={s} value={s}>{statusInfo(s).label}</option>)}
           </SelectField>
         </div>
         <div className="w-44">
-          <SelectField label="Anbieter" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="">Alle</option>
-            <option value="auto">automatisch</option>
-            <option value="manual">von Hand</option>
+          <SelectField label={t("secrets.provider")} value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="">{t("secrets.all")}</option>
+            <option value="auto">{t("secrets.automatic")}</option>
+            <option value="manual">{t("secrets.manual")}</option>
           </SelectField>
         </div>
         <BrowseControls value={browse} onChange={setBrowse} repos={repos} products={products} />
@@ -110,14 +112,14 @@ export default function SecretsPage() {
 
       {tag ? (
         <div className="mb-4 flex items-center gap-2 text-sm">
-          <span className="text-muted-text">Gefiltert nach Schlagwort</span>
-          <button type="button" onClick={() => setTag("")} aria-label={`Filter ${tag} entfernen`} className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-medium text-primary">#{tag}<Icon name="x" className="h-3 w-3" /></button>
+          <span className="text-muted-text">{t("secrets.filteredByTag")}</span>
+          <button type="button" onClick={() => setTag("")} aria-label={t("secrets.removeFilter", { tag })} className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-medium text-primary">#{tag}<Icon name="x" className="h-3 w-3" /></button>
         </div>
       ) : null}
       {secrets.error ? <ErrorState error={secrets.error} onRetry={secrets.reload} /> : null}
       {secrets.loading && !secrets.data ? <ListSkeleton rows={6} /> : null}
       {secrets.data && rows.length === 0 ? (
-        <EmptyState title="Keine Einträge gefunden" icon="key">{q || tag || stage || status || kind || browse.repo || browse.product ? "Mit diesen Filtern gibt es keinen Treffer." : "Lege den ersten Eintrag mit „Neuer Eintrag“ an."}</EmptyState>
+        <EmptyState title={t("secrets.emptyTitle")} icon="key">{q || tag || stage || status || kind || browse.repo || browse.product ? t("secrets.emptyFiltered") : t("secrets.emptyFirst")}</EmptyState>
       ) : null}
       {groups.map((g) => (
         <div key={g.key}>
@@ -126,12 +128,12 @@ export default function SecretsPage() {
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3 font-semibold">Name</th>
-                  <th className="px-4 py-3 font-semibold">Stage</th>
-                  <th className="px-4 py-3 font-semibold">Anbieter</th>
-                  <th className="px-4 py-3 font-semibold">Ablauf</th>
-                  <th className="px-4 py-3 font-semibold">Ziele</th>
-                  <th className="px-4 py-3 font-semibold">Bestätigt</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colName")}</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colStage")}</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colProvider")}</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colExpiry")}</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colTargets")}</th>
+                  <th className="px-4 py-3 font-semibold">{t("secrets.colConfirmed")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -152,7 +154,7 @@ export default function SecretsPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">{s.places.length ? s.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-text">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : "noch nie"}</td>
+                    <td className="px-4 py-3 text-xs text-muted-text">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span><br />{s.verifiedBy ?? ""}</> : t("secrets.never")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -167,6 +169,7 @@ export default function SecretsPage() {
 }
 
 function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const t = useT();
   const toast = useToast();
   const providers = useQuery<ProviderRow[]>("providers", () => api<ProviderRow[]>("GET", "providers"));
   const [f, setF] = useState({ id: "", name: "", title: "", product: "", stage: "staging", service: "", provider: "manual", expiry: "unknown", expires: "", ttlDays: "" });
@@ -182,9 +185,9 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
     if (error) return setLocalError(error);
     const metaError = validateMeta(meta);
     if (metaError) return setLocalError(metaError);
-    if (f.stage !== "dev" && places.length === 0) return setLocalError("Für staging, production und shared braucht der Eintrag mindestens ein Ziel. Nur dev darf ohne Ziel sein.");
+    if (f.stage !== "dev" && places.length === 0) return setLocalError(t("secrets.needTarget"));
     const ttl = f.ttlDays.trim() ? Number(f.ttlDays) : undefined;
-    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) return setLocalError("Die Gültigkeit in Tagen muss eine ganze Zahl über 0 sein.");
+    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) return setLocalError(t("secrets.ttlInvalid"));
     const res = await create.run({
       id: f.id.trim(),
       name: f.name.trim(),
@@ -200,43 +203,43 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
       ...metaBody(meta),
     });
     if (res) {
-      toast.success(`„${res.name}“ wurde angelegt.`);
+      toast.success(t("secrets.created", { name: res.name }));
       onCreated();
     }
   };
 
   return (
-    <Dialog title="Neuer Eintrag" description="Es wird nur beschrieben, wo ein Secret liegt. Einen Wert gibst du später ein oder lässt ihn erzeugen." onClose={onClose} wide>
+    <Dialog title={t("secrets.dialogTitle")} description={t("secrets.dialogDesc")} onClose={onClose} wide>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
         <MetaFields value={meta} onChange={setMeta} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Kennung" hint="Kleinbuchstaben und Bindestriche, zum Beispiel stripe-key-web" required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
-          <TextField label="Name im Ziel" hint="GROSS_MIT_UNTERSTRICH" required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
-          <TextField label="Bezeichnung (optional)" value={f.title} onChange={(e) => set("title", e.target.value)} />
-          <TextField label="Produkt (optional)" value={f.product} onChange={(e) => set("product", e.target.value)} />
-          <SelectField label="Stage" value={f.stage} onChange={(e) => set("stage", e.target.value)}>
+          <TextField label={t("secrets.fieldId")} hint={t("secrets.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
+          <TextField label={t("secrets.fieldName")} hint={t("secrets.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
+          <TextField label={t("secrets.fieldTitle")} value={f.title} onChange={(e) => set("title", e.target.value)} />
+          <TextField label={t("secrets.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
+          <SelectField label={t("secrets.stage")} value={f.stage} onChange={(e) => set("stage", e.target.value)}>
             {["dev", "staging", "production", "shared"].map((s) => <option key={s} value={s}>{s}</option>)}
           </SelectField>
-          <TextField label="Dienst" hint="zum Beispiel stripe, cloudflare, intern" required value={f.service} onChange={(e) => set("service", e.target.value)} />
-          <SelectField label="Anbieter" value={f.provider} onChange={(e) => set("provider", e.target.value)}>
-            <option value="manual">von Hand (manual)</option>
-            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.label} ({p.kind === "automatic" ? "automatisch" : "von Hand"})</option>)}
+          <TextField label={t("secrets.fieldService")} hint={t("secrets.fieldServiceHint")} required value={f.service} onChange={(e) => set("service", e.target.value)} />
+          <SelectField label={t("secrets.provider")} value={f.provider} onChange={(e) => set("provider", e.target.value)}>
+            <option value="manual">{t("secrets.providerManual")}</option>
+            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.label} ({p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})</option>)}
           </SelectField>
-          <SelectField label="Ablauf" value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
-            <option value="none">Läuft nie ab</option>
-            <option value="possible">Kann ablaufen</option>
-            <option value="required">Läuft immer ab</option>
-            <option value="unknown">Unklar</option>
+          <SelectField label={t("secrets.expiry")} value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
+            <option value="none">{t("secrets.expNone")}</option>
+            <option value="possible">{t("secrets.expPossible")}</option>
+            <option value="required">{t("secrets.expRequired")}</option>
+            <option value="unknown">{t("secrets.expUnknown")}</option>
           </SelectField>
-          <TextField label="Läuft ab am (optional)" type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
-          <TextField label="Gültigkeit in Tagen (optional)" inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
+          <TextField label={t("secrets.expiresOn")} type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
+          <TextField label={t("secrets.ttlDays")} inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
         </div>
         <PlacesEditor rows={rows} onChange={setRows} />
-        {f.stage === "dev" ? <p className="text-xs text-muted">dev-Einträge dürfen ohne Ziel angelegt werden.</p> : null}
+        {f.stage === "dev" ? <p className="text-xs text-muted">{t("secrets.devNoTarget")}</p> : null}
         {localError || create.error ? <Notice tone="danger">{localError ?? create.error?.message}</Notice> : null}
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Abbrechen</Button>
-          <Button type="submit" variant="primary" loading={create.pending}>Anlegen</Button>
+          <Button onClick={onClose}>{t("secrets.cancel")}</Button>
+          <Button type="submit" variant="primary" loading={create.pending}>{t("secrets.create")}</Button>
         </div>
       </form>
     </Dialog>

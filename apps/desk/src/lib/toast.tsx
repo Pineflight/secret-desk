@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { useT } from "./i18n";
 import { Icon } from "@/components/Icons";
 
 type Kind = "success" | "error" | "info";
@@ -18,6 +19,7 @@ const Ctx = createContext<ToastApi>({ success: () => {}, error: () => {}, info: 
 export const useToast = (): ToastApi => useContext(Ctx);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const tr = useT();
   const [items, setItems] = useState<Toast[]>([]);
   const next = useRef(1);
   const close = useCallback((id: number) => setItems((l) => l.filter((t) => t.id !== id)), []);
@@ -43,7 +45,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           >
             <Icon name={t.kind === "error" ? "alert" : t.kind === "success" ? "check" : "info"} className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="flex-1">{t.text}</p>
-            <button type="button" onClick={() => close(t.id)} className="rounded p-0.5 hover:bg-black/5" aria-label="Meldung schließen">
+            <button type="button" onClick={() => close(t.id)} className="rounded p-0.5 hover:bg-black/5" aria-label={tr("common.closeToast")}>
               <Icon name="x" className="h-4 w-4" />
             </button>
           </div>

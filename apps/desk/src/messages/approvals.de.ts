@@ -1,2 +1,17 @@
 export default {
+  "approvals.actionIssue": "Neuen Wert erzeugen",
+  "approvals.actionApplyVariable": "Variable in GitHub setzen",
+  "approvals.title": "Freigaben",
+  "approvals.subtitle": "Anfragen von Agenten, die ein Mensch freigeben muss.",
+  "approvals.emptyTitle": "Keine Anfragen",
+  "approvals.emptyText": "Wenn ein Agent etwas in staging oder production auslösen will, erscheint es hier.",
+  "approvals.approved": "Freigegeben.",
+  "approvals.denied": "Abgelehnt.",
+  "approvals.target": "Ziel:",
+  "approvals.requestedBy": "angefragt von {user} am {date}",
+  "approvals.reason": "Grund: {reason}",
+  "approvals.result": "Ergebnis: {result}",
+  "approvals.approve": "Freigeben",
+  "approvals.deny": "Ablehnen",
+  "approvals.toReview": "Zur Prüfung des neuen Werts",
 } satisfies Record<string, string>;

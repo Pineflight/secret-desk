@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { messages } from "@/messages";
+import { messages } from "../messages";
 
 export type Locale = "de" | "en";
 export const LOCALES: Locale[] = ["de", "en"];

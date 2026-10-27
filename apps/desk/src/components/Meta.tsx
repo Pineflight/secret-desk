@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useMutation } from "@/lib/hooks";
 import { MAX_DESCRIPTION, addTags, isHttpUrl } from "@/lib/tags";
 import { useToast } from "@/lib/toast";
+import { translate, useT } from "@/lib/i18n";
 
 export interface MetaValues {
   description: string;
@@ -38,8 +39,8 @@ export function metaPatch(m: MetaValues): Record<string, unknown> {
 }
 
 export function validateMeta(m: MetaValues): string | null {
-  if (m.description.length > MAX_DESCRIPTION) return `Die Beschreibung ist länger als ${MAX_DESCRIPTION} Zeichen.`;
-  if (m.link.trim() && !isHttpUrl(m.link.trim())) return "Der Link muss mit http:// oder https:// beginnen.";
+  if (m.description.length > MAX_DESCRIPTION) return translate("meta.descTooLong", { max: MAX_DESCRIPTION });
+  if (m.link.trim() && !isHttpUrl(m.link.trim())) return translate("meta.linkInvalid");
   return null;
 }
 
@@ -59,6 +60,7 @@ export function TagPills({ tags, onPick, active }: { tags: string[]; onPick?: (t
 }
 
 export function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
+  const t = useT();
   const id = useId();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -74,13 +76,13 @@ export function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: str
   };
   return (
     <div className="space-y-1">
-      <label htmlFor={id} className="block text-sm font-medium">Schlagworte</label>
+      <label htmlFor={id} className="block text-sm font-medium">{t("meta.tags")}</label>
       {tags.length > 0 ? (
         <ul className="flex flex-wrap gap-1">
-          {tags.map((t) => (
-            <li key={t} className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-xs text-primary">
-              #{t}
-              <button type="button" onClick={() => onChange(tags.filter((x) => x !== t))} aria-label={`Schlagwort ${t} entfernen`} className="rounded-full hover:bg-white/60"><Icon name="x" className="h-3 w-3" /></button>
+          {tags.map((tag) => (
+            <li key={tag} className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-xs text-primary">
+              #{tag}
+              <button type="button" onClick={() => onChange(tags.filter((x) => x !== tag))} aria-label={t("meta.tagRemove", { tag })} className="rounded-full hover:bg-white/60"><Icon name="x" className="h-3 w-3" /></button>
             </li>
           ))}
         </ul>
@@ -101,32 +103,33 @@ export function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: str
           }
         }}
         onBlur={() => commit(text)}
-        placeholder="zum Beispiel zahlungen, web-studio (Enter oder Komma)"
+        placeholder={t("meta.tagPlaceholder")}
         className={inputClass}
         autoComplete="off"
       />
-      {error ? <p role="alert" className="text-xs text-danger-text">{error}</p> : <p className="text-xs text-muted">Kleinbuchstaben, Ziffern und Bindestriche, höchstens 12.</p>}
+      {error ? <p role="alert" className="text-xs text-danger-text">{error}</p> : <p className="text-xs text-muted">{t("meta.tagHint")}</p>}
     </div>
   );
 }
 
 /** Felder fürs Beschreiben, Beschreibung zuerst und als empfohlen markiert. */
 export function MetaFields({ value, onChange }: { value: MetaValues; onChange: (v: MetaValues) => void }) {
+  const t = useT();
   const set = <K extends keyof MetaValues>(k: K, v: MetaValues[K]) => onChange({ ...value, [k]: v });
   return (
     <div className="space-y-4 rounded-xl bg-primary-light/50 p-4 ring-1 ring-inset ring-primary/20">
       <div>
         <TextAreaField
-          label="Beschreibung (empfohlen)"
-          hint={<span className="flex justify-between"><span>Wofür wird der Wert gebraucht und wo wird er genutzt?</span><span className={`tabular ${value.description.length > MAX_DESCRIPTION ? "text-danger-text" : ""}`}>{value.description.length}/{MAX_DESCRIPTION}</span></span>}
+          label={t("meta.description")}
+          hint={<span className="flex justify-between"><span>{t("meta.descriptionHint")}</span><span className={`tabular ${value.description.length > MAX_DESCRIPTION ? "text-danger-text" : ""}`}>{value.description.length}/{MAX_DESCRIPTION}</span></span>}
           rows={3}
           value={value.description}
           onChange={(e) => set("description", e.target.value)}
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField label="Verantwortlich" value={value.owner} onChange={(e) => set("owner", e.target.value)} autoComplete="off" />
-        <TextField label="Link" type="url" placeholder="https://" value={value.link} onChange={(e) => set("link", e.target.value)} autoComplete="off" />
+        <TextField label={t("meta.owner")} value={value.owner} onChange={(e) => set("owner", e.target.value)} autoComplete="off" />
+        <TextField label={t("meta.link")} type="url" placeholder="https://" value={value.link} onChange={(e) => set("link", e.target.value)} autoComplete="off" />
       </div>
       <TagInput tags={value.tags} onChange={(t) => set("tags", t)} />
     </div>
@@ -135,6 +138,7 @@ export function MetaFields({ value, onChange }: { value: MetaValues; onChange: (
 
 /** Dialog zum Bearbeiten der beschreibenden Angaben. `path` ist `secrets/<id>` oder `variables/<id>`. */
 export function EditMetaDialog({ path, initial, notes, onClose, onSaved }: { path: string; initial: MetaValues; notes?: string | null | undefined; onClose: () => void; onSaved: () => void }) {
+  const t = useT();
   const toast = useToast();
   const [m, setM] = useState(initial);
   const [n, setN] = useState(notes ?? "");
@@ -146,19 +150,19 @@ export function EditMetaDialog({ path, initial, notes, onClose, onSaved }: { pat
     if (err) return;
     const body = { ...metaPatch(m), ...(notes !== undefined ? { notes: n.trim() || null } : {}) };
     if (await save.run(body)) {
-      toast.success("Gespeichert.");
+      toast.success(t("meta.saved"));
       onSaved();
     }
   };
   return (
-    <Dialog title="Beschreibung bearbeiten" onClose={onClose} wide>
+    <Dialog title={t("meta.editTitle")} onClose={onClose} wide>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
         <MetaFields value={m} onChange={setM} />
-        {notes !== undefined ? <TextAreaField label="Hinweise" rows={2} value={n} onChange={(e) => setN(e.target.value)} /> : null}
+        {notes !== undefined ? <TextAreaField label={t("meta.notes")} rows={2} value={n} onChange={(e) => setN(e.target.value)} /> : null}
         {localError || save.error ? <Notice tone="danger">{localError ?? save.error?.message}</Notice> : null}
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Abbrechen</Button>
-          <Button type="submit" variant="primary" loading={save.pending}>Speichern</Button>
+          <Button onClick={onClose}>{t("meta.cancel")}</Button>
+          <Button type="submit" variant="primary" loading={save.pending}>{t("meta.save")}</Button>
         </div>
       </form>
     </Dialog>

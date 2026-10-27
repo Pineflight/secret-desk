@@ -1,2 +1,15 @@
 export default {
+  "team.title": "Team",
+  "team.subtitle": "Teile, welche Secrets und Variablen es gibt, ohne einen einzigen Wert weiterzugeben.",
+  "team.exportTitle": "Team-Konfiguration herunterladen",
+  "team.exportText": "Eine Datei mit Namen, Zielen, Anbietern und Vorlagen. Sie enthält keine Werte und keine Zugangsschlüssel. Teammitglieder können sie importieren und sehen dann dieselbe Übersicht.",
+  "team.download": "Herunterladen",
+  "team.importTitle": "Team-Konfiguration importieren",
+  "team.loadFile": "Datei laden",
+  "team.pasteText": "Oder Text einfügen",
+  "team.replace": "Vorhandene Einträge ersetzen",
+  "team.importDone": "Import fertig",
+  "team.importSummary": "Hinzugefügt: {added}. Übersprungen: {skipped}.",
+  "team.import": "Importieren",
+  "team.imported": "Team-Konfiguration importiert.",
 } satisfies Record<string, string>;

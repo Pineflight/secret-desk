@@ -1,11 +1,13 @@
+import { translate } from "./i18n";
+
 export const MAX_TAGS = 12;
 export const MAX_DESCRIPTION = 500;
 const TAG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** Prüft ein Schlagwort. Liefert eine Fehlermeldung oder null. */
 export function validateTag(tag: string): string | null {
-  if (!tag) return "Das Schlagwort ist leer.";
-  if (!TAG_RE.test(tag)) return `„${tag}“ ist ungültig. Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche.`;
+  if (!tag) return translate("meta.tagEmpty");
+  if (!TAG_RE.test(tag)) return translate("meta.tagInvalid", { tag });
   return null;
 }
 
@@ -26,7 +28,7 @@ export function addTags(current: string[], input: string): { tags: string[]; err
     const err = validateTag(t);
     if (err) return { tags: current, error: err };
     if (tags.includes(t)) continue;
-    if (tags.length >= MAX_TAGS) return { tags: current, error: `Höchstens ${MAX_TAGS} Schlagworte.` };
+    if (tags.length >= MAX_TAGS) return { tags: current, error: translate("meta.tagMax", { max: MAX_TAGS }) };
     tags.push(t);
   }
   return { tags, error: null };

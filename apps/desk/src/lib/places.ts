@@ -1,4 +1,5 @@
 import type { Place } from "@secret-desk/core";
+import { translate } from "./i18n";
 
 export interface PlaceRow {
   repo: string;
@@ -15,9 +16,9 @@ export function rowsToPlaces(rows: PlaceRow[]): { places: Place[]; error: string
     const repo = r.repo.trim();
     const env = r.environment.trim();
     if (!repo && !env) continue;
-    if (!repo) return { places: [], error: "Bei einem Ziel fehlt das Repository." };
+    if (!repo) return { places: [], error: translate("meta.placeNoRepo") };
     if (r.scope === "environment") {
-      if (!env) return { places: [], error: `Für ${repo} fehlt der Umgebungsname.` };
+      if (!env) return { places: [], error: translate("meta.placeNoEnv", { repo }) };
       places.push({ repo, scope: "environment", environment: env });
     } else places.push({ repo, scope: "repository" });
   }

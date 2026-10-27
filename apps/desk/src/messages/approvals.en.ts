@@ -1,2 +1,17 @@
 export default {
+  "approvals.actionIssue": "Generate new value",
+  "approvals.actionApplyVariable": "Set variable in GitHub",
+  "approvals.title": "Approvals",
+  "approvals.subtitle": "Agent requests that a person has to approve.",
+  "approvals.emptyTitle": "No requests",
+  "approvals.emptyText": "When an agent wants to trigger something in staging or production, it appears here.",
+  "approvals.approved": "Approved.",
+  "approvals.denied": "Denied.",
+  "approvals.target": "Target:",
+  "approvals.requestedBy": "requested by {user} on {date}",
+  "approvals.reason": "Reason: {reason}",
+  "approvals.result": "Result: {result}",
+  "approvals.approve": "Approve",
+  "approvals.deny": "Deny",
+  "approvals.toReview": "Go to review of the new value",
 } satisfies Record<string, string>;

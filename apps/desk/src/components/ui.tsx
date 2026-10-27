@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/lib/i18n";
 import Link from "next/link";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useId } from "react";
@@ -129,8 +130,9 @@ export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
 }
 
 export function ListSkeleton({ rows = 4 }: { rows?: number }) {
+  const t = useT();
   return (
-    <div className="space-y-3" role="status" aria-label="Wird geladen">
+    <div className="space-y-3" role="status" aria-label={t("common.loading")}>
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} className="h-14 w-full" />
       ))}
@@ -149,15 +151,16 @@ export function EmptyState({ title, children, icon = "inbox" }: { title: string;
 }
 
 export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+  const t = useT();
   const api = error instanceof ApiError ? error : null;
   return (
     <div role="alert" className="rounded-2xl border border-danger bg-danger-light p-5 text-danger-text">
-      <p className="flex items-center gap-2 font-medium"><Icon name="alert" className="h-4 w-4" />Das hat nicht geklappt</p>
+      <p className="flex items-center gap-2 font-medium"><Icon name="alert" className="h-4 w-4" />{t("common.failed")}</p>
       <p className="mt-1 text-sm">{error.message}</p>
       {api?.code === "not-connected" ? (
-        <p className="mt-2 text-sm">Die Verbindung „{api.connection ?? "?"}“ fehlt. <Link href="/verbindungen" className="font-medium underline">Zu den Verbindungen</Link></p>
+        <p className="mt-2 text-sm">{t("common.missingConnection", { name: api.connection ?? "?" })} <Link href="/verbindungen" className="font-medium underline">{t("common.toIntegrations")}</Link></p>
       ) : null}
-      {onRetry ? <Button variant="secondary" className="mt-3" onClick={onRetry}><Icon name="refresh" />Erneut versuchen</Button> : null}
+      {onRetry ? <Button variant="secondary" className="mt-3" onClick={onRetry}><Icon name="refresh" />{t("common.retry")}</Button> : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icons";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -7,6 +8,7 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
 export function Dialog({ title, onClose, children, wide = false, description }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; description?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const t = useT();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -52,7 +54,7 @@ export function Dialog({ title, onClose, children, wide = false, description }: 
             <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
             {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
           </div>
-          <button type="button" onClick={onClose} aria-label="Dialog schließen" className="rounded-lg p-1.5 text-muted hover:bg-page">
+          <button type="button" onClick={onClose} aria-label={t("common.closeDialog")} className="rounded-lg p-1.5 text-muted hover:bg-page">
             <Icon name="x" className="h-5 w-5" />
           </button>
         </div>

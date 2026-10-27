@@ -1,2 +1,15 @@
 export default {
+  "team.title": "Team",
+  "team.subtitle": "Share which secrets and variables exist without passing on a single value.",
+  "team.exportTitle": "Download team configuration",
+  "team.exportText": "A file with names, targets, providers and templates. It contains no values and no access keys. Team members can import it and then see the same overview.",
+  "team.download": "Download",
+  "team.importTitle": "Import team configuration",
+  "team.loadFile": "Load file",
+  "team.pasteText": "Or paste text",
+  "team.replace": "Replace existing entries",
+  "team.importDone": "Import finished",
+  "team.importSummary": "Added: {added}. Skipped: {skipped}.",
+  "team.import": "Import",
+  "team.imported": "Team configuration imported.",
 } satisfies Record<string, string>;

@@ -14,6 +14,7 @@ import { daysLabel, formatDate, formatDateTime, placeText } from "@/lib/format";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { overallInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
+import { useT } from "@/lib/i18n";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -25,6 +26,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 }
 
 export default function SecretDetailPage() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -41,11 +43,11 @@ export default function SecretDetailPage() {
     try {
       const res = await api<IssuanceRequestResult>("POST", "renewal-requests", { secretId: id, ...(dryRun ? { dryRun: true } : {}) });
       if (res.status === "awaiting-review") router.push(`/pruefen/${enc(res.issuance.id)}`);
-      else if (res.status === "pending-approval") setNotice({ tone: "warn", title: "Freigabe nötig", text: "Für diese Stage muss zuerst jemand die Anfrage freigeben.", href: "/freigaben", link: "Zu den Freigaben" });
+      else if (res.status === "pending-approval") setNotice({ tone: "warn", title: t("secretDetail.approvalTitle"), text: t("secretDetail.approvalText"), href: "/freigaben", link: t("secretDetail.toApprovals") });
       else setPlan(res.plan as never);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: "Verbindung fehlt", text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/verbindungen", link: "Zu den Verbindungen" });
-      else toast.error(e instanceof Error ? e.message : "Unbekannter Fehler");
+      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/verbindungen", link: t("secretDetail.toConnections") });
+      else toast.error(e instanceof Error ? e.message : t("secretDetail.unknownError"));
     }
   };
 
@@ -55,15 +57,15 @@ export default function SecretDetailPage() {
 
   return (
     <>
-      <p className="mb-2 text-sm"><Link href="/secrets" className="text-primary hover:underline">← Alle Secrets</Link></p>
+      <p className="mb-2 text-sm"><Link href="/secrets" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
       <PageHeader
         title={s.title ?? s.name}
         subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} /></span>}
         actions={
           <>
-            {s.automatic ? <Button variant="primary" onClick={() => void startRenewal(false)}><Icon name="bolt" />Neuen Wert erzeugen</Button> : null}
-            <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />Wert einfügen</Button>
-            <Button variant="ghost" onClick={() => void startRenewal(true)}>Nur Plan zeigen</Button>
+            {s.automatic ? <Button variant="primary" onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
+            <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />{t("secretDetail.pasteValue")}</Button>
+            <Button variant="ghost" onClick={() => void startRenewal(true)}>{t("secretDetail.planOnly")}</Button>
           </>
         }
       />
@@ -74,12 +76,12 @@ export default function SecretDetailPage() {
       ) : null}
       {plan ? (
         <div className="mb-6">
-          <Notice tone="info" title="Probelauf: Es wurde nichts verändert">
+          <Notice tone="info" title={t("secretDetail.dryRunTitle")}>
             <ul className="list-disc pl-5">
-              <li>{plan.automatic ? "Der Wert würde automatisch erzeugt." : "Der Wert muss von Hand eingefügt werden."}</li>
-              <li>Ziele: {plan.places?.length ? plan.places.join(", ") : "keine"}</li>
-              <li>{plan.revokesOld ? "Der alte Wert würde nach der Bestätigung widerrufen." : "Der alte Wert wird nicht widerrufen."}</li>
-              {plan.ttlDays ? <li>Gültigkeit: {plan.ttlDays} Tage</li> : null}
+              <li>{plan.automatic ? t("secretDetail.planAuto") : t("secretDetail.planManual")}</li>
+              <li>{t("secretDetail.planTargets", { targets: plan.places?.length ? plan.places.join(", ") : t("secretDetail.planNoTargets") })}</li>
+              <li>{plan.revokesOld ? t("secretDetail.planRevokes") : t("secretDetail.planKeeps")}</li>
+              {plan.ttlDays ? <li>{t("secretDetail.planTtl", { days: plan.ttlDays })}</li> : null}
             </ul>
           </Notice>
         </div>
@@ -87,45 +89,45 @@ export default function SecretDetailPage() {
 
       <Card className="mb-6">
         <div className="flex items-center justify-between gap-3">
-          <SectionLabel>Beschreibung</SectionLabel>
-          <Button variant="ghost" onClick={() => setEditing(true)}><Icon name="wrench" />Bearbeiten</Button>
+          <SectionLabel>{t("secretDetail.description")}</SectionLabel>
+          <Button variant="ghost" onClick={() => setEditing(true)}><Icon name="wrench" />{t("secretDetail.edit")}</Button>
         </div>
         {s.description || s.owner || s.link || s.tags.length > 0 || s.notes ? (
           <div className="mt-3 space-y-3 text-sm">
-            {s.description ? <p className="whitespace-pre-line">{s.description}</p> : <p className="text-muted-text">Noch keine Beschreibung. Sag, wofür der Wert gebraucht wird und wo er genutzt wird.</p>}
-            {s.owner ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Verantwortlich</dt><dd className="font-medium">{s.owner}</dd></dl> : null}
-            {s.link ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Link</dt><dd><ExternalLink href={s.link} /></dd></dl> : null}
-            {s.tags.length > 0 ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Schlagworte</dt><dd><TagPills tags={s.tags} /></dd></dl> : null}
-            {s.notes ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">Hinweise</dt><dd className="whitespace-pre-line">{s.notes}</dd></dl> : null}
+            {s.description ? <p className="whitespace-pre-line">{s.description}</p> : <p className="text-muted-text">{t("secretDetail.noDescription")}</p>}
+            {s.owner ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">{t("secretDetail.owner")}</dt><dd className="font-medium">{s.owner}</dd></dl> : null}
+            {s.link ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">{t("secretDetail.link")}</dt><dd><ExternalLink href={s.link} /></dd></dl> : null}
+            {s.tags.length > 0 ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">{t("secretDetail.tags")}</dt><dd><TagPills tags={s.tags} /></dd></dl> : null}
+            {s.notes ? <dl className="flex gap-3"><dt className="w-28 shrink-0 text-muted-text">{t("secretDetail.notes")}</dt><dd className="whitespace-pre-line">{s.notes}</dd></dl> : null}
           </div>
         ) : (
-          <p className="mt-3 text-sm text-muted-text">Noch keine Beschreibung. Sag, wofür der Wert gebraucht wird und wo er genutzt wird.</p>
+          <p className="mt-3 text-sm text-muted-text">{t("secretDetail.noDescription")}</p>
         )}
       </Card>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <SectionLabel>Fakten</SectionLabel>
+          <SectionLabel>{t("secretDetail.facts")}</SectionLabel>
           <dl className="mt-2 divide-y divide-line">
-            <Fact label="Dienst">{s.service}</Fact>
-            <Fact label="Anbieter">{s.provider}</Fact>
-            <Fact label="Läuft ab"><span className="tabular">{formatDate(s.expires)}</span> <span className="font-normal text-muted-text">({daysLabel(s.daysLeft)})</span></Fact>
-            <Fact label="Zuletzt erneuert"><span className="tabular">{formatDate(s.rotatedAt)}</span></Fact>
-            <Fact label="Zuletzt bestätigt">{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` von ${s.verifiedBy}` : ""}</> : "noch nie"}</Fact>
+            <Fact label={t("secretDetail.service")}>{s.service}</Fact>
+            <Fact label={t("secretDetail.provider")}>{s.provider}</Fact>
+            <Fact label={t("secretDetail.expires")}><span className="tabular">{formatDate(s.expires)}</span> <span className="font-normal text-muted-text">({daysLabel(s.daysLeft)})</span></Fact>
+            <Fact label={t("secretDetail.rotatedAt")}><span className="tabular">{formatDate(s.rotatedAt)}</span></Fact>
+            <Fact label={t("secretDetail.verifiedAt")}>{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? t("secretDetail.verifiedBy", { name: s.verifiedBy }) : ""}</> : t("secretDetail.never")}</Fact>
           </dl>
         </Card>
         <Card>
-          <SectionLabel>Ziele in GitHub</SectionLabel>
-          {s.places.length ? <ul className="mt-3 flex flex-wrap gap-2">{s.places.map((p, i) => <li key={i}><Pill>{placeText(p)}</Pill></li>)}</ul> : <p className="mt-3 text-sm text-muted-text">Keine Ziele. Dieser Eintrag wird nur lokal genutzt.</p>}
+          <SectionLabel>{t("secretDetail.targets")}</SectionLabel>
+          {s.places.length ? <ul className="mt-3 flex flex-wrap gap-2">{s.places.map((p, i) => <li key={i}><Pill>{placeText(p)}</Pill></li>)}</ul> : <p className="mt-3 text-sm text-muted-text">{t("secretDetail.noTargets")}</p>}
         </Card>
       </div>
 
       <Card>
-        <SectionLabel>Verlauf der Prüfungen</SectionLabel>
+        <SectionLabel>{t("secretDetail.history")}</SectionLabel>
         <div className="mt-4">
           {evidence.loading && !evidence.data ? <ListSkeleton rows={2} /> : null}
           {evidence.error ? <ErrorState error={evidence.error} onRetry={evidence.reload} /> : null}
-          {evidence.data && evidence.data.length === 0 ? <EmptyState title="Noch keine Prüfung" icon="shield">Sobald ein Wert geprüft wurde, steht der Beleg hier.</EmptyState> : null}
+          {evidence.data && evidence.data.length === 0 ? <EmptyState title={t("secretDetail.noReviewTitle")} icon="shield">{t("secretDetail.noReviewText")}</EmptyState> : null}
           <ul className="space-y-4">
             {[...(evidence.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((r) => {
               const overall = r.checks.some((c) => c.status === "fail") ? "fail" : r.checks.some((c) => c.status === "warn") ? "warn" : "pass";
@@ -135,11 +137,11 @@ export default function SecretDetailPage() {
                   <div className="w-56 shrink-0"><EvidenceImage secretId={r.secretId} reportId={r.id} createdAt={r.createdAt} zoomable className="w-full" /></div>
                   <div className="min-w-0 flex-1 space-y-2 text-sm">
                     <p className="flex flex-wrap items-center gap-2"><span className="tabular font-medium">{formatDateTime(r.createdAt)}</span><Badge info={overallInfo(overall)} /></p>
-                    <p className="text-muted-text">{c ? (c.decision === "confirmed" ? `Bestätigt von ${c.by} am ${formatDateTime(c.at)}` : `Abgelehnt von ${c.by} am ${formatDateTime(c.at)}`) : "Noch nicht bestätigt"}{c?.note ? `: ${c.note}` : ""}</p>
-                    <p className="text-xs text-muted">Fingerabdruck <span className="font-mono">{r.fingerprint}</span></p>
+                    <p className="text-muted-text">{c ? (c.decision === "confirmed" ? t("secretDetail.confirmedBy", { by: c.by, date: formatDateTime(c.at) }) : t("secretDetail.rejectedBy", { by: c.by, date: formatDateTime(c.at) })) : t("secretDetail.notConfirmed")}{c?.note ? `: ${c.note}` : ""}</p>
+                    <p className="text-xs text-muted">{t("secretDetail.fingerprint")} <span className="font-mono">{r.fingerprint}</span></p>
                     {r.attachments.length > 0 ? (
                       <div>
-                        <p className="mb-1 text-xs font-medium text-muted-text">Anlagen</p>
+                        <p className="mb-1 text-xs font-medium text-muted-text">{t("secretDetail.attachments")}</p>
                         <div className="flex flex-wrap gap-2">{r.attachments.map((a) => <AttachmentThumb key={a.file} secretId={r.secretId} reportId={r.id} file={a.file} note={a.note} />)}</div>
                       </div>
                     ) : null}
@@ -158,6 +160,7 @@ export default function SecretDetailPage() {
 }
 
 function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: () => void }) {
+  const t = useT();
   const router = useRouter();
   const ref = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
@@ -170,24 +173,24 @@ function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: (
     if (res) router.push(`/pruefen/${enc(res.id)}`);
   };
   return (
-    <Dialog title="Wert einfügen" description={`Für ${secret.name}. Der Wert wird geprüft und nie gespeichert. Geschrieben wird erst nach deiner Bestätigung.`} onClose={onClose}>
+    <Dialog title={t("secretDetail.manualTitle")} description={t("secretDetail.manualDesc", { name: secret.name })} onClose={onClose}>
       {secret.guide ? (
         <div className="mb-4 rounded-xl bg-page p-4 text-sm">
-          <p className="mb-2 font-medium">So bekommst du den Wert</p>
-          <a href={secret.guide.openUrl} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex items-center gap-1 text-primary underline">{secret.guide.openUrl !== secret.guide.url ? "Seite des Anbieters mit Vorgaben öffnen" : "Anleitung des Anbieters öffnen"}<Icon name="external" className="h-3.5 w-3.5" /></a>
+          <p className="mb-2 font-medium">{t("secretDetail.howToGet")}</p>
+          <a href={secret.guide.openUrl} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex items-center gap-1 text-primary underline">{secret.guide.openUrl !== secret.guide.url ? t("secretDetail.openProviderPrefilled") : t("secretDetail.openProviderGuide")}<Icon name="external" className="h-3.5 w-3.5" /></a>
           {secret.guide.steps.length > 0 ? <ol className="list-decimal space-y-1 pl-5">{secret.guide.steps.map((st, i) => <li key={i}>{st}</li>)}</ol> : null}
         </div>
       ) : null}
       <form onSubmit={(e) => { e.preventDefault(); if (value) void submit(); }} className="space-y-4">
         <div className="space-y-1">
-          <label htmlFor="manual-value" className="block text-sm font-medium">Neuer Wert</label>
+          <label htmlFor="manual-value" className="block text-sm font-medium">{t("secretDetail.newValue")}</label>
           <input id="manual-value" ref={ref} data-autofocus type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className="w-full rounded-xl border border-line bg-card px-3 py-2 font-mono text-sm" />
-          <p className="text-xs text-muted">Wird nach dem Absenden sofort aus dem Feld gelöscht.</p>
+          <p className="text-xs text-muted">{t("secretDetail.clearedHint")}</p>
         </div>
         {send.error ? <Notice tone="danger">{send.error.message}</Notice> : null}
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Abbrechen</Button>
-          <Button type="submit" variant="primary" loading={send.pending} disabled={!value}>Prüfen</Button>
+          <Button onClick={onClose}>{t("secretDetail.cancel")}</Button>
+          <Button type="submit" variant="primary" loading={send.pending} disabled={!value}>{t("secretDetail.check")}</Button>
         </div>
       </form>
     </Dialog>
