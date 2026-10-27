@@ -78,6 +78,13 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+    devDependencies:
+      '@types/libsodium-wrappers':
+        specifier: ^0.8.2
+        version: 0.8.2
+      libsodium-wrappers:
+        specifier: ^0.8.4
+        version: 0.8.4
 
   packages/core:
     dependencies:
