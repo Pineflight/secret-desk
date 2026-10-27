@@ -74,6 +74,7 @@ export function LinkButton({ href, children, variant = "secondary", className = 
   );
 }
 
+export const selectClass = "sd-select w-full rounded-xl border border-line bg-card py-2 pl-3 pr-9 text-sm text-ink focus:border-primary disabled:opacity-60";
 export const inputClass = "w-full rounded-xl border border-line bg-card px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary disabled:opacity-60";
 
 export function Field({ label, hint, children, htmlFor }: { label: string; hint?: ReactNode; children: ReactNode; htmlFor?: string }) {
@@ -99,7 +100,7 @@ export function SelectField({ label, hint, children, ...rest }: SelectHTMLAttrib
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
-      <select id={id} {...rest} className={inputClass}>{children}</select>
+      <select id={id} {...rest} className={selectClass}>{children}</select>
     </Field>
   );
 }

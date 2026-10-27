@@ -2,7 +2,7 @@
 import { emptyPlaceRow, type PlaceRow } from "@/lib/places";
 import { Button } from "./ui";
 import { Icon } from "./Icons";
-import { inputClass } from "./ui";
+import { inputClass, selectClass } from "./ui";
 
 export function PlacesEditor({ rows, onChange }: { rows: PlaceRow[]; onChange: (rows: PlaceRow[]) => void }) {
   const set = (i: number, patch: Partial<PlaceRow>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -12,7 +12,7 @@ export function PlacesEditor({ rows, onChange }: { rows: PlaceRow[]; onChange: (
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]">
           <input aria-label={`Repository, Ziel ${i + 1}`} placeholder="Repository" value={r.repo} onChange={(e) => set(i, { repo: e.target.value })} className={inputClass} autoComplete="off" />
-          <select aria-label={`Bereich, Ziel ${i + 1}`} value={r.scope} onChange={(e) => set(i, { scope: e.target.value as PlaceRow["scope"] })} className={inputClass}>
+          <select aria-label={`Bereich, Ziel ${i + 1}`} value={r.scope} onChange={(e) => set(i, { scope: e.target.value as PlaceRow["scope"] })} className={selectClass}>
             <option value="repository">Repository</option>
             <option value="environment">Umgebung</option>
           </select>
