@@ -20,7 +20,9 @@ import {
 } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 import { EvidenceStore, type IssuanceDeps } from "@secret-desk/core";
+import type { BrowserDriver } from "@secret-desk/automation";
 import { ApprovalQueue } from "./approvals.js";
+import { AutomationManager } from "./automation.js";
 import { IssuanceQueue } from "./issuances.js";
 
 export interface Runtime {
@@ -33,6 +35,7 @@ export interface Runtime {
   approvals: ApprovalQueue;
   issuances: IssuanceQueue;
   evidence: EvidenceStore;
+  automation: AutomationManager;
   owner: string;
   fetch: FetchLike;
 }
@@ -44,6 +47,10 @@ export interface RuntimeOptions {
   session?: SessionVault;
   /** Eigener Tresor (Tests); sonst nach config.vault. */
   vault?: SecretVault | null;
+  /** Nur Tests: ersetzt den echten Browser durch einen Treiber ohne Fenster. */
+  automationDriver?: () => BrowserDriver | Promise<BrowserDriver>;
+  /** Nur Tests: anderer Ordner (oder null = keiner) statt der mitgelieferten Rezepte. */
+  bundledRecipes?: string | null;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -97,6 +104,18 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers.register(manual);
   }
 
+  const evidence = new EvidenceStore(resolve(dirname(path), config.evidenceDir));
+  const automation = new AutomationManager({
+    config,
+    configDir: dirname(path),
+    inventoryDir: dirname(resolve(dirname(path), config.inventory)),
+    providers,
+    evidence,
+    ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
+    ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
+  });
+  await automation.load();
+
   return {
     config,
     configPath: path,
@@ -106,7 +125,8 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers,
     approvals: new ApprovalQueue(),
     issuances: new IssuanceQueue(),
-    evidence: new EvidenceStore(resolve(dirname(path), config.evidenceDir)),
+    evidence,
+    automation,
     owner: config.github.owner,
     fetch: f,
   };

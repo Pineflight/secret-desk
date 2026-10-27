@@ -9,3 +9,4 @@ export * from "./chrome.js";
 export * from "./playwright-driver.js";
 export * from "./run.js";
 export * from "./provider.js";
+export * from "./bundled.js";

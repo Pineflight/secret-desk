@@ -37,7 +37,8 @@ export function stageInfo(stage: string): Info {
   return STAGE[stage] ?? { label: stage, tone: "neutral", icon: "dot" };
 }
 
-export function providerInfo(automatic: boolean): Info {
+export function providerInfo(automatic: boolean, browser = false): Info {
+  if (browser) return { label: translate("common.provider.browser"), tone: "primary", icon: "plug" };
   return automatic ? { label: translate("common.provider.auto"), tone: "primary", icon: "bolt" } : { label: translate("common.provider.manual"), tone: "neutral", icon: "hand" };
 }
 

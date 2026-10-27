@@ -39,7 +39,7 @@ export function Badge({ info, className = "" }: { info: Info; className?: string
 
 export const StatusBadge = ({ level }: { level: StatusLevel }) => <Badge info={statusInfo(level)} />;
 export const StageBadge = ({ stage }: { stage: string }) => <Badge info={stageInfo(stage)} />;
-export const ProviderChip = ({ automatic }: { automatic: boolean }) => <Badge info={providerInfo(automatic)} />;
+export const ProviderChip = ({ automatic, browser = false }: { automatic: boolean; browser?: boolean }) => <Badge info={providerInfo(automatic, browser)} />;
 
 export function Pill({ children }: { children: ReactNode }) {
   return <span className="inline-flex items-center rounded-full bg-page px-2.5 py-0.5 text-xs text-ink ring-1 ring-inset ring-line">{children}</span>;

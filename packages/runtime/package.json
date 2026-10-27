@@ -21,6 +21,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@secret-desk/automation": "workspace:*",
     "@secret-desk/core": "workspace:*",
     "@secret-desk/providers": "workspace:*",
     "zod": "^4.6.7"

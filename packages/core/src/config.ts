@@ -52,6 +52,22 @@ export const ConfigSchema = z.object({
       envRoots: z.array(z.string()).default([]),
     })
     .default({ agentStages: ["dev"], envRoots: [] }),
+  /** Browser-Automatisierung (Rezepte, siehe docs/BROWSER-AUTOMATION.md). Relative Pfade gelten ab der Konfigurationsdatei, `~` ist das Home-Verzeichnis. */
+  automation: z
+    .object({
+      enabled: z.boolean().default(true),
+      /** Chrome/Chromium/Edge; sonst wird an den ueblichen Orten gesucht. */
+      chromePath: z.string().min(1).optional(),
+      /** Dauerhaftes Browserprofil. Standard: ~/.secret-desk/browser-profile. */
+      profileDir: z.string().min(1).optional(),
+      /** Wie lange auf Anmeldung, 2FA oder CAPTCHA im Fenster gewartet wird. */
+      loginTimeoutMinutes: z.number().min(1).max(120).default(10),
+      /** Verlangsamt jede Browseraktion (Millisekunden), zum Zuschauen. */
+      slowMoMs: z.number().int().min(0).max(5000).optional(),
+      /** Zusaetzliche Ordner mit Rezepten (*.yaml). Zusaetzlich immer <Ordner des Inventars>/recipes. */
+      recipesDirs: z.array(z.string().min(1)).optional(),
+    })
+    .default({ enabled: true, loginTimeoutMinutes: 10 }),
   server: z.object({ port: z.number().int().min(1024).max(65535).default(4747) }).default({ port: 4747 }),
 });
 export type DeskConfig = z.infer<typeof ConfigSchema>;

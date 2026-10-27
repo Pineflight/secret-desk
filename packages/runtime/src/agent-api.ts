@@ -27,6 +27,7 @@ import {
   type EnvTemplateSchema,
   type EnvEntrySchema,
   type OverallStatus,
+  type PendingIssuance,
   type Place,
   type ProviderDefSchema,
   type SecretEntry,
@@ -40,6 +41,7 @@ import {
 } from "@secret-desk/core";
 import type { z } from "zod";
 import type { Approval } from "./approvals.js";
+import type { AutomationInfo, AutomationRunState } from "./automation.js";
 import { linkedFolder } from "./repos.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
@@ -84,6 +86,8 @@ export interface SecretView {
   service: string;
   provider: string;
   automatic: boolean;
+  /** Der Wert entsteht ueber ein Browserfenster (Rezept), nicht ueber eine API. */
+  browser: boolean;
   expiry: SecretEntry["expiry"];
   expires: string | null;
   daysLeft: number | null;
@@ -114,6 +118,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, live?: Awaited<ReturnTyp
     service: s.service,
     provider: s.provider,
     automatic: provider?.kind === "automatic" && typeof provider.issue === "function",
+    browser: rt.automation.isBrowserProvider(provider),
     expiry: s.expiry,
     expires: s.expires,
     daysLeft: r.daysLeft,
@@ -195,7 +200,7 @@ export async function overview(rt: Runtime, today = new Date()): Promise<Overvie
 }
 
 export function listProviders(rt: Runtime) {
-  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, connection: p.connection ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
+  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), connection: p.connection ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
 }
 
 export async function listConnections(rt: Runtime) {
@@ -274,6 +279,43 @@ function issuanceView(p: { id: string; secretId: string; createdAt: string; expi
   };
 }
 
+/**
+ * prepareIssuance; bei einem Browser-Anbieter als verfolgter Lauf (Zustand, Abbruch, nur einer gleichzeitig)
+ * und mit den Belegen des Browsers als Anlagen am Bericht.
+ */
+async function prepareTracked(rt: Runtime, secretId: string): Promise<PendingIssuance> {
+  const secret = rt.inventory.getSecret(secretId);
+  const provider = secret ? rt.providers.get(secret.provider) : undefined;
+  if (!rt.automation.isBrowserProvider(provider)) return prepareIssuance(secretId, issuanceDeps(rt));
+  return rt.automation.run(
+    secretId,
+    provider,
+    async () => {
+      const pending = await prepareIssuance(secretId, issuanceDeps(rt));
+      await rt.automation.attach(provider, secretId, pending.report.id);
+      return pending;
+    },
+    (p) => p.id,
+  );
+}
+
+// ------------------------------------------------------------------------------ Browser-Automatisierung
+
+export function getAutomation(rt: Runtime, actor: Actor): AutomationInfo {
+  requireHuman(actor, "Die Browser-Automatisierung ansehen");
+  return rt.automation.info();
+}
+
+export function getAutomationRun(rt: Runtime, actor: Actor, secretId: string): AutomationRunState {
+  requireHuman(actor, "Browser-Laeufe ansehen");
+  return rt.automation.state(secretId);
+}
+
+export function cancelAutomationRun(rt: Runtime, actor: Actor, secretId: string): AutomationRunState {
+  requireHuman(actor, "Browser-Laeufe abbrechen");
+  return rt.automation.cancel(secretId);
+}
+
 export type IssuanceRequestResult =
   | { status: "awaiting-review"; issuance: IssuanceView; message: string }
   | { status: "pending-approval"; approvalId: string; secretId: string; message: string }
@@ -288,11 +330,18 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
   const secret = rt.inventory.getSecret(secretId);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${secretId}`);
   if (options.dryRun) return { status: "dry-run", plan: planRotation(secretId, rt) };
-  if (!agentMayRunNow(rt, actor, secret.stage, secret.places.length > 0)) {
+  // Ein Browser-Lauf oeffnet ein Fenster am Rechner des Menschen: Agenten brauchen dafuer in jeder Stage eine Freigabe.
+  const browser = actor.kind === "agent" && rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
+  if (browser || !agentMayRunNow(rt, actor, secret.stage, secret.places.length > 0)) {
     const approval = rt.approvals.create({ action: "issue", targetId: secretId, requestedBy: actor.name, reason: options.reason ?? null });
-    return { status: "pending-approval", approvalId: approval.id, secretId, message: `Stage ${secret.stage} braucht eine Freigabe im Portal (Reiter Freigaben).` };
+    return {
+      status: "pending-approval",
+      approvalId: approval.id,
+      secretId,
+      message: browser ? "Dieser Anbieter oeffnet ein Browserfenster. Das braucht immer eine Freigabe im Portal (Reiter Freigaben)." : `Stage ${secret.stage} braucht eine Freigabe im Portal (Reiter Freigaben).`,
+    };
   }
-  const pending = await prepareIssuance(secretId, issuanceDeps(rt));
+  const pending = await prepareTracked(rt, secretId);
   rt.issuances.add(pending);
   return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben." };
 }
@@ -479,7 +528,7 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
   if (decision === "deny") return rt.approvals.resolve(id, "denied");
   try {
     if (approval.action === "issue") {
-      const pending = await prepareIssuance(approval.targetId, issuanceDeps(rt));
+      const pending = await prepareTracked(rt, approval.targetId);
       rt.issuances.add(pending);
       return rt.approvals.resolve(id, "approved", `Pruefung ${pending.id} wartet auf Bestaetigung`);
     }

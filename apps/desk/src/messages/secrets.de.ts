@@ -48,4 +48,5 @@ export default {
   "secrets.devNoTarget": "dev-Einträge dürfen ohne Ziel angelegt werden.",
   "secrets.cancel": "Abbrechen",
   "secrets.create": "Anlegen",
+  "secrets.providerKindBrowser": "Browser",
 } satisfies Record<string, string>;

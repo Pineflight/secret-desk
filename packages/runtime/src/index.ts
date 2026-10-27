@@ -1,4 +1,5 @@
 export * from "./approvals.js";
+export * from "./automation.js";
 export * from "./issuances.js";
 export * from "./runtime.js";
 export * from "./agent-api.js";

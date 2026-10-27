@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@secret-desk/automation": "workspace:*",
     "@secret-desk/core": "workspace:*",
     "@secret-desk/runtime": "workspace:*",
     "libsodium-wrappers": "^0.8.4",
@@ -28,5 +29,8 @@
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.55.0"
   }
 }

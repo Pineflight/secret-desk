@@ -23,6 +23,7 @@ interface ProviderRow {
   id: string;
   label: string;
   kind: string;
+  browser?: boolean;
 }
 
 const STATUSES = ["ok", "soon", "due", "expired", "missing", "no-date", "unknown"] as const;
@@ -151,7 +152,7 @@ export default function SecretsPage() {
                       {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
                     </td>
                     <td className="px-4 py-3"><StageBadge stage={s.stage} /></td>
-                    <td className="px-4 py-3"><ProviderChip automatic={s.automatic} /></td>
+                    <td className="px-4 py-3"><ProviderChip automatic={s.automatic} browser={s.browser} /></td>
                     <td className="px-4 py-3">
                       <div className="tabular">{formatDate(s.expires)}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2"><StatusBadge level={s.status} /><span className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</span></div>
@@ -228,7 +229,7 @@ function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCre
           <TextField label={t("secrets.fieldService")} hint={t("secrets.fieldServiceHint")} required value={f.service} onChange={(e) => set("service", e.target.value)} />
           <SelectField label={t("secrets.provider")} value={f.provider} onChange={(e) => set("provider", e.target.value)}>
             <option value="manual">{t("secrets.providerManual")}</option>
-            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.label} ({p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})</option>)}
+            {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.label} ({p.browser ? t("secrets.providerKindBrowser") : p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})</option>)}
           </SelectField>
           <SelectField label={t("secrets.expiry")} value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
             <option value="none">{t("secrets.expNone")}</option>

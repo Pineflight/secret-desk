@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { VerificationReport } from "@secret-desk/core";
-import type { IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
+import type { AutomationRunState, IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
 import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
@@ -32,6 +32,13 @@ export default function SecretDetailPage() {
   const toast = useToast();
   const secret = useQuery<SecretView>(`secret:${id}`, () => api<SecretView>("GET", `secrets/${enc(id)}`));
   const evidence = useQuery<VerificationReport[]>(`evidence:${id}`, () => api<VerificationReport[]>("GET", `evidence/${enc(id)}`));
+  // Browser-Lauf: Der Zustand liegt in der Runtime. Waehrend des Laufs (und direkt nach dem Klick) alle 2 s abfragen, auch nach einem Neuladen.
+  const [starting, setStarting] = useState(false);
+  const isBrowser = Boolean(secret.data?.browser);
+  const [runActive, setRunActive] = useState(false);
+  const run = useQuery<AutomationRunState>(isBrowser ? `run:${id}` : null, () => api<AutomationRunState>("GET", `automation/runs/${enc(id)}`), { refreshMs: starting || runActive ? 2000 : undefined });
+  const live = run.data?.status === "running" || run.data?.status === "waiting-human";
+  useEffect(() => setRunActive(live), [live]);
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState(false);
   const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string } | null>(null);
@@ -40,6 +47,8 @@ export default function SecretDetailPage() {
   const startRenewal = async (dryRun: boolean) => {
     setNotice(null);
     setPlan(null);
+    const browserRun = !dryRun && isBrowser;
+    if (browserRun) setStarting(true);
     try {
       const res = await api<IssuanceRequestResult>("POST", "renewal-requests", { secretId: id, ...(dryRun ? { dryRun: true } : {}) });
       if (res.status === "awaiting-review") router.push(`/pruefen/${enc(res.issuance.id)}`);
@@ -48,6 +57,11 @@ export default function SecretDetailPage() {
     } catch (e) {
       if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/verbindungen", link: t("secretDetail.toConnections") });
       else toast.error(e instanceof Error ? e.message : t("secretDetail.unknownError"));
+    } finally {
+      if (browserRun) {
+        setStarting(false);
+        run.reload();
+      }
     }
   };
 
@@ -60,10 +74,10 @@ export default function SecretDetailPage() {
       <p className="mb-2 text-sm"><Link href="/secrets" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
       <PageHeader
         title={s.title ?? s.name}
-        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} /></span>}
+        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /></span>}
         actions={
           <>
-            {s.automatic ? <Button variant="primary" onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
+            {s.automatic ? <Button variant="primary" disabled={starting || live} onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
             <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />{t("secretDetail.pasteValue")}</Button>
             <Button variant="ghost" onClick={() => void startRenewal(true)}>{t("secretDetail.planOnly")}</Button>
           </>
@@ -74,6 +88,7 @@ export default function SecretDetailPage() {
           <Notice tone={notice.tone} title={notice.title}>{notice.text} {notice.href ? <Link href={notice.href} className="font-medium underline">{notice.link}</Link> : null}</Notice>
         </div>
       ) : null}
+      {s.browser ? <BrowserRunPanel secretId={id} state={run.data} starting={starting} onChanged={run.reload} /> : null}
       {plan ? (
         <div className="mb-6">
           <Notice tone="info" title={t("secretDetail.dryRunTitle")}>
@@ -156,6 +171,43 @@ export default function SecretDetailPage() {
       {editing ? <EditMetaDialog path={`secrets/${enc(s.id)}`} initial={metaFrom(s)} notes={s.notes} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); secret.reload(); }} /> : null}
       {manual ? <ManualValueDialog secret={s} onClose={() => setManual(false)} /> : null}
     </>
+  );
+}
+
+/** Fortschritt eines Browser-Laufs. Zeigt nie einen Wert: nur Status, Text, Host und Schritt. */
+function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: string; state: AutomationRunState | undefined; starting: boolean; onChanged: () => void }) {
+  const t = useT();
+  const cancel = useMutation(async () => api<AutomationRunState>("POST", `automation/runs/${enc(secretId)}/cancel`));
+  const status = state?.status ?? "idle";
+  const live = status === "running" || status === "waiting-human";
+  if (!live && !starting && status === "idle") return <div className="mb-6"><Notice tone="info" title={t("secretDetail.browserTitle")}>{t("secretDetail.browserUnverified")}</Notice></div>;
+  const tone = status === "failed" ? "danger" : status === "cancelled" ? "warn" : status === "done" ? "success" : status === "waiting-human" ? "warn" : "info";
+  const title =
+    status === "waiting-human" ? t("secretDetail.browserWaiting")
+    : status === "done" ? t("secretDetail.browserDone")
+    : status === "failed" ? t("secretDetail.browserFailed")
+    : status === "cancelled" ? t("secretDetail.browserCancelled")
+    : starting && !state?.startedAt ? t("secretDetail.browserStarting")
+    : t("secretDetail.browserRunning");
+  return (
+    <div className="mb-6" aria-live="polite">
+      <Notice tone={tone} title={`${t("secretDetail.browserTitle")}: ${title}`}>
+        <div className="space-y-2">
+          {live || starting ? <p>{t("secretDetail.browserIntro")}</p> : null}
+          {state?.text && status !== "done" ? <p className="font-medium">{state.text}</p> : null}
+          {state?.host ? <p className="text-xs">{t("secretDetail.browserHost", { host: state.host })}</p> : null}
+          {live && state?.step ? <p className="tabular text-xs">{t("secretDetail.browserStep", { index: state.step.index, total: state.step.total })}</p> : null}
+          {state?.createdName ? <p>{t("secretDetail.browserCreated", { name: state.createdName })}</p> : null}
+          <p className="text-xs">{t("secretDetail.browserUnverified")}</p>
+          {live ? <p className="text-xs">{t("secretDetail.browserReloadHint")}</p> : null}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {live ? <Button variant="danger" loading={cancel.pending} onClick={async () => { await cancel.run(); onChanged(); }}>{t("secretDetail.browserCancel")}</Button> : null}
+            {status === "done" && state?.issuanceId ? <Link href={`/pruefen/${enc(state.issuanceId)}`} className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-medium text-white">{t("secretDetail.browserToReview")}</Link> : null}
+          </div>
+          {cancel.error ? <p className="text-danger-text">{cancel.error.message}</p> : null}
+        </div>
+      </Notice>
+    </div>
   );
 }
 

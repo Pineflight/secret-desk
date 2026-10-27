@@ -23,3 +23,7 @@ Das Portal muss laufen (`pnpm dev`).
 
 ## Skill
 `skills/secret-desk/SKILL.md` beschreibt dem Agenten die Regeln und typischen Ablaeufe. In `~/.claude/skills/secret-desk/` kopieren oder als Plugin einbinden.
+
+## Browser-Anbieter
+
+Anbieter, die ihren Wert über ein Browserfenster erzeugen (Id `<rezept>-browser`), starten Agenten nie selbst: `renewal-requests` liefert in jeder Stage `pending-approval`, weil sich ein Fenster am Rechner des Menschen öffnet. Ein Mensch gibt im Portal frei und meldet sich im Fenster selbst an. Zustand und Abbruch eines Laufs sind nur im Portal verfügbar. Siehe [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md).

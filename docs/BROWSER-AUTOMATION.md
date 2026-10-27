@@ -56,12 +56,12 @@ Schritte: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `ch
   `RecipeSchema` (zod), `loadRecipes(dirs)`, `renderTemplate`, `runRecipe(recipe, vars, driver, hooks)`,
   `BrowserDriver`-Schnittstelle (Playwright-Implementierung `PlaywrightDriver`, Testimplementierung ohne Browser),
   Maskierung, Anmeldewarten mit Zeitlimit, Abbruch.
-- Provider mit `kind: "browser"`, der `issue` über ein Rezept ausführt und `IssuedSecret` zurückgibt (Beleg-PNGs gehen an den
-  `EvidenceStore`). `createDefaultRegistry` registriert Rezepte aus `recipes/` (mitgeliefert) und `<Inventarordner>/recipes/` (eigene).
+- Provider, der `issue` über ein Rezept ausführt und `IssuedSecret` zurückgibt (Beleg-PNGs gehen an den `EvidenceStore`). Die Runtime
+  (`createRuntime`) registriert Rezepte aus `recipes/` (mitgeliefert), `<Inventarordner>/recipes/` und `automation.recipesDirs` als Anbieter `<rezept-id>-browser`.
 - Rezepte mitgeliefert: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` als Gerüst (ungeprüft markiert).
 - Portal: Anbieter-Chip „Browser“, beim Lauf Status „Browser läuft, bitte im Fenster anmelden/bestätigen“ mit Abbrechen, Zeitlimit.
 - CLI: `secret-desk browser doctor` (Chrome gefunden, Profil, Rezepte gültig), `secret-desk browser run <rezept> --dry` (nur bis vor „Erzeugen“).
-- Konfiguration: `automation: { chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs? }`.
+- Konfiguration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs? }` (Details unten).
 
 ## Plattformen
 Chrome wird an den ueblichen Orten gesucht: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge unter `/usr/bin`, Snap, Flatpak),
@@ -97,6 +97,26 @@ Gebaut (Paket `packages/automation`, Rezepte in `recipes/`, CLI `packages/cli/sr
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
 - Tests: Schema, Template, Host, Fake-Laeufe, Rezepte laden, Provider, Integration mit `PlaywrightDriver` gegen ein lokales Formular (nur mit Chrome, headless, kein Internet).
 
+### Verdrahtung in Runtime und Portal (gebaut)
+
+- **Konfiguration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[] }`.
+  Relative Pfade gelten ab der Konfigurationsdatei, `~` wird aufgelöst. Beispiel: `examples/secret-desk.config.example.yaml`.
+- **Runtime** (`packages/runtime/src/automation.ts`): `rt.automation` (`AutomationManager`). `createRuntime` lädt die Rezepte (mitgeliefert aus `<Repo>/recipes` über
+  `bundledRecipesDir()`, dazu `<Inventarordner>/recipes` und `recipesDirs`, spätere Ordner überstimmen gleiche Ids) und registriert je Rezept den Anbieter `<id>-browser`.
+  Ungültige Rezepte brechen nichts ab, sie stehen in `rt.automation.problems`. Ohne Chrome/Playwright ist der Anbieter trotzdem da; der Lauf scheitert mit der Meldung samt Installationshinweis.
+- **Laufzustand** je `secretId`: `idle | running | waiting-human | done | failed | cancelled` mit Text, Host der Seite (ohne Pfad/Query), Schritt `n von m`, Startzeit, bei `done` die Prüfungs-id,
+  bei Fehlern `createdName`. Nur **ein** Lauf gleichzeitig (ein Profil, ein Fenster); ein zweiter Start gibt 409. Der Zustand liegt in der Runtime, nicht im Browser des Portals:
+  ein Neuladen der Seite verwaist den Lauf nicht, die Seite fragt weiter ab. Werte stehen nie im Zustand; Fehlertexte sind geschwärzt.
+- **Ablauf**: `requestIssuance` (und die Freigabe eines Agentenantrags) führt bei einem Browser-Anbieter `prepareIssuance` als verfolgten Lauf aus und hängt danach die Belege
+  (`attachScreenshots`) an den Bericht. Die Anfrage läuft bis zum Anmelde-Zeitlimit; der Next-Handler hat dafür `maxDuration = 3600`.
+- **Agenten** (MCP/Agent-API) bekommen für einen Browser-Anbieter in **jeder** Stage nur eine Freigabe im Portal (es öffnet sich ein Fenster am Rechner), auch bei `agentStages: [dev]`.
+  Zustand und Abbruch sind reine Portal-Routen.
+- **Portal-Routen** (nur `/api/ui`, Cookie + CSRF): `GET automation` (Chrome, Profilordner, Wartezeit, Rezepte mit Status-Kommentar, Probleme, Läufe),
+  `GET automation/runs/:secretId`, `POST automation/runs/:secretId/cancel`. Gestartet wird über die bestehende Route `POST renewal-requests`.
+- **Oberfläche**: Secret-Seite mit Lauf-Panel (alle 2 s, Hinweis zur eigenen Anmeldung, „Rezept nicht gegen die echte Seite geprüft“, Abbrechen, Link zur Prüfung);
+  Integrationen mit Abschnitt „Browser-Automatisierung“; Chip „Browser“ bei Secret und in der Anbieter-Auswahl. Alle Texte zweisprachig.
+- **Build-Hinweis**: `apps/desk` markiert `@secret-desk/automation` und `playwright-core` in `serverExternalPackages`, damit Next den Browser-Treiber nicht bündelt.
+
 ### API fuer die Integration (Runtime und Portal)
 
 ```ts
@@ -119,16 +139,16 @@ for (const { recipe } of recipes) {
 await (provider as BrowserProvider).attachScreenshots(secret.id, report.id);
 ```
 
-- Die Provider-Id ist `recipe.provider ?? recipe.id`; die Rezept-Ids entsprechen den Ids der bisherigen Anleitungs-Anbieter und ersetzen sie in der Registry.
+- Die Runtime benennt den Anbieter `<recipe.id>-browser` (Label `<Label> (Browser)`) und ersetzt den bisherigen Anleitungs-Anbieter gleichen Rezepts nicht: beide bleiben wählbar.
 - `RecipeRunError` (`kind`: abort | timeout | host | step | capture; `createdName`) gehoert in Fehlerbericht und Portal: bei `createdName` den Namen anzeigen, damit der Mensch ihn beim Anbieter loescht.
-- Konfiguration `automation` (`chromePath`, `profileDir`, `loginTimeoutMinutes`, `slowMoMs`) ist noch nicht im Config-Schema des Core; sie wird von der Integration an `PlaywrightDriver` bzw. `RunOptions` gereicht.
 - Der Beleg-Anhang geht ueber `attachScreenshots`, weil `EvidenceStore.attach` einen bestehenden Bericht braucht, `issue` aber vor dem Bericht laeuft.
 
 ### Offene Punkte
+
+- `next build` und ein echter Lauf im Portal sind noch nicht gemeinsam geprüft (Bündelung von `playwright-core`, Pfad der mitgelieferten Rezepte im Produktionsbuild).
 
 - Rezepte gegen die echten Seiten pruefen (Probelauf mit Wegwerf-Token, Aufsicht); besonders GitHub-Bestaetigungsdialog, Token-Element, Supabase-Ablauffeld.
 - Eigener Schritt fuer Elemente innerhalb eines Dialogs (Selektoren kennen keinen Bereich); bis dahin `css`.
 - Stripe: Rechtematrix je Ressource aus `params` abbilden.
 - Widerruf per Rezept (`revoke.steps`) fuer GitHub und Supabase schreiben; bisher Hinweis fuer den Menschen.
-- Core: `automation`-Block im Config-Schema, Registry-Verdrahtung, Portalstatus mit Abbrechen.
 - Anbieter-Nutzungsbedingungen zur Automatisierung pro Anbieter klaeren (Entscheidung des Teams).

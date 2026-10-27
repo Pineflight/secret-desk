@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
-  serverExternalPackages: ["libsodium-wrappers", "libsodium"],
+  serverExternalPackages: ["libsodium-wrappers", "libsodium", "@secret-desk/automation", "playwright-core"],
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {

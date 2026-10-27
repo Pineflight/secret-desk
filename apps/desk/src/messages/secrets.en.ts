@@ -48,4 +48,5 @@ export default {
   "secrets.devNoTarget": "dev entries may be created without a target.",
   "secrets.cancel": "Cancel",
   "secrets.create": "Create",
+  "secrets.providerKindBrowser": "browser",
 } satisfies Record<string, string>;

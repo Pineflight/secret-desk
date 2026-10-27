@@ -14,7 +14,11 @@ import {
   type StatusLevel,
 } from "@secret-desk/core";
 import {
+  AutomationError,
   PolicyError,
+  cancelAutomationRun,
+  getAutomation,
+  getAutomationRun,
   translateDeep,
   addEnvEntry,
   addEnvTemplate,
@@ -123,8 +127,12 @@ const common: [string, RegExp, Handler][] = [
   ["POST", /^env-export$/, ({ rt, actor, body }) => exportEnv(rt, actor, { repo: str(body, "repo"), ...(optStr(body, "path") ? { path: optStr(body, "path")! } : {}), ...(optStr(body, "template") ? { template: optStr(body, "template")! } : {}), ...(optStr(body, "stage") ? { stage: optStr(body, "stage") as Stage } : {}), overwrite: body.overwrite === true, ...(body.prompts && typeof body.prompts === "object" ? { prompts: body.prompts as Record<string, string> } : {}) })],
 ];
 
-/** Nur im Portal (Mensch): Bestaetigen, Eingeben, Freigeben, Verbindungen, Anlagen. */
+/** Nur im Portal (Mensch): Bestaetigen, Eingeben, Freigeben, Verbindungen, Anlagen, Browser-Laeufe ansehen und abbrechen. */
 const humanOnly: [string, RegExp, Handler][] = [
+  // Gestartet wird ein Browser-Lauf ueber renewal-requests (oder die Freigabe); hier nur Zustand und Abbruch. Agenten sehen nichts davon.
+  ["GET", /^automation$/, ({ rt, actor }) => getAutomation(rt, actor)],
+  ["GET", /^automation\/runs\/([^/]+)$/, ({ rt, actor, params }) => getAutomationRun(rt, actor, decodeURIComponent(params[0]!))],
+  ["POST", /^automation\/runs\/([^/]+)\/cancel$/, ({ rt, actor, params }) => cancelAutomationRun(rt, actor, decodeURIComponent(params[0]!))],
   ["POST", /^reviews\/([^/]+)\/confirm$/, ({ rt, actor, params, body }) => confirmIssuance(rt, actor, params[0]!, { ticks: Array.isArray(body.ticks) ? (body.ticks as string[]) : [], ...(optStr(body, "note") ? { note: optStr(body, "note")! } : {}), force: body.force === true })],
   ["POST", /^reviews\/([^/]+)\/reject$/, ({ rt, actor, params, body }) => rejectIssuance(rt, actor, params[0]!, optStr(body, "note"))],
   ["POST", /^secrets\/([^/]+)\/manual-value$/, ({ rt, actor, params, body }) => submitManualValue(rt, actor, params[0]!, str(body, "value"))],
@@ -236,7 +244,7 @@ function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PolicyError) return err(403, e.message);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
   if (e instanceof InventoryError || e instanceof VariableError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError) return err(400, e.message);
-  if (e instanceof IssuanceError || e instanceof RotationError) return err(409, e.message);
+  if (e instanceof IssuanceError || e instanceof RotationError || e instanceof AutomationError) return err(409, e.message);
   if (e instanceof GitHubError) return err(502, e.message);
   return err(500, "Interner Fehler");
 }

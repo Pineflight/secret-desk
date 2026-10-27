@@ -4,6 +4,8 @@ import { route } from "@/server/router";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Ein Browser-Lauf wartet bis zum Anmelde-Zeitlimit (Standard 10 Minuten) auf den Menschen: kein vorzeitiges Zeitlimit.
+export const maxDuration = 3600;
 
 async function handler(req: Request): Promise<Response> {
   const desk = await getDesk();

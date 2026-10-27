@@ -350,12 +350,29 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Google Chrome oder Microsoft Edge installieren, oder --chrome-path / automation.chromePath auf chrome.exe bzw. msedge.exe setzen.", "Install Google Chrome or Microsoft Edge, or point --chrome-path / automation.chromePath at chrome.exe or msedge.exe."],
   ["google-chrome oder chromium (Paket der Distribution) installieren. Snap- und Flatpak-Builds sind sandboxed und koennen sich nicht steuern lassen; dann --chrome-path setzen.", "Install google-chrome or chromium (distribution package). Snap and Flatpak builds are sandboxed and cannot be driven; in that case set --chrome-path."],
   ["Google Chrome installieren oder --chrome-path setzen.", "Install Google Chrome or set --chrome-path."],
+  // runtime/automation.ts, agent-api.ts (Browser-Laeufe)
+  ["Die Browser-Automatisierung ansehen", "Viewing the browser automation"],
+  ["Browser-Laeufe ansehen", "Viewing browser runs"],
+  ["Browser-Laeufe abbrechen", "Cancelling browser runs"],
+  ["Dieser Anbieter oeffnet ein Browserfenster. Das braucht immer eine Freigabe im Portal (Reiter Freigaben).", "This provider opens a browser window. That always needs an approval in the portal (Approvals tab)."],
+  ["nicht geprueft", "not verified"],
+  ["kein Status-Kommentar", "no status comment"],
+  ["Der Ordner mit den mitgelieferten Rezepten wurde nicht gefunden.", "The folder with the bundled recipes was not found."],
+  ["Der Browser wird geoeffnet.", "The browser is opening."],
+  ["Der Browser macht weiter.", "The browser continues."],
+  ["Wird abgebrochen.", "Cancelling."],
+  ["Fertig. Der Pruefbericht wartet auf Bestaetigung.", "Done. The review report is waiting for confirmation."],
+  ["Der Lauf ist fehlgeschlagen.", "The run failed."],
+  ["Fuer dieses Secret laeuft schon ein Browser-Lauf.", "A browser run for this secret is already in progress."],
+  ["Fuer dieses Secret laeuft kein Browser-Lauf.", "No browser run is in progress for this secret."],
 ];
 
 type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  [/^Rezepte konnten nicht gelesen werden: (.+)$/s, "Recipes could not be read: $1"],
+  [/^Es laeuft schon ein Browser-Lauf \(Secret (.+?)\)\. Erst abwarten oder abbrechen\.$/, "A browser run is already in progress (secret $1). Wait for it or cancel it first."],
   [/^Konfiguration ungueltig: (.+)$/s, "Invalid configuration: $1"],
   [/^Verbindung "(.+?)" ist nicht hergestellt\. ?(.*)$/s, "Connection \"$1\" is not established. $2"],
   [/^Umgebungsvariable (.+) ist nicht gesetzt\.$/, "Environment variable $1 is not set."],

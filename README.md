@@ -75,6 +75,11 @@ apps/desk            Portal (Next.js, nur lokal)
 skills/secret-desk   Skill fuer Agenten
 ```
 
+**Browser-Automatisierung:** Fuer Anbieter ohne API (GitHub fine-grained Token, Supabase Access Token, Stripe Restricted Key) fuehrt ein sichtbares
+Chrome durch das Formular. Das Portal zeigt beim Anbieter den Chip "Browser", den Lauf mit Abbrechen und unter Verbindungen den Chrome-Status.
+Anmeldung, 2FA und CAPTCHA macht immer der Mensch im Fenster. Die Rezepte sind noch nicht gegen die echten Seiten geprueft
+(siehe [docs/BROWSER-AUTOMATION.md](docs/BROWSER-AUTOMATION.md), Konfigurationsblock `automation`).
+
 Erster Einsatz mit echten Diensten: [docs/PROBELAUF.md](docs/PROBELAUF.md) (Wegwerf-Repo, `doctor`-Vorpruefung, Abnahmeliste).
 
 Mehr: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md), [docs/SICHERHEIT.md](docs/SICHERHEIT.md), [docs/ANBIETER.md](docs/ANBIETER.md),

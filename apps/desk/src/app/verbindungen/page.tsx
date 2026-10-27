@@ -25,6 +25,14 @@ interface Connection {
   steps: string[];
   permissions: string[];
 }
+interface AutomationInfo {
+  enabled: boolean;
+  chrome: { found: boolean; path: string | null; hint: string | null };
+  profileDir: string;
+  loginTimeoutMinutes: number;
+  recipes: { id: string; providerId: string; label: string; host: string; status: string }[];
+  problems: { file: string; message: string }[];
+}
 interface Provider {
   id: string;
   label: string;
@@ -44,6 +52,7 @@ export default function ConnectionsPage() {
   const [adding, setAdding] = useState(false);
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
+  const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
   const connected = (conns.data ?? []).filter((c) => c.connected);
   return (
@@ -79,6 +88,7 @@ export default function ConnectionsPage() {
           </Card>
         ))}
       </div>
+      <BrowserAutomationSection q={auto} />
       {picking !== false ? (
         <IntegrationPicker
           initial={picking}
@@ -91,6 +101,54 @@ export default function ConnectionsPage() {
       ) : null}
       {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking(null); }} /> : null}
     </>
+  );
+}
+
+/** Chrome-Status, Profilordner, Rezepte und Probleme der Browser-Automatisierung. */
+function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined; error: Error | null; loading: boolean; reload: () => void } }) {
+  const t = useT();
+  const a = q.data;
+  return (
+    <section className="mt-10" aria-labelledby="browser-automation-title">
+      <h2 id="browser-automation-title" className="text-lg font-semibold tracking-tight">{t("connections.browserTitle")}</h2>
+      <p className="mt-1 max-w-2xl text-sm text-muted">{t("connections.browserSubtitle")}</p>
+      {q.error ? <div className="mt-4"><ErrorState error={q.error} onRetry={q.reload} /></div> : null}
+      {q.loading && !a ? <div className="mt-4"><ListSkeleton rows={1} /></div> : null}
+      {a && !a.enabled ? <div className="mt-4"><Notice tone="info">{t("connections.browserOff")}</Notice></div> : null}
+      {a && a.enabled ? (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Card>
+            <dl className="divide-y divide-line text-sm">
+              <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserChrome")}</dt><dd className="text-right font-medium">{a.chrome.found ? <Badge info={{ label: t("connections.browserChromeFound", { path: a.chrome.path ?? "" }), tone: "success", icon: "check" }} /> : <Badge info={{ label: t("connections.browserChromeMissing"), tone: "warn", icon: "alert" }} />}</dd></div>
+              {!a.chrome.found && a.chrome.hint ? <div className="py-2 text-xs text-muted">{a.chrome.hint}</div> : null}
+              <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserProfile")}</dt><dd className="break-all text-right font-mono text-xs">{a.profileDir}</dd></div>
+              <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserTimeout")}</dt><dd className="text-right font-medium">{t("connections.browserMinutes", { count: a.loginTimeoutMinutes })}</dd></div>
+            </dl>
+          </Card>
+          <Card>
+            <p className="text-sm font-medium">{t("connections.browserRecipes")}</p>
+            {a.recipes.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.browserNoRecipes")}</p> : (
+              <ul className="mt-2 divide-y divide-line text-sm">
+                {a.recipes.map((r) => (
+                  <li key={r.providerId} className="py-2">
+                    <p className="font-medium">{r.label} <span className="font-mono text-xs font-normal text-muted">{r.providerId}</span></p>
+                    <p className="text-xs text-muted">{r.host}: {r.status}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          <Card className="md:col-span-2">
+            <p className="text-sm font-medium">{t("connections.browserProblems")}</p>
+            {a.problems.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.browserNoProblems")}</p> : (
+              <ul className="mt-2 space-y-2 text-sm">
+                {a.problems.map((p, i) => <li key={i}><Notice tone="warn"><span className="font-mono text-xs">{p.file}</span><br />{p.message}</Notice></li>)}
+              </ul>
+            )}
+          </Card>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
