@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createRuntime, issuanceDeps, type Runtime } from "@secret-desk/runtime";
+import { createRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "@secret-desk/runtime";
 import { PortalSession, allowedHosts, loadOrCreateAgentToken } from "./security.js";
 
 export interface Desk {
@@ -17,7 +17,7 @@ async function init(): Promise<Desk> {
   const demo = process.env.SECRET_DESK_DEMO === "1";
   const configPath = process.env.SECRET_DESK_CONFIG ?? resolve(process.cwd(), "../../secret-desk.config.yaml");
   // Demo: simuliertes GitHub, eigener Agenten-Token im Temp-Ordner, keine echten Anfragen.
-  const options = demo ? { fetch: await (await import("./demo.js")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } } : {};
+  const options: RuntimeOptions = demo ? { fetch: await (await import("./demo.js")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } as NodeJS.ProcessEnv } : {};
   const rt = await createRuntime(configPath, options);
   const desk: Desk = {
     rt,
