@@ -190,7 +190,7 @@ describe("resend-api-key verify", () => {
     const m = mockFetch({ body: { data: [{ id: "k0", name: "a" }, { id: "k1", name: "b", permission: "sending_access" }] } });
     const checks = await run("resend-api-key", m.fetch, {}, opts);
     expect(byId(checks)).toEqual({ exists: "pass", permission: "pass" });
-    expect(m.calls[0]!.url).toBe("https://api.resend.com/api-keys");
+    expect(m.calls[0]!.url).toBe("https://api.resend.com/api-keys?limit=100");
     expectNoLeak(checks);
   });
   it("fehlender Eintrag und falsche Berechtigung = fail", async () => {

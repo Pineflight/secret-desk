@@ -132,8 +132,11 @@ export async function prepareIssuance(
       checks.push({ id: "provider-verify", label: "Pruefung beim Anbieter nicht durchfuehrbar", status: "warn", detail: (err as Error).message });
     }
   }
-  const newExpires = expiresAt ? toDay(expiresAt) : secret.ttlDays ? addDays(now, secret.ttlDays) : secret.expiry === "none" ? null : secret.expires;
+  // Ohne Angabe des Anbieters und ohne ttlDays ist das Ablaufdatum unbekannt: das alte Datum darf nicht stehen bleiben,
+  // sonst erscheint das frisch erneuerte Secret als abgelaufen.
+  const newExpires = secret.expiry === "none" ? null : expiresAt ? toDay(expiresAt) : secret.ttlDays ? addDays(now, secret.ttlDays) : null;
   if (secret.expiry === "required" && !newExpires) checks.push({ id: "expiry-known", label: "Der Anbieter erzwingt ein Ablaufdatum, es ist nicht bekannt", status: "warn" });
+  else if (secret.expiry === "possible" && !newExpires) checks.push({ id: "expiry-unknown", label: "Ablauf des neuen Werts unbekannt: das Secret wird als Ablauf unbekannt gefuehrt", status: "warn" });
   else checks.push({ id: "expiry", label: "Ablauf", status: "info", actual: newExpires ?? "kein Ablauf" });
 
   const items = provider?.reviewChecklist?.(secret, { stageKind: kind0 }) ?? DEFAULT_CHECKLIST;
@@ -181,7 +184,13 @@ export interface CommitResult {
   places: PlaceOutcome[];
   revokedOld: boolean;
   expires: string | null;
+  /** Hinweise zu Zustaenden, die der Mensch kennen muss (zum Beispiel: alter Token widerrufen, Inventar nicht gespeichert). */
+  warnings?: string[];
 }
+
+/** Anfragen, die gerade bestaetigt werden oder schon bestaetigt sind: ein zweiter Aufruf darf nichts mehr schreiben. */
+const committing = new WeakSet<PendingIssuance>();
+const committed = new WeakSet<PendingIssuance>();
 
 /**
  * Stufe 2: Nach der Bestaetigung in alle Ziele schreiben, nachpruefen, den alten Wert widerrufen und das Inventar
@@ -193,6 +202,26 @@ export async function commitIssuance(
   confirmation: { by: string; ticks: string[]; note?: string },
   options: { force?: boolean } = {},
 ): Promise<CommitResult> {
+  // Atomar (vor dem ersten await) als "in Bearbeitung" markieren: ein zweiter, auch paralleler Aufruf wirft sofort.
+  if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
+  committing.add(pending);
+  let success = false;
+  try {
+    const result = await commitIssuanceOnce(pending, deps, confirmation, options);
+    success = result.ok;
+    return result;
+  } finally {
+    committing.delete(pending);
+    if (success) committed.add(pending);
+  }
+}
+
+async function commitIssuanceOnce(
+  pending: PendingIssuance,
+  deps: IssuanceDeps,
+  confirmation: { by: string; ticks: string[]; note?: string },
+  options: { force?: boolean },
+): Promise<CommitResult> {
   const secret = deps.inventory.getSecret(pending.secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
   const now = (deps.now ?? (() => new Date()))();
@@ -200,7 +229,7 @@ export async function commitIssuance(
   // Bindung an den Stand der Pruefung: Wurden Ziele, Anbieter, Parameter, Stage oder Kennung inzwischen geaendert
   // (zum Beispiel durch einen Agenten oder einen importierten Pull Request), geht der Wert nirgends hin.
   if (issuanceSnapshot(secret, stageKind(deps.inventory.stages, secret.stage)) !== pending.snapshot) {
-    await discardIssuance(pending, deps, { by: confirmation.by, why: "stale" });
+    await discardIssuanceNow(pending, deps, { by: confirmation.by, why: "stale" });
     throw new StaleIssuanceError();
   }
   if (!options.force && overallStatus(pending.report.checks) === "fail") {
@@ -250,23 +279,45 @@ export async function commitIssuance(
   }
 
   const day = toDay(now.toISOString());
-  deps.inventory.patchSecret(pending.secretId, {
-    rotatedAt: day,
-    verifiedAt: day,
-    verifiedBy: confirmation.by,
-    expires: pending.newExpires,
-    ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
-  });
-  await deps.inventory.save();
+  const warnings: string[] = [];
+  // Unbekanntes Ablaufdatum bei einem Secret mit moeglichem Ablauf: als "unbekannt" fuehren statt mit altem Datum.
+  const unknownExpiry = pending.newExpires === null && secret.expiry === "possible";
+  try {
+    deps.inventory.patchSecret(pending.secretId, {
+      rotatedAt: day,
+      verifiedAt: day,
+      verifiedBy: confirmation.by,
+      expires: pending.newExpires,
+      ...(unknownExpiry ? { expiry: "unknown" as const } : {}),
+      ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
+    });
+    await deps.inventory.save();
+  } catch (err) {
+    warnings.push(revokedOld ? "Der alte Token ist bereits widerrufen, aber das Inventar wurde nicht gespeichert." : "Der neue Wert ist in allen Zielen geschrieben, aber das Inventar wurde nicht gespeichert.");
+    warnings.push(`Neue Kennung beim Anbieter: ${pending.report.externalId ?? "unbekannt"}`);
+    warnings.push(`Grund: ${(err as Error).message}`);
+    warnings.push("Inventar von Hand nachtragen.");
+  }
+  if (unknownExpiry) warnings.push("Der Ablauf des neuen Tokens ist unbekannt: das Secret steht jetzt auf Ablauf unbekannt.");
 
   const confirmationRecord: Confirmation = { by: confirmation.by, at: now.toISOString(), ticks: confirmation.ticks, decision: "confirmed", ...(confirmation.note ? { note: confirmation.note } : {}) };
   pending.report.confirmation = confirmationRecord;
   await deps.evidence?.save(pending.report);
-  return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires };
+  return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
 }
 
 /** Verwirft einen ausgestellten Wert: Der neue Wert wird beim Anbieter wieder geloescht, nichts wurde geschrieben. */
 export async function discardIssuance(
+  pending: PendingIssuance,
+  deps: IssuanceDeps,
+  reason: { by: string; why: "rejected" | "expired" | "stale"; note?: string },
+): Promise<{ revokedNew: boolean }> {
+  // Waehrend der Bestaetigung (oder danach) darf der Wert nicht widerrufen werden: er wird gerade geschrieben bzw. ist im Einsatz.
+  if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
+  return discardIssuanceNow(pending, deps, reason);
+}
+
+async function discardIssuanceNow(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   reason: { by: string; why: "rejected" | "expired" | "stale"; note?: string },

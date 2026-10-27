@@ -23,6 +23,8 @@ function dayText(dd: string, mm: string, yyyy: string): string {
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "–";
+  // Reines Datum (JJJJ-MM-TT) hat keine Uhrzeit und darf in keiner Zeitzone auf den Vortag fallen.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDate(value);
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return formatDate(value);
   return `${dayText(pad(d.getDate()), pad(d.getMonth() + 1), String(d.getFullYear()))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;

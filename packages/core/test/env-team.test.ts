@@ -69,3 +69,41 @@ describe("Team-Datei", () => {
     expect(mergeTeamBundle(target, bundle).skipped).toHaveLength(3);
   });
 });
+
+describe("H7: Team-Import atomar", () => {
+  const withComment = INVENTORY_YAML.replace("secrets:\n", "secrets:\n  # Kommentar in secrets\n");
+  it("merge mit Konflikt in der Mitte: kein Teilzustand", () => {
+    const target = InventoryStore.fromText(INVENTORY_YAML);
+    const before = target.toString();
+    // Neues Secret vorne, danach eine Variable, deren id mit einem vorhandenen Secret kollidiert.
+    const bundle = parseTeamBundle(
+      `version: 1\nsecrets:\n  - { id: neu-secret, name: NEU_SECRET, service: x, stage: dev, expiry: none, provider: manual }\nvariables:\n  - { id: cf-deploy-acme-app, name: SOME_VAR, stage: shared, places: [ { repo: r, scope: repository } ] }\n`,
+    );
+    expect(() => mergeTeamBundle(target, bundle)).toThrow();
+    expect(target.toString()).toBe(before);
+    expect(target.getSecret("neu-secret")).toBeUndefined();
+  });
+  it("replace behaelt externalId, rotatedAt, verifiedAt, verifiedBy gleicher Ids", () => {
+    const target = InventoryStore.fromText(INVENTORY_YAML);
+    target.patchSecret("cf-deploy-acme-app", { rotatedAt: "2026-10-01", verifiedAt: "2026-10-02", verifiedBy: "alice" });
+    const bundle = parseTeamBundle(exportTeamBundle(target.data));
+    expect(bundle.secrets.find((s) => s.id === "cf-deploy-acme-app")!.externalId).toBeUndefined();
+    mergeTeamBundle(target, bundle, "replace");
+    expect(target.getSecret("cf-deploy-acme-app")).toMatchObject({ externalId: "old-token-id", rotatedAt: "2026-10-01", verifiedAt: "2026-10-02", verifiedBy: "alice" });
+  });
+  it("replace mit Konflikt aendert nichts", () => {
+    const target = InventoryStore.fromText(INVENTORY_YAML);
+    const before = target.toString();
+    const bad = { ...parseTeamBundle(exportTeamBundle(target.data)) };
+    bad.variables = [{ id: bad.secrets[0]!.id, name: "X_Y", stage: "shared", value: null, places: [{ repo: "r", scope: "repository" }] } as never];
+    expect(() => mergeTeamBundle(target, bad, "replace")).toThrow();
+    expect(target.toString()).toBe(before);
+  });
+  it("Kommentar in secrets: ueberlebt addSecret und setStages", () => {
+    const s = InventoryStore.fromText(withComment);
+    s.addSecret({ id: "neu-x", name: "NEU_X", service: "x", stage: "dev", expiry: "none", provider: "manual" });
+    s.setStages(s.stages);
+    expect(s.toString()).toContain("# Kommentar in secrets");
+    expect(s.toString()).toContain("# Kommentar bleibt erhalten");
+  });
+});

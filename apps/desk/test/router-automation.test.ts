@@ -99,6 +99,9 @@ describe("Browser-Automatisierung ueber die Schnittstelle", () => {
     expect(res.status).toBe(200);
     const body = await json(res);
     expect(body).toMatchObject({ enabled: true, loginTimeoutMinutes: 10, recipes: [{ id: "sample-token", providerId: "sample-token-browser", label: "Beispiel", status: "nicht gegen die echte Seite geprueft" }], problems: [], runs: [] });
+    expect(body.recipes[0]).toMatchObject({ host: "example.test", allowHosts: [], bundled: false });
+    expect(body.recipes[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(typeof body.allowExternalRecipes).toBe("boolean");
     expect(typeof body.chrome.found).toBe("boolean");
     expect(typeof body.profileDir).toBe("string");
     expect((await route(agent(deps, "GET", "automation"), deps)).status).toBe(404);

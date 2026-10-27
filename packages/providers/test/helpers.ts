@@ -32,6 +32,27 @@ export function mockFetch(...replies: Reply[]) {
   return { fetch: fn as unknown as typeof fetch, calls, fn };
 }
 
+export type Route = { method?: string; url: string | RegExp; reply: Reply | ((call: Call) => Reply) };
+
+/**
+ * Gemocktes fetch mit Routing nach Methode und URL (Teilstring oder RegExp). Die Reihenfolge der Aufrufe spielt keine Rolle;
+ * ohne passende Route antwortet es mit 599 und der Test sieht die Abweichung in `calls`.
+ */
+export function routeFetch(...routes: Route[]) {
+  const calls: Call[] = [];
+  const fn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const call: Call = { url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body as string | undefined, signal: init?.signal ?? undefined, redirect: init?.redirect };
+    calls.push(call);
+    const route = routes.find((r) => (r.method ?? "GET") === call.method && (typeof r.url === "string" ? call.url.includes(r.url) : r.url.test(call.url)));
+    if (!route) return new Response("keine Route", { status: 599 });
+    const reply = typeof route.reply === "function" ? route.reply(call) : route.reply;
+    const status = reply.status ?? 200;
+    const text = reply.body === undefined ? null : typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body);
+    return new Response(status === 204 ? null : text, { status });
+  });
+  return { fetch: fn as unknown as typeof fetch, calls, fn };
+}
+
 export function connections(...ids: string[]): ConnectionStore {
   const store = new ConnectionStore();
   for (const id of ids) store.session.set(id, CONN_TOKEN);

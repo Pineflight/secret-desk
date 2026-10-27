@@ -1,12 +1,20 @@
-import { contextKind, SecretValue, type Check, type Provider } from "@secret-desk/core";
+import { contextKind, SecretValue, type Check, type ConnectionStore, type Provider, type StageKind } from "@secret-desk/core";
 import { check, isRecord, probeWithConnection, sameSet, step, strings } from "./checks.js";
 import { badResponse, callWithToken, optionalString, requireString, requireStringArray, seg } from "./http.js";
 
 const API = "https://api.stripe.com/v1/webhook_endpoints";
 const ID = "stripe-webhook-secret";
 
-function connectionOf(params: Record<string, unknown>): string {
-  return optionalString(ID, params, "connection") ?? "stripe";
+/**
+ * Verbindung des Eintrags: ausdruecklicher Parameter `connection`, sonst nach Art der Stage die getrennte Verbindung
+ * (test -> stripe-test, live -> stripe-live), falls verbunden, sonst die allgemeine Verbindung `stripe`.
+ */
+async function connectionOf(ctx: { params: Record<string, unknown>; connections: ConnectionStore }, kind: StageKind): Promise<string> {
+  const explicit = optionalString(ID, ctx.params, "connection");
+  if (explicit) return explicit;
+  const specific = kind === "test" ? "stripe-test" : kind === "live" ? "stripe-live" : null;
+  if (specific && (await ctx.connections.status(specific)).connected) return specific;
+  return "stripe";
 }
 
 export const stripeWebhookProvider: Provider = {
@@ -20,7 +28,7 @@ export const stripeWebhookProvider: Provider = {
     const form = new URLSearchParams();
     form.append("url", url);
     for (const e of events) form.append("enabled_events[]", e);
-    const res = await callWithToken<{ id?: string; secret?: string }>(ID, ctx, connectionOf(ctx.params), API, {
+    const res = await callWithToken<{ id?: string; secret?: string }>(ID, ctx, await connectionOf(ctx, contextKind(ctx)), API, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
@@ -31,7 +39,7 @@ export const stripeWebhookProvider: Provider = {
   verify(ctx) {
     return step(ctx, "status", "Endpunkt beim Anbieter", async () => {
       if (!ctx.externalId) return [check("status", "Endpunkt beim Anbieter", "warn", { detail: "Keine Endpunkt-Kennung, nichts abrufbar" })];
-      const r = await probeWithConnection(ID, ctx, connectionOf(ctx.params), `${API}/${seg(ctx.externalId)}`);
+      const r = await probeWithConnection(ID, ctx, await connectionOf(ctx, contextKind(ctx)), `${API}/${seg(ctx.externalId)}`);
       if (r.status < 200 || r.status >= 300 || !isRecord(r.json)) {
         return [check("status", "Endpunkt beim Anbieter", r.status === 404 ? "fail" : "warn", { actual: `HTTP ${r.status}`, detail: "Endpunkt konnte nicht gelesen werden" })];
       }
@@ -68,7 +76,7 @@ export const stripeWebhookProvider: Provider = {
     ];
   },
   async revoke(ctx) {
-    await callWithToken(ID, ctx, connectionOf(ctx.params), `${API}/${seg(ctx.externalId)}`, { method: "DELETE" });
+    await callWithToken(ID, ctx, await connectionOf(ctx, contextKind({ stage: ctx.secret.stage })), `${API}/${seg(ctx.externalId)}`, { method: "DELETE" });
   },
 };
 

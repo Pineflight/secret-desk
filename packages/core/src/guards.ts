@@ -17,6 +17,10 @@ const BLOCK_PREFIXES: [RegExp, string][] = [
   [/^xox[abprs]-/, "Slack-Token"],
   [/^AKIA[0-9A-Z]{16}$/, "AWS-Zugangsschluessel"],
   [/^re_[A-Za-z0-9_]{20,}/, "Resend-Key"],
+  [/^sb_secret_/, "Supabase Secret Key"],
+  [/^cfut_/, "Cloudflare-Token"],
+  [/^glsa_/, "Grafana-Service-Account-Token"],
+  [/^[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@/i, "Verbindungsstring mit Passwort"],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "privater Schluessel"],
 ];
 
@@ -47,10 +51,13 @@ export function looksSecret(name: string, value: string): SecretLikeFinding | nu
   const role = jwtRole(value);
   if (role === "service_role") return { level: "block", reason: "Supabase Service-Role-Schluessel. Als Secret anlegen." };
   if (role !== null) return { level: "warn", reason: "JWT (zum Beispiel Supabase Anon Key). Nur in Ordnung, wenn der Schluessel oeffentlich ist." };
+  if (/^[0-9a-fA-F]{64}$/.test(value)) {
+    return { level: "warn", reason: "64-stelliger Hex-Wert, wirkt wie ein Schluessel. Ist der Wert wirklich oeffentlich?" };
+  }
   if (/^[A-Za-z0-9+/=_-]{32,}$/.test(value) && entropy(value) > 4) {
     return { level: "warn", reason: "Lange zufaellige Zeichenfolge. Ist der Wert wirklich oeffentlich (zum Beispiel ein Site-Key)?" };
   }
-  if (/(PASSWORD|PASSWD|PRIVATE|SECRET|_TOKEN)$/.test(name) && value.length >= 8) {
+  if (/(^|_)(PASSWORD|PASSWD|PRIVATE|SECRET|TOKEN|API_?KEY|KEY)(_|$)/.test(name) && value.length >= 8) {
     return { level: "warn", reason: `Der Name ${name} deutet auf ein Geheimnis hin.` };
   }
   return null;

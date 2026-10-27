@@ -22,6 +22,7 @@ import {
   applyVariable,
   assertPublicValue,
   buildEnvFile,
+  revokeIssuedTokens,
   commitIssuance,
   computeStatus,
   discardIssuance,
@@ -108,11 +109,17 @@ export interface SecretView {
   guide: { url: string; steps: string[]; openUrl: string } | null;
   connection: string | null;
   notes: string | null;
+  /** Nur beim Live-Abgleich: Ziele, die GitHub nicht lesen liess (403/429/5xx). Fuer sie ist "fehlt" unbekannt. */
+  liveErrors?: string[];
 }
 
-function view(rt: Runtime, s: SecretEntry, today: Date, live?: Awaited<ReturnType<Runtime["github"]["snapshot"]>>): SecretView {
+type LiveCheck = Awaited<ReturnType<Runtime["github"]["snapshotDetailed"]>>;
+
+function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): SecretView {
   const provider = rt.providers.get(s.provider);
-  const r = computeStatus(s, today, { thresholds: rt.inventory.data.thresholds, ...(live ? { live, owner: rt.owner } : {}) });
+  const failed = (p: Place): boolean => (check?.errors ?? []).some((e) => e.repo === p.repo && e.scope === p.scope && (e.environment ?? "") === (p.environment ?? ""));
+  const liveErrors = check ? s.places.filter(failed).map((p) => (check.errors.find((e) => e.repo === p.repo && e.scope === p.scope && (e.environment ?? "") === (p.environment ?? ""))!.message)) : [];
+  const r = computeStatus(s, today, { thresholds: rt.inventory.data.thresholds, ...(check ? { live: check.snapshot, owner: rt.owner, unreadable: failed } : {}) });
   return {
     id: s.id,
     name: s.name,
@@ -139,6 +146,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, live?: Awaited<ReturnTyp
     guide: provider?.guide ? { url: provider.guide.url, steps: provider.guide.steps, openUrl: provider.guide.openUrl?.(s, { owner: rt.owner, now: today }) ?? provider.guide.url } : null,
     connection: provider?.connection ?? null,
     notes: s.notes ?? null,
+    ...(liveErrors.length > 0 ? { liveErrors: [...new Set(liveErrors)] } : {}),
   };
 }
 
@@ -166,7 +174,7 @@ export async function listSecrets(rt: Runtime, filter: ListFilter = {}, today = 
     const q = filter.q.toLowerCase();
     secrets = secrets.filter((s) => [s.id, s.name, s.title, s.description, s.owner, s.product, s.service, ...s.tags, ...s.places.map((p) => p.repo)].some((x) => x?.toLowerCase().includes(q)));
   }
-  const live = filter.live ? await rt.github.snapshot(rt.owner, secrets.flatMap((s) => s.places)) : undefined;
+  const live = filter.live ? await rt.github.snapshotDetailed(rt.owner, secrets.flatMap((s) => s.places)) : undefined;
   const views = secrets.map((s) => view(rt, s, today, live));
   const out = filter.status ? views.filter((v) => v.status === filter.status) : views;
   return out.sort((a, b) => (b.daysLeft === null ? -1 : a.daysLeft === null ? 1 : a.daysLeft - b.daysLeft));
@@ -212,12 +220,17 @@ export function listProviders(rt: Runtime) {
 }
 
 export async function listConnections(rt: Runtime) {
-  const ids = [...new Set(["github", "github-app-key", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
+  const ids = [...new Set(["github", "github-app-key", "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
+  const saved = new Map<string, string>();
+  for (const s of statuses) {
+    const info = s.source === "vault" ? await rt.connections.vault?.info(s.id).catch(() => null) : null;
+    if (info) saved.set(s.id, info.savedAt);
+  }
   return statuses.map((s) => {
     const g = connectionGuide(s.id, rt.owner);
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
-    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
 }
 
@@ -592,12 +605,14 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
   const approval = rt.approvals.get(id);
   if (!approval) throw new PolicyError(`Anfrage nicht gefunden: ${id}`);
   if (approval.state !== "pending") throw new PolicyError(`Anfrage ist schon erledigt: ${approval.state}`);
+  // Atomar von "offen" auf "in Bearbeitung": ein zweites (auch paralleles) approve/deny wirft sofort, ohne Arbeit.
+  if (!rt.approvals.begin(id)) throw new PolicyError("Anfrage wird gerade bearbeitet oder ist schon erledigt.");
   if (decision === "deny") return rt.approvals.resolve(id, "denied");
-  // Die Freigabe gilt fuer den Inhalt von damals. Hat sich der Eintrag (Ziele, Sollwert, Stage, Anbieter, Parameter) geaendert, verfaellt sie.
-  const target = approval.action === "issue" ? rt.inventory.getSecret(approval.targetId) : rt.inventory.getVariable(approval.targetId);
-  const nowHash = !target ? null : approval.action === "issue" ? secretApprovalSnapshot(target as SecretEntry).hash : variableApprovalSnapshot(target as VariableEntry).hash;
-  if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.");
   try {
+    // Die Freigabe gilt fuer den Inhalt von damals. Hat sich der Eintrag (Ziele, Sollwert, Stage, Anbieter, Parameter) geaendert, verfaellt sie.
+    const target = approval.action === "issue" ? rt.inventory.getSecret(approval.targetId) : rt.inventory.getVariable(approval.targetId);
+    const nowHash = !target ? null : approval.action === "issue" ? secretApprovalSnapshot(target as SecretEntry).hash : variableApprovalSnapshot(target as VariableEntry).hash;
+    if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.");
     if (approval.action === "issue") {
       const pending = await prepareTracked(rt, approval.targetId);
       rt.issuances.add(pending);
@@ -609,7 +624,8 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
     const failed = outcomes.some((o) => o.outcome === "failed");
     return rt.approvals.resolve(id, failed ? "failed" : "approved", failed ? "Ziele fehlgeschlagen" : "gesetzt");
   } catch (err) {
-    const message = err instanceof RotationError || err instanceof NotConnectedError || err instanceof InventoryError ? err.message : (err as Error).message;
+    const message = (err as Error).message ?? "Fehler";
+    // Der Zustand ist nur noch "in Bearbeitung": resolve kann nicht an einem fremden Zustand scheitern.
     return rt.approvals.resolve(id, "failed", message.slice(0, 200));
   }
 }
@@ -656,8 +672,17 @@ export async function exportEnv(
   // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
   const roots = configured.length > 0 && folder ? [...configured, folder] : configured;
   try {
-    const built = await buildEnvFile(template, { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers, ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}), ...(input.prompts ? { prompts: input.prompts } : {}) });
-    const written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots });
+    const envDeps = { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers };
+    const built = await buildEnvFile(template, { ...envDeps, ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}), ...(input.prompts ? { prompts: input.prompts } : {}) });
+    let written;
+    try {
+      written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots });
+    } catch (err) {
+      // Datei nicht geschrieben: frisch ausgestellte Dev-Tokens nicht beim Anbieter verwaist lassen.
+      const left = await revokeIssuedTokens(built.issuedTokens, envDeps);
+      if (err instanceof Error && left.length > 0) err.message += ` Nicht widerrufen (beim Anbieter von Hand entfernen): ${left.join(", ")}.`;
+      throw err;
+    }
     const warnings: string[] = [];
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");

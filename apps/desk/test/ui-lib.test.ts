@@ -64,11 +64,14 @@ describe("status", () => {
     expect(driftInfo("unreachable").label).toBe("Nicht erreichbar");
     expect(toneClass("danger")).toContain("danger");
   });
-  it("Variablen-Fehler einordnen", () => {
-    expect(classifyVariableError("Sieht aus wie ein Stripe-Schluessel")).toBe("secret");
-    expect(classifyVariableError("privater Schluessel")).toBe("secret");
-    expect(classifyVariableError("Wert wirkt geheim. Zum Bestaetigen acknowledgedPublic setzen.")).toBe("acknowledge");
-    expect(classifyVariableError("Feld fehlt: id")).toBe("other");
+  it("Variablen-Fehler einordnen: nur nach dem Code, nicht nach dem Text", () => {
+    expect(classifyVariableError({ code: "secret-blocked" })).toBe("secret");
+    expect(classifyVariableError({ code: "secret-ack" })).toBe("acknowledge");
+    expect(classifyVariableError({ code: "not-connected" })).toBe("other");
+    expect(classifyVariableError({})).toBe("other");
+    expect(classifyVariableError(null)).toBe("other");
+    // Text allein genuegt nicht mehr (auch nicht in der englischen Fassung).
+    expect(classifyVariableError(new Error("Looks like a Stripe secret key. acknowledgedPublic") as { code?: string })).toBe("other");
   });
 });
 

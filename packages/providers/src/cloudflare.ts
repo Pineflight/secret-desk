@@ -1,6 +1,6 @@
 import { SecretValue, type Check, type Provider, type VerifyContext } from "@secret-desk/core";
 import { check, daysApart, day, isRecord, probeWithConnection, probeWithValue, sameSet, step, steps } from "./checks.js";
-import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireString, requireStringArray, seg } from "./http.js";
+import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireString, requireStringArray, revokeIdempotent, seg } from "./http.js";
 
 const API = "https://api.cloudflare.com/client/v4";
 
@@ -128,6 +128,10 @@ const tokenProvider: Provider = {
       body: JSON.stringify(body),
     });
     const r = res?.result;
+    if (r && typeof r.id === "string" && typeof r.value !== "string") {
+      // Teilantwort: der Token existiert beim Anbieter, wir haben aber keinen Wert. Er darf nicht unbemerkt verwaisen.
+      throw new ProviderError(id, null, `Antwort ohne Wert: beim Anbieter koennte ein verwaister Token bestehen (Kennung ${r.id}). Im Dashboard pruefen und widerrufen.`);
+    }
     if (!r || typeof r.value !== "string" || typeof r.id !== "string") throw badResponse(id);
     return { value: new SecretValue(r.value), externalId: r.id, expiresAt: r.expires_on ?? expiresOn ?? null };
   },
@@ -143,7 +147,7 @@ const tokenProvider: Provider = {
     ];
   },
   async revoke(ctx) {
-    await callWithToken("cloudflare-token", ctx, "cloudflare", `${API}/user/tokens/${seg(ctx.externalId)}`, { method: "DELETE" });
+    await revokeIdempotent(() => callWithToken("cloudflare-token", ctx, "cloudflare", `${API}/user/tokens/${seg(ctx.externalId)}`, { method: "DELETE" }));
   },
 };
 

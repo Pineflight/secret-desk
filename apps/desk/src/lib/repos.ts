@@ -38,7 +38,9 @@ export function filterSuggestions(all: RepoSuggestion[], query: string, limit = 
 /** Vorbelegter Dateipfad: verknuepfter Ordner plus Dateiname der Vorlage. */
 export function defaultEnvPath(folder: string | null | undefined, file: string): string | null {
   if (!folder) return null;
-  return `${folder.replace(/\/+$/, "")}/${file.replace(/^\/+/, "")}`;
+  // Windows-Pfade (C:\\Users\\x\\proj) behalten ihr Trennzeichen.
+  const sep = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
+  return `${folder.replace(/[\\/]+$/, "")}${sep}${file.replace(/^[\\/]+/, "")}`;
 }
 
 export type LinkState = "none" | "missing" | "ok" | "mismatch" | "no-remote";

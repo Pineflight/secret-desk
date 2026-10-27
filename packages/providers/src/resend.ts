@@ -1,6 +1,6 @@
 import { SecretValue, type Check, type Provider } from "@secret-desk/core";
 import { check, isRecord, probeWithConnection, step } from "./checks.js";
-import { badResponse, callWithToken, JSON_HEADERS, optionalString, ProviderError, seg } from "./http.js";
+import { badResponse, callWithToken, JSON_HEADERS, optionalString, ProviderError, revokeIdempotent, seg } from "./http.js";
 
 const API = "https://api.resend.com/api-keys";
 const ID = "resend-api-key";
@@ -26,8 +26,19 @@ export const resendProvider: Provider = {
   },
   verify(ctx) {
     return step(ctx, "exists", "Schluessel beim Anbieter", async () => {
-      const r = await probeWithConnection(ID, ctx, "resend", API);
-      const list = isRecord(r.json) && Array.isArray(r.json["data"]) ? r.json["data"].filter(isRecord) : undefined;
+      // Die Liste ist seitenweise: alle Seiten lesen (bis zu 20), sonst fehlt ein aelterer Schluessel scheinbar.
+      let r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100`);
+      const pageOf = (json: unknown) => (isRecord(json) && Array.isArray(json["data"]) ? json["data"].filter(isRecord) : undefined);
+      let list = pageOf(r.json);
+      for (let page = 1; page < 20 && list && list.length > 0 && isRecord(r.json) && r.json["has_more"] === true && !list.some((k) => String(k["id"]) === ctx.externalId); page += 1) {
+        r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100&after=${seg(String(list[list.length - 1]!["id"]))}`);
+        const next = pageOf(r.json);
+        if (!next || r.status < 200 || r.status >= 300) {
+          list = undefined;
+          break;
+        }
+        list = [...list, ...next];
+      }
       if (r.status < 200 || r.status >= 300 || !list) return [check("exists", "Schluessel beim Anbieter", "warn", { actual: `HTTP ${r.status}`, detail: "Liste der Schluessel nicht lesbar" })];
       const entry = list.find((k) => String(k["id"]) === ctx.externalId);
       if (!ctx.externalId || !entry) return [check("exists", "Schluessel beim Anbieter", "fail", { expected: ctx.externalId ?? "Kennung", actual: "nicht in der Liste" })];
@@ -49,7 +60,7 @@ export const resendProvider: Provider = {
     ];
   },
   async revoke(ctx) {
-    await callWithToken(ID, ctx, "resend", `${API}/${seg(ctx.externalId)}`, { method: "DELETE" });
+    await revokeIdempotent(() => callWithToken(ID, ctx, "resend", `${API}/${seg(ctx.externalId)}`, { method: "DELETE" }));
   },
 };
 

@@ -29,6 +29,24 @@ describe("shortenHome", () => {
     expect(shortenHome("/opt/data")).toBe("/opt/data");
     expect(shortenHome("/Userset/x")).toBe("/Userset/x");
   });
+  it("beachtet Pfadgrenzen auch beim echten Home (nicht /Users/niklas2/x -> ~2/x)", () => {
+    const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
+    process.env["HOME"] = "/srv/niklas";
+    process.env["USERPROFILE"] = "/srv/niklas";
+    try {
+      expect(shortenHome("/srv/niklas/x")).toBe("~/x");
+      expect(shortenHome("/srv/niklas")).toBe("~");
+      expect(shortenHome("/srv/niklas2/x")).toBe("/srv/niklas2/x");
+      expect(shortenHome("/srv/niklas-alt")).toBe("/srv/niklas-alt");
+      expect(shortenHome("/data/srv/niklas/x")).toBe("/data/srv/niklas/x");
+      expect(shortenHome("Datei /srv/niklas/a und /srv/niklas2/b")).toBe("Datei ~/a und /srv/niklas2/b");
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
 });
 
 describe("getSettings", () => {
@@ -43,7 +61,7 @@ describe("getSettings", () => {
     ]);
     expect(s.vault).toMatchObject({ enabled: false, keySourceLabel: null });
     expect(s.server.port).toBe(5151);
-    expect(typeof s.automation.chromeFound).toBe("boolean");
+    expect(s.automation).toEqual({ enabled: rt.automation.enabled, chromeFound: rt.automation.info().chrome.found });
   });
   it("mit Richtlinie: live bleibt auch dann freigabepflichtig", async () => {
     const { rt } = await setup("policy:\n  agentStages: [abnahme, eu-prod]\n  envRoots: [/opt/wurzel]\n");

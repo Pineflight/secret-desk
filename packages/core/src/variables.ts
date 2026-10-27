@@ -21,7 +21,11 @@ export interface VariableDrift {
 }
 
 export class VariableError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** Maschinenlesbar: secret-blocked = sieht eindeutig geheim aus, secret-ack = der Mensch muss bestaetigen, dass der Wert oeffentlich ist. */
+    readonly code?: "secret-blocked" | "secret-ack",
+  ) {
     super(message);
     this.name = "VariableError";
   }
@@ -35,8 +39,8 @@ export function placeLabel(p: Place): string {
 export function assertPublicValue(name: string, value: string, acknowledgedPublic = false): void {
   const finding = looksSecret(name, value);
   if (!finding) return;
-  if (finding.level === "block") throw new VariableError(finding.reason);
-  if (!acknowledgedPublic) throw new VariableError(`${finding.reason} Zum Bestaetigen acknowledgedPublic setzen.`);
+  if (finding.level === "block") throw new VariableError(finding.reason, "secret-blocked");
+  if (!acknowledgedPublic) throw new VariableError(`${finding.reason} Zum Bestaetigen acknowledgedPublic setzen.`, "secret-ack");
 }
 
 /** Vergleicht Soll (Inventar) und Ist (GitHub) fuer alle Ziele einer Variable. */

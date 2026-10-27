@@ -1,11 +1,24 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRuntime } from "@secret-desk/runtime";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
+
+// Git ohne Benutzer-/Systemkonfiguration (url.insteadOf, init.templateDir, Hooks ...): gilt auch fuer die Aufrufe der Runtime.
+const GIT_ENV_SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
+beforeAll(() => {
+  process.env["GIT_CONFIG_GLOBAL"] = devNull;
+  process.env["GIT_CONFIG_NOSYSTEM"] = "1";
+});
+afterAll(() => {
+  for (const [k, v] of Object.entries(GIT_ENV_SAVED)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
 
 const INVENTORY = `version: 1
 secrets:

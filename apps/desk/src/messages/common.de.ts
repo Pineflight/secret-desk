@@ -31,6 +31,8 @@ export default {
   "common.retry": "Erneut versuchen",
   "common.unknownError": "Unbekannter Fehler",
   "common.err.session": "Sitzung konnte nicht gestartet werden.",
+  "common.err.launch": "Öffne die Adresse mit ?launch=... aus dem Terminal, in dem secret-desk gestartet wurde.",
+  "common.err.launchTitle": "Startadresse erforderlich",
   "common.err.request": "Anfrage fehlgeschlagen ({status}).",
   "common.err.unreachable": "Das Portal ist nicht erreichbar. Läuft es noch?",
   "common.days.none": "kein Ablauf",

@@ -1,6 +1,6 @@
 import { SecretValue, type Check, type Provider, type ProviderConfig } from "@secret-desk/core";
 import { check, daysApart, day, isRecord, probeWithConnection, step } from "./checks.js";
-import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, seg } from "./http.js";
+import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, revokeIdempotent, seg } from "./http.js";
 
 const ID = "grafana-service-account-token";
 
@@ -83,7 +83,7 @@ export const grafanaProvider: Provider = {
   async revoke(ctx) {
     const base = baseUrl(ctx.params, ctx.providerConfig);
     const accountId = requireInt(ID, ctx.params, "serviceAccountId");
-    await callWithToken(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens/${seg(ctx.externalId)}`, { method: "DELETE" });
+    await revokeIdempotent(() => callWithToken(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens/${seg(ctx.externalId)}`, { method: "DELETE" }));
   },
 };
 

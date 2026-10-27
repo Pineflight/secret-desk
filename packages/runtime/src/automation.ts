@@ -53,6 +53,12 @@ export interface AutomationRecipeInfo {
   /** Aus dem Kommentar "# STATUS: ..." der Rezeptdatei. */
   status: string;
   file: string;
+  /** SHA-256 (hex) der Rezeptdatei. */
+  sha256: string;
+  /** Weitere erlaubte Hosts. */
+  allowHosts: string[];
+  /** Mitgeliefert (true) oder extern (false). */
+  bundled: boolean;
 }
 
 export interface AutomationInfo {
@@ -61,6 +67,8 @@ export interface AutomationInfo {
   profileDir: string;
   loginTimeoutMinutes: number;
   recipes: AutomationRecipeInfo[];
+  /** Ob Rezepte aus eigenen Ordnern geladen werden (automation.allowExternalRecipes). */
+  allowExternalRecipes: boolean;
   problems: { file: string; message: string }[];
   runs: AutomationRunState[];
 }
@@ -161,7 +169,7 @@ export class AutomationManager {
     }
     this.problems.push(...loaded.errors);
     for (const d of loaded.skippedDirs ?? []) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
-    for (const { recipe, file } of loaded.recipes) {
+    for (const { recipe, file, sha256, allowHosts, bundled: isBundled } of loaded.recipes) {
       const base = createBrowserProvider({
         recipe,
         driverFactory: () => this.#driver(),
@@ -179,7 +187,7 @@ export class AutomationManager {
       const provider: BrowserProvider = { ...base, id: `${recipe.id}-browser`, label: `${recipe.label} (Browser)` };
       providers.register(provider);
       this.#providers.set(provider.id, provider);
-      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, status: await statusComment(file), file });
+      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled });
     }
   }
 
@@ -282,6 +290,6 @@ export class AutomationManager {
     } catch (err) {
       chrome = { found: false, path: null, hint: (err as Error).message };
     }
-    return { enabled: this.enabled, chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, recipes: this.recipes, problems: this.problems, runs: this.runs() };
+    return { enabled: this.enabled, chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
   }
 }

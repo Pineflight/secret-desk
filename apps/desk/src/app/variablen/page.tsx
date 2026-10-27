@@ -28,7 +28,7 @@ import { defaultStageId, environmentOf, labelOf, stageOrder } from "@/lib/stages
 function SecretGuard({ error, ack, setAck }: { error: Error | null; ack: boolean; setAck: (v: boolean) => void }) {
   const t = useT();
   if (!error) return null;
-  const kind = classifyVariableError(error.message);
+  const kind = classifyVariableError(error as { code?: string });
   if (kind === "secret") {
     return (
       <Notice tone="danger" title={t("variables.blockedTitle")}>

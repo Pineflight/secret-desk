@@ -47,10 +47,29 @@ export interface MergeResult {
   addedStages?: string[];
 }
 
-/** merge: vorhandene ids bleiben unveraendert, Neues kommt dazu. replace: ersetzt alles. */
+/**
+ * merge: vorhandene ids bleiben unveraendert, Neues kommt dazu. replace: ersetzt alles, behaelt aber die lokalen Laufzeitfelder
+ * (externalId, rotatedAt, verifiedAt, verifiedBy) von Secrets mit gleicher Id, denn der Export entfernt sie bewusst.
+ * Beides ist atomar: erst ein Probelauf auf einer Kopie, nur bei Erfolg wird der echte Speicher veraendert.
+ */
 export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "replace" = "merge"): MergeResult {
+  const probe = InventoryStore.fromText(store.toString());
+  applyBundle(probe, bundle, mode); // wirft bei einem Konflikt, bevor der echte Speicher angefasst wird
+  return applyBundle(store, bundle, mode);
+}
+
+const KEEP_LOCAL = ["externalId", "rotatedAt", "verifiedAt", "verifiedBy"] as const;
+
+function applyBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "replace"): MergeResult {
   if (mode === "replace") {
-    store.replaceData(bundle);
+    const secrets = bundle.secrets.map((s) => {
+      const old = store.getSecret(s.id);
+      if (!old) return s;
+      const kept: Record<string, unknown> = {};
+      for (const key of KEEP_LOCAL) if ((s[key] === undefined || s[key] === null) && old[key] !== undefined && old[key] !== null) kept[key] = old[key];
+      return { ...s, ...kept };
+    });
+    store.replaceData({ ...bundle, secrets });
     return { added: bundle.secrets.map((s) => s.id), skipped: [] };
   }
   const added: string[] = [];

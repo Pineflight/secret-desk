@@ -118,3 +118,17 @@ export function expiryFrom(now: Date, ttlDays: number | undefined): string | und
 
 /** Pfadsegment sicher einsetzen. */
 export const seg = encodeURIComponent;
+
+/**
+ * Widerruf ist idempotent: War der Token beim Anbieter schon weg (404), gilt das Ziel als erreicht.
+ * Alle anderen Fehler (401, 403, 5xx ...) gehen weiter.
+ */
+export async function revokeIdempotent(run: () => Promise<unknown>): Promise<"revoked" | "already-gone"> {
+  try {
+    await run();
+    return "revoked";
+  } catch (err) {
+    if (err instanceof ProviderError && err.status === 404) return "already-gone";
+    throw err;
+  }
+}

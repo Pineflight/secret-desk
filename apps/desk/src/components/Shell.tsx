@@ -3,11 +3,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
-import { api, ensureSession, type SessionInfo } from "@/lib/api";
+import { ApiError, api, ensureSession, type SessionInfo } from "@/lib/api";
 import { useDebounced, useQuery } from "@/lib/hooks";
 import { LOCALES, LOCALE_NAMES, useI18n } from "@/lib/i18n";
 import { subscribeRefresh } from "@/lib/refresh";
 import { Icon } from "./Icons";
+import { Notice } from "./ui";
 
 interface NavItem {
   href: string;
@@ -40,6 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const params = useSearchParams();
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [launchRequired, setLaunchRequired] = useState(false);
   const [q, setQ] = useState(params.get("q") ?? "");
   const dq = useDebounced(q, 250);
   const overview = useQuery<Overview>("shell-overview", () => api<Overview>("GET", "overview"), { refreshMs: 15000 });
@@ -47,7 +49,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => subscribeRefresh(reloadOverview), [reloadOverview]);
 
   useEffect(() => {
-    ensureSession().then(setSession).catch(() => setSession(null));
+    ensureSession().then(setSession).catch((err: unknown) => { setSession(null); setLaunchRequired(err instanceof ApiError && err.code === "launch-required"); });
   }, []);
   useEffect(() => setOpen(false), [path]);
   useEffect(() => setQ(params.get("q") ?? ""), [params]);
@@ -128,7 +130,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </Link>
       </header>
 
-      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</main>
+      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{launchRequired ? <div className="mb-6"><Notice tone="warn" title={t("common.err.launchTitle")}>{t("common.err.launch")}</Notice></div> : null}{children}</main>
     </div>
   );
 }

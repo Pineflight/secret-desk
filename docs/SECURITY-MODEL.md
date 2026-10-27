@@ -72,6 +72,15 @@ and give them only the agent interface (token) and no access to your home folder
 Enter them per session in the portal (memory only), or via environment variable, or via a 1Password reference (`op://`). Never in the configuration.
 Cloudflare needs a token with the *API Tokens Write* permission. That is powerful: keep it only for the session.
 
+## Write test
+**Test connection** for GitHub can additionally prove that the token may write. This is opt-in and never automatic: the request must carry `deep: true` and an explicit list of `targets`
+(repository or environment ids from the inventory, chosen by the human in the portal; live stages are never preselected). For each chosen target the portal
+1. checks that no secret named `SD_WRITE_PROBE` (variable `SD_WRITE_PROBE_VAR`) exists yet, and leaves an existing one untouched;
+2. creates the probe with a throwaway value (the secret sealed with the target's public key, as for any other secret) and
+3. deletes it again immediately.
+If the delete fails, the result is a failure that names the probe and the target so you can remove it by hand. A 403 *Resource not accessible by personal access token* is reported as a missing permission
+(*Secrets*, *Environments*, *Variables*: Read and write). The endpoint is portal-only (cookie and CSRF); agents get 404. No token value appears in any response.
+
 ## Limits
 - Anyone with access to your machine and the running process can read its memory.
 - Detection of secrets in variables is a heuristic.

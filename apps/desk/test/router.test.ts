@@ -36,8 +36,13 @@ async function setup() {
   await sodium.ready;
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
+  const written: string[] = [];
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
+    if ((init?.method ?? "GET") === "PUT" && typeof init?.body === "string") {
+      const enc = (JSON.parse(init.body) as { encrypted_value?: string }).encrypted_value;
+      if (enc) written.push(sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(enc, sodium.base64_variants.ORIGINAL), kp.publicKey, kp.privateKey)));
+    }
     if (u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
     if ((init?.method ?? "GET") === "GET" && u.includes("/secrets")) return new Response(JSON.stringify({ secrets: [{ name: "ARTIFACT_HMAC_SECRET", created_at: "c", updated_at: new Date().toISOString() }] }), { status: 200 });
     return new Response(null, { status: 204 });
@@ -47,7 +52,7 @@ async function setup() {
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
-  return { deps, dir };
+  return { deps, dir, written };
 }
 
 const HOST = "127.0.0.1:4747";
@@ -91,16 +96,21 @@ describe("Zugriffsschutz", () => {
 
 describe("Ablauf ueber die Schnittstelle", () => {
   it("neuer Wert: Pruefung, Beleg-Bild, Bestaetigung, danach geschrieben", async () => {
-    const { deps } = await setup();
+    const { deps, written } = await setup();
     const started = (await (await route(ui(deps, "POST", "renewal-requests", { secretId: "hmac-acme-app" }), deps)).json()) as { status: string; issuance: { id: string; report: { checklist: { id: string }[] } } };
     expect(started.status).toBe("awaiting-review");
-    expect(JSON.stringify(started)).not.toMatch(/[0-9a-f]{64}/);
     const id = started.issuance.id;
     const ticks = started.issuance.report.checklist.map((c) => c.id);
     expect(await (await route(ui(deps, "GET", "reviews"), deps)).json()).toHaveLength(1);
     const confirm = await route(ui(deps, "POST", `reviews/${id}/confirm`, { ticks, note: "ok" }), deps);
     expect(confirm.status).toBe(200);
-    expect(((await confirm.json()) as { ok: boolean }).ok).toBe(true);
+    const confirmed = (await confirm.json()) as { ok: boolean };
+    expect(confirmed.ok).toBe(true);
+    // Bekannter Wert (aus dem PUT zurueckgerechnet): er steht in keiner Antwort.
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(started)).not.toContain(written[0]!);
+    expect(JSON.stringify(confirmed)).not.toContain(written[0]!);
     const evidence = (await (await route(ui(deps, "GET", "evidence/hmac-acme-app"), deps)).json()) as { id: string }[];
     const svg = await route(ui(deps, "GET", `evidence/hmac-acme-app/${evidence[0]!.id}/svg`), deps);
     expect(svg.headers.get("content-type")).toBe("image/svg+xml");

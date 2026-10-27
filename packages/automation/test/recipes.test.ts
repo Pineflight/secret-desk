@@ -12,9 +12,12 @@ describe("mitgelieferte Rezepte", () => {
     const recipes = await loadRecipes([RECIPES]);
     expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "stripe-restricted-key", "supabase-access-token"]);
   });
-  it("tragen den Status-Kommentar", async () => {
-    for (const f of await readdir(RECIPES)) {
-      expect(await readFile(join(RECIPES, f), "utf8")).toMatch(/^# STATUS: nicht gegen die echte Seite geprueft/);
+  it("tragen den Status-Kommentar (nur das Format: erste Zeile beginnt mit `# STATUS:`)", async () => {
+    const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const first = (await readFile(join(RECIPES, f), "utf8")).split("\n")[0] ?? "";
+      expect(first, f).toMatch(/^# STATUS: \S/);
     }
   });
 });

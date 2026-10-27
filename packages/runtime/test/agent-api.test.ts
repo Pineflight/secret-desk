@@ -91,11 +91,17 @@ async function setup(agentStages: string[] = ["dev"]) {
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
   const calls: string[] = [];
+  /** Klartext aller in GitHub geschriebenen Secrets (aus dem verschluesselten PUT-Body zurueckgerechnet): die bekannten Werte fuer Leak-Pruefungen. */
+  const written: string[] = [];
   const live: Record<string, string> = { "/acme-docs/environments/staging/variables": "https://alt.example.com", "/acme-app/actions/variables": "proj_1" };
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url).replace("https://api.github.com", "");
     const method = init?.method ?? "GET";
     calls.push(`${method} ${u}`);
+    if (method === "PUT" && typeof init?.body === "string") {
+      const enc = (JSON.parse(init.body) as { encrypted_value?: string }).encrypted_value;
+      if (enc) written.push(sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(enc, sodium.base64_variants.ORIGINAL), kp.publicKey, kp.privateKey)));
+    }
     if (u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
     if (method === "GET" && u.includes("/variables")) {
       const key = Object.keys(live).find((k) => u.includes(k));
@@ -119,7 +125,7 @@ policy:
 `,
   );
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
-  return { rt, dir, calls };
+  return { rt, dir, calls, written };
 }
 
 const agent = { kind: "agent", name: "claude" } as const;
@@ -137,15 +143,20 @@ describe("Uebersicht", () => {
 
 describe("Ausstellen, Pruefen, Bestaetigen", () => {
   it("Mensch: Wert wird erzeugt und geprueft, GitHub bleibt unberuehrt bis zur Bestaetigung", async () => {
-    const { rt, calls } = await setup();
+    const { rt, calls, written } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
     expect(r.issuance.report.checks.some((c) => c.id.startsWith("target:") && c.status === "pass")).toBe(true);
-    expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{64}/);
+    const beforeConfirm = JSON.stringify(r);
     const ticks = r.issuance.report.checklist.map((c) => c.id);
     await expect(confirmIssuance(rt, agent, r.issuance.id, { ticks })).rejects.toThrow(PolicyError);
     const done = await confirmIssuance(rt, human, r.issuance.id, { ticks, note: "ok" });
+    // Der geschriebene Wert ist jetzt bekannt (aus dem PUT): er darf in keiner Antwort stehen, weder vorher noch nachher.
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(beforeConfirm).not.toContain(written[0]!);
+    expect(JSON.stringify(done)).not.toContain(written[0]!);
     expect(done.ok).toBe(true);
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
     expect(rt.inventory.getSecret("hmac-acme-app")!.verifiedBy).toBe("alice");
@@ -232,13 +243,17 @@ describe("Dev-Env und Metadaten", () => {
     if (r.status !== "written") throw new Error("erwartet");
     expect(r.keys).toEqual(["SITE_URL", "RATE_LIMIT_SECRET"]);
     if (process.platform !== "win32") expect((await stat(r.path)).mode & 0o777).toBe(0o600); // Windows kennt keine POSIX-Modi
-    expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{32}/);
+    const fileText = await readFile(r.path, "utf8");
+    const secretValue = /^RATE_LIMIT_SECRET=(.+)$/m.exec(fileText)?.[1];
+    expect(secretValue).toMatch(/^[0-9a-f]{32}$/);
+    expect(JSON.stringify(r)).not.toContain(secretValue!);
   });
   it("Agenten: keine Stage ausser dev, keine Werte, keine fremden Ordner", async () => {
     const { rt, dir } = await setup();
     await expect(exportEnv(rt, agent, { repo: "acme-docs", stage: "staging", path: join(dir, "x") })).rejects.toThrow(PolicyError);
     await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(dir, "y"), prompts: { A: "b" } })).rejects.toThrow(PolicyError);
-    await expect(exportEnv(rt, agent, { repo: "acme-docs", path: "/tmp/ausserhalb/.env" })).rejects.toThrow(/ausserhalb/);
+    const outside = await mkdtemp(join(tmpdir(), "sd-ausserhalb-"));
+    await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(outside, ".env") })).rejects.toThrow(/ausserhalb/);
   });
   it("meldet noetige Eingaben statt zu raten", async () => {
     const { rt, dir } = await setup();
@@ -400,5 +415,48 @@ describe("F2b/M7: Bestaetigung und Lesezugriffe", () => {
     expect(rt.issuances.list()).toHaveLength(1);
     await requestIssuance(rt, human, "hmac-acme-app");
     expect(rt.issuances.get(r.issuance.id)).toBeUndefined();
+  });
+});
+
+describe("H3: Freigabe ist atomar", () => {
+  async function pendingIssue() {
+    const ctx = await setup(["dev"]);
+    const r = await requestIssuance(ctx.rt, agent, "hmac-acme-app");
+    if (r.status !== "pending-approval") throw new Error("erwartet");
+    return { ...ctx, id: r.approvalId };
+  }
+  it("approve zweimal: zweites wirft, nur eine Pruefung", async () => {
+    const { rt, id } = await pendingIssue();
+    expect((await resolveApproval(rt, human, id, "approve")).state).toBe("approved");
+    await expect(resolveApproval(rt, human, id, "approve")).rejects.toThrow(PolicyError);
+    expect(rt.issuances.list()).toHaveLength(1);
+  });
+  it("Promise.all([approve, approve]): genau eine Ausstellung", async () => {
+    const { rt, id } = await pendingIssue();
+    const res = await Promise.allSettled([resolveApproval(rt, human, id, "approve"), resolveApproval(rt, human, id, "approve")]);
+    expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = res.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(PolicyError);
+    expect(rt.issuances.list()).toHaveLength(1);
+    expect(rt.approvals.get(id)!.state).toBe("approved");
+  });
+  it("approve nach deny wirft; deny-Pfad setzt denied ohne Arbeit", async () => {
+    const { rt, id } = await pendingIssue();
+    expect((await resolveApproval(rt, human, id, "deny")).state).toBe("denied");
+    await expect(resolveApproval(rt, human, id, "approve")).rejects.toThrow(PolicyError);
+    expect(rt.issuances.list()).toHaveLength(0);
+  });
+  it("Zielfehler beim Variablen-Apply: Zustand failed, kein roher Fehler", async () => {
+    const { rt, id } = await (async () => {
+      const ctx = await setup(["dev"]);
+      const r = await requestApplyVariable(ctx.rt, agent, "site-url-staging");
+      if (r.status !== "pending-approval") throw new Error("erwartet");
+      (ctx.rt as unknown as { github: unknown }).github = { ...(ctx.rt.github as object), setVariable: async () => { throw new Error("boom"); } };
+      return { rt: ctx.rt, id: r.approvalId };
+    })();
+    const done = await resolveApproval(rt, human, id, "approve");
+    expect(["failed", "approved"]).toContain(done.state);
+    if (done.state === "approved") throw new Error("Zielfehler muss failed ergeben");
+    expect(rt.approvals.get(id)!.state).toBe("failed");
   });
 });

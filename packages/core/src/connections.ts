@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { SecretValue } from "./secret.js";
-import type { SecretVault } from "./vault.js";
+import { VaultUnavailableError, type SecretVault } from "./vault.js";
 
 /** Woher ein Zugangs-Token fuer einen Anbieter kommt. Der Wert selbst steht nie in der Konfiguration. */
 export type SourceSpec =
@@ -83,6 +83,8 @@ export interface ConnectionStoreOptions {
   vault?: SecretVault;
   env?: NodeJS.ProcessEnv;
   exec?: ExecFn;
+  /** Uhr fuer die Ablaufpruefung (Tests). */
+  now?: () => Date;
 }
 
 export class ConnectionStore {
@@ -91,6 +93,7 @@ export class ConnectionStore {
   readonly #specs: Record<string, SourceSpec>;
   readonly #env: NodeJS.ProcessEnv;
   readonly #exec: ExecFn;
+  readonly #now: () => Date;
 
   constructor(options: ConnectionStoreOptions = {}) {
     this.session = options.session ?? new SessionVault();
@@ -98,17 +101,38 @@ export class ConnectionStore {
     this.#specs = options.specs ?? {};
     this.#env = options.env ?? process.env;
     this.#exec = options.exec ?? defaultExec;
+    this.#now = options.now ?? (() => new Date());
   }
 
-  /** Reihenfolge: Eingabe dieser Sitzung, dann die konfigurierte Quelle. */
+  /** Ein Datum (YYYY-MM-DD) liegt vor dem heutigen Tag: der Token ist abgelaufen. */
+  #expired(expires: string | null | undefined): boolean {
+    return typeof expires === "string" && expires < this.#now().toISOString().slice(0, 10);
+  }
+
+  /** Reihenfolge: Eingabe dieser Sitzung, Tresor, dann die konfigurierte Quelle. Ein defekter Tresor oder ein abgelaufener Token verhindert den Rueckfall nicht. */
   async token(id: string): Promise<SecretValue> {
+    let problem: string | null = null;
     const fromSession = this.session.get(id);
-    if (fromSession) return fromSession;
-    const fromVault = await this.vault?.get(id);
-    if (fromVault) return fromVault;
+    if (fromSession) {
+      if (this.#expired(this.session.expires(id))) problem = "Token abgelaufen";
+      else return fromSession;
+    }
+    if (this.vault) {
+      try {
+        const fromVault = await this.vault.get(id);
+        if (fromVault) {
+          const info = await this.vault.info(id).catch(() => null);
+          if (this.#expired(info?.expires)) problem = problem ?? "Token abgelaufen";
+          else return fromVault;
+        }
+      } catch (err) {
+        if (!(err instanceof VaultUnavailableError)) throw err;
+        problem = "Tresor-Eintrag nicht lesbar";
+      }
+    }
     const spec = this.#specs[id];
     if (!spec || spec.type === "session") {
-      throw new NotConnectedError(id, "Im Portal unter Verbindungen ein Token fuer diese Sitzung eingeben.");
+      throw new NotConnectedError(id, problem ? `${problem}. Im Portal unter Verbindungen ein neues Token eingeben.` : "Im Portal unter Verbindungen ein Token fuer diese Sitzung eingeben.");
     }
     if (spec.type === "env") {
       const v = this.#env[spec.name];
@@ -125,14 +149,32 @@ export class ConnectionStore {
   }
 
   async status(id: string): Promise<ConnectionStatus> {
+    let problem: string | null = null;
     if (this.session.has(id)) {
       const expires = this.session.expires(id);
-      return { id, connected: true, source: "session", ...(expires !== undefined ? { expires } : {}) };
+      if (!this.#expired(expires)) return { id, connected: true, source: "session", ...(expires !== undefined ? { expires } : {}) };
+      problem = "Token abgelaufen";
     }
-    const stored = await this.vault?.info(id).catch(() => null);
+    let stored: Awaited<ReturnType<SecretVault["info"]>> = null;
+    if (this.vault) {
+      try {
+        stored = await this.vault.info(id);
+        if (stored) {
+          // info() entschluesselt nichts: ob der Eintrag lesbar ist, zeigt erst get().
+          await this.vault.get(id);
+        }
+      } catch (err) {
+        stored = null;
+        if (err instanceof VaultUnavailableError) problem = problem ?? "Tresor-Eintrag nicht lesbar";
+      }
+    }
+    if (stored && this.#expired(stored.expires)) {
+      problem = problem ?? "Token abgelaufen";
+      stored = null;
+    }
     if (stored) return { id, connected: true, source: "vault", fingerprint: stored.fingerprint, ...(stored.expires !== undefined ? { expires: stored.expires } : {}) };
     const spec = this.#specs[id];
-    if (!spec) return { id, connected: false, source: "none", hint: "Nicht konfiguriert" };
+    if (!spec) return { id, connected: false, source: "none", hint: problem ?? "Nicht konfiguriert" };
     if (spec.type === "env") {
       const ok = Boolean(this.#env[spec.name]);
       return { id, connected: ok, source: "env", ...(ok ? {} : { hint: `${spec.name} fehlt` }) };

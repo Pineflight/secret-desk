@@ -136,6 +136,12 @@ class Runner {
   /** Fuehrt Schritte aus. Mit stopAtCreate endet es vor dem ersten createsToken-Schritt und liefert true. */
   async execute(steps: Step[], stopAtCreate: boolean): Promise<boolean> {
     this.#total = steps.length;
+    // Eine leere Liste (zum Beispiel keine Repos) darf nicht still dazu fuehren, dass Schritte entfallen: Fehler vor dem ersten Klick.
+    for (const [i, step] of steps.entries()) {
+      if ("each" in step && step.each && (this.vars[step.each] ?? "").split(",").every((s) => !s.trim())) {
+        this.fail("step", `Schritt ${i + 1} (${describeStep(step)}) braucht eine Liste "${step.each}", sie ist leer.`, false);
+      }
+    }
     for (const [i, step] of steps.entries()) {
       this.#index = i + 1;
       this.#aborted();

@@ -1,6 +1,6 @@
 import { contextKind, SecretValue, type Check, type Provider, type StageKind, type VerifyContext } from "@secret-desk/core";
 import { check, probe, step, steps } from "./checks.js";
-import { badResponse, callWithToken, JSON_HEADERS, ProviderError, requireString, seg } from "./http.js";
+import { badResponse, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg } from "./http.js";
 
 const API = "https://api.supabase.com";
 
@@ -10,6 +10,15 @@ interface ApiKey {
   api_key?: string;
 }
 
+function jwtRole(value: string): string | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(value.split(".")[1] ?? "", "base64url").toString("utf8")) as { role?: unknown };
+    return typeof payload.role === "string" ? payload.role : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Form des Schluessels: nur der Praefix und die Laenge, nie ein Teil des Wertes darueber hinaus. */
 function shapeCheck(value: string, expected: "secret" | "publishable" | "service_role" | undefined): Check {
   const m = /^(sb_secret_|sb_publishable_)/.exec(value);
@@ -17,6 +26,13 @@ function shapeCheck(value: string, expected: "secret" | "publishable" | "service
   const actual = m ? `Praefix ${m[1]}, ${value.length} Zeichen` : kind === "jwt" ? `altes JWT-Format, ${value.length} Zeichen` : `unbekanntes Format, ${value.length} Zeichen`;
   if (!kind) return check("shape", "Form des Schluessels", "warn", { actual });
   if (expected === "service_role") return check("shape", "Form des Schluessels", kind === "jwt" || kind === "secret" ? "info" : "fail", { actual, expected: "service_role (JWT oder sb_secret_)" });
+  if (kind === "jwt" && (expected === "secret" || expected === "publishable")) {
+    // Altes JWT-Format: nur mit passender Rolle (secret = service_role, publishable = anon). Ein anon-JWT ist kein Secret.
+    const role = jwtRole(value);
+    const want = expected === "secret" ? "service_role" : "anon";
+    if (role !== want) return check("shape", "Form des Schluessels", "fail", { actual: `${actual}, Rolle ${role ?? "unbekannt"}`, expected: `JWT mit Rolle ${want} oder passender Praefix` });
+    return check("shape", "Form des Schluessels", "info", { actual: `${actual}, Rolle ${role}` });
+  }
   if (expected && kind !== "jwt" && kind !== expected) return check("shape", "Form des Schluessels", "fail", { actual, expected: expected === "secret" ? "Praefix sb_secret_" : "Praefix sb_publishable_" });
   return check("shape", "Form des Schluessels", "info", { actual });
 }
@@ -81,7 +97,7 @@ const apiKeyProvider: Provider = {
   async revoke(ctx) {
     const id = "supabase-api-key";
     const ref = requireString(id, ctx.params, "projectRef");
-    await callWithToken(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/api-keys/${seg(ctx.externalId)}`, { method: "DELETE" });
+    await revokeIdempotent(() => callWithToken(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/api-keys/${seg(ctx.externalId)}`, { method: "DELETE" }));
   },
 };
 

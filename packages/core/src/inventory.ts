@@ -1,4 +1,5 @@
-import { readFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm } from "node:fs/promises";
 import { writePrivateFile } from "./platform.js";
 import { parseDocument, type Document } from "yaml";
 import {
@@ -36,6 +37,7 @@ export const PATCHABLE_SECRET_KEYS: readonly string[] = ["expires", "rotatedAt",
 export class InventoryStore {
   #doc: Document;
   #data!: Inventory;
+  #saving: Promise<void> = Promise.resolve();
 
   private constructor(
     readonly path: string | null,
@@ -182,13 +184,24 @@ export class InventoryStore {
     }, () => undefined);
   }
 
-  /** Schreibt atomar (Temp-Datei, dann rename). Ohne Pfad passiert nichts. */
-  async save(): Promise<void> {
-    if (!this.path) return;
-    const tmp = `${this.path}.tmp-${process.pid}`;
-    // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
-    await writePrivateFile(tmp, this.#doc.toString());
-    await rename(tmp, this.path);
+  /** Schreibt atomar (eindeutige Temp-Datei, dann rename). Parallele save()-Aufrufe laufen nacheinander. Ohne Pfad passiert nichts. */
+  save(): Promise<void> {
+    if (!this.path) return Promise.resolve();
+    const path = this.path;
+    const run = async (): Promise<void> => {
+      const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+      try {
+        // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
+        await writePrivateFile(tmp, this.#doc.toString());
+        await rename(tmp, path);
+      } catch (err) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+    };
+    const next = this.#saving.then(run, run);
+    this.#saving = next.catch(() => undefined);
+    return next;
   }
 
   #addNode(path: (string | number)[], value: unknown): void {

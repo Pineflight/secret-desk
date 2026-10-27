@@ -116,9 +116,9 @@ export function toneClass(tone: Tone): string {
   return TONE_CLASS[tone];
 }
 
-/** Hinweis, ob eine Servermeldung zu einem Geheimnis in einer Variable gehoert. */
-export function classifyVariableError(message: string): "secret" | "acknowledge" | "other" {
-  if (message.includes("acknowledgedPublic")) return "acknowledge";
-  if (/stripe|github-token|service-role|schl(ü|ue)ssel|privater/i.test(message)) return "secret";
+/** Einordnung eines Variablen-Fehlers nach dem Code der Serverantwort (secret-blocked / secret-ack), nie nach dem Text. */
+export function classifyVariableError(error: { code?: string | undefined } | null | undefined): "secret" | "acknowledge" | "other" {
+  if (error?.code === "secret-ack") return "acknowledge";
+  if (error?.code === "secret-blocked") return "secret";
   return "other";
 }

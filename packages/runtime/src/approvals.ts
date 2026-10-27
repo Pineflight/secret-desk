@@ -31,6 +31,16 @@ export interface Approval {
  */
 export class ApprovalQueue {
   readonly #items = new Map<string, Approval>();
+  /** Anfragen, die gerade abgearbeitet werden: ein zweites approve/deny darf nicht noch einmal arbeiten. */
+  readonly #busy = new Set<string>();
+
+  /** Markiert eine offene Anfrage atomar als "in Bearbeitung". false, wenn sie nicht offen oder schon in Bearbeitung ist. */
+  begin(id: string): boolean {
+    const item = this.#items.get(id);
+    if (!item || item.state !== "pending" || this.#busy.has(id)) return false;
+    this.#busy.add(id);
+    return true;
+  }
 
   create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date; snapshot: ApprovalSnapshot }): Approval {
     const open = [...this.#items.values()].find((a) => a.action === input.action && a.targetId === input.targetId && a.state === "pending");
@@ -67,6 +77,7 @@ export class ApprovalQueue {
     const item = this.#items.get(id);
     if (!item) throw new Error(`Anfrage nicht gefunden: ${id}`);
     if (item.state !== "pending") throw new Error(`Anfrage ist schon erledigt: ${item.state}`);
+    this.#busy.delete(id);
     item.state = state;
     if (result) item.result = result;
     return item;

@@ -18,6 +18,7 @@ store. Secret values are never persisted by the portal.
 - **Team file:** export the configuration without values, so new team members import it, connect their accounts and start.
 - **MCP server and skill for AI agents:** agents maintain metadata, query status and request renewals. They never see values and never confirm.
 - **Browser automation:** for providers without an API, a visible Chrome walks through the form; sign-in, 2FA and CAPTCHA stay with the human.
+- **Test connection:** every integration card has a button that checks the token with read-only calls (valid, expiry, permissions). For GitHub an opt-in write test creates and immediately deletes a probe secret in the targets you choose. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 - **Bilingual UI:** German and English.
 - **Encrypted local vault** for integration tokens (OS keychain, DPAPI on Windows, or a key file).
 

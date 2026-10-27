@@ -41,7 +41,7 @@ export function daysBetween(from: Date, to: Date): number {
 export function computeStatus(
   secret: SecretEntry,
   today: Date,
-  options: { thresholds?: number[]; live?: LiveSnapshot; owner?: string } = {},
+  options: { thresholds?: number[]; live?: LiveSnapshot; owner?: string; /** Ziele, die beim Abgleich nicht lesbar waren: "fehlt" ist dort unbekannt. */ unreadable?: (place: Place) => boolean } = {},
 ): StatusResult {
   const thresholds = [...(options.thresholds ?? [30, 14, 7])].sort((a, b) => a - b);
   const soonLimit = thresholds[thresholds.length - 1] ?? 30;
@@ -51,6 +51,7 @@ export function computeStatus(
   const missingPlaces: Place[] = [];
   if (options.live && options.owner) {
     for (const place of secret.places) {
+      if (options.unreadable?.(place)) continue;
       if (!options.live.has(placeKey(options.owner, place, secret.name))) missingPlaces.push(place);
     }
   }
@@ -76,7 +77,6 @@ export interface Finding {
 export function findings(inventory: Inventory, today: Date): Finding[] {
   const out: Finding[] = [];
   const thresholds = [...inventory.thresholds].sort((a, b) => a - b);
-  const dueLimit = thresholds[0] ?? 7;
   for (const s of inventory.secrets) {
     const where = [...new Set(s.places.map((p) => `${p.repo}/${p.scope === "environment" ? p.environment : "repo"}`))].join(", ");
     const r = computeStatus(s, today, { thresholds });
@@ -98,6 +98,5 @@ export function findings(inventory: Inventory, today: Date): Finding[] {
       out.push({ level: "no-date", id: s.id, key: `${s.id}:no-date`, text: `${s.name} (${s.id}): Anbieter erzwingt ein Ablaufdatum, im Inventar steht keins.` });
     }
   }
-  void dueLimit;
   return out;
 }

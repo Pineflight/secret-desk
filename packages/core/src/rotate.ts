@@ -63,6 +63,11 @@ export interface RotationResult {
   places: PlaceOutcome[];
   revoked: boolean;
   expires: string | null;
+  /** Kennung des frisch ausgestellten Tokens, wenn er nach einem Fehler beim Anbieter bestehen blieb (verwaist). */
+  orphanExternalId?: string;
+  /** true = der frisch ausgestellte Token wurde nach dem Fehler beim Anbieter widerrufen. */
+  newTokenRevoked?: boolean;
+  warnings?: string[];
 }
 
 export function describePlace(p: Place): string {
@@ -145,7 +150,36 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
 
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
   if (failed > 0) {
-    return { secretId, ok: false, partial: failed < outcomes.length, places: outcomes, revoked: false, expires: secret.expires };
+    const result: RotationResult = { secretId, ok: false, partial: failed < outcomes.length, places: outcomes, revoked: false, expires: secret.expires };
+    const warnings: string[] = [];
+    if (failed === outcomes.length) {
+      // Kein Ziel hat den neuen Wert: er ist nirgends im Einsatz und darf beim Anbieter nicht verwaist bleiben.
+      if (issued.externalId && provider.revoke) {
+        try {
+          await provider.revoke({ externalId: issued.externalId, secret, params: secret.params, connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+          result.newTokenRevoked = true;
+          warnings.push("Der neue Token wurde beim Anbieter wieder widerrufen, weil kein Ziel geschrieben wurde. Der alte bleibt gueltig.");
+        } catch {
+          result.orphanExternalId = issued.externalId;
+          warnings.push(`Der neue Token (Kennung ${issued.externalId}) konnte beim Anbieter nicht widerrufen werden und bleibt dort bestehen: bitte von Hand widerrufen.`);
+        }
+      } else if (issued.externalId) {
+        result.orphanExternalId = issued.externalId;
+        warnings.push(`Der neue Token (Kennung ${issued.externalId}) bleibt beim Anbieter bestehen: bitte von Hand widerrufen.`);
+      } else {
+        warnings.push("Der Anbieter nennt keine Kennung fuer den neuen Token: ihn beim Anbieter pruefen und von Hand widerrufen.");
+      }
+    } else {
+      // Teilweise geschrieben: der neue Token ist in einigen Zielen im Einsatz, Widerruf wuerde sie brechen.
+      if (issued.externalId) {
+        result.orphanExternalId = issued.externalId;
+        warnings.push(`Der neue Token (Kennung ${issued.externalId}) ist nur in einem Teil der Ziele geschrieben: Ziele erneut schreiben oder ihn beim Anbieter von Hand widerrufen.`);
+      } else {
+        warnings.push("Der neue Token ist nur in einem Teil der Ziele geschrieben: Ziele erneut schreiben oder ihn beim Anbieter von Hand widerrufen.");
+      }
+    }
+    result.warnings = warnings;
+    return result;
   }
 
   let revoked = false;
@@ -159,15 +193,26 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     }
   }
 
-  const expires = issued.expiresAt ? toDay(issued.expiresAt) : secret.ttlDays ? addDays(now, secret.ttlDays) : secret.expiry === "none" ? null : secret.expires;
-  deps.inventory.patchSecret(secretId, {
-    rotatedAt: toDay(now.toISOString()),
-    expires,
-    ...(issued.externalId ? { externalId: issued.externalId } : {}),
-  });
-  await deps.inventory.save();
+  // Ohne Ablaufangabe des Anbieters und ohne ttlDays ist das Ablaufdatum unbekannt: das alte Datum darf nicht stehen bleiben,
+  // sonst erscheint das frisch erneuerte Secret als abgelaufen.
+  const expires = secret.expiry === "none" ? null : issued.expiresAt ? toDay(issued.expiresAt) : secret.ttlDays ? addDays(now, secret.ttlDays) : null;
+  const warnings: string[] = [];
+  if (!issued.expiresAt && !secret.ttlDays && secret.expiry === "possible") warnings.push("Das Ablaufdatum des neuen Tokens ist unbekannt (kein ttlDays, keine Angabe des Anbieters). Datum von Hand eintragen.");
+  try {
+    deps.inventory.patchSecret(secretId, {
+      rotatedAt: toDay(now.toISOString()),
+      expires,
+      ...(issued.externalId ? { externalId: issued.externalId } : {}),
+    });
+    await deps.inventory.save();
+  } catch (err) {
+    warnings.push(revoked ? "Der alte Token ist bereits widerrufen, aber das Inventar wurde nicht gespeichert." : "Der neue Token ist in allen Zielen geschrieben, aber das Inventar wurde nicht gespeichert.");
+    warnings.push(`Neue Kennung: ${issued.externalId ?? "unbekannt"}`);
+    warnings.push(`Grund: ${(err as Error).message}`);
+    return { secretId, ok: true, partial: false, places: outcomes, revoked, expires, ...(issued.externalId ? { orphanExternalId: issued.externalId } : {}), warnings };
+  }
   deps.onEvent?.({ type: "recorded", secretId, expires });
-  return { secretId, ok: true, partial: false, places: outcomes, revoked, expires };
+  return { secretId, ok: true, partial: false, places: outcomes, revoked, expires, ...(warnings.length ? { warnings } : {}) };
 }
 
 export interface EncryptedUpload {

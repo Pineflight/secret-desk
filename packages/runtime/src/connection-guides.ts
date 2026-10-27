@@ -85,6 +85,27 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
           "Optional Project Settings: Read, Projects: Read (Projekt nachschlagen)",
         ],
       };
+    case "stripe-test":
+    case "stripe-live": {
+      const live = id === "stripe-live";
+      return {
+        label: live ? "Stripe (Live)" : "Stripe (Sandbox)",
+        description: live
+          ? "Legt Webhook-Endpunkte im Live-Modus an und widerruft sie. Wird fuer Stages der Art live bevorzugt."
+          : "Legt Webhook-Endpunkte in der Sandbox an und widerruft sie. Wird fuer Stages der Art test bevorzugt.",
+        url: "https://dashboard.stripe.com/apikeys",
+        steps: [
+          live ? "Developers, API keys, im Live-Modus \"Create restricted key\"." : "In der Sandbox: Developers, API keys, \"Create restricted key\".",
+          "Alle Ressourcen auf \"None\" lassen und nur \"Webhook Endpoints\" auf \"Write\" setzen.",
+          live ? "Der Schluessel beginnt mit rk_live_. Ein Sandbox-Schluessel (rk_test_) wird hier abgelehnt." : "Der Schluessel beginnt mit rk_test_. Ein Live-Schluessel (rk_live_) wird hier abgelehnt.",
+          "Schluessel kopieren und unten einfuegen. Er wird nur einmal angezeigt.",
+        ],
+        permissions: [
+          "Webhook Endpoints: Write (schliesst Lesen ein)",
+          "Optional Balance: Read (Funktionstest des Schluessels, ohne das Recht nur ein Hinweis)",
+        ],
+      };
+    }
     case "stripe":
       return {
         label: "Stripe",
@@ -133,4 +154,16 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
     default:
       return undefined;
   }
+}
+
+/**
+ * Passt das Praefix des Tokens zur Verbindung? Nur fuer Stripe getrennt nach Modus (stripe-test / stripe-live).
+ * Gibt eine Fehlermeldung zurueck oder undefined. Unbekannte Praefixe werden nicht beanstandet.
+ */
+export function tokenPrefixProblem(id: string, token: string): string | undefined {
+  const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
+  if (!mode) return undefined;
+  if (id === "stripe-test" && mode === "live") return "Das ist ein Live-Schluessel (rk_live_). Die Verbindung Stripe (Sandbox) braucht einen Sandbox-Schluessel (rk_test_). Fuer Live die Verbindung Stripe (Live) verwenden.";
+  if (id === "stripe-live" && mode === "test") return "Das ist ein Sandbox-Schluessel (rk_test_). Die Verbindung Stripe (Live) braucht einen Live-Schluessel (rk_live_). Fuer die Sandbox die Verbindung Stripe (Sandbox) verwenden.";
+  return undefined;
 }

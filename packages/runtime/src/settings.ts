@@ -7,7 +7,8 @@ import type { Runtime } from "./runtime.js";
 export function shortenHome(p: string): string {
   const home = homedir();
   let out = p;
-  if (home.length > 1) out = out.split(home).join("~");
+  // Nur an Pfadgrenzen: /Users/niklas2/x darf mit dem Home /Users/niklas nicht zu ~2/x werden.
+  if (home.length > 1) out = out.replace(new RegExp(`(?<![\\w.~/-])${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[/\\\\\\s"'),:;]|$)`, "g"), "~");
   return out
     .replace(/(?<![\w.~/-])\/Users\/[^/\\\s]+(?=[/\\\s]|$)/g, "~")
     .replace(/(?<![\w.~/-])\/home\/[^/\\\s]+(?=[/\\\s]|$)/g, "~")

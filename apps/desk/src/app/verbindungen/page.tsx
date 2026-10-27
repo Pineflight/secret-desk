@@ -4,7 +4,9 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
+import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
 import { daysLabel, formatDate } from "@/lib/format";
+import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
@@ -16,6 +18,7 @@ interface Connection {
   hint?: string;
   expires?: string | null;
   daysLeft?: number | null;
+  savedAt?: string | null;
   fingerprint?: string;
   canRemember?: boolean;
   label: string;
@@ -30,7 +33,8 @@ interface AutomationInfo {
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
-  recipes: { id: string; providerId: string; label: string; host: string; status: string }[];
+  allowExternalRecipes: boolean;
+  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean }[];
   problems: { file: string; message: string }[];
 }
 interface Provider {
@@ -71,21 +75,7 @@ export default function ConnectionsPage() {
       ) : null}
       <div className="grid gap-4 md:grid-cols-2">
         {connected.map((c) => (
-          <Card key={c.id}>
-            <div className="flex items-start justify-between gap-3">
-              <p className="font-medium">{labelOf(c)}</p>
-              <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />
-            </div>
-            {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
-            {c.fingerprint ? <p className="mt-1 text-xs text-muted">{t("connections.fingerprint", { fp: c.fingerprint })}</p> : null}
-            <p className={`mt-2 text-sm ${c.daysLeft != null && c.daysLeft <= 7 ? "font-medium text-danger" : "text-muted"}`}>
-              {c.expires === undefined ? t("connections.expiryUnknown") : c.expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(c.expires), days: daysLabel(c.daysLeft ?? null) })}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button onClick={() => setPicking(c.id)}>{t("connections.guide")}</Button>
-              {c.source === "session" || c.source === "vault" ? <Button loading={del.pending} onClick={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }}>{t("connections.disconnect")}</Button> : null}
-            </div>
-          </Card>
+          <ConnectionCard key={c.id} c={c} onGuide={() => setPicking(c.id)} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} />
         ))}
       </div>
       <BrowserAutomationSection q={auto} />
@@ -101,6 +91,47 @@ export default function ConnectionsPage() {
       ) : null}
       {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking(null); }} /> : null}
     </>
+  );
+}
+
+/** Eine verbundene Integration: Ablauf-Ampel, Alter des gespeicherten Tokens, Test. */
+function ConnectionCard({ c, onGuide, onDisconnect, disconnecting }: { c: Connection; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean }) {
+  const t = useT();
+  const [checked, setChecked] = useState<CheckResult | null>(null);
+  // Das vom Anbieter genannte Ablaufdatum ersetzt die manuelle Angabe, solange das Testergebnis sichtbar ist.
+  const expires = checked && checked.expires !== undefined ? checked.expires : c.expires;
+  const daysLeft = typeof expires === "string" ? Math.ceil((Date.parse(`${expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
+  const level = expiryLevel(daysLeft);
+  const saved = daysSince(c.savedAt);
+  const stale = staleWithoutExpiry(expires, c.savedAt);
+  const levelBadge = level === "ok" ? { label: t("connections.expOk"), tone: "success" as const, icon: "check" as const }
+    : level === "soon" ? { label: t("connections.expSoon"), tone: "warn" as const, icon: "clock" as const }
+    : level === "critical" ? { label: t("connections.expCritical"), tone: "danger" as const, icon: "alert" as const }
+    : level === "expired" ? { label: t("connections.expExpired"), tone: "danger" as const, icon: "x" as const }
+    : null;
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-medium">{labelOf(c)}</p>
+        <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />
+      </div>
+      {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
+      {c.fingerprint ? <p className="mt-1 text-xs text-muted">{t("connections.fingerprint", { fp: c.fingerprint })}</p> : null}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <p className={`text-sm ${level === "critical" || level === "expired" ? "font-medium text-danger" : "text-muted"}`}>
+          {expires === undefined ? t("connections.expiryUnknown") : expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(expires), days: daysLabel(daysLeft) })}
+        </p>
+        {levelBadge ? <Badge info={levelBadge} /> : null}
+      </div>
+      {level === "expired" ? <div className="mt-2"><Notice tone="danger">{t("connections.expExpiredHint")}</Notice></div> : null}
+      {saved !== null ? <p className="mt-1 text-xs text-muted">{saved === 0 ? t("connections.savedToday") : t("connections.savedDaysAgo", { count: saved })}</p> : null}
+      {stale !== null ? <div className="mt-2"><Notice tone="warn">{t("connections.staleNoExpiry", { days: stale })}</Notice></div> : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button onClick={onGuide}>{t("connections.guide")}</Button>
+        {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
+      </div>
+      <ConnectionCheckPanel id={c.id} onResult={setChecked} />
+    </Card>
   );
 }
 
@@ -127,12 +158,15 @@ function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined
           </Card>
           <Card>
             <p className="text-sm font-medium">{t("connections.browserRecipes")}</p>
+            <p className="mt-2 text-xs text-muted">{a.allowExternalRecipes ? t("connections.recipeExternalOn") : t("connections.recipeExternalOff")}</p>
             {a.recipes.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.browserNoRecipes")}</p> : (
               <ul className="mt-2 divide-y divide-line text-sm">
                 {a.recipes.map((r) => (
                   <li key={r.providerId} className="py-2">
-                    <p className="font-medium">{r.label} <span className="font-mono text-xs font-normal text-muted">{r.providerId}</span></p>
+                    <p className="flex flex-wrap items-center gap-2 font-medium">{r.label} <span className="font-mono text-xs font-normal text-muted">{r.providerId}</span> <Badge info={r.bundled ? { label: t("connections.recipeBundled"), tone: "success", icon: "shield" } : { label: t("connections.recipeExternal"), tone: "warn", icon: "alert" }} /></p>
                     <p className="text-xs text-muted">{r.host}: {r.status}</p>
+                    <p className="text-xs text-muted">{t("connections.recipeHosts", { hosts: r.allowHosts.length > 0 ? r.allowHosts.join(", ") : t("connections.recipeHostsNone") })}</p>
+                    <p className="font-mono text-xs text-muted" title={t("connections.recipeShaTitle", { sha: r.sha256 })}>{t("connections.recipeSha", { sha: shortHash(r.sha256) })}</p>
                   </li>
                 ))}
               </ul>
@@ -243,7 +277,8 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   const expires = never ? "" : preset === "custom" ? custom : addDays(today, Number(preset));
   const days = never ? null : Math.max(1, Math.round((Date.parse(`${expires}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000));
   const link = c.openUrl ? withExpiry(c.openUrl, days) : null;
-  const valid = Boolean(value) && (never || (expires !== "" && expires >= today));
+  const mismatch = stripePrefixMismatch(c.id, value);
+  const valid = Boolean(value) && !mismatch && (never || (expires !== "" && expires >= today));
   const submit = async () => {
     const v = value;
     if (!valid) return;
@@ -284,6 +319,7 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-5 space-y-2 border-t border-line pt-5">
         <label htmlFor={`tok-${c.id}`} className="block font-medium">{t("connections.step3")}</label>
         <input id={`tok-${c.id}`} type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} font-mono`} />
+        {mismatch ? <Notice tone="warn">{t(mismatch === "live" ? "connections.prefixLive" : "connections.prefixTest")}</Notice> : null}
         <p className="text-xs text-muted">{t("connections.memoryOnly")}</p>
         {c.canRemember ? (
           <div className="pt-1">

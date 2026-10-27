@@ -1,11 +1,24 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, stat, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { exportEnv } from "../src/agent-api.js";
 import { linkedFolder, listRepos, parseGitRemote, removeLink, scanLocal, setLink } from "../src/repos.js";
 import { createRuntime } from "../src/runtime.js";
+
+// Git ohne Benutzer-/Systemkonfiguration (url.insteadOf, init.templateDir, Hooks ...): gilt auch fuer die Aufrufe der Runtime.
+const GIT_ENV_SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
+beforeAll(() => {
+  process.env["GIT_CONFIG_GLOBAL"] = devNull;
+  process.env["GIT_CONFIG_NOSYSTEM"] = "1";
+});
+afterAll(() => {
+  for (const [k, v] of Object.entries(GIT_ENV_SAVED)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
 
 const INVENTORY = `version: 1
 secrets:
@@ -92,12 +105,21 @@ describe("Verknuepfen", () => {
 
   it("lehnt Pfade ausserhalb von Home und envRoots ab", async () => {
     const { rt } = await setup();
-    const fremd = await repoDir(await realpath("/private/tmp"), `sd-fremd-${process.pid}`);
+    // Ein eigener Temp-Ordner (nicht /tmp fest); ausserhalb von Home liegt er, solange das Home nicht darueber liegt.
+    const outside = await realpath(await mkdtemp(join(tmpdir(), "sd-fremd-")));
+    const fremd = await repoDir(outside, "fremd");
+    const savedHome = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
+    process.env["HOME"] = join(outside, "..", "sd-home-unrelated");
+    process.env["USERPROFILE"] = process.env["HOME"];
     try {
       await expect(setLink(rt, "acme-app", fremd)).rejects.toThrow("ausserhalb");
       await expect(setLink(rt, "acme-app", "/etc")).rejects.toThrow("ausserhalb");
     } finally {
-      await rm(fremd, { recursive: true, force: true });
+      for (const [k, v] of Object.entries(savedHome)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      await rm(outside, { recursive: true, force: true });
     }
   });
 

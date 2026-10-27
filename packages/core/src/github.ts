@@ -16,6 +16,29 @@ export class GitHubError extends Error {
   }
 }
 
+/** Die Abfrage war zu gross fuer die Seitengrenze: das Ergebnis waere unvollstaendig und darf nicht als vollstaendig gelten. */
+export class GitHubTruncatedError extends GitHubError {
+  constructor(what: string, limit: number) {
+    super(0, `GitHub-Liste ${what} hat mehr als ${limit} Eintraege: die Abfrage waere unvollstaendig und wurde abgebrochen.`);
+    this.name = "GitHubTruncatedError";
+  }
+}
+
+/** Ein Ziel, das beim Abgleich nicht gelesen werden konnte (nicht: nicht vorhanden, das ist 404). */
+export interface SnapshotError {
+  repo: string;
+  scope: GitHubTarget["scope"];
+  environment?: string;
+  status: number;
+  message: string;
+}
+
+export interface SnapshotResult {
+  snapshot: LiveSnapshot;
+  /** Ziele mit Fehler (403, 429, 5xx, Netz ...). Fuer sie ist nichts ueber "fehlt" bekannt. */
+  errors: SnapshotError[];
+}
+
 export interface GitHubTarget {
   owner: string;
   repo: string;
@@ -56,6 +79,10 @@ export interface GitHubClientOptions {
   auth: TokenProvider;
   fetch?: FetchLike;
   baseUrl?: string;
+  /** Wartefunktion fuer die einmalige Wiederholung nach 429/Retry-After (Tests). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Laengste Wartezeit, die fuer eine Wiederholung akzeptiert wird (Standard 10 s). */
+  maxRetryWaitMs?: number;
 }
 
 export interface RemoteVariable {
@@ -83,8 +110,12 @@ export class GitHubClient {
   readonly #auth: TokenProvider;
   readonly #fetch: FetchLike;
   readonly #base: string;
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #maxRetryWaitMs: number;
 
   constructor(options: GitHubClientOptions) {
+    this.#sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.#maxRetryWaitMs = options.maxRetryWaitMs ?? 10_000;
     this.#auth = options.auth;
     this.#fetch = options.fetch ?? fetch;
     this.#base = options.baseUrl ?? "https://api.github.com";
@@ -98,6 +129,7 @@ export class GitHubClient {
       const items = body.secrets ?? [];
       out.push(...items.map((s) => ({ name: s.name, createdAt: s.created_at, updatedAt: s.updated_at })));
       if (items.length < 100) break;
+      if (page === 20) throw new GitHubTruncatedError("Secrets", 2000);
     }
     return out;
   }
@@ -154,6 +186,7 @@ export class GitHubClient {
       const items = body.variables ?? [];
       out.push(...items.map((v) => ({ name: v.name, value: v.value, createdAt: v.created_at, updatedAt: v.updated_at })));
       if (items.length < 30) break;
+      if (page === 20) throw new GitHubTruncatedError("Variablen", 600);
     }
     return out;
   }
@@ -186,9 +219,18 @@ export class GitHubClient {
     return (body.environments ?? []).map((e) => e.name);
   }
 
-  /** Liest fuer alle uebergebenen Ziele die vorhandenen Secret-Namen (keine Werte). */
+  /** Wie snapshotDetailed, aber nur der Stand. Ein Ziel mit Fehler fehlt dann einfach (siehe snapshotDetailed). */
   async snapshot(owner: string, places: Place[]): Promise<LiveSnapshot> {
+    return (await this.snapshotDetailed(owner, places)).snapshot;
+  }
+
+  /**
+   * Liest fuer alle uebergebenen Ziele die vorhandenen Secret-Namen (keine Werte). Ein Ziel mit 403/429/5xx kippt nicht den
+   * ganzen Abgleich: Es erscheint in `errors`, die uebrigen liefern ihr Ergebnis. 404 heisst "Ziel gibt es nicht" und ist kein Fehler.
+   */
+  async snapshotDetailed(owner: string, places: Place[]): Promise<SnapshotResult> {
     const snapshot: LiveSnapshot = new Map();
+    const errors: SnapshotError[] = [];
     const seen = new Set<string>();
     for (const place of places) {
       const target = placeToTarget(owner, place);
@@ -200,25 +242,24 @@ export class GitHubClient {
           snapshot.set(placeKey(owner, { ...place, name: s.name }, s.name), { name: s.name, updatedAt: s.updatedAt });
         }
       } catch (err) {
-        if (!(err instanceof GitHubError && err.status === 404)) throw err;
+        if (err instanceof GitHubError && err.status === 404) continue;
+        errors.push({ repo: target.repo, scope: target.scope, ...(target.environment ? { environment: target.environment } : {}), status: err instanceof GitHubError ? err.status : 0, message: err instanceof Error ? err.message : String(err) });
       }
     }
-    return snapshot;
+    return { snapshot, errors };
   }
 
   async #request(method: string, path: string, body?: unknown): Promise<Response> {
-    const token = (await this.#auth()).reveal();
-    const res = await this.#fetch(`${this.#base}${path}`, {
-      method,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "secret-desk",
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+    let res = await this.#send(method, path, body);
+    if (!res.ok && (res.status === 429 || (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0"))) {
+      // Einmal wiederholen, aber nur bei kurzer, ausdruecklich genannter Wartezeit.
+      const header = res.headers.get("retry-after");
+      const retryAfter = header === null || header.trim() === "" ? Number.NaN : Number(header);
+      if (Number.isFinite(retryAfter) && retryAfter >= 0 && retryAfter * 1000 <= this.#maxRetryWaitMs) {
+        await this.#sleep(retryAfter * 1000);
+        res = await this.#send(method, path, body);
+      }
+    }
     if (!res.ok) {
       let detail = res.statusText;
       try {
@@ -230,6 +271,21 @@ export class GitHubClient {
       throw new GitHubError(res.status, `GitHub ${method} ${path.split("?")[0]} -> ${res.status}: ${detail}`);
     }
     return res;
+  }
+
+  async #send(method: string, path: string, body?: unknown): Promise<Response> {
+    const token = (await this.#auth()).reveal();
+    return this.#fetch(`${this.#base}${path}`, {
+      method,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "secret-desk",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
   }
 }
 

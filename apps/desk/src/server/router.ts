@@ -7,6 +7,8 @@ import {
   IssuanceError,
   NotConnectedError,
   RotationError,
+  StageError,
+  VaultUnavailableError,
   TeamBundleError,
   VariableError,
   VariablePatchSchema,
@@ -19,6 +21,9 @@ import {
 import {
   AutomationError,
   PolicyError,
+  checkConnection,
+  listWriteTargets,
+  tokenPrefixProblem,
   cancelAutomationRun,
   getAutomation,
   getAutomationRun,
@@ -176,6 +181,8 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
   ["POST", /^connections\/([^/]+)\/token$/, async ({ rt, params, body }) => {
     const id = params[0]!;
+    const prefixProblem = typeof body["token"] === "string" ? tokenPrefixProblem(id, body["token"]) : undefined;
+    if (prefixProblem) throw new InventoryError(prefixProblem);
     const expires = tokenExpiry(body);
     if (body["remember"] === true) {
       if (!rt.connections.vault) throw new InventoryError("Der Tresor ist ausgeschaltet (vault.enabled in der Konfiguration).");
@@ -187,6 +194,13 @@ const humanOnly: [string, RegExp, Handler][] = [
     return rt.connections.status(id);
   }],
   ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => { rt.connections.session.delete(params[0]!); await rt.connections.vault?.delete(params[0]!); return rt.connections.status(params[0]!); }],
+  ["GET", /^connections\/github\/write-targets$/, ({ rt }) => listWriteTargets(rt)],
+  ["POST", /^connections\/([^/]+)\/check$/, ({ rt, params, body }) =>
+    checkConnection(rt, params[0]!, {
+      deep: body["deep"] === true,
+      targets: Array.isArray(body["targets"]) ? body["targets"].filter((x): x is string => typeof x === "string").slice(0, 50) : [],
+    }),
+  ],
   ["PUT", /^repos\/([^/]+)\/link$/, ({ rt, params, body }) => setLink(rt, decodeURIComponent(params[0]!), str(body, "path"))],
   ["DELETE", /^repos\/([^/]+)\/link$/, ({ rt, params }) => removeLink(rt, decodeURIComponent(params[0]!))],
   ["POST", /^repos\/scan$/, ({ rt }) => scanLocal(rt)],
@@ -253,10 +267,16 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
   let body: Body = {};
   const contentType = req.headers.get("content-type") ?? "";
   if (req.method !== "GET" && req.method !== "HEAD" && contentType.includes("application/json")) {
+    let parsed: unknown;
     try {
-      body = ((await req.json()) as Body) ?? {};
+      parsed = await req.json();
     } catch {
       return err(400, "Ungueltiges JSON");
+    }
+    // Nur ein JSON-Objekt ist ein gueltiger Body (kein Primitiv, kein Array, kein null).
+    if (parsed !== null && parsed !== undefined) {
+      if (typeof parsed !== "object" || Array.isArray(parsed)) return err(400, "Der Body muss ein JSON-Objekt sein.");
+      body = parsed as Body;
     }
   }
 
@@ -280,8 +300,28 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
 function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PolicyError) return err(403, e.message);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
-  if (e instanceof InventoryError || e instanceof VariableError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError) return err(400, e.message);
+  if (e instanceof VariableError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, 400);
+  if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);
+  if (e instanceof VaultUnavailableError) return json({ error: e.message, code: "vault-unavailable" }, 409);
   if (e instanceof IssuanceError || e instanceof RotationError || e instanceof AutomationError) return err(409, e.message);
-  if (e instanceof GitHubError) return err(502, e.message);
+  if (e instanceof GitHubError) {
+    if (e.status === 429) return json({ error: "GitHub begrenzt die Anfragen. Bitte spaeter erneut versuchen.", detail: e.message, code: "rate-limit" }, 429);
+    if (e.status === 401 || e.status === 403) return json({ error: "GitHub hat den Zugriff abgelehnt. Die Rechte des GitHub-Tokens pruefen.", detail: e.message, code: "github-denied" }, 502);
+    return err(502, e.message);
+  }
+  // Anbieter-Fehler (packages/providers): per Name erkannt, das Portal haengt nicht an diesem Paket.
+  if (isNamed(e, "ProviderError")) {
+    const status = (e as { status?: number | null }).status ?? null;
+    const detail = (e as Error).message;
+    if (status === 429) return json({ error: "Der Anbieter begrenzt die Anfragen. Bitte spaeter erneut versuchen.", detail, code: "rate-limit" }, 429);
+    if (status === 401 || status === 403) return json({ error: "Der Anbieter hat den Zugriff abgelehnt. Das Token und seine Rechte pruefen.", detail, code: "provider-denied" }, 502);
+    return json({ error: "Der Anbieter hat die Anfrage nicht akzeptiert.", detail, code: "provider-error" }, 502);
+  }
+  // Unbekannt: ohne Werte protokollieren (SecretValue ist maskiert), der Client sieht nur die Standardmeldung.
+  console.error("[secret-desk] unerwarteter Fehler:", e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : String(e));
   return err(500, "Interner Fehler");
+}
+
+function isNamed(e: unknown, name: string): boolean {
+  return e instanceof Error && e.name === name;
 }

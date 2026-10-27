@@ -96,3 +96,43 @@ describe("Schutz vor Geheimnissen in Variablen", () => {
     expect(() => inv.addEnvTemplate({ id: "bad", repo: "x", entries: [{ key: "A", from: { type: "variable", variable: "gibt-es-nicht" } }] })).toThrow(/unbekannte Variable/);
   });
 });
+
+describe("M5: weitere Geheimnis-Muster", () => {
+  it("blockt Praefixe und Verbindungsstrings mit Passwort", () => {
+    const blocks = [
+      "sb_secret_" + "a".repeat(20),
+      "cfut_" + "a".repeat(30),
+      "glsa_" + "a".repeat(30),
+      "AKIA" + "ABCDEFGHIJKLMNOP",
+      "xoxb-123-456-abc",
+      "xoxp-123-456-abc",
+      "ghp_" + "c".repeat(36),
+      "github_pat_" + "d".repeat(30),
+      "postgres://user:pw@host:5432/db",
+      "postgresql://user:pw@host/db",
+      "mysql://root:geheim@localhost/app",
+      "mongodb+srv://u:p@cluster0.example.net/db",
+      "redis://default:pw@cache.example.com:6379",
+    ];
+    for (const v of blocks) expect(looksSecret("X", v)?.level, v).toBe("block");
+  });
+  it("Verbindungsstring ohne Passwort ist kein Treffer", () => {
+    expect(looksSecret("DB_URL", "postgres://host/db")).toBeNull();
+    expect(looksSecret("SITE", "https://example.com/pfad")).toBeNull();
+  });
+  it("64-stelliger Hex-Wert warnt", () => {
+    expect(looksSecret("X", "ab".repeat(32))?.level).toBe("warn");
+    expect(looksSecret("X", "ab".repeat(16))).toBeNull();
+  });
+  it("Namensregeln warnen bei gesetztem Wert ab 8 Zeichen", () => {
+    for (const name of ["STRIPE_API_KEY", "SERVICE_KEY", "DB_PASSWORD", "APP_SECRET", "GH_TOKEN", "TOKEN", "PRIVATE_KEY_PEM"]) {
+      expect(looksSecret(name, "irgendein-wert")?.level, name).toBe("warn");
+    }
+    expect(looksSecret("STRIPE_API_KEY", "kurz")).toBeNull();
+    expect(looksSecret("MONKEY_NAME", "irgendein-wert")).toBeNull();
+  });
+  it("VariableError traegt den Code", () => {
+    expect(() => assertPublicValue("X", "sk_live_" + "a".repeat(24))).toThrow(expect.objectContaining({ code: "secret-blocked" }));
+    expect(() => assertPublicValue("DB_PASSWORD", "hunter2hunter2")).toThrow(expect.objectContaining({ code: "secret-ack" }));
+  });
+});

@@ -61,7 +61,8 @@ export async function ensureSession(force = false): Promise<SessionInfo> {
       const launch = takeLaunchSecret();
       const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store", ...(launch ? { headers: { "x-secret-desk-launch": launch } } : {}) });
       if (!res.ok) {
-        const body = (await safeJson(res)) as { error?: string } | null;
+        const body = (await safeJson(res)) as { error?: string; code?: string } | null;
+        if (res.status === 401 && body?.code === "launch-required") throw new ApiError(401, translate("common.err.launch"), { code: "launch-required" });
         throw new ApiError(res.status, body?.error ?? translate("common.err.session"));
       }
       const data = (await res.json()) as SessionInfo;
