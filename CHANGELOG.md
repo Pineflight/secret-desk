@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Release workflow: every run on `main` verifies, publishes a GitHub release (`v<version>-<run number>`) and a Docker image to `ghcr.io/pineflight/secret-desk`.
+- `Dockerfile`. Publish the port to the host loopback only: `docker run --rm -p 127.0.0.1:4747:4747 -v secret-desk-data:/data ghcr.io/pineflight/secret-desk`.
+
 ## [0.1.0] - 2026-10-28
 
 Initial release.

@@ -1,0 +1,7 @@
+**/node_modules
+**/.next
+**/dist
+.git
+docs/images
+secret-desk.config.yaml
+.env*
