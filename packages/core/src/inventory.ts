@@ -169,6 +169,29 @@ export class InventoryStore {
     return this.#mutate(() => this.#addNode(["envTemplates", idx, "entries"], entry), () => this.#data.envTemplates[idx]!);
   }
 
+  /**
+   * Benennt ein Repository im Inventar um: Ziele von Secrets und Variablen sowie Vorlagen. Liefert die Zahl der geaenderten
+   * Eintraege (0 = der Name kommt nicht vor, nichts geschrieben). Speichern ist Sache des Aufrufers.
+   */
+  renameRepo(from: string, to: string): number {
+    if (!to.trim() || to.includes("/")) throw new InventoryError("Der neue Repository-Name ist ungueltig.");
+    if (from === to) return 0;
+    let changed = 0;
+    const edits: (string | number)[][] = [];
+    const scan = (key: "secrets" | "variables"): void => {
+      this.#data[key].forEach((e, i) => e.places.forEach((p, j) => { if (p.repo === from) edits.push([key, i, "places", j, "repo"]); }));
+    };
+    scan("secrets");
+    scan("variables");
+    this.#data.envTemplates.forEach((t, i) => { if (t.repo === from) edits.push(["envTemplates", i, "repo"]); });
+    if (edits.length === 0) return 0;
+    this.#mutate(() => {
+      for (const path of edits) this.#doc.setIn(path, to);
+    }, () => undefined);
+    changed = edits.length;
+    return changed;
+  }
+
   /** Ersetzt Inhalt komplett (fuer den Team-Import). */
   replaceData(next: z.input<typeof InventorySchema>): void {
     const parsed = InventorySchema.safeParse(next);

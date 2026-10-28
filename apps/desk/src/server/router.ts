@@ -59,6 +59,7 @@ import {
   readAttachment,
   rejectIssuance,
   removeLink,
+  renameInventoryRepo,
   removeVariable,
   requestApplyVariable,
   requestIssuance,
@@ -141,7 +142,7 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.
-  ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
+  ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", allRepos: query.get("all") === "1", workflows: query.get("workflows") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
   ["POST", /^secrets$/, ({ rt, actor, body }) => addSecret(rt, actor, body)],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
   // Der Akteur bestimmt die erlaubten Felder (strikt, unbekannte Felder -> 400): Agenten nur Metadaten, Menschen alle bearbeitbaren.
@@ -216,6 +217,8 @@ const humanOnly: [string, RegExp, Handler][] = [
     }),
   ],
   ["PUT", /^repos\/([^/]+)\/link$/, ({ rt, params, body }) => setLink(rt, decodeURIComponent(params[0]!), str(body, "path"))],
+  // Inventar anpassen, wenn GitHub das Repository umbenannt hat. Aendert nichts in GitHub.
+  ["POST", /^repos\/([^/]+)\/rename$/, ({ rt, params, body }) => renameInventoryRepo(rt, decodeURIComponent(params[0]!), str(body, "to"))],
   ["DELETE", /^repos\/([^/]+)\/link$/, ({ rt, params }) => removeLink(rt, decodeURIComponent(params[0]!))],
   ["POST", /^repos\/scan$/, ({ rt }) => scanLocal(rt)],
   ["POST", /^team-import$/, async ({ rt, body }) => {

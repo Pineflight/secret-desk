@@ -22,6 +22,7 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
         secrets: "write",
         actions_variables: "write",
         environments: "write",
+        contents: "read",
         metadata: "read",
       });
       return {
@@ -34,8 +35,9 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
           "Unter Repository access \"Only select repositories\" waehlen und nur die Repositories ankreuzen, die das Portal verwalten soll (das kann GitHub nicht vorausfuellen).",
           "Token erzeugen, kopieren und unten einfuegen.",
           "Fuer Organisations-Secrets braucht der Token zusaetzlich das Organisationsrecht \"Secrets\" (Read and write).",
+          "Optional: Contents (Read-only). Damit liest der Stage-Vergleich die Workflow-Dateien (.github/workflows) und zeigt, welche Secrets und Variablen sie brauchen. Ohne das Recht funktioniert alles andere; lokal verknuepfte Repositories brauchen es nicht.",
         ],
-        permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read and write (needed for environment secrets)", "Metadata: Read"],
+        permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read and write (needed for environment secrets)", "Contents: Read (optional, to read workflow files)", "Metadata: Read"],
       };
     }
     case "cloudflare":

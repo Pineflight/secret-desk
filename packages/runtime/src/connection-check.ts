@@ -262,6 +262,20 @@ async function checkGitHub(rt: Runtime, opts: ConnectionCheckOptions, now: Date)
     if (all.length === 0) checks.push(item("targets", "Ziele", "info", "Im Inventar ist noch kein Ziel eingetragen."));
   }
 
+  // Optional: Contents: Read, damit der Vergleich Workflow-Dateien lesen kann. Fehlt es, ist das nur ein Hinweis.
+  if (!loginFailed && all[0]) {
+    try {
+      await rt.github.listWorkflowFiles(rt.owner, all[0].repo);
+      checks.push(item("contents", "Workflow-Dateien (optional)", "pass", "Contents ist lesbar: Der Vergleich kann zeigen, was Workflows brauchen."));
+    } catch (err) {
+      if (err instanceof GitHubError && (err.status === 403 || err.status === 401)) {
+        checks.push(item("contents", "Workflow-Dateien (optional)", "info", "Dem Token fehlt Contents: Read (optional). Ohne das liest der Vergleich keine Workflow-Dateien aus GitHub; lokal verknuepfte Repositories gehen trotzdem."));
+      } else if (!(err instanceof GitHubError && err.status === 404)) {
+        checks.push(item("contents", "Workflow-Dateien (optional)", "info", "Workflow-Dateien konnten nicht geprueft werden."));
+      }
+    }
+  }
+
   if (opts.deep && !loginFailed) {
     const wanted = opts.targets ?? [];
     if (wanted.length === 0) checks.push(item("write", "Schreibtest", "info", "Kein Ziel ausgewaehlt: nichts geschrieben."));

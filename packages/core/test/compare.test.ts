@@ -241,3 +241,124 @@ secrets:
     expect(m.compared).toEqual(["qa", "prod"]);
   });
 });
+
+describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
+  const meta = (name: string, over: Partial<{ private: boolean; archived: boolean; pushedAt: string | null }> = {}) => ({ name, private: true, archived: false, pushedAt: "2026-10-20T08:00:00Z", ...over });
+  const repos = [meta("web"), meta("night-before"), meta("costs"), meta("old", { archived: true }), meta(".github"), meta("status")];
+  const kn = (repo: string, scope: "repository" | "environment", env?: string) => k(scope, env, repo);
+
+  it("Funde in Repos ohne Eintrag sind unexpected, auch in anderen Environments; leere Repos erscheinen in der Liste", () => {
+    const extra = {
+      repos,
+      readRepos: ["night-before", "costs", "status"],
+      envs: new Map([["night-before", ["staging", "preview"]], ["costs", []], ["status", []]]),
+      reads: reads(
+        [
+          [kn("night-before", "repository"), names("CLOUDFLARE_API_TOKEN")],
+          [kn("night-before", "environment", "staging"), names("RESEND_API_KEY")],
+          [kn("night-before", "environment", "preview"), names("PREVIEW_ONLY")],
+          [kn("costs", "repository"), names()],
+          [kn("status", "repository"), { error: "HTTP 403", status: 403 }],
+        ],
+        [[kn("night-before", "repository"), vars({ SITE: "x" })], [kn("costs", "repository"), vars({})]],
+      ),
+    };
+    const r = compareMatrix(inv(), {}, reads([]), extra);
+    const nb = r.rows.filter((x) => x.repo === "night-before");
+    expect(nb.map((x) => `${x.kind}:${x.name}`).sort()).toEqual(["secret:CLOUDFLARE_API_TOKEN", "secret:PREVIEW_ONLY", "secret:RESEND_API_KEY", "variable:SITE"]);
+    expect(row({ ...r, rows: nb }, "RESEND_API_KEY").cells.staging!.state).toBe("unexpected");
+    expect(row({ ...r, rows: nb }, "CLOUDFLARE_API_TOKEN").cells.shared!.state).toBe("unexpected");
+    expect(row({ ...r, rows: nb }, "PREVIEW_ONLY").other).toEqual({ present: ["preview"], needed: [] });
+    // Repository-Liste: archivierte und .github fehlen, costs hat keine Funde, status hat einen Lesefehler als Hinweis
+    expect(r.repos.map((x) => x.name)).toEqual(["costs", "night-before", "status", "web"]);
+    const costs = r.repos.find((x) => x.name === "costs")!;
+    expect(costs).toMatchObject({ inInventory: false, private: true, found: { secrets: 0, variables: 0 }, needed: 0, onGitHub: true });
+    expect(r.repos.find((x) => x.name === "night-before")!.found).toEqual({ secrets: 3, variables: 1 });
+    expect(r.repos.find((x) => x.name === "status")!.notes).toMatchObject([{ code: "read-error", status: 403 }]);
+    expect(r.repos.find((x) => x.name === "web")!.inInventory).toBe(true);
+    // Fehler der Zusatz-Repos landen nicht in der globalen Fehlerliste
+    expect(r.errors).toEqual([]);
+  });
+
+  it("needed: Workflow braucht den Namen, er fehlt im Inventar und in GitHub; Zeilen im Inventar bekommen nur das Abzeichen", () => {
+    const needs = new Map([
+      [
+        "web",
+        {
+          refs: [
+            { kind: "secret" as const, name: "STRIPE_KEY", file: "deploy.yml", environment: "staging" },
+            { kind: "secret" as const, name: "NEW_KEY", file: "deploy.yml", environment: "production" },
+            { kind: "variable" as const, name: "NEXT_PUBLIC_APP_URL", file: "ci.yml" },
+            { kind: "secret" as const, name: "ORG_KEY", file: "ci.yml", environment: "staging" },
+            { kind: "secret" as const, name: "REPO_KEY", file: "ci.yml", environment: "staging" },
+          ],
+          notes: [{ code: "inherit" as const, file: "ci.yml", job: "call" }],
+        },
+      ],
+    ]);
+    const live = reads(
+      [
+        [k("environment", "staging"), names("STRIPE_KEY", "DEBUG_TOKEN", "SUPABASE_STAGING_URL")],
+        [k("environment", "production"), names("STRIPE_KEY", "SUPABASE_PRODUCTION_URL")],
+        [k("repository"), names("CLOUDFLARE_API_TOKEN", "REPO_KEY")],
+      ],
+      [[k("environment", "staging"), vars({ SITE_URL: "https://staging.example.com" })], [k("environment", "production"), vars({ SITE_URL: "https://example.com" })], [k("repository"), vars({})]],
+    );
+    const r = compareMatrix(inv(), {}, live, { needs, org: { secret: names("ORG_KEY") } });
+    const nk = row(r, "NEW_KEY");
+    expect(nk.cells.production).toMatchObject({ state: "needed", expected: false, detail: { neededBy: ["deploy.yml"], actualNames: ["NEW_KEY"] } });
+    expect(nk.neededMissing).toBe(true);
+    expect(nk.needs).toEqual([{ file: "deploy.yml", environment: "production" }]);
+    // Variable ohne Environment -> Repo-Ebene (Stage shared)
+    expect(row(r, "NEXT_PUBLIC_APP_URL", "variable").cells.shared!.state).toBe("needed");
+    // im Inventar und vorhanden: ok, nur das Abzeichen
+    const sk = row(r, "STRIPE_KEY");
+    expect(sk.cells.staging!.state).toBe("ok");
+    expect(sk.needs).toEqual([{ file: "deploy.yml", environment: "staging" }]);
+    expect(sk.neededMissing).toBe(false);
+    // von Organisation bzw. Repo-Ebene gedeckt: kein needed, aber das Abzeichen bleibt
+    expect(row(r, "ORG_KEY").cells.staging!.state).toBe("not-expected");
+    expect(row(r, "ORG_KEY").neededMissing).toBe(false);
+    expect(row(r, "REPO_KEY").cells.staging!.state).toBe("not-expected");
+    expect(r.summary.neededMissing).toBe(2);
+    expect(r.summary.perStage.production!.needed).toBe(1);
+    expect(r.repos.find((x) => x.name === "web")!.needed).toBe(2);
+    expect(r.repos.find((x) => x.name === "web")!.notes).toEqual([{ code: "inherit", file: "ci.yml", job: "call" }]);
+  });
+
+  it("ohne Live: needed ohne GitHub-Wissen; Art-Filter und Repo-Filter gelten auch fuer Workflows", () => {
+    const needs = new Map([["web", { refs: [{ kind: "secret" as const, name: "NEW_KEY", file: "a.yml", environment: "staging" }, { kind: "variable" as const, name: "NEW_VAR", file: "a.yml", environment: "staging" }], notes: [] }], ["other", { refs: [{ kind: "secret" as const, name: "X", file: "a.yml" }], notes: [] }]]);
+    const r = compareMatrix(inv(), { kinds: ["secret"] }, undefined, { needs });
+    expect(row(r, "NEW_KEY").cells.staging!.state).toBe("needed");
+    expect(r.rows.some((x) => x.name === "NEW_VAR")).toBe(false);
+    expect(r.rows.some((x) => x.repo === "other")).toBe(false);
+  });
+
+  it("Environment ohne Stage: bei gelesenem Repo fehlt der Name -> other.needed, sonst nicht gezaehlt", () => {
+    const needs = new Map([["night-before", { refs: [{ kind: "secret" as const, name: "PREVIEW_KEY", file: "p.yml", environment: "preview" }, { kind: "secret" as const, name: "GONE_KEY", file: "p.yml", environment: "nope" }], notes: [] }]]);
+    const extra = {
+      repos: [meta("night-before")],
+      readRepos: ["night-before"],
+      envs: new Map([["night-before", ["preview"]]]),
+      reads: reads([[kn("night-before", "environment", "preview"), names("PREVIEW_KEY")]], [[kn("night-before", "environment", "preview"), vars({})]]),
+      needs,
+    };
+    const r = compareMatrix(inv(), {}, reads([]), extra);
+    expect(row(r, "PREVIEW_KEY").other).toEqual({ present: ["preview"], needed: [] });
+    expect(row(r, "PREVIEW_KEY").neededMissing).toBe(false);
+    expect(row(r, "GONE_KEY").other).toEqual({ present: [], needed: ["nope"] });
+    expect(row(r, "GONE_KEY").neededMissing).toBe(true);
+  });
+
+  it("umbenannte und fehlende Inventar-Repositories", () => {
+    const r = compareMatrix(inv(), {}, reads([]), { repos: [meta("web2")], renames: { web: "web2" } });
+    const web = r.repos.find((x) => x.name === "web")!;
+    expect(web).toMatchObject({ inInventory: true, onGitHub: false, renamedTo: "web2" });
+    expect(r.repos.find((x) => x.name === "web2")!.inInventory).toBe(false);
+  });
+
+  it("ohne Extras bleibt die Repository-Liste auf das Inventar beschraenkt", () => {
+    const r = compareMatrix(inv(), {});
+    expect(r.repos).toEqual([{ name: "web", inInventory: true, private: null, archived: null, pushedAt: null, onGitHub: null, found: { secrets: 0, variables: 0 }, needed: 0, notes: [] }]);
+  });
+});

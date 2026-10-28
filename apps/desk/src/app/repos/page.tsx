@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { LinkResult, RepoList, RepoRow, ScanSuggestion } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
+import { RenameRepoDialog } from "@/components/RenameRepoDialog";
 import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, SectionLabel, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -109,6 +110,7 @@ export default function ReposPage() {
   const [live, setLive] = useState(false);
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState<RepoRow | null>(null);
+  const [renaming, setRenaming] = useState<RepoRow | null>(null);
   const [found, setFound] = useState<ScanSuggestion[] | null>(null);
   const list = useQuery<RepoList>(`repos?live=${live ? 1 : 0}`, () => api<RepoList>("GET", live ? "repos?live=1" : "repos"));
   const scan = useMutation(() => api<ScanSuggestion[]>("POST", "repos/scan"));
@@ -189,7 +191,13 @@ export default function ReposPage() {
                         {r.github && !r.inInventory ? <span title={t("repos.onlyGithubHint")}><Pill>{t("repos.onlyGithub")}</Pill></span> : null}
                         {r.github?.private ? <Pill>{t("repos.private")}</Pill> : null}
                         {r.github?.archived ? <Pill>{t("repos.archived")}</Pill> : null}
+                        {r.renamedTo ? <span title={t("repos.renamedHint")}><Pill>{t("repos.renamedTo", { name: r.renamedTo })}</Pill></span> : null}
                       </div>
+                      {r.renamedTo ? (
+                        <div className="mt-2">
+                          <Button aria-label={t("repos.renameInventoryAria", { from: r.name, to: r.renamedTo })} onClick={() => setRenaming(r)}><Icon name="wrench" />{t("repos.renameInventory")}</Button>
+                        </div>
+                      ) : null}
                     </th>
                     <td className="tabular px-3 py-3 text-right"><Link href={`/secrets?repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
                     <td className="tabular px-3 py-3 text-right"><Link href={`/variablen?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
@@ -210,6 +218,7 @@ export default function ReposPage() {
         ) : null}
       </div>
       {editing ? <LinkDialog row={editing} onClose={() => setEditing(null)} onChanged={changed} /> : null}
+      {renaming?.renamedTo ? <RenameRepoDialog from={renaming.name} to={renaming.renamedTo} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); changed(); }} /> : null}
     </>
   );
 }

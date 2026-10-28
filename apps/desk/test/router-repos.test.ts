@@ -115,4 +115,28 @@ describe("Repositories", () => {
     expect((await route(agent(deps, "DELETE", "repos/acme-app/link"), deps)).status).toBe(404);
     expect((await route(agent(deps, "POST", "repos/scan", {}), deps)).status).toBe(404);
   });
+
+  it("Umbenennen im Inventar: nur im Portal, Agenten bekommen 404", async () => {
+    const { deps } = await setup();
+    expect((await route(agent(deps, "POST", "repos/acme-app/rename", { to: "acme-app2" }), deps)).status).toBe(404);
+    const res = await route(ui(deps, "POST", "repos/acme-app/rename", { to: "acme-app2" }), deps);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ from: "acme-app", to: "acme-app2", changed: 1 });
+    const list = (await (await route(ui(deps, "GET", "repos"), deps)).json()) as { repos: { name: string }[] };
+    expect(list.repos.map((r) => r.name)).toEqual(["acme-app2", "acme-web"]);
+    // unbekannt, gleicher Name, fehlendes Feld, ungueltiger Name
+    expect((await route(ui(deps, "POST", "repos/nope/rename", { to: "x" }), deps)).status).toBe(400);
+    expect((await route(ui(deps, "POST", "repos/acme-web/rename", { to: "ACME-WEB" }), deps)).status).toBe(400);
+    expect((await route(ui(deps, "POST", "repos/acme-web/rename", {}), deps)).status).toBe(400);
+    expect((await route(ui(deps, "POST", "repos/acme-web/rename", { to: "a/b" }), deps)).status).toBe(400);
+  });
+
+  it("compare nimmt all und workflows an; ohne live kein Netz", async () => {
+    const { deps } = await setup();
+    const res = await route(ui(deps, "GET", "compare?all=1&workflows=1"), deps);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { live: boolean; repos: { name: string; inInventory: boolean }[] };
+    expect(body.live).toBe(false);
+    expect(body.repos.map((r) => r.name)).toEqual(["acme-app"]);
+  });
 });

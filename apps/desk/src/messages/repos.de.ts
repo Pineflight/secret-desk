@@ -55,4 +55,10 @@ export default {
   "repos.alreadyLinked": "verknüpft",
   "repos.adopted": "{count} Verknüpfungen übernommen.",
   "repos.close": "Schließen",
+  "repos.renamedTo": "umbenannt zu {name}",
+  "repos.renamedHint": "GitHub kennt dieses Repository unter dem alten Namen nicht mehr, aber unter dem neuen.",
+  "repos.renameInventory": "Im Inventar umbenennen",
+  "repos.renameInventoryAria": "{from} im Inventar zu {to} umbenennen",
+  "repos.renameConfirm": "{from} im Inventar zu {to} umbenennen? Ziele von Secrets und Variablen und Vorlagen werden angepasst. GitHub bleibt unverändert.",
+  "repos.renameDone": "Im Inventar umbenannt: {from} zu {to} ({count} Einträge).",
 };

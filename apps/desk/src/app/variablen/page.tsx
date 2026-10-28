@@ -23,6 +23,7 @@ import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
 import { usePersistedState } from "@/lib/persisted-state";
 import { useStageDefs } from "@/lib/use-stages";
+import { prefillRow, readPrefill, withoutPrefill, type Prefill } from "@/lib/prefill";
 import { defaultStageId, environmentOf, labelOf, stageOrder } from "@/lib/stages";
 
 /** Zeigt die Sperre oder die Bestätigungsfrage, je nach Meldung des Servers. */
@@ -75,6 +76,7 @@ export default function VariablesPage() {
     if (repoParam) setBrowse((b) => (b.repo === repoParam ? b : { ...b, repo: repoParam }));
   }, [repoParam]);
   const [creating, setCreating] = useState(false);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [removing, setRemoving] = useState<VariableView | null>(null);
   const [editing, setEditing] = useState<VariableView | null>(null);
   const [detail, setDetail] = useState<{ id: string; auto?: Auto } | null>(null);
@@ -88,9 +90,9 @@ export default function VariablesPage() {
 
   useEffect(() => {
     if (params.get("neu") === "1") {
+      setPrefill(readPrefill(params));
       setCreating(true);
-      const next = new URLSearchParams(params.toString());
-      next.delete("neu");
+      const next = withoutPrefill(params);
       router.replace(next.toString() ? `/variablen?${next}` : "/variablen");
     }
   }, [params, router]);
@@ -299,7 +301,7 @@ export default function VariablesPage() {
         </Dialog>
       ) : null}
       {editing ? <EditMetaDialog path={`variables/${enc(editing.id)}`} initial={metaFrom(editing)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); list.reload(); }} /> : null}
-      {creating ? <CreateVariableDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); list.reload(); }} /> : null}
+      {creating ? <CreateVariableDialog initial={prefill} onClose={() => { setCreating(false); setPrefill(null); }} onCreated={() => { setCreating(false); setPrefill(null); list.reload(); }} /> : null}
       {removing ? <RemoveDialog v={removing} onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); list.reload(); }} /> : null}
     </>
   );
@@ -420,14 +422,14 @@ function VariableDetail({ v, drift, comparing, compareError, auto, onCompare, on
   );
 }
 
-function CreateVariableDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateVariableDialog({ initial = null, onClose, onCreated }: { initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
   const t = useT();
   const defs = useStageDefs();
   const toast = useToast();
-  const [f, setF] = useState({ id: "", name: "", stage: "", description: "", product: "", value: "" });
-  const [rows, setRows] = useState<PlaceRow[]>([emptyPlaceRow()]);
+  const [f, setF] = useState({ id: initial?.id ?? "", name: initial?.name ?? "", stage: initial?.stage ?? "", description: "", product: "", value: "" });
+  const [rows, setRows] = useState<PlaceRow[]>([initial ? prefillRow(defs, initial) : emptyPlaceRow()]);
   const [ack, setAck] = useState(false);
-  const [meta, setMeta] = useState<MetaValues>({ description: "", owner: "", link: "", tags: [] });
+  const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
   const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));

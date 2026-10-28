@@ -21,7 +21,7 @@ Create each token with no more than this. The **Test connection** button on the 
 
 | Connection | Permissions the token needs |
 |---|---|
-| `github` | Fine-grained PAT, only the repositories the portal manages: *Secrets* Read and write, *Variables* Read and write, *Environments* Read and write (environment secrets), *Metadata* Read. For organization secrets also the organization permission *Secrets*. Recommended expiry: 90 days. |
+| `github` | Fine-grained PAT, only the repositories the portal manages: *Secrets* Read and write, *Variables* Read and write, *Environments* Read and write (environment secrets), *Contents* Read-only (optional: lets the stage comparison read `.github/workflows` to show what workflows need; not needed for repositories linked to a local folder), *Metadata* Read. For organization secrets also the organization permission *Secrets*. Recommended expiry: 90 days. |
 | `cloudflare` | Template *Create additional tokens* (*User > API Tokens > Edit*), nothing else. Recommended expiry: 1 to 7 days, ideally with an IP restriction. |
 | `cloudflare-turnstile` | Custom token with *Account > Turnstile > Edit*, limited to the one account. |
 | `supabase` | Access token with *API Keys* Read-write and *API Key Secrets* Read (optionally *Project Settings* Read, *Projects* Read). The token never exceeds your own role (Owner or Admin). |

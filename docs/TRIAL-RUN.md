@@ -12,7 +12,7 @@ Tip: in the portal, every manual secret has an "Open the provider's page with pr
 
 | What | Where | Permissions | Expiry |
 |---|---|---|---|
-| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `YOUR-ORG`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read and write, Metadata: Read | 7 days |
+| **GitHub token for secret-desk** | GitHub, Settings, Developer settings, Fine-grained tokens | Resource owner `YOUR-ORG`, **only repo `secret-desk-sandbox`**; Secrets: Read and write, Variables: Read and write, Environments: Read and write, Contents: Read (optional), Metadata: Read | 7 days |
 | **Cloudflare bootstrap token** (test B only) | Cloudflare, My Profile, API Tokens, Custom token | **User > API Tokens > Edit** (nothing else) | 1 day |
 | **Cloudflare account ID** (test B) | Cloudflare dashboard, account, "Copy account ID" | none | none |
 | **Throwaway token to paste in** (test C, optional) | GitHub, fine-grained token, resource owner your own account, **no** permissions except Public Repositories (read-only) | none | 1 day |

@@ -30,6 +30,8 @@ export interface RepoRow {
   inInventory: boolean;
   github: { private: boolean; archived: boolean; pushedAt: string | null } | null;
   link: RepoLinkStatus | null;
+  /** Der Name steht im Inventar, GitHub kennt das Repository unter diesem Namen nicht mehr, wohl aber unter diesem neuen. */
+  renamedTo?: string;
 }
 
 export interface RepoList {
@@ -245,6 +247,8 @@ export async function listRepos(rt: Runtime, opts: { live?: boolean; includePath
       const remote: RemoteRepo[] = await rt.github.listRepos(rt.owner);
       for (const g of remote) row(g.name).github = { private: g.private, archived: g.archived, pushedAt: g.pushedAt };
       github = "ok";
+      const renames = await resolveRenames(rt, [...rows.values()].filter((r) => r.inInventory && r.github === null).map((r) => r.name));
+      for (const [oldName, newName] of renames) rows.get(oldName)!.renamedTo = newName;
     } catch (err) {
       // Nie blockieren: ohne Verbindung oder bei GitHub-Fehlern bleibt es bei der Inventar-Liste.
       github = err instanceof NotConnectedError ? "off" : err instanceof GitHubError ? "unavailable" : "unavailable";
@@ -258,4 +262,50 @@ export async function listRepos(rt: Runtime, opts: { live?: boolean; includePath
     if (stored) r.link = await linkStatus(rt, r.name, stored, opts.includePaths !== false);
   }));
   return { owner: rt.owner, github, repos: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+}
+
+/**
+ * Fragt GitHub nach dem aktuellen Namen von Repositories, die im Inventar stehen, in der Repository-Liste aber fehlen.
+ * Liefert nur die tatsaechlich umbenannten (alter Name -> neuer Name im selben Eigentuemer). Hoechstens vier Anfragen
+ * gleichzeitig; ein Fehler bei einem Repository laesst es einfach aus.
+ */
+export async function resolveRenames(rt: Runtime, names: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < names.length) {
+      const old = names[next++]!;
+      try {
+        const r = await rt.github.resolveRepo(rt.owner, old);
+        const [owner, name] = r ? r.fullName.split("/") : [];
+        if (r && owner && name && owner.toLowerCase() === rt.owner.toLowerCase() && name.toLowerCase() !== old.toLowerCase()) out.set(old, name);
+      } catch {
+        /* nicht aufloesbar: keine Aussage */
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, names.length) }, worker));
+  return out;
+}
+
+/**
+ * Benennt ein Repository im Inventar um (Ziele von Secrets und Variablen, Vorlagen) und zieht eine lokale Verknuepfung mit.
+ * Aendert nichts in GitHub. Nur fuer Menschen (die Route liegt im Portal, nicht in der Agenten-API).
+ */
+export async function renameInventoryRepo(rt: Runtime, from: string, to: string): Promise<{ from: string; to: string; changed: number; linkMoved: boolean }> {
+  checkName(from);
+  checkName(to);
+  if (from.toLowerCase() === to.toLowerCase()) throw new InventoryError("Alter und neuer Name sind gleich.");
+  const changed = rt.inventory.renameRepo(from, to);
+  if (changed === 0) throw new InventoryError(`Das Repository ${from} kommt im Inventar nicht vor.`);
+  await rt.inventory.save();
+  const links = await readLinks(rt);
+  let linkMoved = false;
+  if (from in links && !(to in links)) {
+    links[to] = links[from]!;
+    delete links[from];
+    await writeLinks(rt, links);
+    linkMoved = true;
+  }
+  return { from, to, changed, linkMoved };
 }

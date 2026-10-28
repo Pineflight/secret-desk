@@ -219,6 +219,55 @@ export class GitHubClient {
     return (body.environments ?? []).map((e) => e.name);
   }
 
+  /** Dateien in `.github/workflows` (nur Namen und Groesse). Gibt es den Ordner nicht (404), ist die Liste leer. Braucht das Recht Contents: Read. */
+  async listWorkflowFiles(owner: string, repo: string): Promise<{ name: string; size: number }[]> {
+    let res: Response;
+    try {
+      res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/contents/.github/workflows`);
+    } catch (err) {
+      if (err instanceof GitHubError && err.status === 404) return [];
+      throw err;
+    }
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) return [];
+    return (body as { name?: unknown; type?: unknown; size?: unknown }[])
+      .filter((f) => f.type === "file" && typeof f.name === "string")
+      .map((f) => ({ name: f.name as string, size: typeof f.size === "number" ? f.size : 0 }));
+  }
+
+  /** Text einer Datei im Repository (Standardzweig). */
+  async readTextFile(owner: string, repo: string, path: string): Promise<string> {
+    const encoded = path.split("/").map(enc).join("/");
+    const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/contents/${encoded}`, undefined, { accept: "application/vnd.github.raw+json" });
+    return res.text();
+  }
+
+  /**
+   * Aktueller Name eines Repositories. GitHub leitet alte Namen (nach einer Umbenennung) per 301 um; die Antwort nennt den
+   * neuen Namen. Die Weiterleitung wird hier selbst verfolgt (nur innerhalb von GitHub, nie mit dem Token an eine fremde
+   * Adresse). null = es gibt kein Repository dieses Namens (404/410).
+   */
+  async resolveRepo(owner: string, name: string): Promise<{ name: string; fullName: string } | null> {
+    let path = `/repos/${enc(owner)}/${enc(name)}`;
+    for (let hop = 0; hop < 3; hop += 1) {
+      const res = await this.#send("GET", path, undefined, { redirect: "manual" });
+      if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {
+        const location = res.headers.get("location");
+        if (!location) throw new GitHubError(res.status, `GitHub GET ${path} -> ${res.status} ohne Ziel`);
+        const target = new URL(location, this.#base);
+        if (target.origin !== new URL(this.#base).origin) throw new GitHubError(res.status, "GitHub leitet auf eine fremde Adresse um: nicht gefolgt");
+        path = `${target.pathname}${target.search}`;
+        continue;
+      }
+      if (res.status === 404 || res.status === 410) return null;
+      if (!res.ok) throw new GitHubError(res.status, `GitHub GET ${path.split("?")[0]} -> ${res.status}`);
+      const body = (await res.json()) as { name?: unknown; full_name?: unknown };
+      if (typeof body.name !== "string") return null;
+      return { name: body.name, fullName: typeof body.full_name === "string" ? body.full_name : `${owner}/${body.name}` };
+    }
+    throw new GitHubError(310, "Zu viele Weiterleitungen");
+  }
+
   /** Wie snapshotDetailed, aber nur der Stand. Ein Ziel mit Fehler fehlt dann einfach (siehe snapshotDetailed). */
   async snapshot(owner: string, places: Place[]): Promise<LiveSnapshot> {
     return (await this.snapshotDetailed(owner, places)).snapshot;
@@ -249,15 +298,15 @@ export class GitHubClient {
     return { snapshot, errors };
   }
 
-  async #request(method: string, path: string, body?: unknown): Promise<Response> {
-    let res = await this.#send(method, path, body);
+  async #request(method: string, path: string, body?: unknown, extra?: RequestExtra): Promise<Response> {
+    let res = await this.#send(method, path, body, extra);
     if (!res.ok && (res.status === 429 || (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0"))) {
       // Einmal wiederholen, aber nur bei kurzer, ausdruecklich genannter Wartezeit.
       const header = res.headers.get("retry-after");
       const retryAfter = header === null || header.trim() === "" ? Number.NaN : Number(header);
       if (Number.isFinite(retryAfter) && retryAfter >= 0 && retryAfter * 1000 <= this.#maxRetryWaitMs) {
         await this.#sleep(retryAfter * 1000);
-        res = await this.#send(method, path, body);
+        res = await this.#send(method, path, body, extra);
       }
     }
     if (!res.ok) {
@@ -273,20 +322,26 @@ export class GitHubClient {
     return res;
   }
 
-  async #send(method: string, path: string, body?: unknown): Promise<Response> {
+  async #send(method: string, path: string, body?: unknown, extra?: RequestExtra): Promise<Response> {
     const token = (await this.#auth()).reveal();
     return this.#fetch(`${this.#base}${path}`, {
       method,
       headers: {
-        Accept: "application/vnd.github+json",
+        Accept: extra?.accept ?? "application/vnd.github+json",
         Authorization: `Bearer ${token}`,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "secret-desk",
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
+      ...(extra?.redirect ? { redirect: extra.redirect } : {}),
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   }
+}
+
+interface RequestExtra {
+  accept?: string;
+  redirect?: "manual";
 }
 
 /** Ein Personal Access Token, nur im Speicher. */

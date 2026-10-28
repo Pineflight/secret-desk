@@ -276,3 +276,23 @@ describe("tokenPrefixProblem", () => {
     expect(tokenPrefixProblem("github", "rk_live_x")).toBeUndefined();
   });
 });
+
+describe("GitHub: optionales Recht Contents: Read", () => {
+  it("lesbar: pass; 403: nur info (kein Fehler); 404 (kein Workflow-Ordner): kein Verbotshinweis", async () => {
+    const ok = await setup((u) => (u.includes("/contents/.github/workflows") ? { body: [{ name: "ci.yml", type: "file", size: 1 }] } : ghUser(u, "GET", {})));
+    const r1 = await checkConnection(ok.rt, "github");
+    expect(byId(r1).contents).toBe("pass");
+    expect(r1.ok).toBe(true);
+
+    const denied = await setup((u) => (u.includes("/contents/.github/workflows") ? { status: 403, body: { message: "Resource not accessible by personal access token" } } : ghUser(u, "GET", {})));
+    const r2 = await checkConnection(denied.rt, "github");
+    expect(byId(r2).contents).toBe("info");
+    expect(r2.ok).toBe(true);
+    expect(r2.checks.find((c) => c.id === "contents")!.text ?? JSON.stringify(r2.checks)).toContain("Contents: Read");
+
+    const missing = await setup((u) => (u.includes("/contents/.github/workflows") ? { status: 404, body: { message: "Not Found" } } : ghUser(u, "GET", {})));
+    const r3 = await checkConnection(missing.rt, "github");
+    expect(byId(r3).contents).toBe("pass");
+    expect(r3.ok).toBe(true);
+  });
+});

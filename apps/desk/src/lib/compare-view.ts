@@ -1,11 +1,11 @@
-import type { CellState, CompareCell, CompareResult, CompareRow, Parity } from "@secret-desk/core";
+import type { CellState, CompareCell, CompareRepo, CompareResult, CompareRow, Parity } from "@secret-desk/core";
 
 /**
  * Reine Logik der Vergleichsseite (ohne React, ohne Netz, ohne `@/`-Importe): Filter, Abweichungen, Gruppen,
  * Paritaet fuer frei gewaehlte Stages und der Markdown-Export.
  */
 
-export type { CellState, CompareCell, CompareResult, CompareRow, Parity };
+export type { CellState, CompareCell, CompareRepo, CompareResult, CompareRow, Parity };
 
 export interface CompareFilters {
   /** "" = Secrets und Variablen. */
@@ -15,12 +15,14 @@ export interface CompareFilters {
   q: string;
   /** Nur Zeilen mit Luecke oder auffaelliger Zelle. */
   onlyDeviations: boolean;
+  /** Nur Zeilen, die ein Workflow braucht. */
+  onlyNeeded?: boolean;
 }
 
-export const COMPARE_FILTERS_DEFAULT: CompareFilters = { kind: "", repo: "", q: "", onlyDeviations: false };
+export const COMPARE_FILTERS_DEFAULT: CompareFilters = { kind: "", repo: "", q: "", onlyDeviations: false, onlyNeeded: false };
 
 /** Zellzustaende, die auf ein Problem hindeuten (live). */
-const PROBLEM_STATES: readonly CellState[] = ["missing", "unexpected", "different", "error"];
+const PROBLEM_STATES: readonly CellState[] = ["missing", "unexpected", "different", "error", "needed"];
 export const isProblemState = (s: CellState): boolean => PROBLEM_STATES.includes(s);
 
 /** Standard der verglichenen Stages: alle der Art test und live. */
@@ -62,8 +64,9 @@ export interface ViewRow extends CompareRow {
 export function viewRows(result: Pick<CompareResult, "rows" | "live">, compared: readonly string[]): ViewRow[] {
   return result.rows.map((r) => {
     const p = rowParity(r, compared, result.live);
-    const problem = result.live && Object.values(r.cells).some((c) => isProblemState(c.state));
-    return { ...r, parity: p.parity, missingIn: p.missingIn, deviation: p.parity === "gap" || problem };
+    // "Von Workflows benoetigt, aber unbekannt" ist auch ohne Live-Pruefung eine Abweichung.
+    const problem = Object.values(r.cells).some((c) => c.state === "needed" || (result.live && isProblemState(c.state)));
+    return { ...r, parity: p.parity, missingIn: p.missingIn, deviation: p.parity === "gap" || problem || r.neededMissing === true };
   });
 }
 
@@ -73,6 +76,7 @@ export function filterRows(rows: readonly ViewRow[], f: CompareFilters): ViewRow
     if (f.kind && r.kind !== f.kind) return false;
     if (f.repo && r.repo !== f.repo) return false;
     if (f.onlyDeviations && !r.deviation) return false;
+    if (f.onlyNeeded && !(r.needs && r.needs.length > 0)) return false;
     if (q && ![r.name, ...(r.names ?? []), ...r.ids, ...r.tags, r.product ?? ""].some((x) => x.toLowerCase().includes(q))) return false;
     return true;
   });
@@ -105,8 +109,23 @@ export function groupByRepo(rows: readonly ViewRow[]): RepoGroup[] {
   return [...map.values()];
 }
 
-export function repoList(rows: readonly { repo: string }[]): string[] {
-  return [...new Set(rows.map((r) => r.repo))].sort((a, b) => a.localeCompare(b));
+/** Namen fuer den Repository-Filter: alle bekannten Repositories (auch ohne Zeilen) und die der Zeilen. */
+export function repoList(rows: readonly { repo: string }[], repos: readonly { name: string }[] = []): string[] {
+  return [...new Set([...repos.map((r) => r.name), ...rows.map((r) => r.repo)])].sort((a, b) => a.localeCompare(b));
+}
+
+/** Repositories ohne Inventar-Eintrag und ohne einen einzigen Fund (weder in GitHub noch von Workflows gebraucht). */
+export function reposWithoutEntries(repos: readonly CompareRepo[], filters: Pick<CompareFilters, "repo" | "q"> = { repo: "", q: "" }): CompareRepo[] {
+  const q = filters.q.trim().toLowerCase();
+  return repos.filter((r) => !r.inInventory && r.found.secrets + r.found.variables + r.needed === 0 && (!filters.repo || r.name === filters.repo) && (!q || r.name.toLowerCase().includes(q)));
+}
+
+/** Inventar-Repositories, die GitHub unter dem Namen nicht mehr kennt (umbenannt, geloescht, nicht freigegeben). */
+export const missingOnGitHub = (repos: readonly CompareRepo[]): CompareRepo[] => repos.filter((r) => r.inInventory && r.onGitHub === false);
+
+/** Kurztext "deploy.yml, ci.yml" fuer die Dateien, die eine Zeile brauchen (ohne Wiederholung). */
+export function needFiles(row: Pick<CompareRow, "needs">): string[] {
+  return [...new Set((row.needs ?? []).map((n) => n.file))];
 }
 
 export interface MarkdownText {
@@ -152,6 +171,7 @@ const LOOK: Record<CellState, CellLook> = {
   different: { key: "different", tone: "warn-strong", icon: "alert", quiet: false },
   "not-expected": { key: "not-expected", tone: "neutral", icon: "dot", quiet: true },
   "not-applicable": { key: "not-applicable", tone: "neutral", icon: "dot", quiet: true },
+  needed: { key: "needed", tone: "warn-strong", icon: "alert", quiet: false },
 };
 export const cellLook = (s: CellState): CellLook => LOOK[s] ?? LOOK["not-expected"];
 
@@ -161,12 +181,13 @@ export interface StageTotals {
   missing: number;
   unexpected: number;
   error: number;
+  needed: number;
 }
 
 /** Karten oben: Summen je Stage, nur ueber die sichtbaren Zeilen. */
 export function stageTotals(rows: readonly ViewRow[], stageIds: readonly string[]): Record<string, StageTotals> {
   const out: Record<string, StageTotals> = {};
-  for (const id of stageIds) out[id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0 };
+  for (const id of stageIds) out[id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0, needed: 0 };
   for (const r of rows) {
     for (const id of stageIds) {
       const c = r.cells[id];
@@ -177,7 +198,80 @@ export function stageTotals(rows: readonly ViewRow[], stageIds: readonly string[
       if (c.state === "missing") t.missing += 1;
       else if (c.state === "unexpected") t.unexpected += 1;
       else if (c.state === "error") t.error += 1;
+      else if (c.state === "needed") t.needed += 1;
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Ins Inventar aufnehmen (Zeilen mit Zustand "needed")
+// ---------------------------------------------------------------------------
+
+export interface AdoptCandidate {
+  /** Stabile Kennung innerhalb der Liste. */
+  key: string;
+  repo: string;
+  name: string;
+  kind: "secret" | "variable";
+  stage: string;
+  /** Workflow-Dateien, die den Namen brauchen. */
+  files: string[];
+  /** Vorgeschlagene Inventar-Id. */
+  id: string;
+  /** Name erfuellt die Namensregel des Inventars nicht (GROSSBUCHSTABEN_MIT_UNTERSTRICH). */
+  invalidName: boolean;
+}
+
+const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+/** Vorgeschlagene Id: repo-name-stage, eindeutig gegen `taken` (wird ergaenzt). */
+export function suggestId(repo: string, name: string, stage: string, taken: Set<string>): string {
+  const base = slug(`${repo}-${name}-${stage}`).slice(0, 80).replace(/-+$/g, "") || "eintrag";
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+  taken.add(id);
+  return id;
+}
+
+/** Alle Zellen mit Zustand "needed": je Stage, Name und Art ein Vorschlag. */
+export function adoptCandidates(rows: readonly CompareRow[]): AdoptCandidate[] {
+  const taken = new Set<string>(rows.flatMap((r) => r.ids));
+  const out: AdoptCandidate[] = [];
+  for (const r of rows) {
+    for (const [stage, cell] of Object.entries(r.cells)) {
+      if (cell.state !== "needed") continue;
+      const names = cell.detail?.actualNames && cell.detail.actualNames.length > 0 ? cell.detail.actualNames : [r.name];
+      for (const name of names) {
+        out.push({
+          key: `${r.repo}\u0000${r.kind}\u0000${name}\u0000${stage}`,
+          repo: r.repo,
+          name,
+          kind: r.kind,
+          stage,
+          files: cell.detail?.neededBy ?? [],
+          id: suggestId(r.repo, name, stage, taken),
+          invalidName: !/^[A-Z][A-Z0-9_]*$/.test(name),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Anfrage zum Anlegen im Inventar: nur Metadaten, nie ein Wert. Secrets: Anbieter manual, Ablauf unknown.
+ * Hat die Stage eine Environment, ist das Ziel die Environment, sonst die Repo-Ebene.
+ */
+export function adoptRequest(c: Pick<AdoptCandidate, "repo" | "name" | "kind" | "stage" | "id">, ctx: { environment: string | null; description: string }): { path: "secrets" | "variables"; body: Record<string, unknown> } {
+  const places = [ctx.environment ? { repo: c.repo, scope: "environment" } : { repo: c.repo, scope: "repository" }];
+  const common = { id: c.id, name: c.name, stage: c.stage, description: ctx.description, places };
+  if (c.kind === "secret") return { path: "secrets", body: { ...common, service: "github-actions", provider: "manual", expiry: "unknown" } };
+  return { path: "variables", body: common };
+}
+
+/** Parameter fuer die Neu-Dialoge auf /secrets und /variablen (Vorbelegung per Link). */
+export function adoptLink(c: Pick<AdoptCandidate, "repo" | "name" | "kind" | "stage" | "id" | "files">, description: string): string {
+  const q = new URLSearchParams({ neu: "1", pf_name: c.name, pf_repo: c.repo, pf_stage: c.stage, pf_id: c.id, pf_desc: description });
+  return `${c.kind === "secret" ? "/secrets" : "/variablen"}?${q.toString()}`;
 }

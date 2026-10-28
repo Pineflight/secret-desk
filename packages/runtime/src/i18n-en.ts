@@ -10,6 +10,15 @@
  */
 
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Stage-Vergleich: alle Repositories, Workflows, Umbenennung
+  ["GitHub leitet auf eine fremde Adresse um: nicht gefolgt", "GitHub redirects to a foreign address: not followed"],
+  ["Der neue Repository-Name ist ungueltig.", "The new repository name is invalid."],
+  ["Repository nicht gefunden oder dem Token nicht freigegeben", "Repository not found or not shared with the token"],
+  ["Contents ist lesbar: Der Vergleich kann zeigen, was Workflows brauchen.", "Contents is readable: the comparison can show what workflows need."],
+  ["Dem Token fehlt Contents: Read (optional). Ohne das liest der Vergleich keine Workflow-Dateien aus GitHub; lokal verknuepfte Repositories gehen trotzdem.", "The token lacks Contents: Read (optional). Without it the comparison does not read workflow files from GitHub; repositories linked to a local folder still work."],
+  ["Workflow-Dateien konnten nicht geprueft werden.", "Workflow files could not be checked."],
+  ["Optional: Contents (Read-only). Damit liest der Stage-Vergleich die Workflow-Dateien (.github/workflows) und zeigt, welche Secrets und Variablen sie brauchen. Ohne das Recht funktioniert alles andere; lokal verknuepfte Repositories brauchen es nicht.", "Optional: Contents (Read-only). It lets the stage comparison read the workflow files (.github/workflows) and show which secrets and variables they need. Everything else works without it; repositories linked to a local folder do not need it."],
+  ["Alter und neuer Name sind gleich.", "Old and new name are the same."],
   // core/connections.ts, vault.ts
   ["Im Portal unter Verbindungen ein Token fuer diese Sitzung eingeben.", "Enter a token for this session under Connections in the portal."],
   ["Nicht konfiguriert", "Not configured"],
@@ -491,6 +500,8 @@ type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  [/^GitHub GET (.+) -> (\d+) ohne Ziel$/, "GitHub GET $1 -> $2 without a target"],
+  [/^Das Repository (.+) kommt im Inventar nicht vor\.$/, "The repository $1 does not appear in the inventory."],
   [/^Die Tresordatei (.+) ist nicht lesbar\. Sie wird nicht ueberschrieben\.$/, "The vault file $1 is not readable. It is not overwritten."],
   [/^Die Tresordatei (.+) ist beschaedigt oder hat ein unbekanntes Format\. Eine Kopie liegt als (.+); nichts wurde ueberschrieben\.$/, "The vault file $1 is corrupted or has an unknown format. A copy was saved as $2; nothing was overwritten."],
   [/^(.+): Die Id "(.+)" gehoert zu einem mitgelieferten Rezept und kann nicht ueberschrieben werden\. Das mitgelieferte Rezept gilt\.$/, "$1: The id \"$2\" belongs to a bundled recipe and cannot be overridden. The bundled recipe applies."],

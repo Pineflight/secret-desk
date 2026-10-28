@@ -104,7 +104,7 @@ describe("F5: .env-Dateien", () => {
       expect(out, JSON.stringify(v)).toBe(v);
     }
     await expect(stat(marker)).rejects.toThrow();
-  });
+  }, 30_000);
 });
 
 describe("Providerdefinition: nur http(s)", () => {

@@ -21,6 +21,7 @@ import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
 import { usePersistedState } from "@/lib/persisted-state";
 import { useStageDefs } from "@/lib/use-stages";
+import { prefillRow, readPrefill, withoutPrefill, type Prefill } from "@/lib/prefill";
 import { defaultStageId, environmentOf, kindOf, labelOf, stageOrder } from "@/lib/stages";
 
 interface ProviderRow {
@@ -57,12 +58,13 @@ export default function SecretsPage() {
   }, [repoParam]);
   const [live, setLive] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
 
   useEffect(() => {
     if (params.get("neu") === "1") {
+      setPrefill(readPrefill(params));
       setCreating(true);
-      const next = new URLSearchParams(params.toString());
-      next.delete("neu");
+      const next = withoutPrefill(params);
       router.replace(next.toString() ? `/secrets?${next}` : "/secrets");
     }
   }, [params, router]);
@@ -156,19 +158,19 @@ export default function SecretsPage() {
         </div>
       ))}
 
-      {creating ? <CreateSecretDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); secrets.reload(); }} /> : null}
+      {creating ? <CreateSecretDialog initial={prefill} onClose={() => { setCreating(false); setPrefill(null); }} onCreated={() => { setCreating(false); setPrefill(null); secrets.reload(); }} /> : null}
     </>
   );
 }
 
-function CreateSecretDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateSecretDialog({ initial = null, onClose, onCreated }: { initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
   const t = useT();
   const defs = useStageDefs();
   const toast = useToast();
   const providers = useQuery<ProviderRow[]>("providers", () => api<ProviderRow[]>("GET", "providers"));
-  const [f, setF] = useState({ id: "", name: "", title: "", product: "", stage: "", service: "", provider: "manual", expiry: "unknown", expires: "", ttlDays: "" });
-  const [rows, setRows] = useState<PlaceRow[]>([emptyPlaceRow()]);
-  const [meta, setMeta] = useState<MetaValues>({ description: "", owner: "", link: "", tags: [] });
+  const [f, setF] = useState({ id: initial?.id ?? "", name: initial?.name ?? "", title: "", product: "", stage: initial?.stage ?? "", service: initial ? "github-actions" : "", provider: "manual", expiry: "unknown", expires: "", ttlDays: "" });
+  const [rows, setRows] = useState<PlaceRow[]>([initial ? prefillRow(defs, initial) : emptyPlaceRow()]);
+  const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
   const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));

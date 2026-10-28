@@ -12,11 +12,12 @@ describe("desk_compare_stages", () => {
   };
   it("ist ein reines Lesewerkzeug", async () => {
     expect(tool).toBeDefined();
-    expect(Object.keys(tool.inputSchema).sort()).toEqual(["compare", "kinds", "live", "normalize", "repo"]);
+    expect(Object.keys(tool.inputSchema).sort()).toEqual(["all_repos", "compare", "kinds", "live", "normalize", "repo", "workflows"]);
     expect(await call({})).toEqual(["GET /compare"]);
   });
   it("gibt die Optionen als Query weiter", async () => {
     expect(await call({ live: true, compare: ["staging", "production"], kinds: ["secret"], repo: "web", normalize: true })).toEqual(["GET /compare?live=1&compare=staging%2Cproduction&kinds=secret&repo=web&normalize=1"]);
     expect(await call({ live: false, normalize: false })).toEqual(["GET /compare"]);
+    expect(await call({ live: true, all_repos: true, workflows: true })).toEqual(["GET /compare?live=1&all=1&workflows=1"]);
   });
 });
