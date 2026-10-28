@@ -28,7 +28,11 @@ export type CellState =
   /** Die Stage hat in diesem Repository kein Ziel (keine Environment, nicht die Repo-Ebene) */
   | "not-applicable"
   /** Ein Workflow braucht den Namen hier, er steht weder im Inventar noch (soweit bekannt) in GitHub */
-  | "needed";
+  | "needed"
+  /** Ein Workflow liest den Namen hier, das Inventar kennt ihn fuer dieses Repository nur auf einer anderen Ebene/Stage (meist ein Ebenen-Unterschied, kein fehlender Eintrag) */
+  | "level-mismatch"
+  /** Ein Workflow prueft den Namen nur (`if:`, `!= ''`), er braucht ihn nicht zwingend */
+  | "optional";
 
 export type Parity = "consistent" | "gap" | "n/a";
 
@@ -52,6 +56,8 @@ export interface CompareOptions {
   repo?: string;
   /** Stage-Woerter (STAGING, PRODUCTION, PROD, DEV, Stage-Ids) im Namen weglassen und Zeilen zusammenfuehren. */
   normalizeNames?: boolean;
+  /** Repositories, die weder Zeilen noch Lesezugriffe bekommen. Standard: HIDDEN_REPOS (.github, .github-private). */
+  ignoreRepos?: readonly string[];
 }
 
 export interface CellDetail {
@@ -71,6 +77,8 @@ export interface CellDetail {
   error?: { target: string; message: string; status?: number };
   /** Workflow-Dateien, die den Namen hier brauchen. */
   neededBy?: string[];
+  /** level-mismatch: Stages, auf denen das Inventar den Namen fuer dieses Repository kennt. */
+  inventoryStages?: string[];
 }
 
 export interface CompareCell {
@@ -105,6 +113,8 @@ export interface CompareRow {
   other?: { present: string[]; needed: string[] };
   /** Ein Workflow braucht den Namen, aber er fehlt im Inventar und (soweit bekannt) in GitHub. */
   neededMissing: boolean;
+  /** Ein Workflow liest den Namen auf einer Ebene, auf der das Inventar ihn nicht hat, es kennt ihn aber auf einer anderen. */
+  levelMismatch: boolean;
 }
 
 export interface StageSummary {
@@ -114,6 +124,7 @@ export interface StageSummary {
   unexpected: number;
   error: number;
   needed: number;
+  levelMismatch: number;
 }
 
 export type RepoNoteCode =
@@ -165,6 +176,8 @@ export interface RepoMeta {
 /** Repositories, die keine Vergleichszeile bekommen. */
 export const HIDDEN_REPOS: readonly string[] = [".github", ".github-private"];
 
+const ignoredOf = (opts: CompareOptions): readonly string[] => opts.ignoreRepos ?? HIDDEN_REPOS;
+
 /** Zusatzdaten fuer den Vergleich, alle schon gelesen: Repositories ohne Inventar, Workflows, Umbenennungen. */
 export interface CompareExtras {
   repos?: RepoMeta[];
@@ -187,7 +200,9 @@ export interface CompareResult {
   /** Die Stages, deren Praesenz fuer die Paritaet verglichen wurde. */
   compared: string[];
   rows: CompareRow[];
-  summary: { perStage: Record<string, StageSummary>; gaps: number; orphans: number; neededMissing: number };
+  summary: { perStage: Record<string, StageSummary>; gaps: number; orphans: number; neededMissing: number; levelMismatch: number };
+  /** Ignorierte Repositories (`compare.ignoreRepos`), soweit sie im Inventar oder in der GitHub-Liste vorkommen. Ohne Zeilen, ohne Lesezugriffe. */
+  ignored: string[];
   /** Alle bekannten Repositories: Inventar und (mit GitHub-Liste) die der Organisation. */
   repos: CompareRepo[];
   live: boolean;
@@ -227,11 +242,17 @@ function entriesOf(inv: Source, kind: CompareKind) {
   return kind === "secret" ? inv.secrets : inv.variables;
 }
 
-/** Repositories der Matrix: die der Inventar-Ziele (mit Filter). */
-export function compareRepos(inv: Source, opts: CompareOptions = {}): string[] {
+/** Repositories der Inventar-Ziele (mit Repo-Filter, ohne Ignorierliste). */
+function inventoryRepoSet(inv: Source, opts: CompareOptions): Set<string> {
   const out = new Set<string>();
   for (const kind of kindsOf(opts)) for (const e of entriesOf(inv, kind)) for (const p of e.places) if (!opts.repo || p.repo === opts.repo) out.add(p.repo);
-  return [...out].sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+/** Repositories der Matrix: die der Inventar-Ziele (mit Filter, ohne ignorierte). */
+export function compareRepos(inv: Source, opts: CompareOptions = {}): string[] {
+  const ignored = new Set(ignoredOf(opts));
+  return [...inventoryRepoSet(inv, opts)].filter((r) => !ignored.has(r)).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -241,6 +262,7 @@ export function compareRepos(inv: Source, opts: CompareOptions = {}): string[] {
 export function requiredLocations(inv: Source, opts: CompareOptions = {}): Record<CompareKind, CompareLocation[]> {
   const out: Record<CompareKind, CompareLocation[]> = { secret: [], variable: [] };
   const repos = compareRepos(inv, opts);
+  const ignored = new Set(ignoredOf(opts));
   for (const kind of kindsOf(opts)) {
     const seen = new Set<string>();
     const add = (l: CompareLocation | undefined): void => {
@@ -249,7 +271,7 @@ export function requiredLocations(inv: Source, opts: CompareOptions = {}): Recor
       out[kind].push(l);
     };
     for (const repo of repos) for (const d of inv.stages) add(stageLocation(inv.stages, d.id, repo));
-    for (const e of entriesOf(inv, kind)) for (const p of e.places) if (!opts.repo || p.repo === opts.repo) add(placeLocation(p));
+    for (const e of entriesOf(inv, kind)) for (const p of e.places) if ((!opts.repo || p.repo === opts.repo) && !ignored.has(p.repo)) add(placeLocation(p));
   }
   return out;
 }
@@ -270,7 +292,7 @@ interface Acc {
   names: Set<string>;
   exps: Exp[];
   tags: Set<string>;
-  needs: { file: string; environment?: string; name: string }[];
+  needs: { file: string; environment?: string; name: string; optional: boolean }[];
   otherPresent: Set<string>;
   product?: string;
 }
@@ -306,10 +328,12 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
     return acc;
   };
 
+  const ignoredSet = new Set(ignoredOf(opts));
   for (const kind of kinds) {
     for (const e of entriesOf(inv, kind)) {
       for (const p of e.places) {
         if (opts.repo && p.repo !== opts.repo) continue;
+        if (ignoredSet.has(p.repo)) continue;
         const actualName = p.name ?? e.name;
         const acc = rowFor(p.repo, kind, actualName);
         acc.exps.push({ id: e.id, stage: e.stage, actualName, place: p, value: "value" in e ? (e.value ?? null) : null });
@@ -323,7 +347,7 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
   const errSeen = new Set<string>();
   const readOf = (kind: CompareKind, loc: CompareLocation): LocationRead | undefined => live?.[kind].get(locationKey(loc)) ?? extras?.reads?.[kind].get(locationKey(loc));
   const inventoryRepos = compareRepos(inv, opts);
-  const readRepos = (extras?.readRepos ?? []).filter((r) => !opts.repo || r === opts.repo);
+  const readRepos = (extras?.readRepos ?? []).filter((r) => (!opts.repo || r === opts.repo) && !ignoredSet.has(r));
   const extraSet = new Set(readRepos);
   const repoLevel = repoLevelStage(stages);
   const notesOf = new Map<string, RepoNote[]>();
@@ -341,7 +365,7 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
       for (const ref of wn.refs) {
         if (!kinds.includes(ref.kind)) continue;
         const acc = rowFor(repo, ref.kind, ref.name);
-        acc.needs.push({ file: ref.file, ...(ref.environment !== undefined ? { environment: ref.environment } : {}), name: ref.name });
+        acc.needs.push({ file: ref.file, ...(ref.environment !== undefined ? { environment: ref.environment } : {}), name: ref.name, optional: ref.optional === true });
       }
       for (const n of wn.notes) noteFor(repo, { code: n.code, file: n.file, ...(n.job ? { job: n.job } : {}) });
     }
@@ -399,10 +423,11 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
   const compared = comparedIds.length > 0 ? uniq(comparedIds) : stages.filter((d) => d.kind === "test" || d.kind === "live").map((d) => d.id);
 
   const perStage: Record<string, StageSummary> = {};
-  for (const d of stages) perStage[d.id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0, needed: 0 };
+  for (const d of stages) perStage[d.id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0, needed: 0, levelMismatch: 0 };
   let gaps = 0;
   let orphans = 0;
   let neededMissing = 0;
+  let levelMismatchRows = 0;
 
   const covered = (acc: Acc, name: string, envScoped: boolean): boolean => {
     if (envScoped) {
@@ -418,7 +443,7 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
     const cells: Record<string, CompareCell> = {};
     for (const d of stages) {
       const here = acc.needs.filter((n) => needStage(stages, n.environment, repoLevel) === d.id);
-      const needInfo = here.length > 0 ? { files: uniq(here.map((n) => n.file)), names: uniq(here.map((n) => n.name)), covered: Boolean(live) && here.every((n) => covered(acc, n.name, n.environment !== undefined)) } : undefined;
+      const needInfo = here.length > 0 ? { files: uniq(here.map((n) => n.file)), names: uniq(here.map((n) => n.name)), optional: here.every((n) => n.optional), covered: Boolean(live) && here.every((n) => covered(acc, n.name, n.environment !== undefined)) } : undefined;
       const cell = computeCell(acc, d, stages, live ? (loc) => readOf(acc.kind, loc) : undefined, normalize, needInfo);
       cells[d.id] = cell;
       const s = perStage[d.id]!;
@@ -428,12 +453,14 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
       else if (cell.state === "unexpected") s.unexpected += 1;
       else if (cell.state === "error") s.error += 1;
       else if (cell.state === "needed") s.needed += 1;
+      else if (cell.state === "level-mismatch") s.levelMismatch += 1;
     }
 
     // Environments ohne Stage: nur bei Repositories, deren Ziele gelesen wurden, laesst sich sagen, ob der Name fehlt.
     const otherNeeded: string[] = [];
     for (const n of acc.needs) {
       if (needStage(stages, n.environment, repoLevel) !== undefined) continue;
+      if (n.optional) continue;
       if (!extraSet.has(acc.repo) || !live) continue;
       const env = n.environment;
       const actualEnv = env === undefined ? undefined : (extras?.envs?.get(acc.repo) ?? []).find((e) => e.toLowerCase() === env.toLowerCase());
@@ -443,6 +470,8 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
     }
     const hasNeeded = Object.values(cells).some((c) => c.state === "needed") || otherNeeded.length > 0;
     if (hasNeeded) neededMissing += 1;
+    const hasLevelMismatch = Object.values(cells).some((c) => c.state === "level-mismatch");
+    if (hasLevelMismatch) levelMismatchRows += 1;
 
     // Paritaet: Praesenz in den verglichenen Stages. Live zaehlt der Ist-Zustand, sonst die Erwartung; Fehler und n/a scheiden aus.
     const have: boolean[] = [];
@@ -474,11 +503,13 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
       ...(acc.needs.length > 0 ? { needs: uniqBy(acc.needs.map((n) => ({ file: n.file, ...(n.environment !== undefined ? { environment: n.environment } : {}) })), (n) => `${n.file}\u0000${n.environment ?? ""}`) } : {}),
       ...(acc.otherPresent.size > 0 || otherNeeded.length > 0 ? { other: { present: [...acc.otherPresent].sort(), needed: uniq(otherNeeded).sort() } } : {}),
       neededMissing: hasNeeded,
+      levelMismatch: hasLevelMismatch,
     });
   }
   out.sort((a, b) => a.repo.localeCompare(b.repo) || (a.kind === b.kind ? 0 : a.kind === "secret" ? -1 : 1) || a.name.localeCompare(b.name));
   const repos = buildRepos(inv, opts, out, extras, notesOf);
-  return { stages: stageList, compared, rows: out, summary: { perStage, gaps, orphans, neededMissing }, repos, live: Boolean(live), errors };
+  const ignored = ignoredRepos(inv, opts, extras);
+  return { stages: stageList, compared, rows: out, summary: { perStage, gaps, orphans, neededMissing, levelMismatch: levelMismatchRows }, ignored, repos, live: Boolean(live), errors };
 }
 
 function uniqBy<T>(xs: T[], key: (x: T) => string): T[] {
@@ -491,13 +522,22 @@ function uniqBy<T>(xs: T[], key: (x: T) => string): T[] {
   });
 }
 
+/** Ignorierte Repositories, die es im Inventar oder (mit Liste) in GitHub gibt; sortiert. */
+function ignoredRepos(inv: Source, opts: CompareOptions, extras: CompareExtras | undefined): string[] {
+  const ignored = new Set(ignoredOf(opts));
+  const known = new Set<string>([...inventoryRepoSet(inv, opts)].filter((r) => ignored.has(r)));
+  for (const r of extras?.repos ?? []) if (ignored.has(r.name) && (!opts.repo || r.name === opts.repo)) known.add(r.name);
+  return [...known].sort((a, b) => a.localeCompare(b));
+}
+
 function buildRepos(inv: Source, opts: CompareOptions, rows: readonly CompareRow[], extras: CompareExtras | undefined, notesOf: Map<string, RepoNote[]>): CompareRepo[] {
   const meta = new Map<string, RepoMeta>();
   for (const r of extras?.repos ?? []) meta.set(r.name, r);
   const inInventory = new Set(compareRepos(inv, opts));
+  const ignoredSet = new Set(ignoredOf(opts));
   const names = new Set<string>(inInventory);
   for (const r of meta.values()) {
-    if (HIDDEN_REPOS.includes(r.name) || (opts.repo && r.name !== opts.repo)) continue;
+    if (ignoredSet.has(r.name) || (opts.repo && r.name !== opts.repo)) continue;
     if (r.archived && !inInventory.has(r.name)) continue;
     names.add(r.name);
   }
@@ -529,7 +569,7 @@ function computeCell(
   stages: readonly StageDef[],
   read: ((loc: CompareLocation) => LocationRead | undefined) | undefined,
   normalize: (name: string) => string,
-  need?: { files: string[]; names: string[]; covered: boolean },
+  need?: { files: string[]; names: string[]; optional: boolean; covered: boolean },
 ): CompareCell {
   const exps = acc.exps.filter((x) => x.stage === def.id);
   const ids = uniq(exps.map((x) => x.id));
@@ -538,7 +578,14 @@ function computeCell(
     const loc = stageLocation(stages, def.id, acc.repo);
     if (!loc) return { state: "not-applicable", expected: false };
     const r = read?.(loc);
-    const neededCell = (): CompareCell => ({ state: "needed", expected: false, detail: { ids, targets: [locationLabel(loc)], neededBy: need!.files, actualNames: need!.names.sort() } });
+    const neededCell = (): CompareCell => {
+      const base = { ids, targets: [locationLabel(loc)], neededBy: need!.files, actualNames: need!.names.sort() };
+      // Nur geprueft (`if:`, `!= ''`): kein Bedarf.
+      if (need!.optional) return { state: "optional", expected: false, detail: base };
+      // Das Inventar kennt den Namen fuer dieses Repository auf einer anderen Ebene: meist ein Ebenen-Unterschied, kein fehlender Eintrag.
+      if (acc.exps.length > 0) return { state: "level-mismatch", expected: false, detail: { ...base, inventoryStages: uniq(acc.exps.map((x) => x.stage)) } };
+      return { state: "needed", expected: false, detail: base };
+    };
     if (!r) return need && !need.covered ? neededCell() : { state: "not-expected", expected: false };
     if ("error" in r) return { state: "error", expected: false, detail: { ids, targets: [locationLabel(loc)], error: { target: locationLabel(loc), message: r.error, ...(r.status !== undefined ? { status: r.status } : {}) } } };
     // Namen, die ein Eintrag einer anderen Stage genau an dieses Ziel legt, sind hier nicht "unerwartet".

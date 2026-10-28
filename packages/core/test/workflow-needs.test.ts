@@ -186,3 +186,36 @@ describe("Zuordnung zu Stages", () => {
     expect(needStage(DEFAULT_STAGES, "preview", "shared")).toBeUndefined();
   });
 });
+
+describe("optionale Namen (nur geprueft)", () => {
+  const opt = (r: { name: string; optional?: boolean }[]) => r.map((x) => `${x.name}${x.optional ? "?" : ""}`).sort();
+  it("refsInExpression: Vergleiche und if-Ausdruecke sind optional, Werte nicht", () => {
+    expect(opt(refsInExpression("secrets.A != ''").refs)).toEqual(["A?"]);
+    expect(opt(refsInExpression("'' == secrets.A").refs)).toEqual(["A?"]);
+    expect(opt(refsInExpression("secrets['B'] == ''").refs)).toEqual(["B?"]);
+    expect(opt(refsInExpression("secrets.A").refs)).toEqual(["A"]);
+    expect(opt(refsInExpression("secrets.A", true).refs)).toEqual(["A?"]);
+  });
+  it("nur in if:/Vergleichen = optional; als env:/with:-Wert verbindlich", () => {
+    const needs = extractWorkflowNeeds([
+      wf("upptime.yml", `
+on: push
+jobs:
+  notify:
+    runs-on: x
+    if: \${{ secrets.SLACK_HOOK != '' }}
+    steps:
+      - if: secrets.NTFY_TOPIC != ''
+        run: echo hi
+      - run: echo \${{ secrets.USED_TOKEN }}
+      - if: secrets.USED_TOKEN != ''
+        run: echo again
+      - env:
+          HAS_X: \${{ secrets.FLAG_ONLY == 'yes' }}
+        run: echo
+`),
+    ]);
+    const by = Object.fromEntries(needs.refs.map((r) => [r.name, r.optional === true]));
+    expect(by).toEqual({ SLACK_HOOK: true, NTFY_TOPIC: true, USED_TOKEN: false, FLAG_ONLY: true });
+  });
+});

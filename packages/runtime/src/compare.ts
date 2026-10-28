@@ -1,7 +1,6 @@
 import {
   GitHubError,
   NotConnectedError,
-  HIDDEN_REPOS,
   compareMatrix,
   compareRepos,
   environmentStage,
@@ -76,7 +75,11 @@ async function pool<T>(items: readonly T[], fn: (item: T) => Promise<void>): Pro
  * - Inventar-Repositories, die GitHub unter dem Namen nicht mehr kennt, werden auf Umbenennung geprueft.
  */
 export async function compareStages(rt: Runtime, opts: CompareStagesOptions = {}): Promise<CompareResult> {
-  const { live, allRepos, workflows, ...options } = opts;
+  const { live, allRepos, workflows, ...rest } = opts;
+  // Ignorierte Repositories (compare.ignoreRepos) werden weder gelesen noch angezeigt: nirgends GitHub-Anfragen oder Workflow-Dateien fuer sie.
+  const ignoreRepos = rest.ignoreRepos ?? rt.config.compare.ignoreRepos;
+  const options: CompareOptions = { ...rest, ignoreRepos };
+  const ignoredSet = new Set(ignoreRepos);
   const inv = rt.inventory.data;
   const extras: CompareExtras = {};
   const stages = inv.stages;
@@ -110,7 +113,7 @@ export async function compareStages(rt: Runtime, opts: CompareStagesOptions = {}
     }
   }
   const inInventory = new Set(inventoryRepos);
-  const extraRepos = (listed ?? []).filter((r) => !r.archived && !HIDDEN_REPOS.includes(r.name) && !inInventory.has(r.name) && (!options.repo || r.name === options.repo)).map((r) => r.name);
+  const extraRepos = (listed ?? []).filter((r) => !r.archived && !ignoredSet.has(r.name) && !inInventory.has(r.name) && (!options.repo || r.name === options.repo)).map((r) => r.name);
   if (extraRepos.length > 0) {
     extras.readRepos = extraRepos;
     extras.envs = new Map();

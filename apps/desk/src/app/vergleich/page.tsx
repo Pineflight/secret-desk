@@ -18,6 +18,8 @@ import {
   effectiveCompared,
   filterRows,
   groupByRepo,
+  hideRepos,
+  hiddenPresent,
   missingOnGitHub,
   needFiles,
   repoList,
@@ -81,6 +83,9 @@ export default function ComparePage() {
   // Mit Live sind beide standardmaessig an; ohne Live gelten sie nicht (Workflows nur aus lokalen Ordnern, Repositories gar nicht).
   const [allRepos, setAllRepos] = useState(true);
   const [workflows, setWorkflows] = useState(true);
+  // Nur Anzeige, nur in der Browser-Sitzung: die Konfiguration (compare.ignoreRepos) aendert die Oberflaeche nie.
+  const [hiddenRepos, setHiddenRepos] = usePersistedState<string[]>("compare.hiddenRepos", []);
+  const [showHidden, setShowHidden] = usePersistedState("compare.showHidden", false);
   const [adoptAll, setAdoptAll] = useState(false);
   const [renaming, setRenaming] = useState<CompareRepo | null>(null);
   const [detail, setDetail] = useState<{ row: ViewRow; stage: string } | null>(null);
@@ -106,14 +111,20 @@ export default function ComparePage() {
   const emptyRepos = useMemo(() => reposWithoutEntries(data?.repos ?? [], filters), [data, filters.repo, filters.q]);
   const goneRepos = useMemo(() => missingOnGitHub(data?.repos ?? []), [data]);
   const repoNotes = useMemo(() => (data?.repos ?? []).filter((r) => r.notes.length > 0 && (!filters.repo || r.name === filters.repo)), [data, filters.repo]);
-  const visible = useMemo(() => sortRows(filterRows(all, filters), gapsFirst), [all, filters, gapsFirst]);
+  const shown = useMemo(() => hideRepos(all, hiddenRepos, showHidden), [all, hiddenRepos, showHidden]);
+  const hiddenNow = useMemo(() => hiddenPresent(all, hiddenRepos), [all, hiddenRepos]);
+  const visible = useMemo(() => sortRows(filterRows(shown, filters), gapsFirst), [shown, filters, gapsFirst]);
   const groups = useMemo(() => groupByRepo(visible), [visible]);
   const candidates = useMemo(() => adoptCandidates(visible), [visible]);
   const neededRows = visible.filter((r) => r.neededMissing).length;
+  const levelRows = visible.filter((r) => r.levelMismatch).length;
   const effectiveWorkflows = live ? workflows : false;
-  const totals = useMemo(() => stageTotals(filterRows(all, { ...filters, onlyDeviations: false }), order), [all, filters, order.join(",")]);
+  const totals = useMemo(() => stageTotals(filterRows(shown, { ...filters, onlyDeviations: false }), order), [shown, filters, order.join(",")]);
   const gapCount = visible.filter((r) => r.parity === "gap").length;
   const orphanCount = visible.filter((r) => r.ids.length === 0).length;
+
+  const hideRepo = (repo: string) => setHiddenRepos((h) => (h.includes(repo) ? h : [...h, repo]));
+  const unhideRepo = (repo: string) => setHiddenRepos((h) => h.filter((x) => x !== repo));
 
   const toggleStage = (id: string) => {
     const base = chosen.length > 0 ? effectiveCompared(stages, chosen) : defaultCompared(stages);
@@ -203,6 +214,13 @@ export default function ComparePage() {
           <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
           <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
           {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
+          {all.some((r) => r.levelMismatch) ? (
+            <Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)}>
+              <span>{t("compare.showLevelMismatch")}</span>
+              <span className="block text-xs text-muted">{t("compare.showLevelMismatchHint")}</span>
+            </Checkbox>
+          ) : null}
+          {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
         </div>
         <div className="flex max-w-xs flex-col justify-end pb-1">
           <Checkbox checked={normalize} onChange={setNormalize}>
@@ -249,6 +267,7 @@ export default function ComparePage() {
                       <dt className="text-muted-text">{t("compare.sumUnexpected")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.unexpected ? "text-warn-text" : ""}`}>{data.live ? n.unexpected : "–"}</dd>
                       {data.live && n.error ? <><dt className="text-muted-text">{t("compare.sumError")}</dt><dd className="tabular text-right font-semibold text-danger-text">{n.error}</dd></> : null}
                       {n.needed ? <><dt className="text-muted-text">{t("compare.sumNeeded")}</dt><dd className="tabular text-right font-semibold text-warn-text">{n.needed}</dd></> : null}
+                      {n.levelMismatch ? <><dt className="text-muted-text">{t("compare.sumLevelMismatch")}</dt><dd className="tabular text-right font-semibold">{n.levelMismatch}</dd></> : null}
                     </dl>
                   ) : null}
                 </Card>
@@ -259,11 +278,19 @@ export default function ComparePage() {
             {t("compare.sumRows", { rows: visible.length, gaps: gapCount, orphans: orphanCount })}
             {data.live ? "" : ` ${t("compare.sumOffline")}`}
             {neededRows > 0 ? ` ${t("compare.sumNeededRows", { count: neededRows })}.` : ""}
+            {levelRows > 0 ? ` ${t("compare.sumLevelMismatchRows", { count: levelRows })}.` : ""}
+            {hiddenNow.length > 0 && !showHidden ? ` ${t("compare.sumHidden", { count: hiddenNow.length })}` : ""}
           </p>
           {candidates.length > 0 ? (
             <div className="mt-3"><Button variant="secondary" onClick={() => setAdoptAll(true)}><Icon name="plus" />{t("compare.adoptAll", { count: candidates.length })}</Button></div>
           ) : null}
         </section>
+      ) : null}
+
+      {data && (data.ignored ?? []).length > 0 ? (
+        <p className="mb-4 text-xs text-muted" title={t("compare.ignoredHint")}>
+          <span className="font-medium text-muted-text">{t("compare.ignoredTitle")} ({data.ignored.length})</span>: {data.ignored.join(", ")}. {t("compare.ignoredHint")}
+        </p>
       ) : null}
 
       {goneRepos.length > 0 ? (
@@ -341,6 +368,12 @@ export default function ComparePage() {
             <span className="text-xs font-normal text-muted">{g.rows.length}</span>
             {g.gaps > 0 ? <span className="text-xs font-medium text-danger-text">{t("compare.groupGaps", { count: g.gaps })}</span> : null}
             {repoInfo && !repoInfo.inInventory ? <span className="text-xs font-normal text-warn-text">{t("compare.repoOnlyGithub")}</span> : null}
+            {hiddenRepos.includes(g.repo) ? <span className="text-xs font-normal text-muted">{t("compare.hiddenBadge")}</span> : null}
+            {hiddenRepos.includes(g.repo) ? (
+              <button type="button" onClick={() => unhideRepo(g.repo)} aria-label={t("compare.unhideRepoAria", { repo: g.repo })} className="text-xs font-medium text-primary hover:underline">{t("compare.unhideRepo")}</button>
+            ) : (
+              <button type="button" onClick={() => hideRepo(g.repo)} aria-label={t("compare.hideRepoAria", { repo: g.repo })} title={t("compare.hideRepoHint")} className="text-xs font-medium text-primary hover:underline">{t("compare.hideRepo")}</button>
+            )}
           </p>
           <ListTable minWidth={420 + orderedStages.length * 130 + (hasOther ? 160 : 0)} columns={[t("compare.colName"), ...orderedStages.map((s) => s.label), ...(hasOther ? [t("compare.colOther")] : []), t("compare.colParity")]}>
             {g.rows.map((r) => (
@@ -354,7 +387,7 @@ export default function ComparePage() {
                   {r.names ? <p className="max-w-xs truncate text-xs text-muted-text" title={r.names.join(", ")}>{r.names.join(", ")}</p> : null}
                   {r.needs && r.needs.length > 0 ? (
                     <p className="mt-1" title={r.needs.map((n) => (n.environment ? t("compare.needsEnv", { file: n.file, env: n.environment }) : n.file)).join(", ")}>
-                      <Badge info={{ label: t("compare.needsBadge", { files: needFiles(r).join(", ") }), tone: r.neededMissing ? "warn-strong" : "neutral", icon: r.neededMissing ? "alert" : "check" }} />
+                      <Badge info={{ label: t("compare.needsBadge", { files: needFiles(r).join(", ") }), tone: r.neededMissing ? "warn-strong" : r.levelMismatch ? "warn" : "neutral", icon: r.neededMissing || r.levelMismatch ? "alert" : "check" }} />
                     </p>
                   ) : null}
                   {r.neededMissing ? <AdoptLinks row={r} stages={orderedStages} t={t} /> : null}
@@ -415,7 +448,7 @@ function DetailDialog({ row, stage, stages, live, onClose, t, label }: { row: Vi
             const c = row.cells[s.id];
             if (!c) return null;
             const d = c.detail;
-            const hint = t(`compare.hint.${c.state}`);
+            const hint = t(`compare.hint.${c.state}`, { stages: (d?.inventoryStages ?? []).map(label).join(", ") });
             return (
               <li key={s.id} className={`rounded-xl border p-3 ${s.id === stage ? "border-primary bg-primary-light/40" : "border-line"}`}>
                 <div className="flex flex-wrap items-center gap-2">
@@ -431,12 +464,13 @@ function DetailDialog({ row, stage, stages, live, onClose, t, label }: { row: Vi
                     {d.actualNames && d.actualNames.length > 0 ? <><dt className="text-muted-text">{t("compare.detailActualNames")}</dt><dd>{d.actualNames.join(", ")}</dd></> : null}
                     {d.expectedValues && d.expectedValues.length > 0 ? <><dt className="text-muted-text">{t("compare.detailExpectedValue")}</dt><dd className="break-all">{d.expectedValues.join(", ")}</dd></> : null}
                     {d.actualValues && d.actualValues.length > 0 ? <><dt className="text-muted-text">{t("compare.detailActualValue")}</dt><dd className="break-all">{d.actualValues.join(", ")}</dd></> : null}
+                    {d.inventoryStages && d.inventoryStages.length > 0 ? <><dt className="text-muted-text">{t("compare.detailInventoryStages")}</dt><dd>{d.inventoryStages.map(label).join(", ")}</dd></> : null}
                     {d.neededBy && d.neededBy.length > 0 ? <><dt className="text-muted-text">{t("compare.detailNeededBy")}</dt><dd>{d.neededBy.join(", ")}</dd></> : null}
                     {d.error ? <><dt className="text-muted-text">{t("compare.detailError")}</dt><dd className="break-words text-danger-text">{d.error.message}</dd></> : null}
                   </dl>
                 ) : null}
                 {c.state === "needed" ? <AdoptLinks row={row} stages={stages.filter((x) => x.id === s.id)} t={t} /> : null}
-                {(c.state === "missing" || c.state === "unexpected" || c.state === "different" || c.state === "error" || (c.state === "unknown" && !live)) ? (
+                {(c.state === "missing" || c.state === "unexpected" || c.state === "different" || c.state === "error" || (c.state === "unknown" && !live) || c.state === "level-mismatch") ? (
                   <p className="mt-2 text-xs"><span className="font-medium">{t("compare.detailFix")}: </span>{hint}</p>
                 ) : null}
               </li>

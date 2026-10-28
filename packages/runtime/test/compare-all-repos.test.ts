@@ -212,6 +212,41 @@ describe("compareStages mit workflows", () => {
   });
 });
 
+describe("compareStages mit ignoreRepos", () => {
+  const spec: Spec = {
+    ...base,
+    "/repos/acme/status/contents/.github/workflows": [dirEntry("up.yml")],
+    "/repos/acme/status/contents/.github/workflows/up.yml": "on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: echo ${{ secrets.UPTIME_TOKEN }}\n",
+    "/repos/acme/leitfaden/environments": { environments: [] },
+    "/repos/acme/leitfaden/actions/secrets": sec(),
+    "/repos/acme/leitfaden/actions/variables": vr({}),
+    "/repos/acme/leitfaden/contents/.github/workflows": 404,
+    "/repos/acme/web/contents/.github/workflows": 404,
+    "/repos/acme/night-before/contents/.github/workflows": 404,
+    "/repos/acme/costs/contents/.github/workflows": 404,
+  };
+
+  it("Standard aus der Konfiguration: .github und .github-private, status bleibt sichtbar", async () => {
+    const { rt, calls } = await setup(spec);
+    expect(rt.config.compare.ignoreRepos).toEqual([".github", ".github-private"]);
+    const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
+    expect(r.ignored).toEqual([".github", ".github-private"]);
+    expect(r.rows.some((x) => x.name === "UPTIME_TOKEN")).toBe(true);
+    expect(calls.some((c) => /\/repos\/acme\/\.github/.test(c))).toBe(false);
+  });
+
+  it("ignorierte Repositories (auch aus dem Inventar) lesen weder GitHub noch Workflows und erscheinen nur in der Liste", async () => {
+    const { rt, calls } = await setup(spec);
+    const r = await compareStages(rt, { live: true, allRepos: true, workflows: true, ignoreRepos: ["status", "leitfaden", ".github", ".github-private"] });
+    expect(r.ignored).toEqual([".github", ".github-private", "leitfaden", "status"]);
+    expect(r.rows.some((x) => x.repo === "status" || x.repo === "leitfaden")).toBe(false);
+    expect(r.repos.map((x) => x.name)).toEqual(["costs", "night-before", "web"]);
+    expect(calls.filter((c) => c.includes("/repos/acme/status") || c.includes("/repos/acme/leitfaden"))).toEqual([]);
+    // nicht ignorierte Repos werden weiter gelesen
+    expect(calls.some((c) => c.includes("/repos/acme/night-before/environments"))).toBe(true);
+  });
+});
+
 describe("umbenannte Repositories", () => {
   const renamed = (u: string) => (u.endsWith("/repos/acme/leitfaden") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/9" } }) : new Response(JSON.stringify({ name: "night-before", full_name: "acme/night-before" }), { status: 200 }));
   const spec: Spec = { ...base, "/repos/acme/leitfaden": renamed, "/repositories/9": renamed };

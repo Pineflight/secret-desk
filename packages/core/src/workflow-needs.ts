@@ -20,6 +20,8 @@ export interface WorkflowRef {
   file: string;
   /** Environment des Jobs. Fehlt sie, gilt die Repo-Ebene. */
   environment?: string;
+  /** Der Name kommt in dieser Datei und Environment nur in `if:`/Vergleichen vor (`secrets.X != ''`), nie als Wert: der Workflow prueft nur, ob er gesetzt ist. */
+  optional?: boolean;
 }
 
 export type WorkflowNoteCode =
@@ -56,22 +58,28 @@ const REF_BRACKET = /(?<![.\w])(secrets|vars)\[\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|
 const ALL_SECRETS = /(?<![.\w])secrets(?![\w.\[])/;
 
 interface Found {
-  refs: { kind: "secret" | "variable"; name: string }[];
+  refs: { kind: "secret" | "variable"; name: string; optional?: boolean }[];
   all: boolean;
 }
 
-/** Referenzen in einem Ausdruck (ohne die geschweiften Klammern). */
-export function refsInExpression(expr: string): Found {
+/** Steht der Treffer [start, end) in einem Vergleich (`X != ''`, `'' == X`)? Dann prueft der Ausdruck nur, ob der Name gesetzt ist. */
+const inComparison = (text: string, start: number, end: number): boolean => /^\s*[!=]=/.test(text.slice(end)) || /[!=]=\s*$/.test(text.slice(0, start));
+
+/**
+ * Referenzen in einem Ausdruck (ohne die geschweiften Klammern). `conditional`: der Ausdruck steht in einem `if:`.
+ * Eine Referenz ist `optional`, wenn der Ausdruck ein `if:` ist oder sie in einem Vergleich steht; sonst fehlt das Feld.
+ */
+export function refsInExpression(expr: string, conditional = false): Found {
   const refs: Found["refs"] = [];
-  const add = (which: string, name: string): void => {
+  const add = (which: string, name: string, optional: boolean): void => {
     if (which === "secrets" && IGNORED_SECRETS.has(name)) return;
-    refs.push({ kind: which === "secrets" ? "secret" : "variable", name });
+    refs.push({ kind: which === "secrets" ? "secret" : "variable", name, ...(optional ? { optional: true } : {}) });
   };
   // Zeichenketten-Literale herausnehmen, damit 'secrets.X' im Text kein Treffer wird, aber secrets['X'] bleibt.
-  for (const m of expr.matchAll(REF_BRACKET)) add(m[1]!, (m[2] ?? m[3])!);
+  for (const m of expr.matchAll(REF_BRACKET)) add(m[1]!, (m[2] ?? m[3])!, conditional || inComparison(expr, m.index!, m.index! + m[0].length));
   const withoutBracket = expr.replace(REF_BRACKET, " ");
   const withoutStrings = withoutBracket.replace(/'[^']*'|"[^"]*"/g, " ");
-  for (const m of withoutStrings.matchAll(REF_DOT)) add(m[1]!, m[2]!);
+  for (const m of withoutStrings.matchAll(REF_DOT)) add(m[1]!, m[2]!, conditional || inComparison(withoutStrings, m.index!, m.index! + m[0].length));
   return { refs, all: ALL_SECRETS.test(withoutStrings.replace(REF_DOT, " ")) };
 }
 
@@ -83,13 +91,19 @@ function expressionsIn(text: string, bare: boolean): string[] {
   return out;
 }
 
+/** Ein Ausdruck und ob er in einem `if:` steht. */
+interface Expr {
+  expr: string;
+  conditional: boolean;
+}
+
 type Json = unknown;
 const isObj = (v: Json): v is Record<string, Json> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** Sammelt alle Ausdruecke aller Zeichenketten unterhalb von `node`. Schluessel `if` zaehlt als bare Ausdruck. */
-function collect(node: Json, key: string | undefined, out: string[]): void {
+function collect(node: Json, key: string | undefined, out: Expr[]): void {
   if (typeof node === "string") {
-    out.push(...expressionsIn(node, key === "if"));
+    for (const expr of expressionsIn(node, key === "if")) out.push({ expr, conditional: key === "if" });
   } else if (Array.isArray(node)) {
     for (const x of node) collect(x, key, out);
   } else if (isObj(node)) {
@@ -129,12 +143,17 @@ function jobEnvironments(job: Record<string, Json>): { envs: (string | undefined
 export function extractWorkflowNeeds(files: readonly WorkflowFile[]): WorkflowNeeds {
   const refs: WorkflowRef[] = [];
   const notes: WorkflowNote[] = [];
-  const seenRef = new Set<string>();
   const seenNote = new Set<string>();
+  const seenRef = new Map<string, WorkflowRef>();
   const addRef = (r: WorkflowRef): void => {
     const key = `${r.file}\u0000${r.kind}\u0000${r.environment ?? ""}\u0000${r.name}`;
-    if (seenRef.has(key)) return;
-    seenRef.add(key);
+    const known = seenRef.get(key);
+    if (known) {
+      // Optional bleibt nur, wenn jede Nennung nur prueft; ein Wert-Gebrauch macht den Namen verbindlich.
+      if (known.optional && !r.optional) delete known.optional;
+      return;
+    }
+    seenRef.set(key, r);
     refs.push(r);
   };
   const addNote = (n: WorkflowNote): void => {
@@ -155,16 +174,16 @@ export function extractWorkflowNeeds(files: readonly WorkflowFile[]): WorkflowNe
     if (!isObj(doc)) continue;
 
     // Ausdruecke ausserhalb der Jobs (workflow-weites env, run-name ...) gelten fuer jeden Job; `on` hat keine Secrets.
-    const workflowLevel: string[] = [];
+    const workflowLevel: Expr[] = [];
     for (const [k, v] of Object.entries(doc)) if (k !== "jobs" && k !== "on" && k !== "true") collect(v, k, workflowLevel);
 
     const jobs = isObj(doc["jobs"]) ? doc["jobs"] : {};
     const jobEntries = Object.entries(jobs).filter((e): e is [string, Record<string, Json>] => isObj(e[1]));
 
-    const emit = (exprs: string[], env: string | undefined, job?: string): void => {
-      for (const expr of exprs) {
-        const found = refsInExpression(expr);
-        for (const r of found.refs) addRef({ kind: r.kind, name: r.name, file: file.name, ...(env !== undefined ? { environment: env } : {}) });
+    const emit = (exprs: Expr[], env: string | undefined, job?: string): void => {
+      for (const { expr, conditional } of exprs) {
+        const found = refsInExpression(expr, conditional);
+        for (const r of found.refs) addRef({ kind: r.kind, name: r.name, file: file.name, ...(env !== undefined ? { environment: env } : {}), ...(r.optional ? { optional: true } : {}) });
         if (found.all) addNote({ code: "all-secrets", file: file.name, ...(job ? { job } : {}) });
       }
     };
@@ -174,7 +193,7 @@ export function extractWorkflowNeeds(files: readonly WorkflowFile[]): WorkflowNe
       const { envs, dynamic } = jobEnvironments(job);
       if (dynamic) addNote({ code: "dynamic-environment", file: file.name, job: jobId });
       // Ausdruecke des Jobs ohne den Schluessel environment (der eigene Name ist keine Referenz).
-      const own: string[] = [];
+      const own: Expr[] = [];
       for (const [k, v] of Object.entries(job)) if (k !== "environment") collect(v, k, own);
       if (job["secrets"] === "inherit") addNote({ code: "inherit", file: file.name, job: jobId });
       for (const env of envs) emit([...workflowLevel, ...own], env, jobId);

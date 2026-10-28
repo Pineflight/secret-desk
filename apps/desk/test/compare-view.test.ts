@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { COMPARE_FILTERS_DEFAULT, adoptCandidates, adoptLink, adoptRequest, cellLook, missingOnGitHub, needFiles, reposWithoutEntries, suggestId, defaultCompared, effectiveCompared, filterRows, groupByRepo, repoList, rowParity, sortRows, stageTotals, toMarkdown, viewRows, type CompareCell, type CompareRepo, type CompareResult, type MarkdownText } from "../src/lib/compare-view";
+import { COMPARE_FILTERS_DEFAULT, hideRepos, hiddenPresent, adoptCandidates, adoptLink, adoptRequest, cellLook, missingOnGitHub, needFiles, reposWithoutEntries, suggestId, defaultCompared, effectiveCompared, filterRows, groupByRepo, repoList, rowParity, sortRows, stageTotals, toMarkdown, viewRows, type CompareCell, type CompareRepo, type CompareResult, type MarkdownText } from "../src/lib/compare-view";
 
 const c = (state: CompareCell["state"], expected = false, present?: boolean): CompareCell => ({ state, expected, ...(present !== undefined ? { present } : {}) });
 const NA = c("not-applicable");
-const row = (repo: string, name: string, cells: Record<string, CompareCell>, over: Record<string, unknown> = {}) => ({ repo, name, kind: "secret" as const, ids: [`${name.toLowerCase()}`], cells: { dev: NA, shared: NA, ...cells }, parity: "n/a" as const, missingIn: [], tags: [], neededMissing: false, ...over });
+const row = (repo: string, name: string, cells: Record<string, CompareCell>, over: Record<string, unknown> = {}) => ({ repo, name, kind: "secret" as const, ids: [`${name.toLowerCase()}`], cells: { dev: NA, shared: NA, ...cells }, parity: "n/a" as const, missingIn: [], tags: [], neededMissing: false, levelMismatch: false, ...over });
 const stages = [
   { id: "dev", label: "dev", kind: "dev" as const, environment: null },
   { id: "staging", label: "Staging", kind: "test" as const, environment: "staging" },
@@ -15,7 +15,8 @@ const live: CompareResult = {
   compared: ["staging", "production"],
   live: true,
   errors: [],
-  summary: { perStage: {}, gaps: 0, orphans: 0, neededMissing: 0 },
+  summary: { perStage: {}, gaps: 0, orphans: 0, neededMissing: 0, levelMismatch: 0 },
+  ignored: [],
   repos: [],
   rows: [
     row("web", "A_KEY", { staging: c("ok", true, true), production: c("ok", true, true) }),
@@ -85,8 +86,8 @@ describe("Filter, Abweichungen, Gruppen", () => {
   });
   it("Summen je Stage ueber sichtbare Zeilen", () => {
     const t = stageTotals(rows, ["staging", "production"]);
-    expect(t.staging).toEqual({ expected: 4, present: 4, missing: 0, unexpected: 1, error: 1, needed: 0 });
-    expect(t.production).toEqual({ expected: 4, present: 3, missing: 1, unexpected: 0, error: 0, needed: 0 });
+    expect(t.staging).toEqual({ expected: 4, present: 4, missing: 0, unexpected: 1, error: 1, needed: 0, levelMismatch: 0 });
+    expect(t.production).toEqual({ expected: 4, present: 3, missing: 1, unexpected: 0, error: 0, needed: 0, levelMismatch: 0 });
   });
 });
 
@@ -188,5 +189,35 @@ describe("Von Workflows benoetigt", () => {
     const q = new URLSearchParams(link.split("?")[1]);
     expect(Object.fromEntries(q)).toEqual({ neu: "1", pf_name: "N", pf_repo: "r", pf_stage: "staging", pf_id: "r-n", pf_desc: "Von ci.yml benoetigt" });
     expect(adoptLink({ repo: "r", name: "N", kind: "variable", stage: "s", id: "i", files: [] }, "d").startsWith("/variablen?")).toBe(true);
+  });
+});
+
+describe("Ebenen-Unterschied, optional, Ausblenden", () => {
+  const lm = (repo: string, name: string) =>
+    row(repo, name, { staging: c("ok", true, true), production: c("ok", true, true), shared: { state: "level-mismatch", expected: false, detail: { ids: [], targets: [], neededBy: ["provision.yml"], inventoryStages: ["staging", "production"] } } }, { levelMismatch: true, needs: [{ file: "provision.yml" }] });
+  const need = (repo: string, name: string) => row(repo, name, { staging: c("not-expected"), production: c("not-expected"), shared: { state: "needed", expected: false, detail: { ids: [], targets: [], neededBy: ["a.yml"], actualNames: [name] } } }, { ids: [], neededMissing: true, needs: [{ file: "a.yml" }] });
+  const opt = (repo: string, name: string) => row(repo, name, { staging: c("not-expected"), production: c("not-expected"), shared: { state: "optional", expected: false, detail: { ids: [], targets: [], neededBy: ["up.yml"] } } }, { ids: [], needs: [{ file: "up.yml" }] });
+  const result: CompareResult = { ...live, live: false, rows: [lm("wake-miles", "REVENUECAT_API_KEY"), need("wake-miles", "NEW_KEY"), opt("status", "SLACK_HOOK")] };
+  const rows = viewRows(result, ["staging", "production"]);
+
+  it("level-mismatch und optional sind keine Abweichung und haben ein eigenes Aussehen ohne Aufnahme", () => {
+    expect(rows.map((r) => [r.name, r.deviation])).toEqual([["REVENUECAT_API_KEY", false], ["NEW_KEY", true], ["SLACK_HOOK", false]]);
+    expect(cellLook("level-mismatch")).toMatchObject({ tone: "warn", quiet: false });
+    expect(cellLook("optional")).toMatchObject({ tone: "neutral", quiet: false });
+    expect(adoptCandidates(rows).map((x) => x.name)).toEqual(["NEW_KEY"]);
+  });
+  it("Filter nur benoetigt: nur needed; mit Schalter auch level-mismatch, optional nie", () => {
+    expect(filterRows(rows, { ...COMPARE_FILTERS_DEFAULT, onlyNeeded: true }).map((r) => r.name)).toEqual(["NEW_KEY"]);
+    expect(filterRows(rows, { ...COMPARE_FILTERS_DEFAULT, onlyNeeded: true, showLevelMismatch: true }).map((r) => r.name)).toEqual(["REVENUECAT_API_KEY", "NEW_KEY"]);
+  });
+  it("Summen je Stage zaehlen needed und level-mismatch getrennt", () => {
+    const t = stageTotals(rows, ["shared"]).shared!;
+    expect(t).toMatchObject({ needed: 1, levelMismatch: 1 });
+  });
+  it("Ausblenden: nur Anzeige, mit Schalter wieder da, nur vorhandene Repos zaehlen", () => {
+    expect(hideRepos(rows, ["status"], false).map((r) => r.repo)).toEqual(["wake-miles", "wake-miles"]);
+    expect(hideRepos(rows, ["status"], true)).toHaveLength(3);
+    expect(hideRepos(rows, [], false)).toHaveLength(3);
+    expect(hiddenPresent(rows, ["status", "gibt-es-nicht"])).toEqual(["status"]);
   });
 });

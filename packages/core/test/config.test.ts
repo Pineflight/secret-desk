@@ -31,3 +31,12 @@ describe("Konfiguration: automation", () => {
     expect((await loadConfig(file)).automation.loginTimeoutMinutes).toBe(2);
   });
 });
+
+describe("Konfiguration: compare", () => {
+  it("ignoreRepos hat die Organisations-Repositories als Standard und nimmt eigene Listen an", () => {
+    expect(ConfigSchema.parse(BASE).compare).toEqual({ ignoreRepos: [".github", ".github-private"] });
+    expect(ConfigSchema.parse({ ...BASE, compare: { ignoreRepos: ["status"] } }).compare.ignoreRepos).toEqual(["status"]);
+    expect(ConfigSchema.parse({ ...BASE, compare: {} }).compare.ignoreRepos).toEqual([".github", ".github-private"]);
+    expect(ConfigSchema.safeParse({ ...BASE, compare: { ignoreRepos: [""] } }).success).toBe(false);
+  });
+});

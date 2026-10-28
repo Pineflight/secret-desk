@@ -108,7 +108,8 @@ export function Shell({ children }: { children: ReactNode }) {
       {open ? <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setOpen(false)} aria-hidden="true" /> : null}
       <aside id="seitenleiste" className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line bg-card transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`} aria-label={t("common.sidebar")}>
         <div className="flex items-center gap-2.5 px-5 py-5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-white"><Icon name="lock" className="h-4 w-4" /></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 rounded-xl" />
           <span className="text-base font-semibold tracking-tight">secret-desk</span>
         </div>
         <nav aria-label={t("common.mainNav")} className="flex-1 overflow-y-auto px-3 pb-3">

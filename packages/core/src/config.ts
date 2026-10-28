@@ -85,6 +85,13 @@ export const ConfigSchema = z.object({
       allowExternalRecipes: z.boolean().default(false),
     })
     .default({ enabled: true, loginTimeoutMinutes: 10, allowExternalRecipes: false }),
+  /** Stage-Vergleich. */
+  compare: z
+    .object({
+      /** Repositories, die der Vergleich weder anzeigt noch liest (Organisations-Vorlagen, Upptime-Repositories mit fremden Workflows ...). */
+      ignoreRepos: z.array(z.string().min(1)).default([".github", ".github-private"]),
+    })
+    .default({ ignoreRepos: [".github", ".github-private"] }),
   server: z.object({ port: z.number().int().min(1024).max(65535).default(4747) }).default({ port: 4747 }),
 });
 export type DeskConfig = z.infer<typeof ConfigSchema>;

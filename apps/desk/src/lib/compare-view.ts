@@ -15,11 +15,13 @@ export interface CompareFilters {
   q: string;
   /** Nur Zeilen mit Luecke oder auffaelliger Zelle. */
   onlyDeviations: boolean;
-  /** Nur Zeilen, die ein Workflow braucht. */
+  /** Nur Zeilen, die ein Workflow braucht und die im Inventar und in GitHub fehlen (Zustand `needed`). */
   onlyNeeded?: boolean;
+  /** Mit onlyNeeded auch Zeilen mit Ebenen-Unterschied (`level-mismatch`) zeigen. */
+  showLevelMismatch?: boolean;
 }
 
-export const COMPARE_FILTERS_DEFAULT: CompareFilters = { kind: "", repo: "", q: "", onlyDeviations: false, onlyNeeded: false };
+export const COMPARE_FILTERS_DEFAULT: CompareFilters = { kind: "", repo: "", q: "", onlyDeviations: false, onlyNeeded: false, showLevelMismatch: false };
 
 /** Zellzustaende, die auf ein Problem hindeuten (live). */
 const PROBLEM_STATES: readonly CellState[] = ["missing", "unexpected", "different", "error", "needed"];
@@ -76,7 +78,7 @@ export function filterRows(rows: readonly ViewRow[], f: CompareFilters): ViewRow
     if (f.kind && r.kind !== f.kind) return false;
     if (f.repo && r.repo !== f.repo) return false;
     if (f.onlyDeviations && !r.deviation) return false;
-    if (f.onlyNeeded && !(r.needs && r.needs.length > 0)) return false;
+    if (f.onlyNeeded && !(r.neededMissing || (f.showLevelMismatch === true && r.levelMismatch))) return false;
     if (q && ![r.name, ...(r.names ?? []), ...r.ids, ...r.tags, r.product ?? ""].some((x) => x.toLowerCase().includes(q))) return false;
     return true;
   });
@@ -108,6 +110,19 @@ export function groupByRepo(rows: readonly ViewRow[]): RepoGroup[] {
   }
   return [...map.values()];
 }
+
+/** Blendet vom Nutzer ausgeblendete Repositories aus (nur Anzeige, nichts wird gespeichert ausser der Auswahl im Browser). */
+export function hideRepos<T extends { repo: string }>(rows: readonly T[], hidden: readonly string[], showHidden: boolean): T[] {
+  if (showHidden || hidden.length === 0) return [...rows];
+  const set = new Set(hidden);
+  return rows.filter((r) => !set.has(r.repo));
+}
+
+/** Ausgeblendete Repositories, die in den Zeilen vorkommen. */
+export const hiddenPresent = (rows: readonly { repo: string }[], hidden: readonly string[]): string[] => {
+  const present = new Set(rows.map((r) => r.repo));
+  return hidden.filter((h) => present.has(h));
+};
 
 /** Namen fuer den Repository-Filter: alle bekannten Repositories (auch ohne Zeilen) und die der Zeilen. */
 export function repoList(rows: readonly { repo: string }[], repos: readonly { name: string }[] = []): string[] {
@@ -172,6 +187,8 @@ const LOOK: Record<CellState, CellLook> = {
   "not-expected": { key: "not-expected", tone: "neutral", icon: "dot", quiet: true },
   "not-applicable": { key: "not-applicable", tone: "neutral", icon: "dot", quiet: true },
   needed: { key: "needed", tone: "warn-strong", icon: "alert", quiet: false },
+  "level-mismatch": { key: "level-mismatch", tone: "warn", icon: "alert", quiet: false },
+  optional: { key: "optional", tone: "neutral", icon: "help", quiet: false },
 };
 export const cellLook = (s: CellState): CellLook => LOOK[s] ?? LOOK["not-expected"];
 
@@ -182,12 +199,13 @@ export interface StageTotals {
   unexpected: number;
   error: number;
   needed: number;
+  levelMismatch: number;
 }
 
 /** Karten oben: Summen je Stage, nur ueber die sichtbaren Zeilen. */
 export function stageTotals(rows: readonly ViewRow[], stageIds: readonly string[]): Record<string, StageTotals> {
   const out: Record<string, StageTotals> = {};
-  for (const id of stageIds) out[id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0, needed: 0 };
+  for (const id of stageIds) out[id] = { expected: 0, present: 0, missing: 0, unexpected: 0, error: 0, needed: 0, levelMismatch: 0 };
   for (const r of rows) {
     for (const id of stageIds) {
       const c = r.cells[id];
@@ -199,6 +217,7 @@ export function stageTotals(rows: readonly ViewRow[], stageIds: readonly string[
       else if (c.state === "unexpected") t.unexpected += 1;
       else if (c.state === "error") t.error += 1;
       else if (c.state === "needed") t.needed += 1;
+      else if (c.state === "level-mismatch") t.levelMismatch += 1;
     }
   }
   return out;

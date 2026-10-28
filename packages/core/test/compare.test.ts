@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareMatrix, locationKey, repoLevelStage, requiredLocations, stageLocation, type LiveReads, type LocationRead } from "../src/compare.js";
+import { compareMatrix, compareRepos, locationKey, repoLevelStage, requiredLocations, stageLocation, type LiveReads, type LocationRead } from "../src/compare.js";
 import { InventoryStore } from "../src/inventory.js";
 
 const YAML = `version: 1
@@ -360,5 +360,93 @@ describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
   it("ohne Extras bleibt die Repository-Liste auf das Inventar beschraenkt", () => {
     const r = compareMatrix(inv(), {});
     expect(r.repos).toEqual([{ name: "web", inInventory: true, private: null, archived: null, pushedAt: null, onGitHub: null, found: { secrets: 0, variables: 0 }, needed: 0, notes: [] }]);
+  });
+});
+
+describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories", () => {
+  const wfNeeds = (repo: string, refs: { kind: "secret" | "variable"; name: string; file: string; environment?: string; optional?: boolean }[]) => new Map([[repo, { refs, notes: [] }]]);
+  const liveReads = reads(
+    [
+      [k("environment", "staging"), names("STRIPE_KEY")],
+      [k("environment", "production"), names("STRIPE_KEY")],
+      [k("repository"), names()],
+    ],
+    [[k("environment", "staging"), vars({})], [k("environment", "production"), vars({})], [k("repository"), vars({})]],
+  );
+
+  it("level-mismatch: Name steht im Inventar auf anderer Stage; ohne Aufnahmezustand, getrennt gezaehlt", () => {
+    const needs = wfNeeds("web", [
+      { kind: "secret", name: "STRIPE_KEY", file: "provision.yml" },
+      { kind: "secret", name: "BRAND_NEW", file: "provision.yml" },
+    ]);
+    const r = compareMatrix(inv(), {}, liveReads, { needs });
+    const sk = row(r, "STRIPE_KEY");
+    expect(sk.cells.shared).toMatchObject({ state: "level-mismatch", expected: false, detail: { neededBy: ["provision.yml"], inventoryStages: ["staging", "production"] } });
+    expect(sk.neededMissing).toBe(false);
+    expect(sk.levelMismatch).toBe(true);
+    expect(row(r, "BRAND_NEW").cells.shared!.state).toBe("needed");
+    expect(row(r, "BRAND_NEW").levelMismatch).toBe(false);
+    expect(r.summary).toMatchObject({ neededMissing: 1, levelMismatch: 1 });
+    expect(r.summary.perStage.shared).toMatchObject({ needed: 1, levelMismatch: 1 });
+    expect(r.repos.find((x) => x.name === "web")!.needed).toBe(1);
+  });
+
+  it("level-mismatch gilt auch ohne Live; von der Repo-Ebene gedeckt bleibt es not-expected", () => {
+    const needs = wfNeeds("web", [{ kind: "secret", name: "STRIPE_KEY", file: "provision.yml" }]);
+    expect(row(compareMatrix(inv(), {}, undefined, { needs }), "STRIPE_KEY").cells.shared!.state).toBe("level-mismatch");
+    const covered = reads([[k("environment", "staging"), names("STRIPE_KEY")], [k("environment", "production"), names("STRIPE_KEY")], [k("repository"), names("STRIPE_KEY")]]);
+    const r = compareMatrix(inv(), {}, covered, { needs });
+    expect(row(r, "STRIPE_KEY").cells.shared!.state).not.toBe("level-mismatch");
+    expect(row(r, "STRIPE_KEY").levelMismatch).toBe(false);
+  });
+
+  it("optional: nur geprueft, nie needed oder level-mismatch, auch nicht bei Namen im Inventar", () => {
+    const needs = wfNeeds("web", [
+      { kind: "secret", name: "STRIPE_KEY", file: "up.yml", optional: true },
+      { kind: "secret", name: "SLACK_HOOK", file: "up.yml", optional: true },
+      { kind: "secret", name: "MIXED", file: "up.yml", optional: true },
+      { kind: "secret", name: "MIXED", file: "other.yml" },
+    ]);
+    const r = compareMatrix(inv(), {}, liveReads, { needs });
+    expect(row(r, "STRIPE_KEY").cells.shared!.state).toBe("optional");
+    expect(row(r, "SLACK_HOOK").cells.shared).toMatchObject({ state: "optional", detail: { neededBy: ["up.yml"] } });
+    expect(row(r, "SLACK_HOOK").neededMissing).toBe(false);
+    expect(row(r, "SLACK_HOOK").levelMismatch).toBe(false);
+    // zusammen mit einer verbindlichen Nennung in einer anderen Datei bleibt es needed
+    expect(row(r, "MIXED").cells.shared!.state).toBe("needed");
+    expect(r.summary).toMatchObject({ neededMissing: 1, levelMismatch: 0 });
+  });
+
+  it("optional: Environment ohne Stage zaehlt nicht als fehlend", () => {
+    const needs = wfNeeds("web", [{ kind: "secret", name: "GONE_KEY", file: "a.yml", environment: "nope", optional: true }]);
+    const r = compareMatrix(inv(), {}, liveReads, { needs, readRepos: ["web"], envs: new Map([["web", []]]), reads: liveReads });
+    expect(row(r, "GONE_KEY").neededMissing).toBe(false);
+  });
+
+  it("ignoreRepos: keine Zeilen, keine Repo-Eintraege, nicht in required Locations; Liste der Ignorierten", () => {
+    const text = YAML.replace("\nvariables:", `\n  - id: tpl\n    name: TPL_SECRET\n    stage: shared\n    service: x\n    expiry: none\n    places: [{ repo: status, scope: repository }]\nvariables:`);
+    const i = InventoryStore.fromText(text.replace("variables:", "variables:")).data;
+    expect(compareRepos(i, {})).toEqual(["status", "web"]);
+    expect(compareRepos(i, { ignoreRepos: ["status"] })).toEqual(["web"]);
+    expect(requiredLocations(i, { ignoreRepos: ["status"] }).secret.some((l) => l.repo === "status")).toBe(false);
+    const needs = new Map([["status", { refs: [{ kind: "secret" as const, name: "UPTIME_TOKEN", file: "u.yml" }], notes: [] }], ["web", { refs: [], notes: [] }]]);
+    const repos = [{ name: "status", private: false, archived: false, pushedAt: null }, { name: ".github", private: false, archived: false, pushedAt: null }, { name: "web", private: true, archived: false, pushedAt: null }];
+    const r = compareMatrix(i, { ignoreRepos: ["status", ".github"] }, undefined, { needs, repos });
+    expect(r.rows.some((x) => x.repo === "status")).toBe(false);
+    expect(r.repos.map((x) => x.name)).toEqual(["web"]);
+    expect(r.ignored).toEqual([".github", "status"]);
+    // Standard: .github und .github-private
+    const d = compareMatrix(i, {}, undefined, { repos });
+    expect(d.ignored).toEqual([".github"]);
+    expect(d.rows.some((x) => x.repo === "status")).toBe(true);
+  });
+});
+
+describe("requiredLocations und ignoreRepos", () => {
+  it("liest Ziele ignorierter Inventar-Repositories nicht", () => {
+    const text = YAML.replace("\nvariables:", `\n  - id: tpl\n    name: TPL_SECRET\n    stage: shared\n    service: x\n    expiry: none\n    places: [{ repo: status, scope: repository }]\nvariables:`);
+    const i = InventoryStore.fromText(text).data;
+    expect(requiredLocations(i, {}).secret.some((l) => l.repo === "status")).toBe(true);
+    expect(requiredLocations(i, { ignoreRepos: ["status"] }).secret.some((l) => l.repo === "status")).toBe(false);
   });
 });
