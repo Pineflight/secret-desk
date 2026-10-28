@@ -1,0 +1,767 @@
+openapi: 3.1.0
+info:
+  title: secret-desk agent API
+  version: 0.1.0
+  summary: Metadata-only HTTP interface of the local secret-desk portal for AI agents.
+  description: |
+    Served by the local portal under `/api/agent`. Returns metadata only: never a secret value, an integration
+    token or the agent token. Agents cannot confirm reviews, enter values, set connections, upload attachments or
+    change stages. Outside `policy.agentStages` (and always for stages of kind `live`) requests create an approval
+    that a human grants in the portal. Human-readable reference: docs/AGENT-API.md.
+
+    Messages are German by default; send `X-Secret-Desk-Lang: en` for English.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:4747/api/agent
+    description: Local portal (port from `server.port`; the Host header must match)
+security:
+  - bearerAuth: []
+tags:
+  - { name: Inventory }
+  - { name: Variables }
+  - { name: Issuance }
+  - { name: Compare }
+  - { name: Dev environment }
+  - { name: Other }
+paths:
+  /overview:
+    get:
+      tags: [Inventory]
+      summary: Totals by stage and status, items needing attention
+      operationId: overview
+      responses:
+        "200": { description: Overview, content: { application/json: { schema: { $ref: "#/components/schemas/Overview" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /stages:
+    get:
+      tags: [Inventory]
+      summary: Stage definitions with usage (read-only)
+      operationId: listStages
+      responses:
+        "200": { description: Stages, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/StageView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /secrets:
+    get:
+      tags: [Inventory]
+      summary: List secrets (metadata)
+      operationId: listSecrets
+      parameters:
+        - { name: stage, in: query, schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: product, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/StatusLevel" } }
+        - { name: provider, in: query, schema: { type: string } }
+        - { name: q, in: query, description: "Free text over id, name, title, description, owner, product, service, tags and repositories", schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: live, in: query, description: "`1` compares with GitHub (network)", schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Secrets, most urgent first, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/SecretView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Inventory]
+      summary: Add a secret entry (metadata only)
+      description: The stage must be a direct stage; `params` must not contain network targets; outside dev-kind stages at least one place is required.
+      operationId: addSecret
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SecretCreate" } } }
+      responses:
+        "200": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/SecretView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /secrets/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Inventory]
+      summary: One secret
+      operationId: getSecret
+      responses:
+        "200": { description: Secret, content: { application/json: { schema: { $ref: "#/components/schemas/SecretView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Inventory]
+      summary: Change descriptive metadata
+      description: Strict. Any other field (stage, places, provider, params, expiry, stamps) is a 400.
+      operationId: updateSecret
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SecretMetaPatch" } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/SecretView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /compare:
+    get:
+      tags: [Compare]
+      summary: Compare secrets and variables across stages (read-only)
+      operationId: compareStages
+      parameters:
+        - { name: live, in: query, description: "Read the actual state from GitHub", schema: { type: string, enum: ["1"] } }
+        - { name: all, in: query, description: "With live, also read repositories without inventory entries", schema: { type: string, enum: ["1"] } }
+        - { name: workflows, in: query, description: "Evaluate workflow files for needed names", schema: { type: string, enum: ["1"] } }
+        - { name: compare, in: query, description: "Comma-separated stage ids for parity (default kinds test and live)", schema: { type: string } }
+        - { name: kinds, in: query, description: "Comma-separated `secret`, `variable`", schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: normalize, in: query, description: "Merge names differing only by a stage word", schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Comparison, content: { application/json: { schema: { $ref: "#/components/schemas/CompareResult" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables:
+    get:
+      tags: [Variables]
+      summary: List variables
+      operationId: listVariables
+      parameters:
+        - { name: stage, in: query, schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: product, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Variables, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/VariableView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Variables]
+      summary: Add a variable to the inventory
+      description: Nothing is written to GitHub. Secret-looking values are rejected with `code` secret-blocked or secret-ack.
+      operationId: addVariable
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/VariableCreate" } } }
+      responses:
+        "200": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/VariableView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Variables]
+      summary: One variable
+      operationId: getVariable
+      responses:
+        "200": { description: Variable, content: { application/json: { schema: { $ref: "#/components/schemas/VariableView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Variables]
+      summary: Change expected value or description (inventory only)
+      operationId: updateVariable
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/VariablePatch" } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/VariableView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables/{id}/status:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Variables]
+      summary: Expected against actual in GitHub (live)
+      operationId: variableStatus
+      responses:
+        "200":
+          description: Drift per target
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  variable: { $ref: "#/components/schemas/VariableView" }
+                  drift: { type: array, items: { $ref: "#/components/schemas/VariableDrift" } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables/{id}/apply:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Variables]
+      summary: Write the expected value to GitHub (or request approval)
+      operationId: applyVariable
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Applied, or an approval was created
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [status, outcomes]
+                    properties:
+                      status: { const: applied }
+                      outcomes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            place: { type: string }
+                            outcome: { type: string, enum: [created, updated, unchanged, failed] }
+                            error: { type: string }
+                  - $ref: "#/components/schemas/PendingApproval"
+        default: { $ref: "#/components/responses/Error" }
+  /renewal-requests:
+    post:
+      tags: [Issuance]
+      summary: Ask for a new value at the provider
+      description: Never writes to GitHub. In a direct stage the value is created and verified and waits for a human to confirm; otherwise an approval is created.
+      operationId: requestRenewal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secretId]
+              properties:
+                secretId: { type: string }
+                reason: { type: string }
+                dryRun: { type: boolean }
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [status, plan]
+                    properties:
+                      status: { const: dry-run }
+                      plan:
+                        type: object
+                        properties:
+                          secretId: { type: string }
+                          stage: { type: string }
+                          provider: { type: string }
+                          automatic: { type: boolean }
+                          places: { type: array, items: { type: string } }
+                          revokesOld: { type: boolean }
+                          ttlDays: { type: [integer, "null"] }
+                  - type: object
+                    required: [status, issuance, message]
+                    properties:
+                      status: { const: awaiting-review }
+                      issuance: { $ref: "#/components/schemas/IssuanceView" }
+                      message: { type: string }
+                  - $ref: "#/components/schemas/PendingApproval"
+        default: { $ref: "#/components/responses/Error" }
+  /reviews:
+    get:
+      tags: [Issuance]
+      summary: Open reviews waiting for a human
+      operationId: listReviews
+      responses:
+        "200": { description: Reviews, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/IssuanceView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /reviews/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Issuance]
+      summary: One open review (403 if unknown or expired)
+      operationId: getReview
+      responses:
+        "200": { description: Review, content: { application/json: { schema: { $ref: "#/components/schemas/IssuanceView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /evidence/{secretId}:
+    parameters:
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Issuance]
+      summary: Earlier review reports of a secret
+      operationId: listEvidence
+      responses:
+        "200": { description: Reports, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/VerificationReport" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /evidence/{secretId}/{reportId}:
+    parameters:
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+      - { name: reportId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Issuance]
+      summary: One review report (403 if not found)
+      operationId: getEvidence
+      responses:
+        "200": { description: Report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationReport" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals:
+    get:
+      tags: [Issuance]
+      summary: Approval requests, newest first
+      operationId: listApprovals
+      responses:
+        "200": { description: Approvals, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Approval" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Issuance]
+      summary: One approval request (403 if unknown)
+      operationId: getApproval
+      responses:
+        "200": { description: Approval, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /providers:
+    get:
+      tags: [Other]
+      summary: Providers
+      operationId: listProviders
+      responses:
+        "200":
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    label: { type: string }
+                    kind: { type: string, enum: [automatic, manual] }
+                    browser: { type: boolean }
+                    connection: { type: [string, "null"] }
+                    guide:
+                      type: [object, "null"]
+                      properties:
+                        url: { type: string }
+                        steps: { type: array, items: { type: string } }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Other]
+      summary: Add a guide-only provider (no API)
+      operationId: addProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, label, url]
+              properties:
+                id: { type: string, pattern: "^[a-z0-9][a-z0-9-]*$" }
+                label: { type: string }
+                url: { type: string, format: uri }
+                steps: { type: array, items: { type: string } }
+      responses:
+        "200": { description: Created provider definition, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /connections:
+    get:
+      tags: [Other]
+      summary: Connection state without tokens
+      operationId: listConnections
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    connected: { type: boolean }
+                    source: { type: string, enum: [session, env, op, vault, none] }
+                    hint: { type: string }
+                    expires: { type: [string, "null"] }
+                    fingerprint: { type: string }
+                    label: { type: string }
+                    permissions: { type: array, items: { type: string } }
+        default: { $ref: "#/components/responses/Error" }
+  /dev-templates:
+    get:
+      tags: [Dev environment]
+      summary: Dev .env templates (values only for default entries)
+      operationId: listDevTemplates
+      responses:
+        "200": { description: Templates, content: { application/json: { schema: { type: array, items: { type: object } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /env-templates:
+    post:
+      tags: [Dev environment]
+      summary: Create a dev template (direct stage, .env file names only)
+      operationId: addEnvTemplate
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EnvTemplate" } } }
+      responses:
+        "200": { description: Created template, content: { application/json: { schema: { $ref: "#/components/schemas/EnvTemplate" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /env-templates/{id}/entries:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Dev environment]
+      summary: Append an entry to a template
+      operationId: addEnvEntry
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EnvEntry" } } }
+      responses:
+        "200": { description: Updated template, content: { application/json: { schema: { $ref: "#/components/schemas/EnvTemplate" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /env-export:
+    post:
+      tags: [Dev environment]
+      summary: Write a dev .env (mode 600); the response never contains values
+      operationId: exportEnv
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo]
+              properties:
+                repo: { type: string }
+                path: { type: string, description: "Must be named .env or .env.* and lie in policy.envRoots or the linked folder" }
+                template: { type: string }
+                stage: { type: string }
+      responses:
+        "200":
+          description: Written, or inputs missing
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [status, path, keys]
+                    properties:
+                      status: { const: written }
+                      path: { type: string }
+                      keys: { type: array, items: { type: string } }
+                      sources: { type: object, additionalProperties: { type: string } }
+                      gitIgnored: { type: [boolean, "null"] }
+                      warnings: { type: array, items: { type: string } }
+                  - type: object
+                    required: [status, keys, message]
+                    properties:
+                      status: { const: needs-input }
+                      keys: { type: array, items: { type: string } }
+                      message: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /repos:
+    get:
+      tags: [Other]
+      summary: Repositories (no local paths for agents)
+      operationId: listRepos
+      parameters:
+        - { name: live, in: query, schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Repository list, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /team-export:
+    get:
+      tags: [Other]
+      summary: Team file as YAML (no values)
+      operationId: teamExport
+      responses:
+        "200": { description: YAML, content: { text/yaml: { schema: { type: string } } } }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The agent token from `~/.secret-desk/agent-token` (or `SECRET_DESK_AGENT_TOKEN`).
+  responses:
+    Error:
+      description: |
+        Error. 400 invalid input, 401 token, 403 policy or host check (also unknown review, approval or report),
+        404 unknown or human-only route, 409 state (not-connected, vault-unavailable), 429 rate limit,
+        500 unexpected, 502 GitHub or provider failure.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string, description: "secret-blocked, secret-ack, not-connected, vault-unavailable, rate-limit, github-denied, provider-denied, provider-error" }
+        detail: { type: string }
+        connection: { type: string }
+        hint: { type: string }
+    StatusLevel: { type: string, enum: [ok, unknown, soon, no-date, due, missing, expired] }
+    Place:
+      type: object
+      required: [repo, scope]
+      properties:
+        repo: { type: string }
+        scope: { type: string, enum: [repository, environment, organization] }
+        environment: { type: string }
+        name: { type: string, pattern: "^[A-Z][A-Z0-9_]*$" }
+    MetaFields:
+      type: object
+      properties:
+        description: { type: [string, "null"], maxLength: 500 }
+        owner: { type: [string, "null"], maxLength: 80 }
+        link: { type: [string, "null"], format: uri }
+        tags: { type: array, maxItems: 12, items: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" } }
+        product: { type: [string, "null"] }
+    SecretView:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        product: { type: [string, "null"] }
+        stage: { type: string }
+        service: { type: string }
+        provider: { type: string }
+        automatic: { type: boolean }
+        browser: { type: boolean }
+        expiry: { type: string, enum: [none, possible, required, unknown] }
+        expires: { type: [string, "null"], format: date }
+        daysLeft: { type: [integer, "null"] }
+        status: { $ref: "#/components/schemas/StatusLevel" }
+        rotatedAt: { type: [string, "null"] }
+        verifiedAt: { type: [string, "null"] }
+        verifiedBy: { type: [string, "null"] }
+        ttlDays: { type: [integer, "null"] }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+        guide: { type: [object, "null"] }
+        connection: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        liveErrors: { type: array, items: { type: string } }
+    SecretCreate:
+      type: object
+      additionalProperties: false
+      required: [id, name, service]
+      properties:
+        id: { type: string, pattern: "^[a-z0-9][a-z0-9-]*$" }
+        name: { type: string, pattern: "^[A-Z][A-Z0-9_]*$" }
+        title: { type: string }
+        description: { type: string, maxLength: 500 }
+        owner: { type: string, maxLength: 80 }
+        link: { type: string, format: uri }
+        tags: { type: array, items: { type: string } }
+        product: { type: string }
+        stage: { type: string, default: shared }
+        service: { type: string }
+        provider: { type: string, default: manual }
+        params: { type: object }
+        expiry: { type: string, enum: [none, possible, required, unknown], default: unknown }
+        ttlDays: { type: integer, minimum: 1 }
+        source: { type: string }
+        rotation: { type: string }
+        notes: { type: string }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+    SecretMetaPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: [string, "null"], maxLength: 200 }
+        description: { type: [string, "null"], maxLength: 500 }
+        owner: { type: [string, "null"], maxLength: 80 }
+        link: { type: [string, "null"], format: uri }
+        tags: { type: [array, "null"], maxItems: 12, items: { type: string } }
+        notes: { type: [string, "null"], maxLength: 2000 }
+        product: { type: [string, "null"], maxLength: 100 }
+    StageView:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        kind: { type: string, enum: [dev, test, live, shared] }
+        environment: { type: [string, "null"] }
+        tone: { type: string }
+        environmentName: { type: [string, "null"] }
+        usage:
+          type: object
+          properties:
+            secrets: { type: integer }
+            variables: { type: integer }
+            templates: { type: integer }
+            policy: { type: boolean }
+    Overview:
+      type: object
+      properties:
+        total: { type: integer }
+        byStage: { type: object, additionalProperties: { type: integer } }
+        byStatus: { type: object, additionalProperties: { type: integer } }
+        attention: { type: array, items: { $ref: "#/components/schemas/SecretView" } }
+        variables: { type: integer }
+        pendingReviews: { type: integer }
+        pendingApprovals: { type: integer }
+    VariableView:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        product: { type: [string, "null"] }
+        stage: { type: string }
+        value: { type: [string, "null"], description: "The expected value (configuration, not a secret)" }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+    VariableCreate:
+      type: object
+      additionalProperties: false
+      required: [id, name, places]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        stage: { type: string, default: shared }
+        value: { type: [string, "null"], maxLength: 1000 }
+        description: { type: string }
+        owner: { type: string }
+        link: { type: string }
+        tags: { type: array, items: { type: string } }
+        product: { type: string }
+        places: { type: array, minItems: 1, items: { $ref: "#/components/schemas/Place" } }
+    VariablePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        value: { type: [string, "null"], maxLength: 1000 }
+        description: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        tags: { type: [array, "null"], items: { type: string } }
+        acknowledgedPublic: { type: boolean, description: "Ignored for agents" }
+    VariableDrift:
+      type: object
+      properties:
+        variableId: { type: string }
+        place: { $ref: "#/components/schemas/Place" }
+        placeLabel: { type: string }
+        state: { type: string, enum: [in-sync, missing, different, unknown-expected, unreachable] }
+        expected: { type: [string, "null"] }
+        actual: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"] }
+        error: { type: string }
+        errorStatus: { type: integer }
+    PendingApproval:
+      type: object
+      required: [status, approvalId, message]
+      properties:
+        status: { const: pending-approval }
+        approvalId: { type: string }
+        secretId: { type: string }
+        message: { type: string }
+    Approval:
+      type: object
+      properties:
+        id: { type: string }
+        action: { type: string, enum: [issue, apply-variable] }
+        targetId: { type: string }
+        requestedBy: { type: string }
+        reason: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        state: { type: string, enum: [pending, approved, denied, failed, stale] }
+        snapshotHash: { type: string }
+        snapshot: { type: object }
+        result: { type: string }
+    Check:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status: { type: string, description: "pass, warn, fail or info" }
+        expected: { type: string }
+        actual: { type: string }
+        detail: { type: string }
+    VerificationReport:
+      type: object
+      properties:
+        id: { type: string }
+        secretId: { type: string }
+        secretName: { type: string }
+        createdAt: { type: string, format: date-time }
+        kind: { type: string, enum: [issued, manual] }
+        provider: { type: string }
+        stage: { type: string }
+        label: { type: string }
+        externalId: { type: string }
+        expiresAt: { type: [string, "null"] }
+        targets: { type: array, items: { type: string } }
+        checks: { type: array, items: { $ref: "#/components/schemas/Check" } }
+        checklist: { type: array, items: { type: object, properties: { id: { type: string }, text: { type: string } } } }
+        fingerprint: { type: string, description: "First 12 hex characters of a SHA-256 of the value; does not reveal it" }
+        attachments: { type: array, items: { type: object } }
+        confirmation: { type: object }
+    IssuanceView:
+      type: object
+      properties:
+        id: { type: string }
+        secretId: { type: string }
+        secretName: { type: string }
+        stage: { type: string }
+        provider: { type: string }
+        kind: { type: string, enum: [issued, manual] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        overall: { type: string, enum: [pass, warn, fail] }
+        report: { $ref: "#/components/schemas/VerificationReport" }
+    EnvEntry:
+      type: object
+      required: [key, from]
+      properties:
+        key: { type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" }
+        description: { type: string, maxLength: 300 }
+        from:
+          oneOf:
+            - { type: object, required: [type, value], properties: { type: { const: default }, value: { type: string } } }
+            - { type: object, required: [type], properties: { type: { const: generate }, kind: { type: string, enum: [hex, base64, uuid] }, bytes: { type: integer, minimum: 8, maximum: 128 } } }
+            - { type: object, required: [type, secret], properties: { type: { const: issue }, secret: { type: string } } }
+            - { type: object, required: [type], properties: { type: { const: prompt }, hint: { type: string } } }
+            - { type: object, required: [type, variable], properties: { type: { const: variable }, variable: { type: string } } }
+    EnvTemplate:
+      type: object
+      required: [id, repo, entries]
+      properties:
+        id: { type: string }
+        repo: { type: string }
+        stage: { type: string, default: dev }
+        file: { type: string, default: .env.local }
+        entries: { type: array, minItems: 1, items: { $ref: "#/components/schemas/EnvEntry" } }
+    CompareResult:
+      type: object
+      properties:
+        stages: { type: array, items: { type: object, properties: { id: { type: string }, label: { type: string }, kind: { type: string }, environment: { type: [string, "null"] } } } }
+        compared: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              repo: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [secret, variable] }
+              ids: { type: array, items: { type: string } }
+              cells:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    state: { type: string, enum: [ok, missing, unexpected, not-expected, unknown, error, different, not-applicable, needed, level-mismatch, optional] }
+                    expected: { type: boolean }
+                    present: { type: boolean }
+                    detail: { type: object }
+              parity: { type: string, enum: [consistent, gap, n/a] }
+              missingIn: { type: array, items: { type: string } }
+              tags: { type: array, items: { type: string } }
+              neededMissing: { type: boolean }
+              levelMismatch: { type: boolean }
+        summary: { type: object }
+        ignored: { type: array, items: { type: string } }
+        repos: { type: array, items: { type: object } }
+        live: { type: boolean }
+        errors: { type: array, items: { type: object, properties: { target: { type: string }, message: { type: string } } } }

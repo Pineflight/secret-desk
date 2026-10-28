@@ -2,12 +2,13 @@
 version: 1
 thresholds: [30, 14, 7]
 
-# Stages sind frei konfigurierbar; das Verhalten haengt an `kind` (dev | test | live | shared).
-# environment = Name der GitHub-Environment (fehlt: id bei test/live, null = keine). Fehlt der Abschnitt: dev, staging, production, shared.
+# Stages are freely configurable; behavior depends on `kind` (dev | test | live | shared).
+# environment = name of the GitHub environment (if omitted: the id for test/live, none for dev/shared; null = explicitly none).
+# If the section is missing: dev, staging, production, shared.
 stages:
   - { id: dev, kind: dev, environment: null }
   - { id: staging, label: Staging, kind: test, environment: staging }
-  - { id: production, label: Produktion, kind: live, environment: production }
+  - { id: production, label: Production, kind: live, environment: production }
   - { id: shared, kind: shared, environment: null }
 
 secrets:

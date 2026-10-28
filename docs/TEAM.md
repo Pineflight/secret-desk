@@ -2,8 +2,8 @@
 
 ## Distributing the configuration file
 `secret-desk team export --config secret-desk.config.yaml --out secret-desk.team.yaml` (or in the portal: Team, Download).
-The file contains the structure: stage definitions (`stages:`), secrets (name, stage, provider, targets), variables with expected values, dev templates,
-custom providers. **No values** and no provider-internal identifiers.
+The file contains the structure: expiry `thresholds`, stage definitions (`stages:`), secrets (name, stage, provider, parameters, targets, expiry data), variables with expected values, dev templates and
+custom providers. **No values**, and no provider-internal identifiers (`externalId`) or `rotatedAt`. Variable values are configuration, not secrets. Open the file before you share it: descriptions and links are part of it.
 
 ## New team member
 1. Clone the repo, `pnpm install`, `pnpm build`.
@@ -16,5 +16,5 @@ custom providers. **No values** and no provider-internal identifiers.
 The `.env` is created on your machine with mode 600. The portal does not store it.
 
 ## Stages in a team
-Stage definitions are exported along with the rest. On import (merge), unknown stage ids are added and existing ones stay unchanged (no silent change of kind or
-environment); `--replace` takes over the list from the file completely.
+Stage definitions are exported along with the rest (see [STAGES.md](STAGES.md)). On import (merge), unknown stage ids are added and existing ones stay unchanged (no silent change of kind or
+environment); `--replace` takes over the list from the file completely and keeps the local fields `externalId`, `rotatedAt`, `verifiedAt` and `verifiedBy` of secrets with the same id. In the portal, *Replace* needs an explicit confirmation (`confirmReplace`).

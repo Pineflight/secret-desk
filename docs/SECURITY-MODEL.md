@@ -58,8 +58,8 @@ Values are never stored. The portal holds them in memory only, only for as long 
   simply request a session. For demos and development, `SECRET_DESK_NO_LAUNCH_SECRET=1` turns this off (`pnpm demo` sets it).
 - Portal session: cookie (`HttpOnly`, `SameSite=Strict`) plus a CSRF token on every call.
 - Agent interface: its own bearer token (`~/.secret-desk/agent-token`, mode 600; the mode is checked on every read and corrected, on Windows only a warning, protection comes from the user profile).
-  An agent that only uses this interface **cannot confirm anything**, cannot set connections, upload attachments or pass values, and cannot trigger anything in non-dev stages
-  (such as staging or production) without approval.
+  An agent that only uses this interface **cannot confirm anything**, cannot set connections, upload attachments or pass values, and cannot trigger anything outside `policy.agentStages`
+  (by default only stages of kind `dev`; never `live`) without approval.
 
 ### Limit: agents with shell access as the same OS user
 The statements above hold for an agent that talks to the agent interface. An agent that has shell access as the **same operating-system user** can read every file that user can read
@@ -69,8 +69,8 @@ browser tabs of other sites). It is not a barrier against an agent running with 
 and give them only the agent interface (token) and no access to your home folder.
 
 ## Provider access tokens
-Enter them per session in the portal (memory only), or via environment variable, or via a 1Password reference (`op://`). Never in the configuration.
-Cloudflare needs a token with the *API Tokens Write* permission. That is powerful: keep it only for the session.
+Enter them per session in the portal (memory only), optionally keep them in the encrypted vault ([INTEGRATIONS.md](INTEGRATIONS.md#vault)), or read them from an environment variable or a 1Password reference (`op://`). Never in the configuration. Order of use: session, vault, configured source.
+Cloudflare needs a token with the *User > API Tokens > Edit* permission. That is powerful: keep it only for the session.
 
 ## Write test
 **Test connection** for GitHub can additionally prove that the token may write. This is opt-in and never automatic: the request must carry `deep: true` and an explicit list of `targets`

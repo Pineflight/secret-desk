@@ -23,6 +23,8 @@ generate the value, review it, report with evidence, **a human confirms**, and o
 
 ## Recipe (YAML)
 
+The how-to for writing recipes (schema, step kinds, variables, safety rules, testing) is [RECIPES.md](RECIPES.md). This section is the short form.
+
 ```yaml
 id: github-fine-grained-token
 label: GitHub Fine-grained Token
@@ -61,7 +63,7 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
 - Bundled recipes: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` as a scaffold (marked unverified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
-- Configuration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs? }` (details below).
+- Configuration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
 
 ## Platforms
 Chrome is searched for in the usual locations: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge under `/usr/bin`, Snap, Flatpak),
@@ -85,7 +87,7 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
   waitFor, pause, screenshot) may carry `each: repos` and then runs once per repository with `{{item}}`. Selectors: `role`+`name`, `label`, `text`,
   `placeholder`, `testid`, `css` (last resort). Additional variables: `permissionsQuery` (the already-encoded query part of the permissions), `externalId` (`revoke` only), `item`.
 - The schema checks: unknown variables, `http` only for localhost, a fixed host in `goto` (host or `allowHosts`, also `*.example.com`), at least one
-  `createsToken`. `loadRecipes(dirs)` throws with file name and path (`file.yaml: steps.3.click: ...`); `loadRecipesDetailed` collects errors. Later folders override equal ids.
+  `createsToken`. `loadRecipes(dirs)` throws with file name and path (`file.yaml: steps.3.click: ...`); `loadRecipesDetailed` collects errors. Without protection, later folders override equal ids; the runtime protects bundled ids (a recipe from another folder with a bundled id is reported as an error and not loaded).
 - `renderTemplate`: an unknown variable is an error; in `goto`, every value is encoded with `encodeURIComponent`.
 - `BrowserDriver` with `PlaywrightDriver` (visible Chrome, `launchPersistentContext`, profile mode 700, `slowMoMs`; Chrome lookup: `chromePath`, macOS/Linux/Windows default paths,
   otherwise `channel: "chrome"`; no download) and `FakeDriver` (tests, no browser).
@@ -99,7 +101,7 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
 
 ### Wiring in runtime and portal (built)
 
-- **Configuration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[] }`.
+- **Configuration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[], allowExternalRecipes (false) }`. Recipes outside the bundled folder (`<inventory folder>/recipes`, `recipesDirs`) load only with `allowExternalRecipes: true`; a recipe never overrides a bundled id.
   Relative paths are resolved from the configuration file, `~` is expanded. Example: `examples/secret-desk.config.example.yaml`.
 - **Runtime** (`packages/runtime/src/automation.ts`): `rt.automation` (`AutomationManager`). `createRuntime` loads the recipes (bundled from `<repo>/recipes` via
   `bundledRecipesDir()`, plus `<inventory folder>/recipes` and `recipesDirs`; later folders override equal ids) and registers the provider `<id>-browser` per recipe.

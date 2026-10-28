@@ -6,8 +6,8 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | Id | Kind | Connection | Verified |
 |---|---|---|---|
 | `random-hex`, `random-base64`, `random-uuid` | automatic | none | locally |
-| `cloudflare-token` | automatic | `cloudflare` (token with *API Tokens Write*) | reference read, `expires_on` only from a third-party source |
-| `cloudflare-turnstile` | automatic | `cloudflare` | **not verified** |
+| `cloudflare-token` | automatic | `cloudflare` (token with *User > API Tokens > Edit*) | reference read, `expires_on` only from a third-party source |
+| `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
 | `stripe-webhook-secret` | automatic | `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified** |
 | `resend-api-key` | automatic | `resend` | **not verified** |
@@ -15,6 +15,26 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `openai`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
 
 **Before the first real use**, test every `automatic` provider with a throwaway entry in dev or staging.
+
+Provider ids are used as `provider` of a secret in the inventory; the connection column is the integration whose token the provider uses ([INTEGRATIONS.md](INTEGRATIONS.md)).
+
+## Parameters per provider
+
+Given under `params` of the inventory entry. Source: [`packages/providers/src`](../packages/providers/src).
+
+| Provider | Parameters |
+|---|---|
+| `random-hex`, `random-base64` | `bytes`: integer 8 to 128, default 32 |
+| `random-uuid` | none |
+| `cloudflare-token` | `accountId` (string, required), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`) |
+| `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |
+| `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
+| `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
+| `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `connection` (optional, forces `stripe-test`, `stripe-live` or `stripe`) |
+| `resend-api-key` | `permission`: `sending_access` (default) or `full_access`; `domainId` (optional, restricts a sending key to a domain) |
+| `grafana-service-account-token` | `baseUrl` (required, https, no port; host must be `*.grafana.net` or in `providers.grafana.allowedHosts`), `serviceAccountId` (integer, required) |
+| `github-fine-grained-token` (manual) | optional `params.permissions`, a map such as `{ contents: read, metadata: read }`, prefills the GitHub token form (together with `ttlDays`, the description and the configured owner) |
+| other manual providers | none |
 
 ## Permissions per integration
 Create each token with no more than this. The **Test connection** button on the Integrations page makes read-only calls to confirm it (see below).

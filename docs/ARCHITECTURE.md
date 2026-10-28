@@ -2,7 +2,7 @@
 
 ## The path of a new value
 
-```
+```text
 Provider API ──> value in memory ──> verification ──> review report + evidence image
                                                           │
                  human ticks the review items (attachment optional)
@@ -26,6 +26,7 @@ Provider API ──> value in memory ──> verification ──> review report 
   dev templates, custom providers. Metadata and configuration only, never a secret value.
 - **Review reports and attachments** (`.secret-desk-evidence/`, not in Git): reports as JSON, screenshots as PNG/JPEG/WebP up to 5 MB.
 - **Memory:** issued but not yet confirmed values, the session's access tokens, pending approvals.
+- **Local files** in `~/.secret-desk/`: the encrypted vault for integration tokens (`vault.json`), folder links (`repo-links.json`), the agent token and the browser profile. See [CONFIGURATION.md](CONFIGURATION.md#files-secret-desk-writes).
 
 ## Platforms
 Path, permission and key questions live in `packages/core/src/platform.ts` (`securePrivateFile`, `ensurePrivateDir`, `writePrivateFile`,
@@ -33,7 +34,7 @@ Path, permission and key questions live in `packages/core/src/platform.ts` (`sec
 Linux `secret-tool`, Windows DPAPI via PowerShell, optional key file). Everything takes `platform` (and, for commands, an `exec` function)
 as a parameter, so Windows and Linux behavior can be tested on any system with `path.win32`/`path.posix` and a fake exec.
 Only these commands are started: `git` (runtime/core), `op` (core), `security`/`secret-tool`/`powershell.exe` (core, vault), Chrome (Playwright).
-Scripts in the repo are Node files under `scripts/` (`clean.mjs`, `demo.mjs`), not shell lines.
+Scripts in the repo are Node files under `scripts/` (`clean.mjs`, `demo.mjs`, `screenshots.mjs`), not shell lines.
 
 ## Repositories and links
 
@@ -50,7 +51,7 @@ Scripts in the repo are Node files under `scripts/` (`clean.mjs`, `demo.mjs`), n
 
 ## Stages
 
-Stages are freely configurable: the `stages:` section in the inventory (portal: Settings). A definition has `id` (slug), `label` (display name), `kind`,
+Stages are freely configurable: the `stages:` section in the inventory (portal: Settings). See [STAGES.md](STAGES.md). A definition has `id` (slug), `label` (display name), `kind`,
 `environment` (name of the GitHub environment) and `tone` (color). Without `stages:`, `dev`, `staging`, `production` and `shared` apply.
 
 Behavior depends on the `kind`, never on the name:
@@ -69,22 +70,21 @@ organization secrets need a repository selection that is not modeled yet.
 
 ## Stage comparison
 
-The **Compare** page (`/vergleich`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value (variable target values only appear as a comparison with GitHub).
-
-The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, fully testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`.
-
-- **Rows** are `(repository, name)` per kind (secret or variable); the name is `place.name ?? entry.name`. **Columns** are all configured stages.
-- **Targets:** a stage lives in the GitHub environment of its definition. Stages without an environment (`dev`, `shared`) have no target, except one: the repository level belongs to the first environment-less stage of kind `shared` (otherwise the first environment-less stage); other environment-less stages show `not-applicable`. An inventory entry always counts for its own stage and is checked at its own places (repository, environment or organization).
-- **Cell states:** `ok` (expected and present), `missing` (expected, absent in GitHub, also when the environment does not exist), `unexpected` (present in GitHub, unknown to the inventory for that stage), `different` (variable value differs from the target value), `unknown` (not checked live, expectation only), `error` (target unreadable, for example 403 or 429, with the message), `not-expected` (neither) and `not-applicable`.
-- **Parity:** per row over the compared stages (default: all of kind `test` and `live`; parameter `compare`). Live the actual presence counts, otherwise the expectation. Cells with `error` or `not-applicable` are left out. With fewer than two comparable stages, or if the name is present nowhere, the parity is `n/a`; if present everywhere it is `consistent`; otherwise `gap` with `missingIn`. Names that differ only by a stage word (`SUPABASE_STAGING_URL`, `SUPABASE_PRODUCTION_URL`) are not equated unless `normalize` is set (it drops `STAGING`, `PRODUCTION`, `PROD`, `DEV` and the stage ids from names and merges the rows).
-- **Orphans:** with `live`, names found in GitHub at a stage target but not in the inventory become their own rows (`unexpected`, no `ids`).
-- **Cost:** with `live`, each target (repository level, environment per stage, organization) is read once per kind, at most four requests in parallel. A failing target becomes `error` cells; only a missing GitHub connection fails the whole call. The portal never reads GitHub on opening the page: the live check is an explicit switch.
-- **All repositories:** with `live` and `all=1` (MCP `all_repos`), the organization's repository list is read as well (archived repositories, `.github` and `.github-private` are hidden). Repositories without an inventory entry are read at repository level and in every GitHub environment (one list call plus kinds x (1 + environments) reads per repository, four repositories in parallel). Environment names map to stages by their environment name (case-insensitive); other environments are shown in an "other environments" column. Everything found there is `unexpected` ("only in GitHub"). Repositories with no inventory entry and no findings are listed in a collapsible "Repositories without entries" card (name, visibility, last push, counters). A 403/404 on one repository becomes a per-repository note (`CompareResult.repos[].notes`), never a global error.
-- **Needed by workflows:** with `workflows=1` (MCP `workflows`), `.github/workflows/*.yml|yaml` is parsed (`packages/core/src/workflow-needs.ts`, pure, YAML-parsed so comments are ignored). Only expressions `${{ ... }}` (and bare `if:`) count: `secrets.NAME`, `vars.NAME`, `secrets['NAME']`; `GITHUB_TOKEN` is ignored, file names like `secrets.sh` never match. The job's `environment:` (also a simple `${{ matrix.x }}`) decides the environment, otherwise the repository level; reusable-workflow `secrets:` blocks count, `secrets: inherit` and `${{ secrets }}` only produce a note. The source is the locally linked folder of the repository (`repos.ts` `linkedFolder`), otherwise the GitHub Contents API (token permission *Contents: Read*; without it a per-repository note "token needs Contents: Read or link the repository locally"). A name a workflow needs that is neither in the inventory nor in GitHub (nor covered by the repository level for an environment job, nor by an organization secret) gets the cell state `needed` and counts in `summary.neededMissing`. If the inventory knows the name for that repository on another level or stage (typically a workflow job without `environment:` while the inventory keeps it in environments), the state is the weaker `level-mismatch` (`summary.levelMismatch`, no adopt action: check whether the job uses an environment dynamically, otherwise create the secret at repository level). A name used only in `if:` or comparisons (`secrets.X != ''`, never as an `env:`/`with:` value) is `optional` (`ref.optional`) and never `needed`; rows already in the inventory only get a "Needed by deploy.yml" badge (`row.needs`). The portal can add such rows to the inventory (metadata only, provider `manual`, expiry `unknown`, no value), one by one through the prefilled new-entry dialog or all at once.
-- **Ignored repositories:** `compare.ignoreRepos` in the configuration (default `[".github", ".github-private"]`) removes repositories from the comparison entirely: no rows, no GitHub reads, no workflow files, not in "Repositories without entries"; `result.ignored` lists the ones that exist, shown as "Ignored repositories (n)". The portal can additionally hide a repository group for the browser session only (never writes the configuration).
-- **Renamed repositories:** an inventory repository that is missing from GitHub's list is resolved with `GET /repos/{owner}/{name}` (GitHub answers an old name with 301; the client follows it itself, only within GitHub, and never sends the token elsewhere). A different current name is shown as "renamed to ..." on the Repositories page and in the comparison, with the human-only action "Rename in inventory" (`POST repos/{name}/rename`, `renameInventoryRepo`): it rewrites `places[].repo` and `envTemplates[].repo`, moves a local folder link, and changes nothing in GitHub.
+The **Compare** page (`/vergleich`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value. The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`; workflow parsing is `packages/core/src/workflow-needs.ts`. Cell states, parity, orphans, workflow needs, ignored and renamed repositories are described in [COMPARE.md](COMPARE.md).
 
 ## Packages
+
+| Package | Role |
+|---|---|
+| `packages/core` | inventory, status, GitHub client, issuance and review flow, variables, compare, dev export, team file, vault |
+| `packages/providers` | provider modules (Cloudflare, Supabase, Stripe, Resend, Grafana, random values, manual guides) |
+| `packages/automation` | browser automation: recipes, drivers, Chrome lookup |
+| `packages/runtime` | shared operations and policy for portal, CLI and MCP |
+| `packages/cli` | command line |
+| `packages/mcp` | MCP server for AI agents |
+| `apps/desk` | the portal (Next.js, local only) |
+| `skills/secret-desk` | skill for agents |
+
 
 `core` knows no user interface. `runtime` bundles the operations and enforces the policy (`agent-api.ts`).
 The CLI, the portal API and the MCP server use only `runtime`. The portal and the MCP server speak to the same routing layer
