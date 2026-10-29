@@ -83,10 +83,16 @@ async function discoverCloudflare(id: string, connection: string, specs: readonl
     }
     case "cloudflare.permissionGroups": {
       const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${API}/user/tokens/permission_groups`);
-      return asList(r?.result).flatMap((g) => {
-        const scopes = Array.isArray(g["scopes"]) ? g["scopes"].filter((x): x is string => typeof x === "string") : [];
-        return str(g["name"]) ? [{ value: str(g["name"])!, label: str(g["name"])!, detail: groupScope(scopes) }] : [];
-      });
+      // Gleiche Namen gibt es je Geltungsbereich mehrfach (zum Beispiel Konto und Zone): eine Option je Name, Bereiche vereinigt.
+      const scopesByName = new Map<string, Set<string>>();
+      for (const g of asList(r?.result)) {
+        const name = str(g["name"]);
+        if (!name) continue;
+        const set = scopesByName.get(name) ?? new Set<string>();
+        for (const x of Array.isArray(g["scopes"]) ? g["scopes"] : []) if (typeof x === "string") set.add(x);
+        scopesByName.set(name, set);
+      }
+      return [...scopesByName].map(([name, scopes]) => ({ value: name, label: name, detail: groupScope([...scopes]) }));
     }
     case "cloudflare.turnstileWidget": {
       const account = needParam(specs, ctx.params, "accountId");
@@ -253,13 +259,19 @@ const tokenProvider: Provider = {
     const groups = await callWithToken<Envelope<{ id: string; name: string; scopes?: string[] }[]>>(id, ctx, "cloudflare", `${API}/user/tokens/permission_groups`, { method: "GET" });
     const list = groups?.result;
     if (!Array.isArray(list)) throw badResponse(id);
-    const byName = new Map(list.map((g) => [g.name, g]));
+    // Gleiche Namen gibt es je Geltungsbereich mehrfach: je Richtlinie die Gruppe des passenden Bereichs nehmen.
+    const byName = new Map<string, typeof list>();
+    for (const g of list) byName.set(g.name, [...(byName.get(g.name) ?? []), g]);
+    const pick = (n: string, scope: string): { id: string; name: string; scopes?: string[] } => {
+      const all = byName.get(n)!;
+      return all.find((g) => (g.scopes ?? []).includes(scope)) ?? all[0]!;
+    };
     const missing = permissions.filter((n) => !byName.has(n));
     if (missing.length > 0) throw new ProviderError(id, null, `Unbekannte Berechtigungsgruppen: ${missing.join(", ")}`);
     // Zonengebundene Rechte (Geltungsbereich nur zone) brauchen eine eigene Richtlinie auf der Zone.
     const isZone = (n: string): boolean => {
-      const sc = byName.get(n)!.scopes ?? [];
-      return sc.includes(ZONE_SCOPE) && !sc.includes(ACCOUNT_SCOPE);
+      const all = byName.get(n)!;
+      return all.some((g) => (g.scopes ?? []).includes(ZONE_SCOPE)) && !all.some((g) => (g.scopes ?? []).includes(ACCOUNT_SCOPE));
     };
     const zoneBound = permissions.filter(isZone);
     const zoneId = typeof ctx.params["zoneId"] === "string" ? ctx.params["zoneId"].trim() : "";
@@ -271,8 +283,8 @@ const tokenProvider: Provider = {
     const expiresOn = expiryFrom(ctx.now, ctx.secret.ttlDays);
     const accountGroups = permissions.filter((n) => !isZone(n));
     const policies = [
-      ...(accountGroups.length > 0 ? [{ effect: "allow", resources: { [`${ACCOUNT_SCOPE}.${accountId}`]: "*" }, permission_groups: accountGroups.map((n) => ({ id: byName.get(n)!.id })) }] : []),
-      ...(zoneBound.length > 0 ? [{ effect: "allow", resources: { [`${ZONE_SCOPE}.${zoneId}`]: "*" }, permission_groups: zoneBound.map((n) => ({ id: byName.get(n)!.id })) }] : []),
+      ...(accountGroups.length > 0 ? [{ effect: "allow", resources: { [`${ACCOUNT_SCOPE}.${accountId}`]: "*" }, permission_groups: accountGroups.map((n) => ({ id: pick(n, ACCOUNT_SCOPE).id })) }] : []),
+      ...(zoneBound.length > 0 ? [{ effect: "allow", resources: { [`${ZONE_SCOPE}.${zoneId}`]: "*" }, permission_groups: zoneBound.map((n) => ({ id: pick(n, ZONE_SCOPE).id })) }] : []),
     ];
     const body = {
       name: ctx.label,
