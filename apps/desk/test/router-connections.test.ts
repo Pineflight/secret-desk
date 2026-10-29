@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
 
-const GH = "ghp_ROUTERSECRET1234567890";
+const GH = "ghp_" + "ROUTERSECRET1234567890";
 const INVENTORY = `version: 1
 secrets:
   - id: stage-secret

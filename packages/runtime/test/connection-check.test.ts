@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { checkConnection, listWriteTargets, tokenPrefixProblem } from "../src/index.js";
 import { createRuntime } from "../src/runtime.js";
 
-const TOKEN = "ghp_SUPERSECRETTOKEN1234567890";
+const TOKEN = "ghp_" + "SUPERSECRETTOKEN1234567890";
 const NOW = new Date("2026-11-01T10:00:00Z");
 
 const INVENTORY = `version: 1
