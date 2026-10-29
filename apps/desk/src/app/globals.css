@@ -118,3 +118,15 @@ textarea:focus-visible {
   background-size: 1rem;
   cursor: pointer;
 }
+
+/* Listen: letzte Spalte (Aktionen) bleibt beim horizontalen Scrollen am rechten Rand sichtbar. */
+.sd-sticky-last th:last-child,
+.sd-sticky-last td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--sd-card);
+  box-shadow: -10px 0 8px -8px rgb(0 0 0 / 0.1);
+}
+.sd-sticky-last tbody tr:hover td:last-child {
+  background: var(--sd-bg);
+}
