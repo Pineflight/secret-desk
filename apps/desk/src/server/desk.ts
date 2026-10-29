@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "@secret-desk/runtime";
-import { PortalSession, allowedHosts, loadOrCreateAgentToken } from "./security";
+import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken } from "./security";
 
 export interface Desk {
   rt: Runtime;
@@ -25,7 +25,7 @@ async function init(): Promise<Desk> {
     rt,
     session: new PortalSession(),
     agentToken: await loadOrCreateAgentToken(demo ? join(tmpdir(), "secret-desk-demo", "agent-token") : undefined),
-    hosts: allowedHosts(rt.config.server.port),
+    hosts: allowedHosts(rt.config.server.port, extraHostsFromEnv()),
     demo,
   };
   const launchUrl = desk.session.launchUrl(rt.config.server.port);

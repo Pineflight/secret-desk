@@ -21,6 +21,7 @@ A local-first portal that shows what expires when, issues new tokens at the prov
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
+- [Docker](#docker)
 - [Security principles](#security-principles)
 - [Platforms](#platforms)
 - [Documentation](#documentation)
@@ -132,6 +133,26 @@ Next: the step-by-step [Getting started guide](docs/GETTING-STARTED.md) (GitHub 
 
 Housekeeping: `pnpm clean` removes build output, `pnpm clean --deps` also `node_modules`. The CLI is `node packages/cli/dist/bin.js help`, see [docs/CLI.md](docs/CLI.md).
 
+## Docker
+
+The image is built for `linux/amd64` and `linux/arm64` and published at <https://github.com/Pineflight/secret-desk/pkgs/container/secret-desk>.
+
+| Platform | Example devices | Tag |
+| --- | --- | --- |
+| `linux/arm64` | Raspberry Pi 4/5, Apple Silicon | `:latest-arm64` |
+| `linux/amd64` | Intel/AMD PCs and servers | `:latest-amd64` |
+
+`:latest` and `:<tag>` (for example `:v0.1.0-12`) pick the matching platform automatically. Use the single-platform tags only if you need a fixed assignment. The packages are public, so no `docker login` is needed.
+
+Publish the port to the loopback address only:
+
+```bash
+docker pull ghcr.io/pineflight/secret-desk:latest
+docker run --rm -p 127.0.0.1:4747:4747 -v secret-desk-data:/data ghcr.io/pineflight/secret-desk:latest
+```
+
+To reach the portal over a LAN address, publish the port on that address (`-p 192.168.1.20:4747:4747`) and set `SECRET_DESK_ALLOWED_HOSTS=192.168.1.20:4747`. The launch address is in the container log (`docker logs`). Compose file, vault key and automatic updates: [docs/DOCKER.md](docs/DOCKER.md).
+
 ## Security principles
 
 - Values are held in memory only, for at most 15 minutes, and passed on in exactly two places: the provider API and, encrypted, GitHub.
@@ -176,6 +197,7 @@ Known limits:
 | [Integrations](docs/INTEGRATIONS.md) | Permissions per integration, test connection, write test, vault |
 | [Providers](docs/PROVIDERS.md) | Supported providers, parameters, how well each endpoint is verified |
 | [Browser recipes](docs/RECIPES.md) | Writing recipes; [Browser automation](docs/BROWSER-AUTOMATION.md) explains the design |
+| [Docker](docs/DOCKER.md) | Container on a Raspberry Pi in the LAN: compose file, allowed hosts, vault key, automatic updates |
 | [Team](docs/TEAM.md) | Sharing the configuration, onboarding |
 | [Architecture](docs/ARCHITECTURE.md) | Path of a value, data, packages |
 | [Security model](docs/SECURITY-MODEL.md) | What is protected and how, limits |
