@@ -246,6 +246,14 @@ Ideas, not promises:
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: setup, `pnpm verify`, test rules, code style. Browser recipes are YAML files under `recipes/` and can be contributed as pull requests ([docs/RECIPES.md](docs/RECIPES.md)). By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Questions: [SUPPORT.md](SUPPORT.md). Security issues: [SECURITY.md](SECURITY.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 
+## License and credits
+
+secret-desk is created by [Pineflight](https://github.com/Pineflight) and released under the [MIT license](LICENSE) (copyright line unchanged: Niklas Lurse (Pineflight)). The portal shows this on its **About** page (`/about`) and in the sidebar footer, and the CLI prints it with `secret-desk about` (`--version` prints the version only). The Docker image carries the same information as OCI labels (vendor, authors, source, license, version, revision) and contains `LICENSE` and `THIRD-PARTY-NOTICES.md` under `/licenses`.
+
+**Third-party licenses.** [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists every production dependency with version and license. It is generated offline by `node scripts/licenses.mjs` from the installed dependencies, and CI runs `node scripts/licenses.mjs --check`, which fails on a forbidden (GPL, AGPL, SSPL ...) or unknown license and on a stale list, and warns about everything outside the allow list (MIT, ISC, BSD-2/3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, Unlicense; MPL-2.0 only as a warning).
+
+**Privacy.** No telemetry, no connection to Pineflight servers. secret-desk only talks to the providers and GitHub that you configure (and optionally the repository of your team sync). This is checked in the source by a test (`packages/runtime/test/about.test.ts`: no telemetry library, no Pineflight host in the code). The Next.js framework has its own optional telemetry; it is switched off in the Docker image and in `pnpm demo`; for `pnpm dev` and `pnpm start` set `NEXT_TELEMETRY_DISABLED=1`.
+
 ## License
 
 [MIT](LICENSE). Copyright (c) Niklas Lurse (Pineflight).

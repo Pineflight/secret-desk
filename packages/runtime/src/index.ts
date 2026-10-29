@@ -12,3 +12,4 @@ export { tokenPrefixProblem } from "./connection-guides.js";
 export * from "./compare.js";
 export * from "./team-sync.js";
 export * from "./params.js";
+export * from "./about.js";
