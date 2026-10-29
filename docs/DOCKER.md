@@ -24,6 +24,21 @@ sudo mkdir -p /srv/tresor/secret-desk/data
 sudo chown -R 1000:1000 /srv/tresor/secret-desk/data
 ```
 
+Put the configuration into the volume, because the image contains no configuration file. Without `SECRET_DESK_CONFIG` the portal looks for `/app/secret-desk.config.yaml`, which does not exist, and stops with `ENOENT`. A minimal `/srv/tresor/secret-desk/data/config/secret-desk.config.yaml` for the container (the inventory file `inventory.yaml` sits next to it, see [Configuration](CONFIGURATION.md)):
+
+```yaml
+inventory: ./inventory.yaml
+github:
+  owner: your-organization
+  auth: { type: pat, source: { type: env, name: GITHUB_TOKEN } }
+automation:
+  enabled: false
+policy:
+  envRoots: []
+```
+
+`automation.enabled: false` because there is no browser in the container, and `envRoots` stays empty because the container has no project folders to write `.env` files into. The vault file keeps its default location below `/data`. The files must belong to UID 1000 like the rest of the data directory.
+
 Create the vault key once and keep it readable for your user only. Without this key the vault cannot be opened again, so back it up separately from the data.
 
 ```bash
@@ -44,15 +59,25 @@ services:
     ports:
       - "192.168.1.20:4747:4747"
     environment:
-      SECRET_DESK_ALLOWED_HOSTS: "192.168.1.20:4747"
+      SECRET_DESK_CONFIG: /data/config/secret-desk.config.yaml
+      SECRET_DESK_ALLOWED_HOSTS: "192.168.1.20:4747,raspberrypi.local:4747"
       SECRET_DESK_VAULT_KEY: ${SECRET_DESK_VAULT_KEY}
+      SECRET_DESK_LAUNCH_SECRET_FILE: /data/launch-secret
     volumes:
       - /srv/tresor/secret-desk/data:/data
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4747/api/session').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 ```
 
-`SECRET_DESK_ALLOWED_HOSTS` is a comma-separated list of additional `host:port` values the portal accepts in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Without it (or when empty) only `127.0.0.1`, `localhost` and `[::1]` with the port are accepted, and a call over the LAN address gets 403. Every entry must contain the port as the browser sends it. All other checks (DNS rebinding, `Origin`, `Sec-Fetch-Site`, launch secret, CSRF) stay in force.
+The health check only asks whether the portal answers (any status below 500, usually 401 without the launch secret); it sends no secret. The container starts without internet access, nothing is downloaded at start.
+
+`SECRET_DESK_ALLOWED_HOSTS` is a comma-separated list of additional `host:port` values the portal accepts in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Without it (or when empty) only `127.0.0.1`, `localhost` and `[::1]` with the port are accepted, and a call over the LAN address gets 403. Every entry must contain the port as the browser sends it. To use the mDNS name of the Pi, add `<hostname>.local:4747` as shown above (replace `raspberrypi` with the hostname of the Pi) and open the portal under that name. All other checks (DNS rebinding, `Origin`, `Sec-Fetch-Site`, launch secret, CSRF) stay in force.
 
 Start it:
 
@@ -68,7 +93,18 @@ The portal prints a one-time address with the launch secret into the container l
 docker compose logs secret-desk
 ```
 
-The address starts with `http://127.0.0.1:4747/?launch=...`. Replace `127.0.0.1` with the address of the Pi, for example `http://192.168.1.20:4747/?launch=...`, and open it in your browser. The secret changes with every container start, so read the log again after each update. Do not share the address.
+The address starts with `http://127.0.0.1:4747/?launch=...`. Replace `127.0.0.1` with the address of the Pi, for example `http://192.168.1.20:4747/?launch=...`, and open it in your browser. The address is printed at every start, directly after the server is ready. By default the secret changes with every container start, so read the log again after each restart or update. With `SECRET_DESK_LAUNCH_SECRET_FILE` (set in the compose file above) the secret is created once, written to that file with mode 600 and reused after restarts and updates, so a bookmarked address keeps working. Treat the file like a password: anyone who can read it can open the portal from your LAN. Do not share the address.
+
+## Restart behavior
+
+`restart: unless-stopped` starts the container again after a crash and after a reboot, as long as Docker itself starts at boot (`sudo systemctl enable docker`). Because Docker keeps its data and the volume on the external disk, Docker must not start before the disk is mounted. Add a drop-in with `sudo systemctl edit docker.service`:
+
+```ini
+[Unit]
+RequiresMountsFor=/srv/tresor
+```
+
+Without it, Docker can come up on an empty mount point after a reboot and create a fresh, empty data directory on the SD card.
 
 ## Automatic updates with Watchtower
 

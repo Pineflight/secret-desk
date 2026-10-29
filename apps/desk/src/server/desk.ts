@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "@secret-desk/runtime";
-import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken } from "./security";
+import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
 
 export interface Desk {
   rt: Runtime;
@@ -13,6 +13,13 @@ export interface Desk {
 
 const g = globalThis as { __secretDesk?: Promise<Desk> };
 
+/** Ohne SECRET_DESK_LAUNCH_SECRET_FILE bleibt es beim neuen Startgeheimnis je Start. */
+async function launchSecretOptions(): Promise<{ launchSecret?: string }> {
+  const file = process.env.SECRET_DESK_LAUNCH_SECRET_FILE?.trim();
+  if (!file || process.env.SECRET_DESK_NO_LAUNCH_SECRET === "1") return {};
+  return { launchSecret: await loadOrCreateLaunchSecret(file) };
+}
+
 async function init(): Promise<Desk> {
   const demo = process.env.SECRET_DESK_DEMO === "1";
   const configPath = process.env.SECRET_DESK_CONFIG ?? resolve(process.cwd(), "../../secret-desk.config.yaml");
@@ -23,7 +30,7 @@ async function init(): Promise<Desk> {
   if (demo) rt.config.policy.envRoots = [join(tmpdir(), "secret-desk-demo")];
   const desk: Desk = {
     rt,
-    session: new PortalSession(),
+    session: new PortalSession(await launchSecretOptions()),
     agentToken: await loadOrCreateAgentToken(demo ? join(tmpdir(), "secret-desk-demo", "agent-token") : undefined),
     hosts: allowedHosts(rt.config.server.port, extraHostsFromEnv()),
     demo,

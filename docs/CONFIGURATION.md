@@ -309,6 +309,8 @@ providers:
 | `SECRET_DESK_CONFIG` | portal | Absolute path of the configuration file (default: `secret-desk.config.yaml` in the repository root). |
 | `SECRET_DESK_VAULT_KEY` | portal, CLI | Vault key: 32 bytes, Base64 (`openssl rand -base64 32`). Takes precedence over the keychain. |
 | `SECRET_DESK_USER` | portal | Name shown as the acting user (default: the operating-system user). |
+| `SECRET_DESK_ALLOWED_HOSTS` | portal | Comma-separated extra `host:port` values accepted in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Default: loopback only. See [Docker](DOCKER.md). |
+| `SECRET_DESK_LAUNCH_SECRET_FILE` | portal | Path of a file that keeps the launch secret across restarts. An existing file is used (mode 600 is enforced), otherwise a 256-bit secret is created there with mode 600. Unset: a new secret at every start. See [Docker](DOCKER.md#open-the-portal). |
 | `SECRET_DESK_NO_LAUNCH_SECRET` | portal | `1` turns the launch secret off. For demos and development only. |
 | `SECRET_DESK_DEMO` | portal | `1` starts the demo mode with a simulated GitHub. |
 | `SECRET_DESK_AGENT_TOKEN` | MCP server | Agent token; otherwise `~/.secret-desk/agent-token` is read. |

@@ -13,10 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Container starts without internet access: `CMD` runs `next start` directly instead of `pnpm` (corepack no longer downloads pnpm at start).
+- The launch address is printed when the server starts (`instrumentation.ts`), not at the first API call.
 - Release workflow: image references in the manifest job are lowercased (`Pineflight/...` made `imagetools create` fail); annotations are set on the index only and the step also works with none.
 
 ### Added
 
+- `SECRET_DESK_LAUNCH_SECRET_FILE`: optional path of a file (mode 600) that keeps the launch secret stable across restarts. Without it the secret is new at every start, as before.
+- Docker guide: configuration file in the volume (`SECRET_DESK_CONFIG`), minimal container configuration, mDNS host name, restart behavior and a health check.
 - `SECRET_DESK_ALLOWED_HOSTS`: comma-separated extra `host:port` values accepted by the portal host and origin checks, so it can be reached over a LAN address. Default unchanged (loopback only).
 - Release workflow checks that the image manifest lists both platforms and sets source, description and license labels; pull requests build the Dockerfile (amd64, no push).
 - Docker image for `linux/amd64` and `linux/arm64` built natively per platform (`ubuntu-latest`, `ubuntu-24.04-arm`), tagged `<tag>-amd64`, `<tag>-arm64`, `latest-amd64` and `latest-arm64`, and combined into a multi-arch manifest for `<tag>` and `latest` with OCI annotations.
