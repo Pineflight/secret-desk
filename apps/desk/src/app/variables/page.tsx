@@ -10,7 +10,8 @@ import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, RowIconButton, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
-import { filterBySearch } from "@/lib/page-search";
+import { filterBySearch, highlightTerms } from "@/lib/page-search";
+import { Marked } from "@/components/Marked";
 import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
@@ -111,6 +112,7 @@ export default function VariablesPage() {
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
   const known = anyCompared(drifts, (list.data ?? []).map((v) => v.id));
+  const terms = useMemo(() => highlightTerms(q), [q]);
   const searched = useMemo(() => filterBySearch(list.data ?? [], q), [list.data, q]);
   const rows = useMemo(
     () => sortItems(filterByDrift(searched.filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
@@ -254,8 +256,8 @@ export default function VariablesPage() {
               return (
                 <tr key={`${g.key}:${v.id}`} className={`${LIST_ROW_CLASS} cursor-pointer`} onClick={() => setDetail({ id: v.id })}>
                   <td className={LIST_CELL_CLASS}>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setDetail({ id: v.id }); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline">{v.name}</button>
-                    <p className="text-xs text-muted">{v.id}</p>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setDetail({ id: v.id }); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
+                    <p className="text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
                     {v.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
                     {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
                     {v.from ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: describeFrom(v.from, sources, locale) })}</Pill></div> : null}
