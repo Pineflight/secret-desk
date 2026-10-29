@@ -153,7 +153,7 @@ export function CommandPalette({ onClose, shortcut }: { onClose: () => void; sho
   return (
     <div className="sd-fade fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-3 pt-[8vh] sm:p-6 sm:pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={rootRef} role="dialog" aria-modal="true" aria-label={t("palette.title")} className="sd-slide flex max-h-[min(34rem,calc(100dvh-4rem))] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-xl">
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <div className="sd-palette-bar flex items-center gap-2 border-b border-line px-4 py-3 transition-shadow">
           <Icon name="search" className="h-4 w-4 shrink-0 text-muted" />
           <input
             ref={inputRef}
@@ -169,7 +169,7 @@ export function CommandPalette({ onClose, shortcut }: { onClose: () => void; sho
             placeholder={t("palette.placeholder")}
             autoComplete="off"
             spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+            className="sd-bare-input min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
           />
           <button type="button" onClick={onClose} className="rounded-lg px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-inset ring-line hover:bg-page" aria-label={t("palette.close")}>Esc</button>
         </div>
@@ -190,7 +190,7 @@ export function CommandPalette({ onClose, shortcut }: { onClose: () => void; sho
                 counter += 1;
                 const i = counter;
                 const selected = i === active;
-                const base = `flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm ${selected ? "bg-primary-light text-ink" : "hover:bg-page"}`;
+                const base = `flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm ${selected ? "bg-primary-light text-ink ring-1 ring-inset ring-primary/25" : "hover:bg-page"}`;
                 if (row.type === "suggestion" || row.type === "recent-query") {
                   const label = row.type === "suggestion" ? row.s.label : row.q;
                   return (

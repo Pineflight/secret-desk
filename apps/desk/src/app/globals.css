@@ -75,12 +75,32 @@ body {
   outline: 2px solid var(--sd-primary);
   outline-offset: 2px;
 }
-input:focus-visible,
-button:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+button:focus-visible {
   outline: 2px solid var(--sd-primary) !important;
   outline-offset: 2px !important;
+}
+/* Eingabefelder: weicher Fokusring statt hartem Rahmen (bleibt gut sichtbar, folgt den runden Ecken). */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none !important;
+  border-color: var(--sd-primary);
+  box-shadow: 0 0 0 3px rgb(30 90 246 / 0.22);
+}
+/* Feld in einer Leiste, die selbst den Fokus zeigt (Befehlspalette). */
+.sd-bare-input:focus-visible {
+  box-shadow: none;
+  border-color: transparent;
+}
+.sd-palette-bar:focus-within {
+  box-shadow: inset 0 -2px 0 0 var(--sd-primary);
+}
+@media (forced-colors: active) {
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid Highlight !important;
+  }
 }
 
 @keyframes sd-fade {
