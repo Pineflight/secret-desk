@@ -2,6 +2,8 @@ import { dirname, join } from "node:path";
 import {
   GitHubClient,
   GitHubError,
+  githubAppProvider,
+  type TokenProvider,
   InventoryError,
   NotConnectedError,
   TEAM_SYNC_CONNECTION,
@@ -20,7 +22,7 @@ import {
   type BundleDiff,
   type TeamSyncConfig,
 } from "@secret-desk/core";
-import type { Runtime } from "./runtime.js";
+import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 
 /** Mindestabstand zwischen zwei Pushs (Entprellung): schnelle Folgeklicks erzeugen keine Folge-Commits. */
 export const MIN_PUSH_INTERVAL_MS = 30_000;
@@ -30,6 +32,10 @@ export type TeamSyncStateName = "not-configured" | "not-connected" | "in-sync" |
 export interface TeamSyncStatus {
   configured: boolean;
   connected: boolean;
+  /** Woher das Token kommt: eigenes team-sync-Token oder die GitHub-Integration (PAT/App). Nie der Wert. */
+  tokenSource: TeamTokenSource;
+  /** Rechte, die das Token fuer die gewaehlte Einstellung braucht. */
+  neededRights: string[];
   repo: string | null;
   path: string | null;
   branch: string | null;
@@ -63,7 +69,72 @@ function requireConfig(rt: Runtime): TeamSyncConfig {
   return c;
 }
 
-const client = (rt: Runtime): GitHubClient => new GitHubClient({ auth: () => rt.connections.token(TEAM_SYNC_CONNECTION), fetch: rt.fetch });
+/** Woher das Token fuer das Team-Repository kommt. own = eigenes team-sync-Token, github-pat/github-app = die GitHub-Integration. */
+export type TeamTokenSource = "own" | "github-pat" | "github-app" | "none";
+
+/** Rechte, die Team-Sync braucht (genau diese, nicht mehr): Lesen reicht fuer mode pull. */
+export function teamPermissions(c: TeamSyncConfig): { contents: "read" | "write"; pull_requests?: "write"; metadata: "read" } {
+  if (c.mode === "pull") return { contents: "read", metadata: "read" };
+  return c.push.strategy === "pull-request" ? { contents: "write", pull_requests: "write", metadata: "read" } : { contents: "write", metadata: "read" };
+}
+
+/** Rechte als lesbare Liste fuer Befunde und Anleitungen. */
+export function neededRights(c: TeamSyncConfig): string[] {
+  const p = teamPermissions(c);
+  return [`Contents: ${p.contents === "write" ? "Read and write" : "Read"}`, ...(p.pull_requests ? ["Pull requests: Read and write"] : []), "Metadata: Read"];
+}
+
+/** Quelle des Tokens: eigenes team-sync-Token (Sitzung, Tresor, Umgebung, op) hat Vorrang vor der GitHub-Integration. */
+export async function teamTokenSource(rt: Runtime): Promise<TeamTokenSource> {
+  if ((await rt.connections.status(TEAM_SYNC_CONNECTION)).connected) return "own";
+  const auth = rt.config.github.auth;
+  if (auth.type === "pat") return (await rt.connections.status(GITHUB_CONNECTION)).connected ? "github-pat" : "none";
+  return (await rt.connections.status(GITHUB_APP_KEY_CONNECTION)).connected ? "github-app" : "none";
+}
+
+interface TeamAuth {
+  provider: TokenProvider;
+  source: TeamTokenSource;
+}
+
+/**
+ * Token-Anbieter fuer das Team-Repository. Eigenes Token zuerst; sonst die GitHub-Integration: ein PAT wird wie er ist benutzt (seine Rechte
+ * und Repository-Auswahl gelten), bei einer GitHub App wird je Lauf ein Installationstoken nur fuer dieses eine Repository mit genau den
+ * noetigen Rechten angefordert (contents, pull_requests, metadata). Dadurch ist kein zusaetzliches von Hand angelegtes Token noetig.
+ */
+function teamAuth(rt: Runtime, c: TeamSyncConfig, source: TeamTokenSource): TeamAuth {
+  if (source === "own" || source === "none") return { provider: () => rt.connections.token(TEAM_SYNC_CONNECTION), source };
+  const auth = rt.config.github.auth;
+  if (source === "github-pat" || auth.type === "pat") return { provider: () => rt.connections.token(GITHUB_CONNECTION), source: "github-pat" };
+  const [owner, name] = split(c.repo);
+  const key = `${c.repo}|${JSON.stringify(teamPermissions(c))}`;
+  const memo = rt.teamSyncMemo as unknown as { app?: Map<string, TokenProvider>; granted?: Record<string, string> | null };
+  memo.app ??= new Map();
+  let provider = memo.app.get(key);
+  if (!provider) {
+    let inner: TokenProvider | null = null;
+    provider = async () => {
+      inner ??= githubAppProvider({
+        appId: auth.appId,
+        privateKey: await rt.connections.token(GITHUB_APP_KEY_CONNECTION),
+        owner,
+        repositories: [name],
+        permissions: teamPermissions(c),
+        fetch: rt.fetch,
+        onToken: (info) => { memo.granted = info.permissions; },
+      });
+      return inner();
+    };
+    memo.app.set(key, provider);
+  }
+  return { provider, source: "github-app" };
+}
+
+async function client(rt: Runtime): Promise<GitHubClient> {
+  const c = requireConfig(rt);
+  const { provider } = teamAuth(rt, c, await teamTokenSource(rt));
+  return new GitHubClient({ auth: provider, fetch: rt.fetch });
+}
 const split = (repo: string): [string, string] => {
   const [owner, name] = repo.split("/");
   return [owner!, name!];
@@ -73,6 +144,8 @@ const split = (repo: string): [string, string] => {
 export function mapTeamSyncError(e: unknown): Error {
   if (e instanceof TeamSyncError || e instanceof TeamBundleError || e instanceof NotConnectedError || e instanceof InventoryError) return e;
   if (e instanceof GitHubError) {
+    if (/access_tokens/.test(e.message) && (e.status === 422 || e.status === 403)) return new TeamSyncError("Die GitHub App hat nicht die noetigen Rechte fuer das Team-Repository oder ist dort nicht installiert. In den Einstellungen der App Contents (und fuer Pull Requests Pull requests) freigeben und die Installation auf das Team-Repository erweitern.", "denied");
+    if (/nicht installiert/.test(e.message)) return new TeamSyncError("Die GitHub App ist auf dem Besitzer des Team-Repositories nicht installiert. App dort installieren und das Team-Repository auswaehlen.", "denied");
     if (e.status === 401) return new TeamSyncError("GitHub hat den Token fuer das Team-Repository abgelehnt (abgelaufen oder ungueltig). Neuen Token unter Verbindungen eintragen.", "denied");
     if (e.status === 403) return new TeamSyncError("Der Token hat nicht die noetigen Rechte fuer das Team-Repository (Contents lesen, zum Schieben auch schreiben, bei Pull Requests Pull requests schreiben).", "denied");
     if (e.status === 404) return new TeamSyncError("Repository, Zweig oder Datei nicht gefunden, oder der Token hat keinen Zugriff auf dieses Repository.", "not-found");
@@ -98,11 +171,14 @@ async function guarded<T>(rt: Runtime, fn: () => Promise<T>): Promise<T> {
 export async function teamSyncStatus(rt: Runtime): Promise<TeamSyncStatus> {
   const c = rt.config.teamSync;
   const st = await readTeamSyncState(statePath(rt));
-  const connected = c ? (await rt.connections.status(TEAM_SYNC_CONNECTION)).connected : false;
+  const tokenSource = c ? await teamTokenSource(rt) : "none";
+  const connected = tokenSource !== "none";
   const last = rt.teamSyncMemo.lastCheck as TeamSyncCheck | null;
   return {
     configured: Boolean(c),
     connected,
+    tokenSource,
+    neededRights: c ? neededRights(c) : [],
     repo: c?.repo ?? null,
     path: c?.path ?? null,
     branch: c?.branch ?? null,
@@ -121,7 +197,7 @@ export async function teamSyncStatus(rt: Runtime): Promise<TeamSyncStatus> {
 
 async function fetchRemote(rt: Runtime, c: TeamSyncConfig) {
   const [owner, name] = split(c.repo);
-  const gh = client(rt);
+  const gh = await client(rt);
   const file = await gh.getContentFile(owner, name, c.path, c.branch);
   // 404 heisst "Datei fehlt" nur, wenn Repository und Zweig erreichbar sind; sonst ist es ein Zugriffs- oder Namensfehler.
   if (!file && (await gh.getBranchHead(owner, name, c.branch)) === null) throw new GitHubError(404, "Repository oder Zweig nicht gefunden");
@@ -196,11 +272,15 @@ export interface TeamPushPlan {
 }
 
 async function teamTokenText(rt: Runtime): Promise<string[]> {
-  try {
-    return [(await rt.connections.token(TEAM_SYNC_CONNECTION)).reveal()];
-  } catch {
-    return [];
+  const out: string[] = [];
+  for (const id of [TEAM_SYNC_CONNECTION, GITHUB_CONNECTION]) {
+    try {
+      out.push((await rt.connections.token(id)).reveal());
+    } catch {
+      /* nicht verbunden */
+    }
   }
+  return out;
 }
 
 /** Vorschau eines Pushs: Diff und Pruefung, dass die Datei keine Werte enthaelt. Schreibt nichts. */
@@ -247,7 +327,7 @@ export async function pushTeamSync(rt: Runtime, options: { confirm: boolean; exp
   const text = exportTeamBundle(rt.inventory.data);
   const m = messages[options.lang ?? "de"];
   return guarded(rt, async () => {
-    const gh = client(rt);
+    const gh = await client(rt);
     const [owner, name] = split(c.repo);
     let remoteSha = st.remoteSha;
     let pendingPullUrl: string | null = null;
@@ -316,14 +396,14 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
     const fromEnv = teamSyncFromEnv(env);
     if (fromEnv && !rt.config.teamSync) {
       await setupTeamSync(rt, fromEnv);
-      if (inventoryEmpty(rt) && (await rt.connections.status(TEAM_SYNC_CONNECTION)).connected) {
+      if (inventoryEmpty(rt) && (await teamTokenSource(rt)) !== "none") {
         const check = await checkTeamSync(rt);
         if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: "merge" });
       }
       return;
     }
     const c = rt.config.teamSync;
-    if (c?.pullOnStart && (await rt.connections.status(TEAM_SYNC_CONNECTION)).connected) await checkTeamSync(rt);
+    if (c?.pullOnStart && (await teamTokenSource(rt)) !== "none") await checkTeamSync(rt);
   } catch (e) {
     rt.teamSyncMemo.lastError = mapTeamSyncError(e).message;
   }
@@ -331,3 +411,76 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
 
 
 
+
+export interface TeamAccessCheck {
+  id: string;
+  label: string;
+  status: "pass" | "fail" | "warn" | "info";
+  detail?: string;
+}
+
+/** Wie man fehlende Rechte erweitert, je nach Quelle des Tokens. */
+function howToExtend(source: TeamTokenSource, c: TeamSyncConfig): string {
+  const rights = neededRights(c).join(", ");
+  if (source === "github-app") return `GitHub App: In den App-Einstellungen die Rechte ${rights} freigeben und die Installation auf ${c.repo} erweitern (Repository access). Danach den neuen Rechten zustimmen.`;
+  return `Token: Bei GitHub unter Settings, Developer settings, Fine-grained tokens das Token bearbeiten: Repository access muss ${c.repo} enthalten, Rechte ${rights}.`;
+}
+
+/**
+ * Prueft lesend, ob das Token (eigenes oder GitHub-Integration) auf das Team-Repository zugreifen kann und welche Rechte es hat.
+ * Bei einer GitHub App steht das Gewaehrte exakt in der Antwort; bei Tokens zeigt nur ein Schreibtest (`deep`: legt einen Probe-Zweig an und loescht
+ * ihn wieder) ob Schreiben geht. Zeigt nie einen Tokenwert.
+ */
+export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean } = {}): Promise<TeamAccessCheck[]> {
+  const c = requireConfig(rt);
+  const source = await teamTokenSource(rt);
+  const out: TeamAccessCheck[] = [];
+  const label: Record<TeamTokenSource, string> = { own: "eigenes Team-Sync-Token", "github-pat": "GitHub-Integration (Token)", "github-app": "GitHub-Integration (App, Installationstoken nur fuer dieses Repository)", none: "keine" };
+  out.push({ id: "source", label: "Token-Quelle", status: source === "none" ? "fail" : "info", detail: label[source] });
+  if (source === "none") return out;
+  const [owner, name] = split(c.repo);
+  const needed = `Noetig: ${neededRights(c).join(", ")}. ${howToExtend(source, c)}`;
+  const gh = await client(rt);
+  try {
+    const head = await gh.getBranchHead(owner, name, c.branch);
+    out.push(head === null ? { id: "read", label: "Repository lesen", status: "fail", detail: `Repository oder Zweig nicht gefunden, oder kein Zugriff. ${needed}` } : { id: "read", label: "Repository lesen", status: "pass", detail: `${c.repo}, Zweig ${c.branch}` });
+    if (head === null) return out;
+    const file = await gh.getContentFile(owner, name, c.path, c.branch);
+    out.push({ id: "file", label: "Team-Datei", status: file ? "pass" : "warn", detail: file ? c.path : `${c.path} fehlt noch im Repository` });
+  } catch (e) {
+    const err = mapTeamSyncError(e);
+    out.push({ id: "read", label: "Repository lesen", status: "fail", detail: `${err.message} ${needed}` });
+    return out;
+  }
+  if (c.mode === "pull-push" && c.push.strategy === "pull-request") {
+    try {
+      await gh.findOpenPull(owner, name, c.push.branch, c.branch);
+      out.push({ id: "pulls", label: "Pull Requests lesen", status: "pass" });
+    } catch (e) {
+      out.push({ id: "pulls", label: "Pull Requests", status: "fail", detail: `${mapTeamSyncError(e).message} ${needed}` });
+    }
+  }
+  const granted = (rt.teamSyncMemo as unknown as { granted?: Record<string, string> | null }).granted;
+  if (source === "github-app" && granted) {
+    const want = teamPermissions(c) as Record<string, string>;
+    const missing = Object.entries(want).filter(([k, v]) => granted[k] !== v && !(v === "read" && granted[k] === "write"));
+    out.push(missing.length === 0 ? { id: "granted", label: "Rechte der App-Installation", status: "pass", detail: Object.entries(granted).map(([k, v]) => `${k}: ${v}`).join(", ") } : { id: "granted", label: "Rechte der App-Installation", status: "fail", detail: `Fehlt: ${missing.map(([k, v]) => `${k}: ${v}`).join(", ")}. ${howToExtend(source, c)}` });
+  }
+  if (c.mode === "pull-push") {
+    if (!options.deep) out.push({ id: "write", label: "Schreiben", status: "info", detail: "Nicht geprueft (Schreibtest legt kurz einen Probe-Zweig an und loescht ihn wieder). Mit Schreibtest pruefen." });
+    else {
+      const probe = `secret-desk/permission-probe-${Math.random().toString(36).slice(2, 10)}`;
+      try {
+        const base = await gh.getBranchHead(owner, name, c.branch);
+        if (base === null) throw new TeamSyncError("Zielzweig nicht gefunden.", "not-found");
+        await gh.createBranch(owner, name, probe, base);
+        out.push({ id: "write", label: "Schreiben (Contents)", status: "pass", detail: "Probe-Zweig angelegt und wieder geloescht" });
+      } catch (e) {
+        out.push({ id: "write", label: "Schreiben (Contents)", status: "fail", detail: `${mapTeamSyncError(e).message} ${needed}` });
+      } finally {
+        await gh.deleteBranch(owner, name, probe).catch(() => undefined);
+      }
+    }
+  }
+  return out;
+}

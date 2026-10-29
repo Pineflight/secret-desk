@@ -124,7 +124,7 @@ Optional. Keeps the team file (structure without values, see [Team](TEAM.md#team
 | `push.branch` | string | `secret-desk/team-sync` | Branch for pull requests. |
 | `pullOnStart` | boolean | `true` | Ask the repository (read only) when the portal starts. Nothing is taken over without a preview. |
 
-The access token is the connection `team-sync` (a fine-grained token for this one repository), set like any other connection: session, vault, `connections.team-sync` (`env` or `op`) or `SECRET_DESK_TEAM_TOKEN`. It never goes into a file.
+Without an own token, team sync **uses the GitHub integration** (`github.auth`: a PAT as it is, or a GitHub App installation token requested per run for this one repository with only the needed rights, see [Team](TEAM.md#team-sync-with-a-private-github-repository)). An own token is the connection `team-sync` (session, vault, `connections.team-sync` with `env` or `op`, or `SECRET_DESK_TEAM_TOKEN`) and takes precedence. It never goes into a file.
 
 ```yaml
 teamSync:

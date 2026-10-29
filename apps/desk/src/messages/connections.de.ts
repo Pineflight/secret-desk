@@ -2,6 +2,7 @@ export default {
   "connections.srcSession": "Sitzung",
   "connections.srcEnv": "Umgebungsvariable",
   "connections.srcOp": "1Password",
+  "connections.srcGithub": "GitHub-Integration",
   "connections.srcNone": "keine",
   "connections.title": "Integrationen",
   "connections.subtitle": "Womit das Portal arbeiten darf. Zugangsdaten liegen nur im Arbeitsspeicher oder, wenn du es wählst, verschlüsselt im lokalen Tresor.",

@@ -1,4 +1,11 @@
 const m: Record<string, string> = {
+  "teamSync.source": "Token source",
+  "teamSync.source.own": "own team sync token",
+  "teamSync.source.github-pat": "uses the GitHub integration (token)",
+  "teamSync.source.github-app": "uses the GitHub integration (app, short-lived token for this repository only)",
+  "teamSync.source.none": "none (connect GitHub or enter a token)",
+  "teamSync.neededRights": "Required rights",
+  "teamSync.config.tokenOptional": "Access token (leave empty to use the GitHub integration)",
   "teamSync.title": "Team sync with GitHub",
   "teamSync.intro": "The team file (structure only, no values) lives in a private GitHub repository. The portal reads it, shows you what changes before anything is taken over, and pushes changes back only after you confirm.",
   "teamSync.notConfigured": "Team sync is not set up.",

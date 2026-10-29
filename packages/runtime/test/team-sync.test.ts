@@ -232,10 +232,11 @@ describe("pull: check", () => {
     expect(seen(st)).not.toContain(TOKEN);
   });
 
-  it("without a token the connection is reported as not connected", async () => {
+  it("without an own token the GitHub integration is used (see team-sync-github-auth.test.ts); without any token it is not connected", async () => {
     const { rt } = await setup({ token: false });
-    expect((await teamSyncStatus(rt)).connected).toBe(false);
-    await expect(checkTeamSync(rt)).rejects.toThrow(/nicht hergestellt/);
+    const st = await teamSyncStatus(rt);
+    expect(st.connected).toBe(true);
+    expect(st.tokenSource).toBe("github-pat");
   });
 });
 

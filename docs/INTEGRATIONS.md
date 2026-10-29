@@ -41,6 +41,8 @@ For organization secrets also the organization permission *Secrets* (Read and wr
 
 A **GitHub App** is an alternative (`github.auth.type: app`): the portal then obtains a token valid for one hour per run. The installation token is requested with `secrets: write`, `environments: read` and `metadata: read` only, so variables and workflow files are not available in App mode.
 
+**Team sync with a GitHub App.** [Team sync](TEAM.md#team-sync-with-a-private-github-repository) asks for its own installation token per run, only for the team repository and only with `contents` (read; write to push), `pull_requests` (write, pull-request strategy only) and `metadata: read`. Add *Contents* and *Pull requests* to the App's permissions (App settings, Permissions and events) and make sure the installation includes the team repository, otherwise GitHub refuses the token (the connection test says so). These extra App rights are only used for team sync.
+
 ### Cloudflare (`cloudflare`)
 
 Why: creates, checks and revokes further Cloudflare tokens (`cloudflare-token`).
