@@ -59,6 +59,10 @@ jobs:
             type=raw,value=${{ steps.version.outputs.tag }}
             type=raw,value=latest
             type=sha
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=secret-desk: portal, CLI and MCP server for secret inventory and rotation
+            org.opencontainers.image.licenses=MIT
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -68,10 +72,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Multi-Arch-Manifest pruefen
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:latest
+        run: |
+          manifest=$(docker buildx imagetools inspect "$IMAGE")
+          echo "$manifest"
+          for platform in linux/amd64 linux/arm64; do
+            echo "$manifest" | grep -q "Platform: *${platform}$" || { echo "Plattform fehlt im Manifest: ${platform}" >&2; exit 1; }
+          done
       - name: GitHub-Release anlegen
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
-            --notes "Docker: \`docker pull ghcr.io/${GITHUB_REPOSITORY}:${TAG}\`"
+            --notes "Docker (linux/amd64, linux/arm64): \`docker pull ghcr.io/${GITHUB_REPOSITORY}:${TAG}\`"

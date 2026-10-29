@@ -21,6 +21,7 @@ A local-first portal that shows what expires when, issues new tokens at the prov
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
+- [Docker](#docker)
 - [Security principles](#security-principles)
 - [Platforms](#platforms)
 - [Documentation](#documentation)
@@ -131,6 +132,17 @@ Provider and GitHub access tokens are entered per session in the portal, or the 
 Next: the step-by-step [Getting started guide](docs/GETTING-STARTED.md) (GitHub token with the exact permissions, first renewal, dev `.env`).
 
 Housekeeping: `pnpm clean` removes build output, `pnpm clean --deps` also `node_modules`. The CLI is `node packages/cli/dist/bin.js help`, see [docs/CLI.md](docs/CLI.md).
+
+## Docker
+
+The image is built for `linux/amd64` and `linux/arm64` (for example a Raspberry Pi) and published at <https://github.com/Pineflight/secret-desk/pkgs/container/secret-desk>. Publish the port to the loopback address only:
+
+```bash
+docker pull ghcr.io/pineflight/secret-desk:latest
+docker run --rm -p 127.0.0.1:4747:4747 -v secret-desk-data:/data ghcr.io/pineflight/secret-desk:latest
+```
+
+To reach the portal over a LAN address, publish the port on that address (`-p 192.168.1.20:4747:4747`) and set `SECRET_DESK_ALLOWED_HOSTS=192.168.1.20:4747`. The launch address is in the container log (`docker logs`). Compose file, vault key and automatic updates: [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Security principles
 
