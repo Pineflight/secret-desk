@@ -28,6 +28,8 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
+      - name: Drittlizenzen
+        run: node scripts/licenses.mjs --check
       - name: Keine Werte im Repo
         run: |
           if git ls-files -z | xargs -0 grep -nE '(sk_(live|test)_[A-Za-z0-9]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'; then

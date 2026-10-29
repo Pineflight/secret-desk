@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { userInfo } from "node:os";
 import {
   EnvExportError,
@@ -87,6 +88,7 @@ import {
   setStages,
   submitManualValue,
   teamExport,
+  readAbout,
   applyTeamSync,
   checkTeamSync,
   dismissTeamSetup,
@@ -173,6 +175,8 @@ export function sanitizeAgentName(raw: string | null): string {
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
+  // Ueber secret-desk: Version, Lizenz, Drittlizenzen. Nur lokale Dateien, keine Werte.
+  ["GET", /^about$/, () => readAbout({ rootDir: resolve(process.cwd(), "../.."), thirdPartyFile: resolve(process.cwd(), "third-party.json") })],
   ["GET", /^team-sync\/status$/, ({ rt }) => teamSyncStatus(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.

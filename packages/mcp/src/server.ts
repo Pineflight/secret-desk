@@ -1,13 +1,22 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { DeskApiError, DeskClient } from "./client.js";
 import { TOOLS } from "./tools.js";
 
+/** Version aus der package.json dieses Pakets (Handshake meldet name und version). */
+export function packageVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 export function createServer(client: DeskClient = new DeskClient()): McpServer {
-  const server = new McpServer({ name: "secret-desk", version: "0.1.0" });
+  const server = new McpServer({ name: "secret-desk", version: packageVersion() });
   for (const tool of TOOLS) {
     server.registerTool(tool.name, { description: tool.description, inputSchema: tool.inputSchema }, async (input: Record<string, unknown>) => {
       try {
