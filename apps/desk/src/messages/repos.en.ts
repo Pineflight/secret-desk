@@ -32,7 +32,7 @@ export default {
   "repos.statusMismatch": "Remote does not match: {remote}",
   "repos.statusNoRemote": "No remote origin",
   "repos.showSecrets": "View secrets",
-  "repos.showSecretsAria": "View secrets of {name}",
+  "repos.showSecretsAria": "View entries of {name}",
   "repos.empty": "No repositories",
   "repos.emptyText": "Repositories appear here as soon as a secret, variable or template names one. Use “Compare with GitHub” to also see repositories without an entry.",
   "repos.noMatch": "No repository matches your search.",

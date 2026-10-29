@@ -39,7 +39,7 @@ export function IntegrationsOverview() {
                 {s.paramsMissing > 0 ? (
                   <>
                     {" "}
-                    <Link href="/secrets" onClick={() => writeStored("secrets.params", "missing", "")} className="text-sm font-normal underline">{t("home.linkedParamsShow")}</Link>
+                    <Link href="/entries?kind=secret" onClick={() => writeStored("entries.params", "missing", "")} className="text-sm font-normal underline">{t("home.linkedParamsShow")}</Link>
                   </>
                 ) : null}
               </dd>

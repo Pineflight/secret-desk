@@ -21,7 +21,7 @@ describe("list layout", () => {
     expect(css).toMatch(/right:\s*0/);
     expect(css).toMatch(/background:\s*var\(--sd-card\)/);
   });
-  it("the variables table keeps its actions in view", () => {
-    expect(read("app/variables/page.tsx")).toContain("<ListTable stickyLast");
+  it("the entries table keeps its actions in view", () => {
+    expect(read("app/entries/page.tsx")).toContain("<ListTable stickyLast");
   });
 });

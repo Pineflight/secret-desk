@@ -21,6 +21,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 ## Concepts
 
 - [STAGES.md](STAGES.md): stage kinds, how the GitHub environment is derived, custom stages and the team export.
+- [ENTRIES.md](ENTRIES.md): the combined secrets and variables list: kind switch, filters, redirects from the old pages, new entry.
 - [COMPARE.md](COMPARE.md): the stage and repository comparison, cell states, parity, orphans, workflow needs.
 - [REPOSITORIES.md](REPOSITORIES.md): repository selection, local folder links, path rules, search and renames.
 - [INTEGRATIONS.md](INTEGRATIONS.md): permissions per integration, connecting tokens, test connection, write test and the vault.

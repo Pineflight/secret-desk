@@ -3,6 +3,8 @@ import commonDe from "./common.de";
 import commonEn from "./common.en";
 import homeDe from "./home.de";
 import homeEn from "./home.en";
+import entriesDe from "./entries.de";
+import entriesEn from "./entries.en";
 import secretsDe from "./secrets.de";
 import secretsEn from "./secrets.en";
 import secretDetailDe from "./secretDetail.de";
@@ -35,6 +37,6 @@ import paramsDe from "./params.de";
 import paramsEn from "./params.en";
 
 export const messages: Record<"de" | "en", Record<string, string>> = {
-  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...paletteDe },
-  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...paletteEn },
+  de: { ...commonDe, ...homeDe, ...entriesDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...paletteDe },
+  en: { ...commonEn, ...homeEn, ...entriesEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...paletteEn },
 };

@@ -25,10 +25,10 @@ pnpm demo
 
 Open <http://127.0.0.1:4747>. The demo uses a **simulated GitHub** inside the process and made-up data (`acme-app`, `alice`, `example.com`) from [`examples/demo`](../examples/demo). Nothing leaves your machine and no account is needed. In the demo you can:
 
-- Look at **Overview** and **Secrets** (expiry, status, targets).
+- Look at **Overview** and **Secrets and variables** (kind, expiry, status, targets). The *Kind* switch (*All*, *Secrets*, *Variables*) narrows the one list; the old addresses `/secrets` and `/variables` redirect to it.
 - Open a secret and choose **Generate new value** for one with the provider `random-hex` (a random value generated locally), then go to **Reviews**, tick the checklist and **Confirm and write to GitHub**. The write goes to the simulated GitHub.
 - Open **Compare**, tick *Check live against GitHub* and look at gaps between stages.
-- Open **Variables** and compare the expected value with GitHub.
+- Switch *Kind* to *Variables* and compare the expected value with GitHub.
 
 Stop the demo with Ctrl+C. The demo turns the launch secret off (`SECRET_DESK_NO_LAUNCH_SECRET=1`); a normal start does not.
 
@@ -85,7 +85,7 @@ secrets:
 You can create entries in three ways:
 
 1. Edit the YAML by hand.
-2. Use **New entry** in the portal.
+2. Use **New** in the portal and pick *Secret* or *Variable* (preselected from the *Kind* switch).
 3. Let the portal find them: on **Compare**, switch on *Check live against GitHub* and *All repositories of the organization*; names that exist in GitHub but not in the inventory can be added with a prefilled dialog (metadata only, provider `manual`, expiry unknown, never a value). See [COMPARE.md](COMPARE.md#orphans-and-adding-to-the-inventory).
 
 The `staging` environment must exist in the GitHub repository before secrets can be written to it.
@@ -148,7 +148,7 @@ Providers with an API need to know which account, project or domain a token is f
 
 Use a harmless secret first (provider `random-hex`, stage `staging` or `dev`).
 
-1. **Secrets**, open the entry, choose **Generate new value**. The portal creates the value in memory, checks that every target is reachable with write permission, and builds a **review report** with an evidence image. **Nothing is written to GitHub yet.**
+1. **Secrets and variables**, open the secret, choose **Generate new value**. The portal creates the value in memory, checks that every target is reachable with write permission, and builds a **review report** with an evidence image. **Nothing is written to GitHub yet.**
 2. **Reviews** shows the open review. Read the findings, tick every checklist item (optionally attach your own screenshot) and choose **Confirm and write to GitHub**. The button stays disabled until every item is ticked.
 3. The portal encrypts the value with the target's public key, writes it, re-checks that the name exists, revokes the old value at the provider (where the provider supports it) and records `rotatedAt`, `expires`, `verifiedAt` and `verifiedBy` in the inventory.
 4. **Reject and delete new value** instead discards it; at the provider the new value is deleted again.

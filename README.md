@@ -87,8 +87,8 @@ All screenshots come from the built-in demo (simulated GitHub, made-up data) and
 
 | | |
 |---|---|
-| [![Secrets](docs/images/secrets.png)](docs/images/secrets.png)<br>**Secrets:** status, stage, provider, expiry and targets at a glance | [![Review](docs/images/review-detail.png)](docs/images/review-detail.png)<br>**Review:** evidence image, checklist, confirm or reject |
-| [![Compare](docs/images/compare-live.png)](docs/images/compare-live.png)<br>**Compare:** live matrix of names against stages | [![Variables](docs/images/variables.png)](docs/images/variables.png)<br>**Variables:** expected value against GitHub |
+| [![Secrets and variables](docs/images/entries.png)](docs/images/entries.png)<br>**Secrets and variables:** one list with a kind switch; status, stage, expiry and targets at a glance | [![Review](docs/images/review-detail.png)](docs/images/review-detail.png)<br>**Review:** evidence image, checklist, confirm or reject |
+| [![Compare](docs/images/compare-live.png)](docs/images/compare-live.png)<br>**Compare:** live matrix of names against stages | [![Variables](docs/images/variables.png)](docs/images/variables.png)<br>**Variables:** the same list with *Kind: Variables*, expected value against GitHub |
 | [![Integrations](docs/images/integrations.png)](docs/images/integrations.png)<br>**Integrations:** connection state, guides, test connection | [![Settings](docs/images/settings.png)](docs/images/settings.png)<br>**Settings:** freely configurable stages |
 | [![Repositories](docs/images/repositories.png)](docs/images/repositories.png)<br>**Repositories:** link folders on this machine | [![Reviews](docs/images/reviews.png)](docs/images/reviews.png)<br>**Reviews:** open reviews waiting for a human |
 

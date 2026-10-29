@@ -59,7 +59,7 @@ A dry run (`dryRun: true`, humans only) shows *Parameters complete* or the missi
 
 ### 4. Complete parameters for many entries
 
-The **Secrets** list marks entries with missing parameters (*Parameters missing* badge) and has a filter *Parameters*, *All* or *Parameters missing*. **Complete parameters** opens a dialog that reads the accounts, projects, zones and domains of all connected integrations once and shows, per entry, what it found:
+The **Secrets and variables** list marks secrets with missing parameters (*Parameters missing* badge) and has a filter *Parameters*, *All* or *Parameters missing* (secrets only: shown under *All* with a "secrets only" note, hidden when *Kind* is *Variables*). **Complete parameters** opens a dialog that reads the accounts, projects, zones and domains of all connected integrations once and shows, per entry, what it found:
 
 | Status | Meaning |
 |---|---|
@@ -74,7 +74,7 @@ The **Secrets** list marks entries with missing parameters (*Parameters missing*
 
 A variable can take its expected value from a resource of an integration instead of being typed (for example a Supabase project URL, a Cloudflare zone id, a Turnstile sitekey). In the variable dialog open **Load from provider**, choose the source, the resource and the field, then **Load value** and **Use as value**. For an existing variable, **Load value** shows the stored value, the proposed one and **Apply**.
 
-- The source is remembered on the variable (`from`), so the **Variables** page can compare all sources with what the provider says now: **Suggest values from providers**, one **Apply** per variable.
+- The source is remembered on the variable (`from`), so the **Secrets and variables** list (*Kind*: *Variables*) can compare all sources with what the provider says now: **Suggest values from providers**, one **Apply** per variable.
 - **Apply** changes the expected value in the **inventory** only. To write it to GitHub use the normal apply of the variable.
 - Only public fields and ids are offered, from a fixed allowlist:
 

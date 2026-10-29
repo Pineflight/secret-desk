@@ -186,7 +186,7 @@ export default function ReposPage() {
                 {rows.map((r) => (
                   <tr key={r.name} className="align-top">
                     <th scope="row" className="px-4 py-3 text-left font-medium">
-                      <Link href={`/secrets?repo=${enc(r.name)}`} aria-label={t("repos.showSecretsAria", { name: r.name })} className="underline-offset-2 hover:underline">{r.name}</Link>
+                      <Link href={`/entries?repo=${enc(r.name)}`} aria-label={t("repos.showSecretsAria", { name: r.name })} className="underline-offset-2 hover:underline">{r.name}</Link>
                       <div className="mt-1 flex flex-wrap gap-1 text-[11px] font-normal">
                         {r.github && !r.inInventory ? <span title={t("repos.onlyGithubHint")}><Pill>{t("repos.onlyGithub")}</Pill></span> : null}
                         {r.github?.private ? <Pill>{t("repos.private")}</Pill> : null}
@@ -199,8 +199,8 @@ export default function ReposPage() {
                         </div>
                       ) : null}
                     </th>
-                    <td className="tabular px-3 py-3 text-right"><Link href={`/secrets?repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
-                    <td className="tabular px-3 py-3 text-right"><Link href={`/variables?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
+                    <td className="tabular px-3 py-3 text-right"><Link href={`/entries?kind=secret&repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
+                    <td className="tabular px-3 py-3 text-right"><Link href={`/entries?kind=variable&repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
                     <td className="px-3 py-3">
                       <div className="flex items-start justify-between gap-2">
                         {r.link ? <span className="break-all font-mono text-xs">{r.link.path}</span> : <span className="text-muted">{t("repos.notLinked")}</span>}

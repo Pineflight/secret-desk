@@ -185,10 +185,10 @@ describe("Needed by workflows", () => {
   });
   it("link to the new dialog with prefill", () => {
     const link = adoptLink({ repo: "r", name: "N", kind: "secret", stage: "staging", id: "r-n", files: [] }, "Von ci.yml benoetigt");
-    expect(link.startsWith("/secrets?")).toBe(true);
+    expect(link.startsWith("/entries?")).toBe(true);
     const q = new URLSearchParams(link.split("?")[1]);
-    expect(Object.fromEntries(q)).toEqual({ new: "1", pf_name: "N", pf_repo: "r", pf_stage: "staging", pf_id: "r-n", pf_desc: "Von ci.yml benoetigt" });
-    expect(adoptLink({ repo: "r", name: "N", kind: "variable", stage: "s", id: "i", files: [] }, "d").startsWith("/variables?")).toBe(true);
+    expect(Object.fromEntries(q)).toEqual({ new: "secret", pf_name: "N", pf_repo: "r", pf_stage: "staging", pf_id: "r-n", pf_desc: "Von ci.yml benoetigt" });
+    expect(new URLSearchParams(adoptLink({ repo: "r", name: "N", kind: "variable", stage: "s", id: "i", files: [] }, "d").split("?")[1]).get("new")).toBe("variable");
   });
 });
 

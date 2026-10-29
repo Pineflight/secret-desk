@@ -35,7 +35,7 @@ Filters and words combine: `stage:staging repo:wake-miles token`.
 An empty search shows recently opened entries, recent searches and typical suggestions. They are kept only in this browser (`localStorage`: entry ids and search terms, never values). The palette footer turns the history off (which also deletes it) or clears it.
 
 ## Lists
-The search fields of Secrets, Variables and Compare use the same logic (tolerant matching, filter syntax) and highlight the matches in the name and id.
+The search fields of the Secrets and variables list and of Compare use the same logic (tolerant matching, filter syntax) and highlight the matches in the name and id.
 
 ## Accessibility
 The palette is a modal dialog (`role="dialog"`, `aria-modal`) with a focus trap, returns focus to where you were, announces the number of results to screen readers and respects reduced motion.

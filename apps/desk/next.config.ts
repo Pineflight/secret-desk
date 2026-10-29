@@ -17,6 +17,8 @@ const config: NextConfig = {
   serverExternalPackages: ["libsodium-wrappers", "libsodium", "@secret-desk/automation", "playwright-core"],
   poweredByHeader: false,
   reactStrictMode: true,
+  // Secrets and variables share one list at /entries; the old list routes keep working and carry the query string over
+  // (the detail route /secrets/:id stays). Next.js appends the incoming query to the destination.
   // Old German routes (before the English naming migration) keep working; the query string is carried over.
   async redirects() {
     return [
@@ -24,9 +26,11 @@ const config: NextConfig = {
       { source: "/freigaben", destination: "/approvals", permanent: true },
       { source: "/pruefen", destination: "/reviews", permanent: true },
       { source: "/pruefen/:id", destination: "/reviews/:id", permanent: true },
-      { source: "/variablen", destination: "/variables", permanent: true },
+      { source: "/variablen", destination: "/entries?kind=variable", permanent: true },
       { source: "/verbindungen", destination: "/connections", permanent: true },
       { source: "/vergleich", destination: "/compare", permanent: true },
+      { source: "/secrets", destination: "/entries?kind=secret", permanent: true },
+      { source: "/variables", destination: "/entries?kind=variable", permanent: true },
     ];
   },
   async headers() {

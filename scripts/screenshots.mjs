@@ -190,13 +190,13 @@ try {
 
   await shot("overview", "/");
 
-  await shot("secrets", "/secrets");
+  await shot("entries", "/entries");
   await shot("secret-detail", "/secrets/cloudflare-deploy-acme-app");
   if (reviewId) {
     await shot("reviews", "/reviews");
     await shot("review-detail", `/reviews/${encodeURIComponent(reviewId)}`);
   } else console.warn("  no pending review could be created: skipping reviews.png and review-detail.png");
-  await shot("variables", "/variables");
+  await shot("variables", "/entries?kind=variable");
   await shot("compare", "/compare");
   await shot("compare-live", "/compare", async () => {
     await page.getByText("Check live against GitHub", { exact: false }).first().click();

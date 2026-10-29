@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Secrets and variables in one list:** the pages `/secrets` and `/variables` are now one page, `/entries` ("Secrets and variables"), with one table, a *Kind* column and a *Kind: All | Secrets | Variables* switch (`?kind=secret|variable`). The existing filters apply to both kinds; filters that exist for one kind only (provider, parameters, expiry or comparison states) are marked and never applied silently to the other. The header shows the counts ("117 secrets, 93 variables"), and one **New** action asks for the kind. `/secrets` and `/variables` redirect permanently with the query string kept; `/secrets/:id` is unchanged. Navigation, command palette, Compare, Overview and Repositories link to the new page with filters set. See [docs/ENTRIES.md](docs/ENTRIES.md).
 - **English naming:** the portal routes are now `/settings`, `/approvals`, `/reviews`, `/reviews/:id`, `/variables`, `/connections` and `/compare`; the new-entry query parameter is `new=1`. All test names are English, and `assets/logo-protokoll.json` became `assets/logo-log.json` with English keys.
 - **Migration:** the old German routes (`/einstellungen`, `/freigaben`, `/pruefen`, `/variablen`, `/verbindungen`, `/vergleich`) redirect permanently with the query string kept, and `?neu=1` is still accepted. Inventory, config and team files already used English keys, so nothing needs to be migrated there; bookmarks keep working through the redirects.
 
