@@ -11,6 +11,7 @@ Messages are quoted as the English portal shows them. Nothing below ever require
 - [Windows paths and links](#windows-paths-and-links)
 - [Folder links and `.env` export](#folder-links-and-env-export)
 - [Provider and approval problems](#provider-and-approval-problems)
+- [Parameters and resources](#parameters-and-resources)
 - [Compare shows errors](#compare-shows-errors)
 - [Agents](#agents)
 - [Build and tests](#build-and-tests)
@@ -105,6 +106,18 @@ The vault is optional: `vault.enabled: false` keeps tokens in memory for the ses
 - Approvals and open reviews live in memory; a portal restart clears them.
 - A variable value is rejected "Looks like a ...": it resembles a secret. Create it as a secret. If it really is public (a site key), a human acknowledges it in the portal (`--ack-public` in the CLI); clear secret formats are always refused.
 - Provider endpoints that were only tested against mocks may fail in unexpected ways; see [PROVIDERS.md](PROVIDERS.md) and try with a throwaway token first.
+
+## Parameters and resources
+
+How parameters, lists and suggestions work: [RESOURCES.md](RESOURCES.md).
+
+- **"A new value can only be generated once the required parameters are set: ..."** (button *Complete the parameters first*, API `400` / `params_invalid`): the entry misses a required parameter, or one has the wrong type or a value outside the allowed options. Open the **Parameters** card, choose or type the value and save. Several entries: **Secrets**, **Complete parameters**.
+- **"The integration returns no entries here."** The list is empty or the token is not allowed to read it ("The list could not be read ... Does the token have read permission for it?"). Check which token the integration uses: the Cloudflare template *Create additional tokens* cannot list accounts or zones, Supabase needs *Projects* Read, Resend needs Full access ([INTEGRATIONS.md](INTEGRATIONS.md#resources-and-defaults)). Either widen the read permission or choose *Enter the value by hand*; for Cloudflare, save the account id once as the integration default.
+- **"Unknown permission groups: ..."** (preflight failed, `409` / `preflight_failed`): a name in `permissions` does not exist in Cloudflare's list, usually a typo or an outdated name. Choose the names from the list in the picker (it shows the groups of the connected token).
+- **No suggestion shown.** By design, a suggestion appears only when exactly one entry fits: for Supabase the project name must contain the repository and a word for the stage (`staging`, `prod`, ...); for Cloudflare zones and Resend domains the name must contain the repository; accounts and service accounts only when there is a single one. Several matches, none, or an entry without a repository give no suggestion: choose from the list by hand.
+- **"Resend domain not verified"** (a preflight warning, not an error): the domain exists but its status is not *verified*. A key for it is issued, but sending fails until the DNS records of the domain are correct. Verify the domain in Resend.
+- **"Integration {name} is not connected: without it there is no list."** Connect it on **Integrations**; session tokens are lost when the portal restarts.
+- **"The value is not in the list (different account?)"**: the saved value is not among the entries of the connected integration. Check that the right token is connected, or that you did not paste an id from another account.
 
 ## Compare shows errors
 

@@ -1,9 +1,28 @@
-import { contextKind, SecretValue, type Check, type ConnectionStore, type Provider, type StageKind } from "@secret-desk/core";
+import { contextKind, SecretValue, type Check, type ConnectionStore, type ParamSpec, type Provider, type StageKind } from "@secret-desk/core";
 import { check, isRecord, probeWithConnection, sameSet, step, strings } from "./checks.js";
 import { badResponse, callWithToken, optionalString, requireString, requireStringArray, seg } from "./http.js";
 
 const API = "https://api.stripe.com/v1/webhook_endpoints";
 const ID = "stripe-webhook-secret";
+
+const specs: ParamSpec[] = [
+  { key: "url", label: "Endpunkt-Adresse", labelEn: "Endpoint URL", type: "url", required: true, help: "https-Adresse, an die Stripe die Ereignisse sendet.", helpEn: "https address Stripe sends the events to." },
+  { key: "events", label: "Ereignisse", labelEn: "Events", type: "stringList", required: true, help: "Abonnierte Ereignisse, zum Beispiel checkout.session.completed.", helpEn: "Subscribed events, for example checkout.session.completed." },
+  {
+    key: "connection",
+    label: "Verbindung",
+    labelEn: "Connection",
+    type: "enum",
+    required: false,
+    help: "Nur setzen, um die Verbindung zu erzwingen. Sonst richtet sie sich nach der Art der Stage.",
+    helpEn: "Only set to force the connection. Otherwise it follows the kind of the stage.",
+    options: [
+      { value: "stripe", label: "Stripe (allgemein)", labelEn: "Stripe (general)" },
+      { value: "stripe-test", label: "Stripe (Sandbox)", labelEn: "Stripe (sandbox)" },
+      { value: "stripe-live", label: "Stripe (Live)", labelEn: "Stripe (live)" },
+    ],
+  },
+];
 
 /**
  * Verbindung des Eintrags: ausdruecklicher Parameter `connection`, sonst nach Art der Stage die getrennte Verbindung
@@ -22,6 +41,7 @@ export const stripeWebhookProvider: Provider = {
   label: "Stripe Webhook-Secret",
   kind: "automatic",
   connection: "stripe",
+  params: specs,
   async issue(ctx) {
     const url = requireString(ID, ctx.params, "url");
     const events = requireStringArray(ID, ctx.params, "events");

@@ -243,6 +243,12 @@ paths:
                           places: { type: array, items: { type: string } }
                           revokesOld: { type: boolean }
                           ttlDays: { type: [integer, "null"] }
+                          params:
+                            type: object
+                            properties:
+                              ok: { type: boolean }
+                              missing: { type: array, items: { type: string } }
+                              problems: { type: array, items: { type: object } }
                   - type: object
                     required: [status, issuance, message]
                     properties:
@@ -537,6 +543,12 @@ components:
         guide: { type: [object, "null"] }
         connection: { type: [string, "null"] }
         notes: { type: [string, "null"] }
+        params:
+          type: object
+          description: Provider parameter status (keys only, never values).
+          properties:
+            status: { type: string, enum: [ok, missing, invalid, none] }
+            missing: { type: array, items: { type: string } }
         liveErrors: { type: array, items: { type: string } }
     SecretCreate:
       type: object

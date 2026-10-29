@@ -53,11 +53,30 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Variables (`vars.*`):** configuration values with an expected value that is compared with GitHub and applied on request. A guard stops secrets from ending up as variables.
 - **Compare across stages and all repositories:** one matrix of secrets and variables against stages, with live read-only checks against GitHub, repositories without inventory entries, what workflows need (`secrets.*`/`vars.*`), orphans and renamed repositories. See [Compare](docs/COMPARE.md).
 - **Repositories and local links:** link repositories to folders on your machine (links never leave it). See [Repositories](docs/REPOSITORIES.md).
+- **Parameters and resource selection:** each provider declares what an entry needs (account, project, zone, domain). The portal lists the resources of the connected integration read-only, suggests at most one match that you confirm with a click, blocks issuing while required parameters are missing and runs a read-only preflight. Variables can load public values (project URL, zone id, sitekey) from a provider. See [Parameters and resources](docs/RESOURCES.md).
 - **Integrations with permission guides:** for each provider the exact permissions to grant, a link that prefills the GitHub token form, a read-only **Test connection** and an opt-in **write test**. See [Integrations](docs/INTEGRATIONS.md).
 - **Encrypted vault for integration tokens:** optional, AES-256-GCM, key in the OS keychain (macOS Keychain, Linux `secret-tool`, Windows DPAPI) or a key file.
 - **Browser automation recipes:** for providers without an API, a visible Chrome walks through the form from a YAML recipe. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md).
 - **Dev `.env` export:** per-repository templates produce the file on demand (defaults, random values, personal dev tokens, variables) with mode 600, stored nowhere.
 - **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
+
+### Supported integrations
+
+The overview page shows which integrations are connected, what hangs on them and how many secrets can be renewed automatically. Details per provider: [Providers](docs/PROVIDERS.md).
+
+| Integration | Automatic (portal creates the value) | By hand (you paste it, the portal verifies it) |
+|---|---|---|
+| Local | random hex, base64 and UUID values | n/a |
+| Cloudflare | API tokens, Turnstile secrets | n/a |
+| Supabase | API keys, service role key (read) | access token |
+| Stripe | webhook signing secrets | restricted keys |
+| Resend | API keys | n/a |
+| Grafana | service account tokens | n/a |
+| GitHub | n/a (it is where values are written) | fine-grained tokens |
+| Others | n/a | OpenAI, Telegram bot (guides) |
+
+Only the Cloudflare API token provider is verified against the reference; the other automatic providers are **not verified** against the real API yet, see the table in [Providers](docs/PROVIDERS.md).
+
 - **MCP server, skill and agent HTTP API:** AI agents maintain metadata, query status and request renewals. They never see values and never confirm. See [Agents](docs/AGENTS.md) and the [Agent API](docs/AGENT-API.md).
 - **German and English UI**, runs on **macOS, Linux and Windows**.
 

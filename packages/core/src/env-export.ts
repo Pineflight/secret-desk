@@ -1,3 +1,4 @@
+import { assertEntryParams, effectiveParams, integrationDefaultsOf } from "./params.js";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
@@ -69,7 +70,7 @@ export async function revokeIssuedTokens(
       continue;
     }
     try {
-      await provider.revoke({ externalId: t.externalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+      await provider.revoke({ externalId: t.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
     } catch {
       failed.push(`${t.secretId} (${t.externalId})`);
     }
@@ -138,6 +139,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
       if (!provider || provider.kind !== "automatic" || !provider.issue) {
         throw new EnvExportError(`${secret.id}: Anbieter "${secret.provider}" kann keinen Dev-Wert erzeugen. In der Vorlage "prompt" verwenden.`);
       }
+      assertEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider));
     }
   }
 
@@ -154,7 +156,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         const provider = deps.providers.get(secret.provider)!;
         const result = await provider.issue!({
           secret,
-          params: secret.params,
+          params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
           stage: template.stage,
           stageKind: stageKind(deps.inventory.stages, template.stage),
           connections: deps.connections,

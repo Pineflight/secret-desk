@@ -32,6 +32,9 @@ Instead of passing the team file around by hand, a team can keep it in a private
 
 **CLI.** `secret-desk team status|pull|push --config secret-desk.config.yaml`. `pull` shows the preview; `--apply merge|replace|keep-local` takes over (`--confirm-replace` for replace). `push` shows the difference; `--yes` confirms.
 
+## Resource mapping in a team
+The `resourceMap` (repository to provider resource, see [RESOURCES.md](RESOURCES.md#mapping-repositories-to-resources)) is exported with the rest and contains only ids and display names, no secrets. On import (merge), an entry whose key (`kind`, `repo`, `stage`) already exists locally stays unchanged and new keys are added; `--replace` takes over the list from the file (and removes the local list if the file has none). Resource ids belong to a provider account: a teammate who connects a different account sees *The mapping points to a resource the provider does not know* until the mapping is adjusted.
+
 ## Stages in a team
 Stage definitions are exported along with the rest (see [STAGES.md](STAGES.md)). On import (merge), unknown stage ids are added and existing ones stay unchanged (no silent change of kind or
 environment); `--replace` takes over the list from the file completely and keeps the local fields `externalId`, `rotatedAt`, `verifiedAt` and `verifiedBy` of secrets with the same id. In the portal, *Replace* needs an explicit confirmation (`confirmReplace`).

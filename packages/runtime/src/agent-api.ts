@@ -6,7 +6,12 @@ import {
   EnvTemplateSchema,
   InventoryError,
   NotConnectedError,
+  ParamsInvalidError,
   PromptsRequiredError,
+  integrationDefaultsOf,
+  preflightEntry,
+  validateEntryParams,
+  type EntryPreflight,
   RotationError,
   SecretAgentCreateSchema,
   SecretAgentPatchSchema,
@@ -52,6 +57,7 @@ import type { z } from "zod";
 import type { Approval } from "./approvals.js";
 import type { AutomationInfo, AutomationRunState } from "./automation.js";
 import { linkedFolder } from "./repos.js";
+import { paramStatus } from "./params.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
 /**
@@ -109,6 +115,8 @@ export interface SecretView {
   guide: { url: string; steps: string[]; openUrl: string } | null;
   connection: string | null;
   notes: string | null;
+  /** Stand der Anbieter-Parameter: ok, missing (Pflichtparameter fehlen), invalid, none (der Anbieter braucht keine). Nur Schluessel, nie Werte. */
+  params: { status: "ok" | "missing" | "invalid" | "none"; missing: string[] };
   /** Nur beim Live-Abgleich: Ziele, die GitHub nicht lesen liess (403/429/5xx). Fuer sie ist "fehlt" unbekannt. */
   liveErrors?: string[];
 }
@@ -146,6 +154,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): Secr
     guide: provider?.guide ? { url: provider.guide.url, steps: provider.guide.steps, openUrl: provider.guide.openUrl?.(s, { owner: rt.owner, now: today }) ?? provider.guide.url } : null,
     connection: provider?.connection ?? null,
     notes: s.notes ?? null,
+    params: paramStatus(rt, s),
     ...(liveErrors.length > 0 ? { liveErrors: [...new Set(liveErrors)] } : {}),
   };
 }
@@ -219,6 +228,14 @@ export function listProviders(rt: Runtime) {
   return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), connection: p.connection ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
 }
 
+/** Stack-Adresse fuer den Direktlink: Standardwert der Integration, sonst die erste baseUrl eines Grafana-Eintrags. */
+function grafanaBase(rt: Runtime): string | undefined {
+  const d = rt.inventory.data.integrationDefaults?.["grafana"]?.["baseUrl"];
+  if (typeof d === "string") return d;
+  const e = rt.inventory.data.secrets.find((x) => x.provider === "grafana-service-account-token" && typeof x.params["baseUrl"] === "string");
+  return e ? String(e.params["baseUrl"]) : undefined;
+}
+
 export async function listConnections(rt: Runtime) {
   const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
@@ -228,7 +245,7 @@ export async function listConnections(rt: Runtime) {
     if (info) saved.set(s.id, info.savedAt);
   }
   return statuses.map((s) => {
-    const g = connectionGuide(s.id, rt.owner);
+    const g = connectionGuide(s.id, rt.owner, s.id === "grafana" ? { grafanaBaseUrl: grafanaBase(rt) } : {});
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
     return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
@@ -255,9 +272,23 @@ export async function addSecret(rt: Runtime, actor: Actor, entry: unknown): Prom
     const bad = Object.keys(e.params).filter((k) => NETWORK_PARAM_KEYS.has(k.toLowerCase()));
     if (bad.length > 0) throw new PolicyError(`Agenten setzen keine Adressen in params (${bad.join(", ")}). Das macht ein Mensch im Portal.`);
   }
+  // Parameter schon beim Anlegen gegen die Spezifikation pruefen (mit Standardwerten der Integration als Fallback).
+  const wanted = entry as { provider?: unknown; params?: unknown };
+  const provider = typeof wanted.provider === "string" ? rt.providers.get(wanted.provider) : undefined;
+  if (provider?.params?.length) {
+    const problems = validateEntryParams(provider, { params: typeof wanted.params === "object" && wanted.params !== null && !Array.isArray(wanted.params) ? (wanted.params as Record<string, unknown>) : {} }, integrationDefaultsOf(rt.inventory, provider));
+    if (problems.length > 0) throw new ParamsInvalidError(problems);
+  }
   const created = rt.inventory.addSecret(entry as z.input<typeof SecretSchema>);
   await rt.inventory.save();
   return view(rt, created, new Date());
+}
+
+/** Lesender Vorabcheck eines (neuen) Eintrags. Fuer die Antwort beim Anlegen und fuer den Plan. */
+export function preflightSecret(rt: Runtime, id: string) {
+  const secret = rt.inventory.getSecret(id);
+  if (!secret) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+  return preflightEntry(secret, issuanceDeps(rt));
 }
 
 /**
@@ -387,7 +418,7 @@ export function cancelAutomationRun(rt: Runtime, actor: Actor, secretId: string)
 export type IssuanceRequestResult =
   | { status: "awaiting-review"; issuance: IssuanceView; message: string }
   | { status: "pending-approval"; approvalId: string; secretId: string; message: string }
-  | { status: "dry-run"; plan: ReturnType<typeof planRotation> };
+  | { status: "dry-run"; plan: ReturnType<typeof planRotation>; /** Nur fuer Menschen: lesender Vorabcheck beim Anbieter. */ preflight?: EntryPreflight };
 
 /**
  * Bittet um einen neuen Wert. Menschen stossen sofort die Pruefung an. Agenten nur in freigegebenen Stages,
@@ -398,7 +429,11 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
 
   const secret = rt.inventory.getSecret(secretId);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${secretId}`);
-  if (options.dryRun) return { status: "dry-run", plan: planRotation(secretId, rt) };
+  if (options.dryRun) {
+    const plan = planRotation(secretId, rt);
+    // Agenten bekommen nur den Parameterstand; Namen von Konten, Projekten usw. liest nur ein Mensch.
+    return actor.kind === "human" ? { status: "dry-run", plan, preflight: await preflightEntry(secret, issuanceDeps(rt)) } : { status: "dry-run", plan };
+  }
   // Ein Browser-Lauf oeffnet ein Fenster am Rechner des Menschen: Agenten brauchen dafuer in jeder Stage eine Freigabe.
   const browser = actor.kind === "agent" && rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
   if (browser || !agentMayRunNow(rt, actor, secret.stage, secret.places.length > 0)) {
@@ -499,6 +534,8 @@ export interface VariableView {
   product: string | null;
   stage: Stage;
   value: string | null;
+  /** Quelle des Sollwerts in einer Integration, falls gesetzt. */
+  from: { connection: string; kind: string; resource: string; field: string } | null;
   places: Place[];
 }
 
@@ -512,6 +549,7 @@ const variableView = (v: VariableEntry): VariableView => ({
   product: v.product ?? null,
   stage: v.stage,
   value: v.value,
+  from: v.from ?? null,
   places: v.places,
 });
 

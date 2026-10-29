@@ -74,4 +74,8 @@ export default {
   "common.provider.browser": "Browser",
   "common.selectSearch": "Search…",
   "common.noMatches": "No matches",
+  "common.pageSearchPlaceholder": "Search this list (press /)",
+  "common.pageSearch": "Search this list",
+  "common.pageSearchClear": "Clear search",
+  "common.pageSearchCount": "{count} of {total} matches",
 } satisfies Record<string, string>;

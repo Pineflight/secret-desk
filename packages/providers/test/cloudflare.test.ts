@@ -81,3 +81,27 @@ describe("cloudflare-turnstile", () => {
     expect(err.message).not.toContain(CONN_TOKEN);
   });
 });
+
+describe("cloudflare-token with same-named groups per scope", () => {
+  const DUP = {
+    result: [
+      { id: "a1", name: "Logs Read", scopes: ["com.cloudflare.api.account"] },
+      { id: "z1", name: "Logs Read", scopes: ["com.cloudflare.api.account.zone"] },
+      { id: "z2", name: "Workers Routes Write", scopes: ["com.cloudflare.api.account.zone"] },
+    ],
+  };
+  it("lists one option per name with merged scopes", async () => {
+    const m = mockFetch({ body: DUP });
+    const options = await token.discover!("cloudflare.permissionGroups", { connections: issueCtx(m.fetch, {}, { conns: ["cloudflare"] }).connections, fetch: m.fetch, params: {}, hint: { repos: [], stage: "staging", stageKind: "test" } });
+    expect(options.map((o) => [o.value, o.detail])).toEqual([["Logs Read", "account, zone"], ["Workers Routes Write", "zone"]]);
+  });
+  it("uses the account group for the account policy and the zone group for the zone policy", async () => {
+    const m = mockFetch({ body: DUP }, { body: { result: { id: "tok1", value: ISSUED } } });
+    await token.issue!(issueCtx(m.fetch, { accountId: "acc1", zoneId: "zone9", permissions: ["Logs Read", "Workers Routes Write"] }, { conns: ["cloudflare"] }));
+    const body = JSON.parse(m.calls[1]!.body!);
+    expect(body.policies).toEqual([
+      { effect: "allow", resources: { "com.cloudflare.api.account.acc1": "*" }, permission_groups: [{ id: "a1" }] },
+      { effect: "allow", resources: { "com.cloudflare.api.account.zone.zone9": "*" }, permission_groups: [{ id: "z2" }] },
+    ]);
+  });
+});

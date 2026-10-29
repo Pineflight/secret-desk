@@ -5,7 +5,7 @@ import { useT } from "@/lib/i18n";
 import { selectClass } from "./ui";
 import { Icon } from "./Icons";
 
-import { SEARCH_FROM, filterOptions, optionsFromChildren, type SelectOption } from "@/lib/select-options";
+import { filterOptions, optionsFromChildren, showSearchField, typeaheadChar, type SelectOption } from "@/lib/select-options";
 
 interface Props {
   id?: string;
@@ -16,7 +16,7 @@ interface Props {
   required?: boolean;
   ["aria-label"]?: string;
   className?: string;
-  /** Suchfeld erzwingen oder abschalten. Standard: ab SEARCH_FROM Optionen. */
+  /** Suchfeld erzwingen oder abschalten. Standard: bei mehr als einer Option. Tippen filtert sofort. */
   searchable?: boolean;
 }
 
@@ -35,7 +35,7 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const showSearch = searchable ?? options.length >= SEARCH_FROM;
+  const showSearch = showSearchField(options.length, searchable);
   const shown = useMemo(() => filterOptions(options, query), [options, query]);
   const selected = options.find((o) => o.value === value);
   const listId = `${uid}-list`;
@@ -49,9 +49,10 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
     onChange({ target: { value: o.value }, currentTarget: { value: o.value } } as unknown as ChangeEvent<HTMLSelectElement>);
     close();
   };
-  const openList = () => {
+  const openList = (initialQuery = "") => {
     if (disabled) return;
-    setActive(Math.max(0, options.findIndex((o) => o.value === value)));
+    setQuery(initialQuery);
+    setActive(initialQuery ? 0 : Math.max(0, options.findIndex((o) => o.value === value)));
     setOpen(true);
   };
 
@@ -67,7 +68,6 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
 
   useEffect(() => {
     if (!open) return;
-    (showSearch ? search.current : panel.current)?.focus();
     const onDown = (e: MouseEvent) => {
       const n = e.target as Node;
       if (!panel.current?.contains(n) && !button.current?.contains(n)) close(false);
@@ -85,6 +85,23 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Das Panel erscheint erst, wenn die Position berechnet ist: dann Fokus ins Suchfeld (Caret ans Ende), sonst aufs Panel.
+  const ready = open && pos !== null;
+  useEffect(() => {
+    if (!ready) return;
+    const el = showSearch ? search.current : panel.current;
+    el?.focus();
+    if (showSearch && search.current) {
+      const n = search.current.value.length;
+      try {
+        search.current.setSelectionRange(n, n);
+      } catch {
+        /* Eingabetyp ohne Auswahlbereich */
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
@@ -134,6 +151,13 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
           if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             openList();
+            return;
+          }
+          // Type-ahead: Tippen bei geschlossener Liste oeffnet sie und uebernimmt das Zeichen als Suchanfrage.
+          const ch = !open && showSearch ? typeaheadChar(e) : null;
+          if (ch) {
+            e.preventDefault();
+            openList(ch);
           }
         }}
         className={`${selectClass} flex items-center justify-between gap-2 text-left ${className}`}

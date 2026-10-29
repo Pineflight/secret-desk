@@ -9,6 +9,8 @@ import {
   EnvTemplateSchema,
   InventorySchema,
   ProviderDefSchema,
+  ResourceMapEntrySchema,
+  type ResourceMapEntry,
   SecretSchema,
   type EnvTemplate,
   type Inventory,
@@ -83,6 +85,52 @@ export class InventoryStore {
     }, () => this.getSecret(id)!);
   }
 
+  /**
+   * Setzt Parameter eines Eintrags: `set` ueberschreibt einzelne Schluessel, `remove` entfernt welche. Alle anderen
+   * Schluessel (auch unbekannte) bleiben unveraendert. Die Pruefung gegen die Spezifikation macht der Aufrufer.
+   */
+  setSecretParams(id: string, set: Record<string, unknown>, remove: string[] = []): SecretEntry {
+    const idx = this.#data.secrets.findIndex((s) => s.id === id);
+    if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+    return this.#mutate(() => {
+      for (const key of remove) this.#doc.deleteIn(["secrets", idx, "params", key]);
+      for (const [key, value] of Object.entries(set)) this.#doc.setIn(["secrets", idx, "params", key], this.#doc.createNode(clean(value)));
+    }, () => this.getSecret(id)!);
+  }
+
+  /** Ersetzt die Standardwerte einer Integration; leer entfernt sie. */
+  setIntegrationDefaults(connection: string, values: Record<string, unknown>): Record<string, unknown> {
+    return this.#mutate(() => {
+      if (Object.keys(values).length === 0) {
+        this.#doc.deleteIn(["integrationDefaults", connection]);
+        if (this.#doc.hasIn(["integrationDefaults"]) && Object.keys((this.#doc.getIn(["integrationDefaults"]) as { toJSON(): object }).toJSON()).length === 0) this.#doc.deleteIn(["integrationDefaults"]);
+      } else this.#doc.setIn(["integrationDefaults", connection], this.#doc.createNode(clean(values)));
+    }, () => this.#data.integrationDefaults?.[connection] ?? {});
+  }
+
+  /** Setzt einen Zuordnungseintrag; (kind, repo, stage) ist der Schluessel, ein vorhandener Eintrag wird ersetzt. */
+  setResourceMap(entry: ResourceMapEntry): ResourceMapEntry {
+    const parsed = ResourceMapEntrySchema.safeParse(entry);
+    if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
+    const e = parsed.data;
+    const list = [...(this.#data.resourceMap ?? [])];
+    const idx = list.findIndex((x) => sameMapKey(x, e));
+    if (idx >= 0) list[idx] = e;
+    else list.push(e);
+    return this.#mutate(() => this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(list))), () => e);
+  }
+
+  /** Entfernt einen Zuordnungseintrag. Gibt zurueck, ob es ihn gab. */
+  removeResourceMapEntry(key: { kind: string; repo: string; stage?: string | undefined }): boolean {
+    const list = this.#data.resourceMap ?? [];
+    const next = list.filter((x) => !sameMapKey(x, key));
+    if (next.length === list.length) return false;
+    return this.#mutate(() => {
+      if (next.length === 0) this.#doc.deleteIn(["resourceMap"]);
+      else this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(next)));
+    }, () => true);
+  }
+
   addSecret(entry: z.input<typeof SecretSchema>): SecretEntry {
     const parsed = SecretSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
@@ -124,12 +172,12 @@ export class InventoryStore {
     return this.#mutate(() => this.#addNode(["variables"], { ...entry, places }), () => this.getVariable(parsed.data.id)!);
   }
 
-  patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null }): VariableEntry {
+  patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null; from?: { connection: string; kind: string; resource: string; field: string } | null }): VariableEntry {
     const idx = this.#data.variables.findIndex((v) => v.id === id);
     if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
     return this.#mutate(() => {
       if ("value" in patch) this.#doc.setIn(["variables", idx, "value"], patch.value ?? null);
-      for (const key of ["description", "owner", "link", "tags"] as const) {
+      for (const key of ["description", "owner", "link", "tags", "from"] as const) {
         if (!(key in patch)) continue;
         const v = patch[key];
         if (v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "") this.#doc.deleteIn(["variables", idx, key]);
@@ -204,6 +252,8 @@ export class InventoryStore {
       this.#doc.set("variables", this.#doc.createNode(clean(parsed.data.variables)));
       this.#doc.set("envTemplates", this.#doc.createNode(clean(parsed.data.envTemplates)));
       this.#doc.set("providers", this.#doc.createNode(clean(parsed.data.providers)));
+      if (parsed.data.resourceMap && parsed.data.resourceMap.length > 0) this.#doc.set("resourceMap", this.#doc.createNode(clean(parsed.data.resourceMap)));
+      else this.#doc.delete("resourceMap");
     }, () => undefined);
   }
 
@@ -258,6 +308,8 @@ export class InventoryStore {
     this.#data = parsed.data;
   }
 }
+
+const sameMapKey = (a: { kind: string; repo: string; stage?: string | undefined }, b: { kind: string; repo: string; stage?: string | undefined }): boolean => a.kind === b.kind && a.repo === b.repo && (a.stage ?? "") === (b.stage ?? "");
 
 function clean<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

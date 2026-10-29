@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InventoryError } from "./inventory.js";
+import { VariableSourceSchema } from "./variable-sources.js";
 import { DateString, ExpiryKindSchema, SecretFields, Tag, VariableSchema, WebUrl } from "./types.js";
 
 /**
@@ -56,6 +57,7 @@ export const VariablePatchSchema = z.strictObject({
   owner: z.string().max(80).nullable().optional(),
   link: WebUrl.nullable().optional(),
   tags: z.array(Tag).max(12).nullable().optional(),
+  from: VariableSourceSchema.nullable().optional(),
   acknowledgedPublic: z.boolean().optional(),
 });
 export type VariablePatch = z.infer<typeof VariablePatchSchema>;

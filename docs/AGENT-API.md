@@ -166,9 +166,12 @@ Response: `SecretView[]`, most urgent first. A `SecretView`:
   "places": [{ "repo": "acme-app", "scope": "repository" }],
   "guide": null,
   "connection": null,
-  "notes": null
+  "notes": null,
+  "params": { "status": "ok", "missing": [] }
 }
 ```
+
+`params` is the provider parameter status of the entry: `status` is `ok`, `missing` (required parameters not set; `missing` lists the keys), `invalid` (a value has the wrong type) or `none` (the provider needs no parameters). Only keys, never values. Agents have no route to discover resources at the provider, to read parameter values or to set them; a human does that in the portal.
 
 With `live=1` a `liveErrors` array may appear: targets GitHub could not read (403, 429, 5xx); for them "missing" is unknown.
 
@@ -276,7 +279,7 @@ Results (field `status`):
 
 | `status` | When | Other fields |
 |---|---|---|
-| `dry-run` | `dryRun: true` (checked before the approval rule; nothing is created) | `plan`: `{ secretId, stage, provider, automatic, places: string[], revokesOld, ttlDays }` |
+| `dry-run` | `dryRun: true` (checked before the approval rule; nothing is created) | `plan`: `{ secretId, stage, provider, automatic, places: string[], revokesOld, ttlDays, params: { ok, missing: string[], problems } }` |
 | `awaiting-review` | Direct stage with targets and an API provider: the value was created and verified, and waits for a human to confirm in the portal | `issuance`: an `IssuanceView` (see below), `message` |
 | `pending-approval` | Stage not direct, no targets, or a browser provider | `approvalId`, `secretId`, `message` |
 

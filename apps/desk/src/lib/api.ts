@@ -13,13 +13,18 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly hint?: string;
   readonly connection?: string;
-  constructor(status: number, message: string, extra: { code?: string; hint?: string; connection?: string } = {}) {
+  /** Bei params_invalid: Befunde je Parameter. Bei preflight_failed: Befunde des Vorabchecks. */
+  readonly problems?: unknown[];
+  readonly findings?: unknown[];
+  constructor(status: number, message: string, extra: { code?: string; hint?: string; connection?: string; problems?: unknown[]; findings?: unknown[] } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     if (extra.code !== undefined) this.code = extra.code;
     if (extra.hint !== undefined) this.hint = extra.hint;
     if (extra.connection !== undefined) this.connection = extra.connection;
+    if (extra.problems !== undefined) this.problems = extra.problems;
+    if (extra.findings !== undefined) this.findings = extra.findings;
   }
 }
 
@@ -84,12 +89,14 @@ async function safeJson(res: Response): Promise<unknown> {
 }
 
 export function toApiError(status: number, body: unknown): ApiError {
-  const b = (body ?? {}) as { error?: unknown; code?: unknown; hint?: unknown; connection?: unknown };
+  const b = (body ?? {}) as { error?: unknown; code?: unknown; hint?: unknown; connection?: unknown; problems?: unknown; findings?: unknown };
   const message = typeof b.error === "string" && b.error ? b.error : translate("common.err.request", { status });
   return new ApiError(status, message, {
     ...(typeof b.code === "string" ? { code: b.code } : {}),
     ...(typeof b.hint === "string" ? { hint: b.hint } : {}),
     ...(typeof b.connection === "string" ? { connection: b.connection } : {}),
+    ...(Array.isArray(b.problems) ? { problems: b.problems } : {}),
+    ...(Array.isArray(b.findings) ? { findings: b.findings } : {}),
   });
 }
 

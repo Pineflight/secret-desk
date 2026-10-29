@@ -11,7 +11,18 @@ export interface ConnectionGuide {
   permissions: string[];
 }
 
-export function connectionGuide(id: string, owner: string): ConnectionGuide | undefined {
+/** Direktlink auf die Service Accounts eines Stacks, nur fuer eine plausible https-Stack-Adresse. */
+export function grafanaServiceAccountsUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined;
+  try {
+    const u = new URL(baseUrl);
+    return u.protocol === "https:" && !u.username && !u.password ? `${u.origin}${u.pathname.replace(/\/+$/, "")}/org/serviceaccounts` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function connectionGuide(id: string, owner: string, options: { grafanaBaseUrl?: string } = {}): ConnectionGuide | undefined {
   switch (id) {
     case "github": {
       const q = new URLSearchParams({
@@ -61,6 +72,7 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
           "My Profile, API Tokens, \"Create Token\", dann die Vorlage \"Create additional tokens\" waehlen.",
           "Keine weiteren Rechte hinzufuegen: Ein Token, der Tokens erzeugen darf, kann Zugriff auf alle Ressourcen deines Benutzers vergeben.",
           "Ablauf kurz setzen (zum Beispiel 1 bis 7 Tage) und wenn moeglich die IP-Adresse des Rechners eintragen, auf dem das Portal laeuft.",
+          "Konten und Zonen lassen sich im Portal nur auswaehlen, wenn das Token sie lesen darf. Mit der Vorlage geht das nicht: Dann die Konto-ID einmal von Hand als Standardwert eintragen (Cloudflare-Dashboard, Konto-Uebersicht, Konto-ID kopieren).",
           "Token erzeugen, kopieren und unten einfuegen.",
         ],
         permissions: [
@@ -153,9 +165,12 @@ export function connectionGuide(id: string, owner: string): ConnectionGuide | un
       return {
         label: "Grafana Cloud",
         description: "Erzeugt und widerruft Token von Service-Accounts in einem Grafana-Stack.",
-        url: "https://grafana.com/orgs",
+        // Ohne Stack-Adresse fuehrt grafana.com/profile/org angemeldete Nutzer auf ihre Organisation (grafana.com/orgs braucht einen Slug und liefert 404).
+        url: "https://grafana.com/profile/org",
+        ...(grafanaServiceAccountsUrl(options.grafanaBaseUrl) ? { openUrl: grafanaServiceAccountsUrl(options.grafanaBaseUrl)! } : {}),
         steps: [
-          "Im Grafana-Stack unter Administration, Users and access, Service accounts einen Service-Account fuer secret-desk anlegen (Rolle Admin, damit er Tokens anderer Service-Accounts verwalten darf).",
+          "Den Stack oeffnen (ueber den Link oder in grafana.com unter Ihrer Organisation, dann \"Launch\").",
+          "Im Stack unter Administration, Users and access, Service accounts einen Service-Account fuer secret-desk anlegen (Rolle Admin, damit er Tokens anderer Service-Accounts verwalten darf).",
           "Fuer diesen Service-Account einen Token mit kurzem Ablauf erzeugen, kopieren und unten einfuegen.",
           "Die Basis-Adresse des Stacks und die Id des Ziel-Service-Accounts tragen die Secrets im Inventar als Parameter.",
         ],

@@ -5,6 +5,7 @@ import type { FetchLike } from "./github.js";
 import type { StageKind } from "./stages.js";
 import type { SecretEntry, Stage } from "./types.js";
 import type { Check } from "./verification.js";
+import type { DiscoverHint, DiscoveredOption, ParamSpec, PreflightResult } from "./params.js";
 
 export interface IssueContext {
   secret: SecretEntry;
@@ -54,6 +55,27 @@ export interface VerifyContext {
   providerConfig?: ProviderConfig;
 }
 
+/** Kontext fuer lesende Abfragen beim Anbieter (Entdeckung, Vorabcheck). Nur das gespeicherte Token der Integration, nie Schreibzugriffe. */
+export interface DiscoverContext {
+  connections: ConnectionStore;
+  fetch: FetchLike;
+  /** Bereits gewaehlte Parameter (zum Beispiel accountId, um Zonen einzuschraenken). */
+  params: Record<string, unknown>;
+  hint: DiscoverHint;
+  providerConfig?: ProviderConfig;
+}
+
+export interface PreflightContext {
+  secret: SecretEntry;
+  /** Wirksame Parameter (Eintrag plus Standardwerte der Integration). */
+  params: Record<string, unknown>;
+  stage: Stage;
+  stageKind?: StageKind;
+  connections: ConnectionStore;
+  fetch: FetchLike;
+  providerConfig?: ProviderConfig;
+}
+
 export interface ProviderGuide {
   url: string;
   steps: string[];
@@ -69,6 +91,12 @@ export interface Provider {
   /** Verbindung, die der Anbieter braucht (zum Beispiel cloudflare). */
   connection?: string;
   guide?: ProviderGuide;
+  /** Parameter, die ein Eintrag dieses Anbieters unter `params` braucht (fehlt = keine). */
+  params?: ParamSpec[];
+  /** Listet Ressourcen der verbundenen Integration (Konten, Projekte, Zonen ...). Nur lesend. Unbekannte Art: UnknownDiscoverKindError. */
+  discover?(kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]>;
+  /** Lesender Vorabcheck: gehoert die gewaehlte Ressource zur Integration? Laeuft vor dem Ausstellen. */
+  preflight?(ctx: PreflightContext): Promise<PreflightResult>;
   /** Wie viele Stunden der Anbieter fuer den Wert maximal vorsieht, falls bekannt. */
   issue?(ctx: IssueContext): Promise<IssuedSecret>;
   /** Eigene Pruefungen nach dem Ausstellen (Funktionstest, Rechte, Ablauf). Liefert nur Befunde, nie Werte. */
