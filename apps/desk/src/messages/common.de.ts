@@ -32,7 +32,7 @@ export default {
   "common.retry": "Erneut versuchen",
   "common.unknownError": "Unbekannter Fehler",
   "common.err.session": "Sitzung konnte nicht gestartet werden.",
-  "common.err.launch": "Öffne die Adresse mit ?launch=... aus dem Terminal, in dem secret-desk gestartet wurde.",
+  "common.err.launch": "Öffne die Adresse mit ?launch=... aus dem Terminal, in dem secret-desk gestartet wurde. Im Container: docker compose logs secret-desk",
   "common.err.launchTitle": "Startadresse erforderlich",
   "common.err.request": "Anfrage fehlgeschlagen ({status}).",
   "common.err.unreachable": "Das Portal ist nicht erreichbar. Läuft es noch?",
