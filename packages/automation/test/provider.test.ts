@@ -17,7 +17,7 @@ const secret = SecretSchema.parse({
 const now = new Date("2026-10-27T10:00:00Z");
 
 describe("recipeVars", () => {
-  it("baut Variablen aus dem Eintrag", () => {
+  it("builds variables from the entry", () => {
     expect(recipeVars(secret, "dev", now)).toMatchObject({
       name: "demo-20261027",
       owner: "acme",
@@ -49,7 +49,7 @@ describe("createBrowserProvider", () => {
         }),
     });
 
-  it("passt zum Provider-Interface und erzeugt", async () => {
+  it("matches the provider interface and creates", async () => {
     const p = make();
     expect(p).toMatchObject({ id: "sample-token", kind: "automatic", automation: { recipeId: "sample-token" } });
     const issued = await p.issue?.({ secret, params: secret.params, stage: "dev", now, label: "x" } as unknown as IssueContext);
@@ -60,7 +60,7 @@ describe("createBrowserProvider", () => {
     expect(p.takeScreenshots("demo")).toEqual([]);
   });
 
-  it("revoke ohne Rezept sagt, dass von Hand zu widerrufen ist", async () => {
+  it("revoke without recipe says to revoke by hand", async () => {
     await expect(make().revoke?.({ externalId: "abc", secret } as unknown as RevokeContext)).rejects.toThrow(/von Hand/);
   });
 });

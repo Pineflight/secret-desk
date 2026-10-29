@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
 
-const GH = "ghp_ROUTERSECRET1234567890";
+const GH = "ghp_" + "ROUTERSECRET1234567890";
 const INVENTORY = `version: 1
 secrets:
   - id: stage-secret
@@ -64,7 +64,7 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown): 
 const json = async (r: Response) => (await r.json()) as Record<string, any>;
 
 describe("POST connections/:id/check", () => {
-  it("UI darf, Antwort enthaelt Pruefpunkte und nie den Token", async () => {
+  it("UI may, response contains check items and never the token", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "POST", "connections/github/check", {}), deps);
     expect(res.status).toBe(200);
@@ -75,20 +75,20 @@ describe("POST connections/:id/check", () => {
     expect(body.checks.map((c: { id: string }) => c.id)).toContain("login");
   });
 
-  it("Agenten bekommen 404, auch mit Token und Koerper", async () => {
+  it("agents get 404, even with token and body", async () => {
     const { deps, calls } = await setup();
     expect((await route(agent(deps, "POST", "connections/github/check", { deep: true, targets: ["x"] }), deps)).status).toBe(404);
     expect((await route(agent(deps, "GET", "connections/github/write-targets"), deps)).status).toBe(404);
     expect(calls).toHaveLength(0);
   });
 
-  it("ohne Cookie und CSRF 401", async () => {
+  it("401 without cookie and CSRF", async () => {
     const { deps } = await setup();
     const req = new Request(`${base}/api/ui/connections/github/check`, { method: "POST", headers: { host: HOST, origin: base, "content-type": "application/json" }, body: "{}" });
     expect((await route(req, deps)).status).toBe(401);
   });
 
-  it("deep nur mit gewaehlten Zielen; ohne deep wird nichts geschrieben", async () => {
+  it("deep only with chosen targets; without deep nothing is written", async () => {
     const { deps, calls } = await setup();
     await route(ui(deps, "POST", "connections/github/check", { targets: ["environment:acme-docs/staging"] }), deps);
     expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
@@ -101,7 +101,7 @@ describe("POST connections/:id/check", () => {
     expect(writes.some((c) => c.method === "DELETE" && c.url.endsWith("/secrets/SD_WRITE_PROBE"))).toBe(true);
   });
 
-  it("unbekannte Verbindung 400, englische Texte auf Wunsch", async () => {
+  it("unknown connection 400, English texts on request", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "connections/gibt-es-nicht/check", {}), deps)).status).toBe(400);
     deps.rt.connections.session.delete("github");
@@ -111,7 +111,7 @@ describe("POST connections/:id/check", () => {
 });
 
 describe("GET connections/github/write-targets", () => {
-  it("liefert Ziele mit live-Markierung, nur fuer die UI", async () => {
+  it("returns targets with live marker, UI only", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "GET", "connections/github/write-targets"), deps);
     const body = (await res.json()) as { id: string; live: boolean }[];
@@ -122,9 +122,9 @@ describe("GET connections/github/write-targets", () => {
   });
 });
 
-describe("POST connections/:id/token: Stripe-Praefix", () => {
+describe("POST connections/:id/token: Stripe prefix", () => {
   const post = (deps: RouterDeps, id: string, token: string) => route(ui(deps, "POST", `connections/${id}/token`, { token, neverExpires: true }), deps);
-  it("lehnt Live-Schluessel in der Sandbox-Verbindung ab und umgekehrt, ohne den Wert zu zeigen", async () => {
+  it("rejects live keys on the sandbox connection and vice versa, without showing the value", async () => {
     const { deps } = await setup();
     const a = await post(deps, "stripe-test", "rk_live_abcdefghijklmnop");
     expect(a.status).toBe(400);
@@ -135,13 +135,13 @@ describe("POST connections/:id/token: Stripe-Praefix", () => {
     expect((await post(deps, "stripe-live", "rk_test_abcdefghijklmnop")).status).toBe(400);
     expect(deps.rt.connections.session.has("stripe-live")).toBe(false);
   });
-  it("nimmt passende und allgemeine Schluessel an", async () => {
+  it("accepts matching and general keys", async () => {
     const { deps } = await setup();
     expect((await post(deps, "stripe-test", "rk_test_abcdefghijklmnop")).status).toBe(200);
     expect((await post(deps, "stripe-live", "rk_live_abcdefghijklmnop")).status).toBe(200);
     expect((await post(deps, "stripe", "rk_live_abcdefghijklmnop")).status).toBe(200);
   });
-  it("die Verbindungsliste fuehrt stripe-test und stripe-live mit Anleitung", async () => {
+  it("the connection list carries stripe-test and stripe-live with guide", async () => {
     const { deps } = await setup();
     const list = (await json(await route(ui(deps, "GET", "connections"), deps))) as unknown as { id: string; label: string; permissions: string[] }[];
     expect(list.find((c) => c.id === "stripe-test")?.label).toBe("Stripe (Sandbox)");

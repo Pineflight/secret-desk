@@ -6,7 +6,7 @@ import { translateDeep, translateEn } from "../src/i18n-en.js";
 
 const PACKAGES = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-describe("translateEn: Stichproben", () => {
+describe("translateEn: spot checks", () => {
   const cases: [string, string][] = [
     ["Ungueltiges JSON", "Invalid JSON"],
     ["Feld fehlt: secretId", "Field missing: secretId"],
@@ -32,13 +32,13 @@ describe("translateEn: Stichproben", () => {
 
 describe("translateDeep", () => {
   const value = { error: "Ungueltiges JSON", "Ungueltiges JSON": "x", n: 3, ok: true, none: null, list: ["Datei", { hint: "Nicht konfiguriert" }] };
-  it("uebersetzt Strings rekursiv, Schluessel und Nicht-Strings bleiben", () => {
+  it("translates strings recursively, keys and non-strings stay", () => {
     expect(translateDeep(value, "en")).toEqual({ error: "Invalid JSON", "Ungueltiges JSON": "x", n: 3, ok: true, none: null, list: ["File", { hint: "Not configured" }] });
   });
-  it("de ist identisch", () => {
+  it("de is identical", () => {
     expect(translateDeep(value, "de")).toBe(value);
   });
-  it("veraendert die Eingabe nicht", () => {
+  it("does not change the input", () => {
     const copy = JSON.parse(JSON.stringify(value));
     translateDeep(value, "en");
     expect(value).toEqual(copy);
@@ -203,7 +203,7 @@ const EXEMPT_LITERALS: Record<string, string> = {
   "1Password": "Produktname",
 };
 
-describe("Abdeckung: jeder deutsche Quelltext hat einen englischen Katalogeintrag", () => {
+describe("coverage: every German source text has an English catalog entry", () => {
   const missing: string[] = [];
   let checked = 0;
   for (const pkg of ["core", "providers", "runtime", "automation"]) {
@@ -218,10 +218,10 @@ describe("Abdeckung: jeder deutsche Quelltext hat einen englischen Katalogeintra
       }
     }
   }
-  it("Scanner findet die Texte (Plausibilitaet)", () => {
+  it("scanner finds the texts (plausibility)", () => {
     expect(checked).toBeGreaterThan(250);
   });
-  it("kein deutscher Text ohne Eintrag", () => {
+  it("no German text without an entry", () => {
     expect(missing).toEqual([]);
   });
 });

@@ -1,28 +1,28 @@
 [
   {
-    "zeit": "2026-10-28T09:29:18",
-    "datei": "secret-desk-logo-01.png",
-    "modell": "gpt-image-2",
-    "qualitaet": "medium",
-    "groesse": "1024x1024",
+    "time": "2026-10-28T09:29:18",
+    "file": "secret-desk-logo-01.png",
+    "model": "gpt-image-2",
+    "quality": "medium",
+    "size": "1024x1024",
     "usd": 0.0531,
     "prompt": "Minimal flat vector app icon for a developer tool that guards secrets and tokens. A simple geometric keyhole inside a rounded shield shape, combined with a small ledger sheet corner, centered on a deep indigo rounded-square background, white and soft-blue shapes, one small warm amber accent, crisp clean edges, generous margin, balanced symmetric composition, no text, no letters, no logos, no gradients, no photographic detail"
   },
   {
-    "zeit": "2026-10-28T09:29:47",
-    "datei": "secret-desk-logo-02.png",
-    "modell": "gpt-image-2",
-    "qualitaet": "medium",
-    "groesse": "1024x1024",
+    "time": "2026-10-28T09:29:47",
+    "file": "secret-desk-logo-02.png",
+    "model": "gpt-image-2",
+    "quality": "medium",
+    "size": "1024x1024",
     "usd": 0.0531,
     "prompt": "Minimal flat vector app icon for a developer tool that guards secrets and tokens. A simple geometric keyhole inside a rounded shield shape, combined with a small ledger sheet corner, centered on a deep indigo rounded-square background, white and soft-blue shapes, one small warm amber accent, crisp clean edges, generous margin, balanced symmetric composition, no text, no letters, no logos, no gradients, no photographic detail"
   },
   {
-    "zeit": "2026-10-28T09:30:17",
-    "datei": "secret-desk-logo-03.png",
-    "modell": "gpt-image-2",
-    "qualitaet": "medium",
-    "groesse": "1024x1024",
+    "time": "2026-10-28T09:30:17",
+    "file": "secret-desk-logo-03.png",
+    "model": "gpt-image-2",
+    "quality": "medium",
+    "size": "1024x1024",
     "usd": 0.0531,
     "prompt": "Minimal flat vector app icon for a developer tool that guards secrets and tokens. A simple geometric keyhole inside a rounded shield shape, combined with a small ledger sheet corner, centered on a deep indigo rounded-square background, white and soft-blue shapes, one small warm amber accent, crisp clean edges, generous margin, balanced symmetric composition, no text, no letters, no logos, no gradients, no photographic detail"
   }

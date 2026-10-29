@@ -51,11 +51,11 @@ export default function SecretDetailPage() {
     if (browserRun) setStarting(true);
     try {
       const res = await api<IssuanceRequestResult>("POST", "renewal-requests", { secretId: id, ...(dryRun ? { dryRun: true } : {}) });
-      if (res.status === "awaiting-review") router.push(`/pruefen/${enc(res.issuance.id)}`);
-      else if (res.status === "pending-approval") setNotice({ tone: "warn", title: t("secretDetail.approvalTitle"), text: t("secretDetail.approvalText"), href: "/freigaben", link: t("secretDetail.toApprovals") });
+      if (res.status === "awaiting-review") router.push(`/reviews/${enc(res.issuance.id)}`);
+      else if (res.status === "pending-approval") setNotice({ tone: "warn", title: t("secretDetail.approvalTitle"), text: t("secretDetail.approvalText"), href: "/approvals", link: t("secretDetail.toApprovals") });
       else setPlan(res.plan as never);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/verbindungen", link: t("secretDetail.toConnections") });
+      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/connections", link: t("secretDetail.toConnections") });
       else toast.error(e instanceof Error ? e.message : t("secretDetail.unknownError"));
     } finally {
       if (browserRun) {
@@ -202,7 +202,7 @@ function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: s
           {live ? <p className="text-xs">{t("secretDetail.browserReloadHint")}</p> : null}
           <div className="flex flex-wrap gap-2 pt-1">
             {live ? <Button variant="danger" loading={cancel.pending} onClick={async () => { await cancel.run(); onChanged(); }}>{t("secretDetail.browserCancel")}</Button> : null}
-            {status === "done" && state?.issuanceId ? <Link href={`/pruefen/${enc(state.issuanceId)}`} className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-medium text-white">{t("secretDetail.browserToReview")}</Link> : null}
+            {status === "done" && state?.issuanceId ? <Link href={`/reviews/${enc(state.issuanceId)}`} className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-medium text-white">{t("secretDetail.browserToReview")}</Link> : null}
           </div>
           {cancel.error ? <p className="text-danger-text">{cancel.error.message}</p> : null}
         </div>
@@ -222,7 +222,7 @@ function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: (
     setValue("");
     if (ref.current) ref.current.value = "";
     const res = await send.run(v);
-    if (res) router.push(`/pruefen/${enc(res.id)}`);
+    if (res) router.push(`/reviews/${enc(res.id)}`);
   };
   return (
     <Dialog title={t("secretDetail.manualTitle")} description={t("secretDetail.manualDesc", { name: secret.name })} onClose={onClose}>

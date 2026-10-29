@@ -70,13 +70,13 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown): 
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
-describe("Zugriffsschutz", () => {
-  it("lehnt fremde Hosts ab (DNS-Rebinding)", async () => {
+describe("access protection", () => {
+  it("rejects foreign hosts (DNS rebinding)", async () => {
     const { deps } = await setup();
     const r = await route(new Request(`${base}/api/ui/overview`, { headers: { host: "evil.example.com" } }), deps);
     expect(r.status).toBe(403);
   });
-  it("Portal braucht Cookie und CSRF-Token, Aenderungen zusaetzlich einen eigenen Ursprung", async () => {
+  it("portal needs cookie and CSRF token, changes additionally an own origin", async () => {
     const { deps } = await setup();
     expect((await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST } }), deps)).status).toBe(401);
     expect((await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } }), deps)).status).toBe(401);
@@ -84,7 +84,7 @@ describe("Zugriffsschutz", () => {
     const foreign = ui(deps, "POST", "renewal-requests", { secretId: "hmac-acme-app", dryRun: true }, { origin: "https://evil.example.com" });
     expect((await route(foreign, deps)).status).toBe(403);
   });
-  it("Agenten brauchen den Token und koennen weder bestaetigen noch Verbindungen setzen", async () => {
+  it("agents need the token and can neither confirm nor set connections", async () => {
     const { deps } = await setup();
     expect((await route(new Request(`${base}/api/agent/overview`, { headers: { host: HOST } }), deps)).status).toBe(401);
     expect((await route(agent(deps, "GET", "overview"), deps)).status).toBe(200);
@@ -94,8 +94,8 @@ describe("Zugriffsschutz", () => {
   });
 });
 
-describe("Ablauf ueber die Schnittstelle", () => {
-  it("neuer Wert: Pruefung, Beleg-Bild, Bestaetigung, danach geschrieben", async () => {
+describe("flow via the API", () => {
+  it("new value: review, receipt image, confirmation, then written", async () => {
     const { deps, written } = await setup();
     const started = (await (await route(ui(deps, "POST", "renewal-requests", { secretId: "hmac-acme-app" }), deps)).json()) as { status: string; issuance: { id: string; report: { checklist: { id: string }[] } } };
     expect(started.status).toBe("awaiting-review");
@@ -123,7 +123,7 @@ describe("Ablauf ueber die Schnittstelle", () => {
     expect(svg.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(await svg.text()).toContain("<svg");
   });
-  it("Verbindungs-Token werden gesetzt, aber nie ausgegeben", async () => {
+  it("connection tokens are set but never returned", async () => {
     const { deps } = await setup();
     const noDate = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_sitzungs_token_geheim" }), deps);
     expect(noDate.status).toBe(400);
@@ -137,7 +137,7 @@ describe("Ablauf ueber die Schnittstelle", () => {
     expect(all).not.toContain("cf_sitzungs_token_geheim");
     expect(all).not.toContain("ghp_geheim_token_1");
   });
-  it("Variablen: Soll aendern, Geheimnisse werden abgelehnt, Env-Vorlage nutzt den Sollwert", async () => {
+  it("variables: change target, secrets are rejected, env template uses the target value", async () => {
     const { deps, dir } = await setup();
     const bad = await route(ui(deps, "PATCH", "variables/site-url", { value: "sk_live_" + "a".repeat(24) }), deps);
     expect(bad.status).toBe(400);
@@ -146,14 +146,14 @@ describe("Ablauf ueber die Schnittstelle", () => {
     const env = await route(ui(deps, "POST", "env-export", { repo: "acme-web", path: join(dir, "a", ".env.local") }), deps);
     expect(((await env.json()) as { status: string }).status).toBe("written");
   });
-  it("Agent: Variable setzen in staging erzeugt eine Freigabe, Mensch gibt frei", async () => {
+  it("agent: setting a variable in staging creates an approval, human approves", async () => {
     const { deps } = await setup();
     const r = (await (await route(agent(deps, "POST", "variables/site-url/apply", {}), deps)).json()) as { status: string; approvalId: string };
     expect(r.status).toBe("pending-approval");
     const done = (await (await route(ui(deps, "POST", `approvals/${r.approvalId}/approve`), deps)).json()) as { state: string };
     expect(done.state).toBe("approved");
   });
-  it("Fehler werden ohne Interna gemeldet", async () => {
+  it("errors are reported without internals", async () => {
     const { deps } = await setup();
     const r = await route(agent(deps, "POST", "env-export", { repo: "acme-web", stage: "staging", path: "/tmp/x" }), deps);
     expect(r.status).toBe(403);
@@ -161,8 +161,8 @@ describe("Ablauf ueber die Schnittstelle", () => {
   });
 });
 
-describe("Sprache der Servermeldungen", () => {
-  it("ohne Header deutsch, mit x-secret-desk-lang: en englisch", async () => {
+describe("language of the server messages", () => {
+  it("German without header, English with x-secret-desk-lang: en", async () => {
     const { deps } = await setup();
     const de = await route(ui(deps, "POST", "renewal-requests", {}), deps);
     expect(de.status).toBe(400);
@@ -173,7 +173,7 @@ describe("Sprache der Servermeldungen", () => {
     const bogus = await route(ui(deps, "POST", "renewal-requests", {}, { "x-secret-desk-lang": "fr" }), deps);
     expect(await bogus.json()).toEqual({ error: "Feld fehlt: secretId" });
   });
-  it("uebersetzt auch frueh abgewiesene Anfragen und Erfolgsantworten", async () => {
+  it("also translates early rejected requests and success responses", async () => {
     const { deps } = await setup();
     const r = await route(new Request(`${base}/api/ui/overview`, { headers: { host: HOST, "x-secret-desk-lang": "en" } }), deps);
     expect(r.status).toBe(401);

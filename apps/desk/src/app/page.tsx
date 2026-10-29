@@ -34,12 +34,12 @@ export default function OverviewPage() {
         <div className="mb-6 space-y-2">
           {o.pendingReviews > 0 ? (
             <Notice tone="warn" title={t("home.reviewsWaiting", { count: o.pendingReviews })}>
-              {t("home.reviewsHint")} <Link href="/pruefen" className="font-medium underline">{t("home.reviewNow")}</Link>
+              {t("home.reviewsHint")} <Link href="/reviews" className="font-medium underline">{t("home.reviewNow")}</Link>
             </Notice>
           ) : null}
           {o.pendingApprovals > 0 ? (
             <Notice tone="warn" title={t("home.approvalsWaiting", { count: o.pendingApprovals })}>
-              {t("home.approvalsHint")} <Link href="/freigaben" className="font-medium underline">{t("home.toApprovals")}</Link>
+              {t("home.approvalsHint")} <Link href="/approvals" className="font-medium underline">{t("home.toApprovals")}</Link>
             </Notice>
           ) : null}
         </div>

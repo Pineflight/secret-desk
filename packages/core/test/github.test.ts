@@ -4,7 +4,7 @@ import { GitHubClient, githubAppProvider, patProvider, sealForGitHub } from "../
 import { SecretValue } from "../src/secret.js";
 
 describe("sealForGitHub", () => {
-  it("ist mit dem privaten Schluessel wieder lesbar (sealed box)", async () => {
+  it("is readable again with the private key (sealed box)", async () => {
     await sodium.ready;
     const kp = sodium.crypto_box_keypair();
     const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
@@ -20,7 +20,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("GitHubClient", () => {
-  it("holt den Schluessel, verschluesselt und schreibt ins Environment", async () => {
+  it("fetches the key, encrypts and writes into the environment", async () => {
     await sodium.ready;
     const kp = sodium.crypto_box_keypair();
     const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
@@ -42,7 +42,7 @@ describe("GitHubClient", () => {
     const opened = sodium.crypto_box_seal_open(sodium.from_base64(parsed.encrypted_value, sodium.base64_variants.ORIGINAL), kp.publicKey, kp.privateKey);
     expect(sodium.to_string(opened)).toBe("klartext-wert");
   });
-  it("Fehlermeldungen enthalten keinen Wert und kein Token", async () => {
+  it("error messages contain no value and no token", async () => {
     const gh = new GitHubClient({
       auth: patProvider(new SecretValue("ghp_token_geheim")),
       fetch: (async () => jsonResponse({ message: "Not Found" }, 404)) as unknown as typeof fetch,
@@ -51,7 +51,7 @@ describe("GitHubClient", () => {
     expect((err as Error).message).toContain("404");
     expect((err as Error).message).not.toContain("ghp_token_geheim");
   });
-  it("liest Secrets nur als Namen und Zeitstempel", async () => {
+  it("reads secrets as names and timestamps only", async () => {
     const gh = new GitHubClient({
       auth: patProvider(new SecretValue("t")),
       fetch: (async () => jsonResponse({ secrets: [{ name: "A", created_at: "c", updated_at: "u" }] })) as unknown as typeof fetch,
@@ -61,7 +61,7 @@ describe("GitHubClient", () => {
 });
 
 describe("githubAppProvider", () => {
-  it("erzeugt ein Installations-Token, beschraenkt auf Repos, und cached es", async () => {
+  it("creates an installation token, restricted to repos, and caches it", async () => {
     const { generateKeyPairSync } = await import("node:crypto");
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
     const bodies: string[] = [];

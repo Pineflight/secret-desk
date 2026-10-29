@@ -4,7 +4,7 @@ import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMism
 const NOW = new Date("2026-11-01T12:00:00Z");
 
 describe("expiryLevel", () => {
-  it("Grenzen: >14 gruen, 7..14 gelb, <7 rot, abgelaufen", () => {
+  it("limits: >14 green, 7..14 yellow, <7 red, expired", () => {
     expect(expiryLevel(15)).toBe("ok");
     expect(expiryLevel(14)).toBe("soon");
     expect(expiryLevel(7)).toBe("soon");
@@ -16,7 +16,7 @@ describe("expiryLevel", () => {
   });
 });
 
-describe("Alter des Tokens", () => {
+describe("age of the token", () => {
   it("daysSince", () => {
     expect(daysSince("2026-11-01T00:00:00Z", NOW)).toBe(0);
     expect(daysSince("2026-10-01T12:00:00Z", NOW)).toBe(31);
@@ -24,7 +24,7 @@ describe("Alter des Tokens", () => {
     expect(daysSince("kaputt", NOW)).toBeNull();
     expect(daysSince("2027-01-01T00:00:00Z", NOW)).toBe(0);
   });
-  it("Warnung nur ohne Ablauf und ueber 90 Tage", () => {
+  it("warning only without expiry and over 90 days", () => {
     const old = "2026-07-01T00:00:00Z";
     expect(staleWithoutExpiry(null, old, NOW)).toBe(123);
     expect(staleWithoutExpiry(null, "2026-08-03T12:00:00Z", NOW)).toBeNull();
@@ -36,7 +36,7 @@ describe("Alter des Tokens", () => {
 });
 
 describe("stripePrefixMismatch", () => {
-  it("erkennt Live in Sandbox und umgekehrt", () => {
+  it("detects live in sandbox and vice versa", () => {
     expect(stripePrefixMismatch("stripe-test", "rk_live_abc")).toBe("live");
     expect(stripePrefixMismatch("stripe-live", " sk_test_abc")).toBe("test");
     expect(stripePrefixMismatch("stripe-test", "rk_test_abc")).toBeNull();
@@ -46,7 +46,7 @@ describe("stripePrefixMismatch", () => {
 });
 
 describe("shortHash", () => {
-  it("kuerzt lange Werte", () => {
+  it("shortens long values", () => {
     expect(shortHash("a".repeat(64))).toBe(`${"a".repeat(12)}…`);
     expect(shortHash("abc")).toBe("abc");
   });

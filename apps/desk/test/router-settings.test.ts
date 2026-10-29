@@ -26,7 +26,7 @@ const ui = (deps: RouterDeps, method: string, path: string, withSession = true):
 const agent = (deps: RouterDeps, path: string): Request => new Request(`${base}/api/agent/${path}`, { headers: { host: HOST, authorization: `Bearer ${deps.agentToken}` } });
 
 describe("GET settings", () => {
-  it("Portal bekommt die aufgeloeste Richtlinie und die Metadaten", async () => {
+  it("portal gets the resolved policy and the metadata", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "GET", "settings"), deps);
     expect(res.status).toBe(200);
@@ -38,12 +38,12 @@ describe("GET settings", () => {
     expect(s.vault.enabled).toBe(false);
     expect(s.server.port).toBe(4747);
   });
-  it("ohne Sitzung 401, Agenten bekommen 404", async () => {
+  it("401 without session, agents get 404", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "GET", "settings", false), deps)).status).toBe(401);
     expect((await route(agent(deps, "settings"), deps)).status).toBe(404);
   });
-  it("keine Werte, Tokens oder Variablennamen im JSON (de und en)", async () => {
+  it("no values, tokens or variable names in the JSON (de and en)", async () => {
     const { deps } = await setup();
     for (const lang of ["de", "en"]) {
       const req = ui(deps, "GET", "settings");

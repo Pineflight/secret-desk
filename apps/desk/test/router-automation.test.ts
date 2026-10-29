@@ -92,8 +92,8 @@ const until = async (fn: () => Promise<boolean>) => {
   }
 };
 
-describe("Browser-Automatisierung ueber die Schnittstelle", () => {
-  it("GET automation zeigt Chrome, Profil, Rezepte, Probleme; Agenten sehen nichts davon", async () => {
+describe("browser automation via the API", () => {
+  it("GET automation shows Chrome, profile, recipes, problems; agents see none of it", async () => {
     const { deps } = await setup(false);
     const res = await route(ui(deps, "GET", "automation"), deps);
     expect(res.status).toBe(200);
@@ -109,7 +109,7 @@ describe("Browser-Automatisierung ueber die Schnittstelle", () => {
     expect((await route(agent(deps, "POST", "automation/runs/sample-dev/cancel"), deps)).status).toBe(404);
   });
 
-  it("Mensch startet ueber renewal-requests, sieht den Zustand und bricht ab; Antworten ohne Wert", async () => {
+  it("human starts via renewal-requests, sees the state and cancels; responses without value", async () => {
     const { deps } = await setup(true);
     const start = route(ui(deps, "POST", "renewal-requests", { secretId: "sample-dev" }), deps);
     await until(async () => (await json(await route(ui(deps, "GET", "automation/runs/sample-dev"), deps))).status === "waiting-human");
@@ -129,7 +129,7 @@ describe("Browser-Automatisierung ueber die Schnittstelle", () => {
     expect((await route(ui(deps, "POST", "automation/runs/sample-dev/cancel"), deps)).status).toBe(409);
   });
 
-  it("Agent-Anfrage fuer einen Browser-Anbieter wird auch in dev nur eine Freigabe; der Browser oeffnet sich erst nach der Freigabe", async () => {
+  it("agent request for a browser provider becomes only an approval even in dev; the browser opens only after the approval", async () => {
     const { deps, opened } = await setup(false);
     const r = await route(agent(deps, "POST", "renewal-requests", { secretId: "sample-dev" }), deps);
     const body = await json(r);

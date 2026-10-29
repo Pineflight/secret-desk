@@ -20,7 +20,7 @@ export default function SettingsPage() {
     const q = new URLSearchParams(params.toString());
     if (next === TAB_IDS[0]) q.delete("tab");
     else q.set("tab", next);
-    router.replace(q.toString() ? `/einstellungen?${q}` : "/einstellungen", { scroll: false });
+    router.replace(q.toString() ? `/settings?${q}` : "/settings", { scroll: false });
   };
   const tabs = TAB_IDS.map((id) => ({ id, label: t(`settings.tab.${id}`) }));
   return (

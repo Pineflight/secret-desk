@@ -22,14 +22,14 @@ async function setup(policy: string, vaultOff = true) {
 }
 
 describe("shortenHome", () => {
-  it("kuerzt Home-Praefixe zu ~", () => {
+  it("shortens home prefixes to ~", () => {
     expect(shortenHome("/home/anna/Projekte/x")).toBe("~/Projekte/x");
     expect(shortenHome("/home/bob")).toBe("~");
     expect(shortenHome("C:\\Users\\carl\\x")).toBe("~\\x");
     expect(shortenHome("/opt/data")).toBe("/opt/data");
     expect(shortenHome("/Userset/x")).toBe("/Userset/x");
   });
-  it("beachtet Pfadgrenzen auch beim echten Home (nicht /Users/niklas2/x -> ~2/x)", () => {
+  it("respects path boundaries with the real home too (not /Users/niklas2/x -> ~2/x)", () => {
     const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
     process.env["HOME"] = "/srv/niklas";
     process.env["USERPROFILE"] = "/srv/niklas";
@@ -50,7 +50,7 @@ describe("shortenHome", () => {
 });
 
 describe("getSettings", () => {
-  it("ohne Richtlinie: Agenten nur auf Stages der Art dev", async () => {
+  it("without policy: agents only on stages of kind dev", async () => {
     const { rt } = await setup("");
     const s = getSettings(rt);
     expect(s.policy).toEqual({ agentStages: ["lokal"], agentStagesSource: "default", envRoots: [] });
@@ -63,21 +63,21 @@ describe("getSettings", () => {
     expect(s.server.port).toBe(5151);
     expect(s.automation).toEqual({ enabled: rt.automation.enabled, chromeFound: rt.automation.info().chrome.found });
   });
-  it("mit Richtlinie: live bleibt auch dann freigabepflichtig", async () => {
+  it("with policy: live still requires approval", async () => {
     const { rt } = await setup("policy:\n  agentStages: [abnahme, eu-prod]\n  envRoots: [/opt/wurzel]\n");
     const s = getSettings(rt);
     expect(s.policy.agentStages).toEqual(["abnahme"]);
     expect(s.policy.agentStagesSource).toBe("policy");
     expect(s.policy.envRoots).toEqual(["/opt/wurzel"]);
   });
-  it("Tresor an: Dateiname und Schluesselquelle als Beschriftung, ohne Home-Praefix", async () => {
+  it("vault on: file name and key source as label, without home prefix", async () => {
     const { rt } = await setup("vault:\n  file: ~/sd-test/vault.json\n  keyFile: ~/sd-test/vault.key\n", false);
     const s = getSettings(rt);
     expect(s.vault.enabled).toBe(true);
     expect(s.vault.file).toBe("~/sd-test/vault.json");
     expect(s.vault.keySourceLabel).toContain("~/sd-test/vault.key");
   });
-  it("enthaelt weder Tokenwerte noch Variablennamen der Quellen", async () => {
+  it("contains neither token values nor variable names of the sources", async () => {
     const { rt } = await setup("connections:\n  cloudflare: { type: env, name: CF_GEHEIM_NAME }\n");
     const text = JSON.stringify(getSettings(rt));
     expect(text).not.toContain("ghp_testwert_nie_zeigen_1");

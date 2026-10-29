@@ -13,17 +13,17 @@ afterEach(() => {
 });
 
 describe("defaultUser", () => {
-  it("SECRET_DESK_USER hat Vorrang vor dem Betriebssystem-Benutzer", () => {
+  it("SECRET_DESK_USER takes precedence over the operating system user", () => {
     process.env.SECRET_DESK_USER = "alice";
     userInfoMock.mockReturnValue({ username: "bob" });
     expect(defaultUser()).toBe("alice");
   });
-  it("sonst der Betriebssystem-Benutzer", () => {
+  it("otherwise the operating system user", () => {
     delete process.env.SECRET_DESK_USER;
     userInfoMock.mockReturnValue({ username: "bob" });
     expect(defaultUser()).toBe("bob");
   });
-  it("leerer Name oder Fehler beim Lesen -> local", () => {
+  it("empty name or read error -> local", () => {
     delete process.env.SECRET_DESK_USER;
     userInfoMock.mockReturnValue({ username: "" });
     expect(defaultUser()).toBe("local");

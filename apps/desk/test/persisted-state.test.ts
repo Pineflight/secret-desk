@@ -7,21 +7,21 @@ function memory() {
 }
 
 describe("persisted-state", () => {
-  it("speichert abweichende Werte und liest sie wieder", () => {
+  it("stores deviating values and reads them back", () => {
     const s = memory();
     writeStored("secrets.stage", "staging", "", s);
     expect(readStored("secrets.stage", "", s)).toBe("staging");
     writeStored("secrets.browse", { repo: "acme-app", sort: "name", group: "none" }, { repo: "", sort: "name", group: "none" }, s);
     expect(readStored("secrets.browse", { repo: "", sort: "name", group: "none" }, s)).toEqual({ repo: "acme-app", sort: "name", group: "none" });
   });
-  it("loescht den Eintrag, wenn der Vorgabewert wieder gilt", () => {
+  it("deletes the entry when the default applies again", () => {
     const s = memory();
     writeStored("k", "x", "", s);
     expect(s.size()).toBe(1);
     writeStored("k", "", "", s);
     expect(s.size()).toBe(0);
   });
-  it("kaputtes JSON und fehlender Speicher ergeben den Vorgabewert", () => {
+  it("broken JSON and missing storage yield the default value", () => {
     const s = { getItem: () => "{nicht json" };
     expect(readStored("k", "vorgabe", s)).toBe("vorgabe");
     expect(readStored("k", "vorgabe", null)).toBe("vorgabe");

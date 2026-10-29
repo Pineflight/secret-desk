@@ -161,7 +161,7 @@ export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => v
       <p className="flex items-center gap-2 font-medium"><Icon name="alert" className="h-4 w-4" />{t("common.failed")}</p>
       <p className="mt-1 text-sm">{error.message}</p>
       {api?.code === "not-connected" ? (
-        <p className="mt-2 text-sm">{t("common.missingConnection", { name: api.connection ?? "?" })} <Link href="/verbindungen" className="font-medium underline">{t("common.toIntegrations")}</Link></p>
+        <p className="mt-2 text-sm">{t("common.missingConnection", { name: api.connection ?? "?" })} <Link href="/connections" className="font-medium underline">{t("common.toIntegrations")}</Link></p>
       ) : null}
       {onRetry ? <Button variant="secondary" className="mt-3" onClick={onRetry}><Icon name="refresh" />{t("common.retry")}</Button> : null}
     </div>

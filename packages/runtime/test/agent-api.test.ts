@@ -131,8 +131,8 @@ policy:
 const agent = { kind: "agent", name: "claude" } as const;
 const human = { kind: "human", name: "alice" } as const;
 
-describe("Uebersicht", () => {
-  it("zaehlt Secrets, Variablen und offene Pruefungen, ohne Werte", async () => {
+describe("overview", () => {
+  it("counts secrets, variables and open reviews, without values", async () => {
     const { rt } = await setup();
     const o = await overview(rt, new Date("2026-11-05T00:00:00Z"));
     expect(o).toMatchObject({ total: 3, variables: 2, pendingReviews: 0, pendingApprovals: 0 });
@@ -141,8 +141,8 @@ describe("Uebersicht", () => {
   });
 });
 
-describe("Ausstellen, Pruefen, Bestaetigen", () => {
-  it("Mensch: Wert wird erzeugt und geprueft, GitHub bleibt unberuehrt bis zur Bestaetigung", async () => {
+describe("issue, review, confirm", () => {
+  it("human: value is created and checked, GitHub stays untouched until confirmation", async () => {
     const { rt, calls, written } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
@@ -165,7 +165,7 @@ describe("Ausstellen, Pruefen, Bestaetigen", () => {
     expect(evidence[0]!.confirmation?.decision).toBe("confirmed");
     expect(await evidenceSvg(rt, "hmac-acme-app", evidence[0]!.id)).toContain("<svg");
   });
-  it("Mensch kann ablehnen: nichts wird geschrieben", async () => {
+  it("human can reject: nothing is written", async () => {
     const { rt, calls } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
@@ -173,7 +173,7 @@ describe("Ausstellen, Pruefen, Bestaetigen", () => {
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
     await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow();
   });
-  it("Agent in staging: Freigabe-Anfrage, nach der Freigabe wartet die Pruefung auf Bestaetigung", async () => {
+  it("agent in staging: approval request, after approval the review waits for confirmation", async () => {
     const { rt } = await setup();
     const r = await requestIssuance(rt, agent, "stripe-webhook-acme-docs-staging", { reason: "neu" });
     expect(r.status).toBe("pending-approval");
@@ -182,7 +182,7 @@ describe("Ausstellen, Pruefen, Bestaetigen", () => {
     const denied = await requestIssuance(rt, agent, "stripe-webhook-acme-docs-staging");
     expect(denied.status === "pending-approval" && denied.approvalId).toBe(r.approvalId);
   });
-  it("Handeingabe: wird geprueft, der Wert steht in keinem Bericht, Anlage nur als Bild", async () => {
+  it("manual input: is checked, the value is in no report, attachment only as image", async () => {
     const { rt } = await setup();
     const issuance = await submitManualValue(rt, human, "cf-deploy-acme-app", "cf_handeingabe_token_123456");
     expect(JSON.stringify(issuance)).not.toContain("handeingabe");
@@ -194,8 +194,8 @@ describe("Ausstellen, Pruefen, Bestaetigen", () => {
   });
 });
 
-describe("Variablen", () => {
-  it("vergleicht Soll und Ist, uebernimmt aus GitHub und lehnt Geheimnisse ab", async () => {
+describe("variables", () => {
+  it("compares target and actual, adopts from GitHub and rejects secrets", async () => {
     const { rt } = await setup();
     const check = await inspectVariableLive(rt, "site-url-staging");
     expect(check.drift[0]!.state).toBe("different");
@@ -206,7 +206,7 @@ describe("Variablen", () => {
     await updateVariable(rt, human, "site-url-staging", { value: "https://neu.example.com" });
     expect(await readFile(rt.inventory.path!, "utf8")).toContain("https://neu.example.com");
   });
-  it("Setzen: Mensch sofort, Agent in staging nur per Freigabe", async () => {
+  it("set: human immediately, agent in staging only via approval", async () => {
     const { rt, calls } = await setup();
     const a = await requestApplyVariable(rt, agent, "site-url-staging");
     expect(a.status).toBe("pending-approval");
@@ -215,7 +215,7 @@ describe("Variablen", () => {
     expect(h.status).toBe("applied");
     expect(calls.some((c) => c.startsWith("PATCH") && c.includes("/acme-docs/environments/staging/variables/NEXT_PUBLIC_SITE_URL"))).toBe(true);
   });
-  it("neue Variable mit Pflichtziel", async () => {
+  it("new variable with required target", async () => {
     const { rt } = await setup();
     await expect(addVariable(rt, agent, { id: "x-y", name: "X_Y", places: [] })).rejects.toThrow();
     const v = await addVariable(rt, agent, { id: "print-env", name: "PRINT_ENV", stage: "staging", value: "sandbox", places: [{ repo: "acme-app", scope: "environment", environment: "staging" }] });
@@ -223,8 +223,8 @@ describe("Variablen", () => {
   });
 });
 
-describe("Beschreibungen und Suche", () => {
-  it("findet Secrets und Variablen ueber Beschreibung und Schlagworte", async () => {
+describe("descriptions and search", () => {
+  it("finds secrets and variables via description and tags", async () => {
     const { rt } = await setup();
     await addSecret(rt, human, { id: "acme-key", name: "ACME_API_KEY", service: "acme-api", stage: "staging", description: "Druckauftraege senden", owner: "alice", tags: ["druck"], places: [{ repo: "acme-app", scope: "environment", environment: "staging" }] });
     expect((await listSecrets(rt, { q: "druckauftr" })).map((s) => s.id)).toEqual(["acme-key"]);
@@ -236,8 +236,8 @@ describe("Beschreibungen und Suche", () => {
   });
 });
 
-describe("Dev-Env und Metadaten", () => {
-  it("schreibt Datei 600 und gibt nur Schluessel zurueck", async () => {
+describe("dev env and metadata", () => {
+  it("writes file 600 and returns keys only", async () => {
     const { rt, dir } = await setup();
     const r = await exportEnv(rt, agent, { repo: "acme-docs", path: join(dir, "app", ".env.local") });
     if (r.status !== "written") throw new Error("erwartet");
@@ -248,18 +248,18 @@ describe("Dev-Env und Metadaten", () => {
     expect(secretValue).toMatch(/^[0-9a-f]{32}$/);
     expect(JSON.stringify(r)).not.toContain(secretValue!);
   });
-  it("Agenten: keine Stage ausser dev, keine Werte, keine fremden Ordner", async () => {
+  it("agents: no stage except dev, no values, no foreign folders", async () => {
     const { rt, dir } = await setup();
     await expect(exportEnv(rt, agent, { repo: "acme-docs", stage: "staging", path: join(dir, "x") })).rejects.toThrow(PolicyError);
     await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(dir, "y"), prompts: { A: "b" } })).rejects.toThrow(PolicyError);
     const outside = await mkdtemp(join(tmpdir(), "sd-ausserhalb-"));
     await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(outside, ".env") })).rejects.toThrow(/ausserhalb/);
   });
-  it("meldet noetige Eingaben statt zu raten", async () => {
+  it("reports needed inputs instead of guessing", async () => {
     const { rt, dir } = await setup();
     expect(await exportEnv(rt, human, { repo: "acme-docs-x", path: join(dir, "z") })).toMatchObject({ status: "needs-input", keys: ["STRIPE_SECRET_KEY"] });
   });
-  it("pflegt Metadaten und Team-Datei", async () => {
+  it("maintains metadata and team file", async () => {
     const { rt } = await setup();
     await addSecret(rt, human, { id: "resend-acme-docs-staging", name: "RESEND_API_KEY", service: "resend", stage: "staging", provider: "resend-api-key", places: [{ repo: "acme-docs", scope: "environment", environment: "staging" }] });
     await addManualProvider(rt, human, { id: "acme-api", label: "Acme API", url: "https://acme.example.com", steps: ["Dashboard oeffnen"] });
@@ -272,8 +272,8 @@ describe("Dev-Env und Metadaten", () => {
 
 const PLACE = [{ repo: "acme-app", scope: "repository" as const }];
 
-describe("F2: Agenten aendern keine sicherheitsrelevanten Felder", () => {
-  it("PATCH mit stage/places/provider/params/Stempel/Kennung: abgelehnt, Inventar unveraendert", async () => {
+describe("F2: agents do not change security-relevant fields", () => {
+  it("PATCH with stage/places/provider/params/stamp/identifier: rejected, inventory unchanged", async () => {
     const { rt } = await setup();
     const before = JSON.stringify(rt.inventory.getSecret("cf-deploy-acme-app"));
     for (const bad of [{ stage: "dev" }, { places: [{ repo: "evil", scope: "repository" }] }, { provider: "manual" }, { params: { baseUrl: "https://evil.example" } }, { expires: "2099-01-01" }, { rotatedAt: "2026-11-01" }, { verifiedAt: "2026-11-01" }, { verifiedBy: "alice" }, { externalId: "x" }, { ttlDays: 3650 }, { expiry: "none" }]) {
@@ -284,13 +284,13 @@ describe("F2: Agenten aendern keine sicherheitsrelevanten Felder", () => {
     await expect(updateSecretMeta(rt, agent, "cf-deploy-acme-app", { title: "neu", stage: "dev" })).rejects.toThrow(/stage/);
     expect(rt.inventory.getSecret("cf-deploy-acme-app")!.title).toBeUndefined();
   });
-  it("Agent darf Metadaten, Mensch zusaetzlich Ablauf und Stempel, aber auch er nicht die Stage", async () => {
+  it("agent may change metadata, human expiry and stamp as well, but not the stage either", async () => {
     const { rt } = await setup();
     expect(await updateSecretMeta(rt, agent, "cf-deploy-acme-app", { title: "Deploy", description: "wofuer", owner: "alice", tags: ["x"], notes: "n", product: "acme" })).toMatchObject({ title: "Deploy", owner: "alice", product: "acme" });
     expect(await updateSecretMeta(rt, human, "cf-deploy-acme-app", { expires: "2027-03-03" })).toMatchObject({ expires: "2027-03-03" });
     await expect(updateSecretMeta(rt, human, "cf-deploy-acme-app", { stage: "dev" })).rejects.toThrow(/Feld nicht erlaubt: stage/);
   });
-  it("Neuanlage durch Agenten: nur dev, bekannte Anbieter, keine Adressen, keine Stempel", async () => {
+  it("creation by agents: dev only, known providers, no addresses, no stamps", async () => {
     const { rt } = await setup();
     const ok = { id: "agent-dev", name: "AGENT_DEV", service: "x", stage: "dev" };
     await expect(addSecret(rt, agent, { ...ok, id: "a-staging", stage: "staging", places: [{ repo: "acme-docs", scope: "environment", environment: "staging" }] })).rejects.toThrow(PolicyError);
@@ -304,7 +304,7 @@ describe("F2: Agenten aendern keine sicherheitsrelevanten Felder", () => {
     expect(rt.inventory.getSecret("a-url")).toBeUndefined();
     expect(await addSecret(rt, agent, ok)).toMatchObject({ id: "agent-dev", stage: "dev" });
   });
-  it("Variablen: Agent-Neuanlage strikt; Vorlagen nur dev und nur .env-Dateien; neuer Anbieter ersetzt keinen bestehenden", async () => {
+  it("variables: agent creation strict; templates dev only and .env files only; new provider replaces no existing one", async () => {
     const { rt } = await setup();
     await expect(addVariable(rt, agent, { id: "v-x", name: "V_X", stage: "dev", places: PLACE, evil: 1 } as never)).rejects.toThrow(/Feld nicht erlaubt: evil/);
     const tpl = (extra: Record<string, unknown>) => ({ id: "t-x", repo: "acme-docs", stage: "dev", entries: [{ key: "A", from: { type: "default", value: "x" } }], ...extra });
@@ -319,8 +319,8 @@ describe("F2: Agenten aendern keine sicherheitsrelevanten Felder", () => {
   });
 });
 
-describe("F5: .env-Export durch Agenten", () => {
-  it("nur .env / .env.*, nie ueberschreiben", async () => {
+describe("F5: .env export by agents", () => {
+  it(".env / .env.* only, never overwrite", async () => {
     const { rt, dir } = await setup();
     for (const name of [".envrc", ".npmrc", "Makefile", "setup.sh", ".env.sh", "env", ".bashrc"]) {
       await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(dir, name) }), name).rejects.toThrow(PolicyError);
@@ -331,15 +331,15 @@ describe("F5: .env-Export durch Agenten", () => {
     await expect(exportEnv(rt, agent, { repo: "acme-docs", path: join(dir, ".env") })).rejects.toThrow(/existiert schon/);
     expect((await exportEnv(rt, human, { repo: "acme-docs", path: join(dir, ".env"), overwrite: true })).status).toBe("written");
   });
-  it("issue-Quellen aus Stages ausser dev stellt ein Agent nicht aus", async () => {
+  it("an agent does not issue issue sources from stages other than dev", async () => {
     const { rt, dir } = await setup();
     await addEnvTemplate(rt, human, { id: "docs-issue", repo: "acme-docs", stage: "dev", entries: [{ key: "TOK", from: { type: "issue", secret: "hmac-acme-app" } }] });
     await expect(exportEnv(rt, agent, { repo: "acme-docs", template: "docs-issue", path: join(dir, ".env.issue") })).rejects.toThrow(/nicht ausgestellt/);
   });
 });
 
-describe("F3: Freigabe ist an den Inhalt gebunden", () => {
-  it("Sollwert nach der Anfrage geaendert: Freigabe verworfen, nichts gesetzt", async () => {
+describe("F3: approval is bound to the content", () => {
+  it("target value changed after the request: approval discarded, nothing set", async () => {
     const { rt, calls } = await setup();
     const r = await requestApplyVariable(rt, agent, "site-url-staging");
     if (r.status !== "pending-approval") throw new Error("erwartet");
@@ -351,7 +351,7 @@ describe("F3: Freigabe ist an den Inhalt gebunden", () => {
     expect(done.result).toBe("Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.");
     expect(calls.some((c) => c.startsWith("PATCH") || c.startsWith("POST") || c.startsWith("PUT"))).toBe(false);
   });
-  it("Ziele der Variable geaendert: ebenfalls verworfen; unveraendert wird freigegeben", async () => {
+  it("targets of the variable changed: also discarded; unchanged is approved", async () => {
     const { rt, calls } = await setup();
     const r = await requestApplyVariable(rt, agent, "site-url-staging");
     if (r.status !== "pending-approval") throw new Error("erwartet");
@@ -364,7 +364,7 @@ describe("F3: Freigabe ist an den Inhalt gebunden", () => {
     expect(calls2.some((c) => c.startsWith("PATCH") && c.includes("/acme-docs/environments/staging/variables"))).toBe(true);
     expect(calls.some((c) => c.includes("evil"))).toBe(false);
   });
-  it("Anfrage zum Ausstellen: Ziele/Anbieter/Parameter geaendert -> verworfen, keine Pruefung entsteht", async () => {
+  it("issue request: targets/provider/parameters changed -> discarded, no review is created", async () => {
     for (const change of [(s: SecretLike) => (s.places = [{ repo: "evil", scope: "repository" }]), (s: SecretLike) => (s.params = { baseUrl: "https://evil.example" }), (s: SecretLike) => (s.provider = "random-hex")]) {
       const { rt } = await setup();
       const r = await requestIssuance(rt, agent, "stripe-webhook-acme-docs-staging");
@@ -374,7 +374,7 @@ describe("F3: Freigabe ist an den Inhalt gebunden", () => {
       expect(rt.issuances.list()).toHaveLength(0);
     }
   });
-  it("neue Anfrage mit anderem Inhalt verdraengt die alte offene", async () => {
+  it("new request with different content displaces the old open one", async () => {
     const { rt } = await setup();
     const a = await requestApplyVariable(rt, agent, "site-url-staging");
     await updateVariable(rt, agent, "site-url-staging", { value: "https://zwei.example.com" });
@@ -384,7 +384,7 @@ describe("F3: Freigabe ist an den Inhalt gebunden", () => {
     expect(rt.approvals.get(a.approvalId)!.state).toBe("stale");
     expect(rt.approvals.get(b.approvalId)!.snapshot).toMatchObject({ value: "https://zwei.example.com" });
   });
-  it("erledigte Anfrage laesst sich nicht noch einmal freigeben", async () => {
+  it("a completed request cannot be approved again", async () => {
     const { rt } = await setup();
     const r = await requestApplyVariable(rt, agent, "site-url-staging");
     if (r.status !== "pending-approval") throw new Error("erwartet");
@@ -395,8 +395,8 @@ describe("F3: Freigabe ist an den Inhalt gebunden", () => {
 
 type SecretLike = { places: unknown; params: unknown; provider: string };
 
-describe("F2b/M7: Bestaetigung und Lesezugriffe", () => {
-  it("umgebogene Ziele zwischen Pruefung und Bestaetigung: nichts geschrieben, Pruefung entfernt", async () => {
+describe("F2b/M7: confirmation and read access", () => {
+  it("retargeted targets between review and confirmation: nothing written, review removed", async () => {
     const { rt, calls } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
@@ -405,7 +405,7 @@ describe("F2b/M7: Bestaetigung und Lesezugriffe", () => {
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
     expect(rt.issuances.list()).toHaveLength(0);
   });
-  it("Lesen (listIssuances/getIssuance) verwirft nichts und widerruft nichts; neue Ausstellung raeumt auf", async () => {
+  it("reading (listIssuances/getIssuance) discards and revokes nothing; a new issuance cleans up", async () => {
     const { rt } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
@@ -418,20 +418,20 @@ describe("F2b/M7: Bestaetigung und Lesezugriffe", () => {
   });
 });
 
-describe("H3: Freigabe ist atomar", () => {
+describe("H3: approval is atomic", () => {
   async function pendingIssue() {
     const ctx = await setup(["dev"]);
     const r = await requestIssuance(ctx.rt, agent, "hmac-acme-app");
     if (r.status !== "pending-approval") throw new Error("erwartet");
     return { ...ctx, id: r.approvalId };
   }
-  it("approve zweimal: zweites wirft, nur eine Pruefung", async () => {
+  it("approve twice: second throws, only one review", async () => {
     const { rt, id } = await pendingIssue();
     expect((await resolveApproval(rt, human, id, "approve")).state).toBe("approved");
     await expect(resolveApproval(rt, human, id, "approve")).rejects.toThrow(PolicyError);
     expect(rt.issuances.list()).toHaveLength(1);
   });
-  it("Promise.all([approve, approve]): genau eine Ausstellung", async () => {
+  it("Promise.all([approve, approve]): exactly one issuance", async () => {
     const { rt, id } = await pendingIssue();
     const res = await Promise.allSettled([resolveApproval(rt, human, id, "approve"), resolveApproval(rt, human, id, "approve")]);
     expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
@@ -440,13 +440,13 @@ describe("H3: Freigabe ist atomar", () => {
     expect(rt.issuances.list()).toHaveLength(1);
     expect(rt.approvals.get(id)!.state).toBe("approved");
   });
-  it("approve nach deny wirft; deny-Pfad setzt denied ohne Arbeit", async () => {
+  it("approve after deny throws; deny path sets denied without work", async () => {
     const { rt, id } = await pendingIssue();
     expect((await resolveApproval(rt, human, id, "deny")).state).toBe("denied");
     await expect(resolveApproval(rt, human, id, "approve")).rejects.toThrow(PolicyError);
     expect(rt.issuances.list()).toHaveLength(0);
   });
-  it("Zielfehler beim Variablen-Apply: Zustand failed, kein roher Fehler", async () => {
+  it("target error on variable apply: state failed, no raw error", async () => {
     const { rt, id } = await (async () => {
       const ctx = await setup(["dev"]);
       const r = await requestApplyVariable(ctx.rt, agent, "site-url-staging");

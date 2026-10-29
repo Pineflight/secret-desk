@@ -20,7 +20,7 @@ afterEach(async () => {
 const fixedKey = (k = randomBytes(32)): KeySource => ({ label: "test", key: async () => k });
 
 describe("SecretVault", () => {
-  it("verschluesselt: Klartext steht nie in der Datei, Datei hat Modus 600", async () => {
+  it("encrypted: plaintext is never in the file, file has mode 600", async () => {
     const dir = await tmp();
     const file = join(dir, "vault.json");
     const v = new SecretVault({ file, keySource: fixedKey() });
@@ -31,7 +31,7 @@ describe("SecretVault", () => {
     expect((await v.get("github"))!.reveal()).toBe("ghp_super_geheimer_token_123");
     expect(await v.info("github")).toMatchObject({ id: "github", expires: "2027-01-25" });
   });
-  it("Fingerabdruck erkennt den Token, ohne ihn zu verraten", async () => {
+  it("fingerprint recognizes the token without revealing it", async () => {
     const v = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
     await v.set("a", "wert-1");
     const f1 = (await v.info("a"))!.fingerprint;
@@ -39,19 +39,19 @@ describe("SecretVault", () => {
     expect((await v.info("a"))!.fingerprint).not.toBe(f1);
     expect(f1).toMatch(/^[0-9a-f]{12}$/);
   });
-  it("falscher Schluessel oder vertauschter Eintrag wird abgelehnt", async () => {
+  it("wrong key or swapped entry is rejected", async () => {
     const file = join(await tmp(), "v.json");
     await new SecretVault({ file, keySource: fixedKey() }).set("github", "abc");
     await expect(new SecretVault({ file, keySource: fixedKey() }).get("github")).rejects.toBeInstanceOf(VaultUnavailableError);
   });
-  it("loescht Eintraege und liefert null fuer Unbekanntes", async () => {
+  it("deletes entries and returns null for unknown ones", async () => {
     const v = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
     await v.set("x", "1");
     await v.delete("x");
     expect(await v.get("x")).toBeNull();
     expect(await v.list()).toEqual([]);
   });
-  it("ConnectionStore nutzt den Tresor, Sitzung hat Vorrang", async () => {
+  it("ConnectionStore uses the vault, session takes precedence", async () => {
     const vault = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
     await vault.set("github", "aus-tresor", "2027-01-01");
     const store = new ConnectionStore({ vault });
@@ -62,15 +62,15 @@ describe("SecretVault", () => {
   });
 });
 
-describe("SecretVault Dateizugriff", () => {
-  it("parallele set-Aufrufe verlieren nichts", async () => {
+describe("SecretVault file access", () => {
+  it("parallel set calls lose nothing", async () => {
     const v = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
     await Promise.all(Array.from({ length: 25 }, (_, i) => v.set(`id-${i}`, `wert-${i}`)));
     expect((await v.list()).map((e) => e.id).sort()).toHaveLength(25);
     await Promise.all(Array.from({ length: 10 }, (_, i) => v.delete(`id-${i}`)));
     expect(await v.list()).toHaveLength(15);
   });
-  it("kaputtes JSON wirft, sichert die Datei und ueberschreibt nichts", async () => {
+  it("broken JSON throws, backs up the file and overwrites nothing", async () => {
     const dir = await tmp();
     const file = join(dir, "v.json");
     await writeFile(file, "{kaputt");
@@ -82,7 +82,7 @@ describe("SecretVault Dateizugriff", () => {
     expect(backups.length).toBeGreaterThan(0);
     expect(await readFile(join(dir, backups[0]!), "utf8")).toBe("{kaputt");
   });
-  it("fehlende Datei ist ein leerer Tresor", async () => {
+  it("missing file is an empty vault", async () => {
     const v = new SecretVault({ file: join(await tmp(), "gibt-es-nicht.json"), keySource: fixedKey() });
     expect(await v.list()).toEqual([]);
   });
@@ -98,7 +98,7 @@ describe("SecretVault Dateizugriff", () => {
 });
 
 describe("KeySource", () => {
-  it("macOS: legt den Schluessel nur bei Exit-Code 44 an, ueber stdin statt Argumente, und liest ihn danach", async () => {
+  it("macOS: creates the key only on exit code 44, via stdin instead of arguments, and reads it afterwards", async () => {
     const calls: { args: string[]; input?: string }[] = [];
     let stored = "";
     const exec = async (_f: string, args: string[], input?: string) => {
@@ -119,7 +119,7 @@ describe("KeySource", () => {
     expect(add.input).toContain("add-generic-password");
     expect(calls.flatMap((c) => c.args).join(" ")).not.toContain(k1.toString("base64"));
   });
-  it("macOS: gesperrter Schluesselbund oder anderer Fehler legt nichts neu an", async () => {
+  it("macOS: locked keychain or other error creates nothing new", async () => {
     for (const code of [36, 51, 1, undefined]) {
       const calls: string[][] = [];
       const exec = async (_f: string, args: string[]) => {
@@ -130,13 +130,13 @@ describe("KeySource", () => {
       expect(calls.some((a) => a[0] === "-i" || a[0] === "add-generic-password")).toBe(false);
     }
   });
-  it("macOS: ungueltiger Eintrag wird nicht ueberschrieben", async () => {
+  it("macOS: invalid entry is not overwritten", async () => {
     const calls: string[][] = [];
     const exec = async (_f: string, args: string[]) => (calls.push(args), "kein-schluessel");
     await expect(macKeychainKeySource(exec).key()).rejects.toThrow(/nicht ueberschrieben/);
     expect(calls).toHaveLength(1);
   });
-  it("nimmt die Umgebungsvariable vor dem Schluesselbund", async () => {
+  it("takes the environment variable before the keychain", async () => {
     const key = randomBytes(32).toString("base64");
     const src = defaultKeySource({ SECRET_DESK_VAULT_KEY: key } as unknown as NodeJS.ProcessEnv, "darwin");
     expect((await src.key()).toString("base64")).toBe(key);
@@ -160,8 +160,8 @@ function fakePowerShell(opts: { failUnprotect?: boolean; missing?: boolean } = {
   return { exec, calls };
 }
 
-describe("Windows DPAPI (PowerShell gemockt)", () => {
-  it("legt einen Schluessel an, schuetzt ihn per DPAPI und liest ihn mit demselben Blob wieder", async () => {
+describe("Windows DPAPI (PowerShell mocked)", () => {
+  it("creates a key, protects it via DPAPI and reads it again with the same blob", async () => {
     const dir = await tmp();
     const vaultFile = join(dir, "vault.json");
     const ps = fakePowerShell();
@@ -181,13 +181,13 @@ describe("Windows DPAPI (PowerShell gemockt)", () => {
       expect(c.input).toContain("DataProtectionScope]::CurrentUser");
     }
   });
-  it("vault.keyFile bestimmt den Ort des Blobs", async () => {
+  it("vault.keyFile determines the location of the blob", async () => {
     const dir = await tmp();
     const ps = fakePowerShell();
     await defaultKeySource({} as NodeJS.ProcessEnv, "win32", ps.exec, { vaultFile: join(dir, "v.json"), keyFile: join(dir, "eigener.blob") }).key();
     expect((await stat(join(dir, "eigener.blob"))).isFile()).toBe(true);
   });
-  it("ueberschreibt eine vorhandene Schluesseldatei nie, auch wenn sie sich nicht oeffnen laesst (anderes Konto)", async () => {
+  it("never overwrites an existing key file, even if it cannot be opened (other account)", async () => {
     const dir = await tmp();
     const vaultFile = join(dir, "vault.json");
     await defaultKeySource({} as NodeJS.ProcessEnv, "win32", fakePowerShell().exec, { vaultFile }).key();
@@ -195,13 +195,13 @@ describe("Windows DPAPI (PowerShell gemockt)", () => {
     await expect(defaultKeySource({} as NodeJS.ProcessEnv, "win32", fakePowerShell({ failUnprotect: true }).exec, { vaultFile }).key()).rejects.toThrow(/DPAPI.*nicht oeffnen/);
     expect(await readFile(`${vaultFile}.key`, "utf8")).toBe(before);
   });
-  it("melldet fehlendes PowerShell und beschaedigte Dateien klar", async () => {
+  it("reports missing PowerShell and damaged files clearly", async () => {
     const dir = await tmp();
     await expect(windowsDpapiKeySource({ keyFile: join(dir, "a.key"), exec: fakePowerShell({ missing: true }).exec }).key()).rejects.toThrow(/PowerShell/);
     await writeFile(join(dir, "b.key"), "kein base64 !!!");
     await expect(windowsDpapiKeySource({ keyFile: join(dir, "b.key"), exec: fakePowerShell().exec }).key()).rejects.toThrow(/beschaedigt/);
   });
-  it("die Umgebungsvariable hat auch unter Windows Vorrang", async () => {
+  it("the environment variable takes precedence on Windows too", async () => {
     const key = randomBytes(32).toString("base64");
     const ps = fakePowerShell();
     expect((await defaultKeySource({ SECRET_DESK_VAULT_KEY: key } as unknown as NodeJS.ProcessEnv, "win32", ps.exec).key()).toString("base64")).toBe(key);
@@ -209,11 +209,11 @@ describe("Windows DPAPI (PowerShell gemockt)", () => {
   });
 });
 
-describe("Linux ohne Schluesselbund", () => {
+describe("Linux without keyring", () => {
   const missing = async (): Promise<string> => {
     throw Object.assign(new Error("spawn secret-tool ENOENT"), { code: "ENOENT" });
   };
-  it("nennt die Optionen und speichert nie im Klartext", async () => {
+  it("names the options and never stores in plaintext", async () => {
     const dir = await tmp();
     const err = await defaultKeySource({} as NodeJS.ProcessEnv, "linux", missing, { vaultFile: join(dir, "v.json") }).key().catch((e: unknown) => e as Error);
     expect(err).toBeInstanceOf(VaultUnavailableError);
@@ -222,13 +222,13 @@ describe("Linux ohne Schluesselbund", () => {
     expect((err as Error).message).toMatch(/keyFile/);
     expect((err as Error).message).toMatch(/Klartext/);
   });
-  it("secret-tool ohne D-Bus: andere Meldung, gleiche Optionen", async () => {
+  it("secret-tool without D-Bus: different message, same options", async () => {
     const exec = async (_f: string, args: string[]): Promise<string> => {
       throw new Error(`exit 1 (${args[0]})`);
     };
     await expect(defaultKeySource({} as NodeJS.ProcessEnv, "linux", exec).key()).rejects.toThrow(/D-Bus.*SECRET_DESK_VAULT_KEY/s);
   });
-  it("secret-tool: speichert Schluessel ueber stdin, nicht ueber Argumente", async () => {
+  it("secret-tool: stores key via stdin, not via arguments", async () => {
     let stored = "";
     const exec = async (_f: string, args: string[], input?: string): Promise<string> => {
       if (args[0] === "lookup") {
@@ -246,7 +246,7 @@ describe("Linux ohne Schluesselbund", () => {
 });
 
 describe("vault.keyFile", () => {
-  it("wird nur genutzt, wenn gesetzt: legt Datei mit Modus 600 an und liest sie wieder", async () => {
+  it("is used only when set: creates file with mode 600 and reads it again", async () => {
     const dir = await tmp();
     const keyFile = join(dir, "sub", "vault.key");
     const src = defaultKeySource({} as NodeJS.ProcessEnv, "linux", missingExecThrows, { keyFile });
@@ -260,13 +260,13 @@ describe("vault.keyFile", () => {
     await chmod(keyFile, 0o644);
     await expect(fileKeySource(keyFile).key()).rejects.toThrow(/chmod 600/);
   });
-  it("lehnt kaputten Inhalt ab und ueberschreibt ihn nicht", async () => {
+  it("rejects broken content and does not overwrite it", async () => {
     const keyFile = join(await tmp(), "vault.key");
     await writeFile(keyFile, "zu kurz", { mode: 0o600 });
     await expect(fileKeySource(keyFile).key()).rejects.toThrow(/32-Byte/);
     expect(await readFile(keyFile, "utf8")).toBe("zu kurz");
   });
-  it("steht im Konfig-Schema", () => {
+  it("is in the config schema", () => {
     const base = { inventory: "i.yaml", github: { owner: "x", auth: { type: "pat" } } };
     expect(ConfigSchema.parse({ ...base, vault: { keyFile: "~/k" } }).vault.keyFile).toBe("~/k");
     expect(ConfigSchema.parse(base).vault.keyFile).toBeUndefined();

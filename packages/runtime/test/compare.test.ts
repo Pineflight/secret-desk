@@ -51,7 +51,7 @@ const full: Spec = {
 };
 
 describe("compareStages", () => {
-  it("ohne live: kein Netz, nur Erwartung", async () => {
+  it("without live: no network, expectation only", async () => {
     const { rt, calls } = await setup(full);
     const r = await compareStages(rt);
     expect(calls).toEqual([]);
@@ -59,7 +59,7 @@ describe("compareStages", () => {
     expect(r.rows.find((x) => x.name === "API_KEY")!.cells.staging!.state).toBe("unknown");
   });
 
-  it("mit live: ok, Luecke, different, Waisen; jedes Ziel einmal gelesen", async () => {
+  it("with live: ok, gap, different, orphans; every target read once", async () => {
     const { rt, calls } = await setup(full);
     const r = await compareStages(rt, { live: true });
     expect(new Set(calls).size).toBe(calls.length);
@@ -75,7 +75,7 @@ describe("compareStages", () => {
     expect(r.errors).toEqual([]);
   });
 
-  it("eine Environment 403: error-Zellen, der Rest bleibt", async () => {
+  it("one environment 403: error cells, the rest stays", async () => {
     const { rt } = await setup({ ...full, [`${S}/production/secrets`]: 403 });
     const r = await compareStages(rt, { live: true });
     const api = r.rows.find((x) => x.name === "API_KEY")!;
@@ -88,7 +88,7 @@ describe("compareStages", () => {
     expect(r.summary.perStage.production!.error).toBeGreaterThan(0);
   });
 
-  it("Environment fehlt in GitHub (404): missing statt Fehler", async () => {
+  it("environment missing in GitHub (404): missing instead of error", async () => {
     const { [`${S}/production/secrets`]: _absent, ...spec } = full;
     const { rt } = await setup(spec);
     const r = await compareStages(rt, { live: true, kinds: ["secret"] });
@@ -98,7 +98,7 @@ describe("compareStages", () => {
     expect(r.errors).toEqual([]);
   });
 
-  it("kinds und repo begrenzen die Aufrufe", async () => {
+  it("kinds and repo limit the calls", async () => {
     const a = await setup(full);
     await compareStages(a.rt, { live: true, kinds: ["variable"] });
     expect(a.calls.every((c) => c.endsWith("/variables"))).toBe(true);
@@ -108,14 +108,14 @@ describe("compareStages", () => {
     expect(b.calls).toEqual([]);
   });
 
-  it("liefert nie einen Wert eines Secrets, Variablenwerte nur als Vergleich", async () => {
+  it("never returns a value of a secret, variable values only as comparison", async () => {
     const { rt } = await setup({ ...full, [`${S}/staging/secrets`]: { secrets: [{ name: "API_KEY", created_at: "c", updated_at: "u", value: "TOPSECRET" }] } });
     const r = await compareStages(rt, { live: true });
     expect(JSON.stringify(r)).not.toContain("TOPSECRET");
     expect(JSON.stringify(r)).not.toContain("ghp_x");
   });
 
-  it("nicht verbunden: ganzer Aufruf scheitert mit dem Hinweis", async () => {
+  it("not connected: whole call fails with the hint", async () => {
     const { bare } = await setup(full);
     await expect(compareStages(bare, { live: true })).rejects.toThrow();
   });

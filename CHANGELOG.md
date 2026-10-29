@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **English naming:** the portal routes are now `/settings`, `/approvals`, `/reviews`, `/reviews/:id`, `/variables`, `/connections` and `/compare`; the new-entry query parameter is `new=1`. All test names are English, and `assets/logo-protokoll.json` became `assets/logo-log.json` with English keys.
+- **Migration:** the old German routes (`/einstellungen`, `/freigaben`, `/pruefen`, `/variablen`, `/verbindungen`, `/vergleich`) redirect permanently with the query string kept, and `?neu=1` is still accepted. Inventory, config and team files already used English keys, so nothing needs to be migrated there; bookmarks keep working through the redirects.
+
 ### Added
 
 - Release workflow: every run on `main` verifies, publishes a GitHub release (`v<version>-<run number>`) and a Docker image to `ghcr.io/pineflight/secret-desk`.

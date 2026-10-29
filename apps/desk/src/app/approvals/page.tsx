@@ -75,7 +75,7 @@ function ApprovalCard({ a, onChanged }: { a: Approval; onChanged: () => void }) 
           <Button onClick={() => void act("deny")} disabled={decide.pending}>{t("approvals.deny")}</Button>
         </div>
       ) : null}
-      {a.state === "approved" && a.action === "issue" ? <p className="mt-3 text-sm"><Link href="/pruefen" className="font-medium text-primary underline">{t("approvals.toReview")}</Link></p> : null}
+      {a.state === "approved" && a.action === "issue" ? <p className="mt-3 text-sm"><Link href="/reviews" className="font-medium text-primary underline">{t("approvals.toReview")}</Link></p> : null}
     </Card>
   );
 }

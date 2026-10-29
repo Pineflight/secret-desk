@@ -93,8 +93,8 @@ const base: Spec = {
   "/orgs/acme/actions/variables": vr({}),
 };
 
-describe("compareStages mit allRepos", () => {
-  it("liest Repositories ohne Inventar: Funde sind unexpected, leere Repos stehen in der Liste", async () => {
+describe("compareStages with allRepos", () => {
+  it("reads repositories without inventory: findings are unexpected, empty repos are in the list", async () => {
     const { rt, calls } = await setup(base);
     const r = await compareStages(rt, { live: true, allRepos: true });
     const nb = r.rows.filter((x) => x.repo === "night-before").map((x) => `${x.kind}:${x.name}`).sort();
@@ -112,7 +112,7 @@ describe("compareStages mit allRepos", () => {
     expect(calls.every((c) => c.startsWith("GET "))).toBe(true);
   });
 
-  it("begrenzt Aufrufe: hoechstens vier gleichzeitig, je Repo Repo-Ebene plus Environments", async () => {
+  it("limits calls: four at a time at most, per repo repo level plus environments", async () => {
     const { rt, calls, max } = await setup(base);
     await compareStages(rt, { live: true, allRepos: true });
     expect(max()).toBeLessThanOrEqual(4);
@@ -122,7 +122,7 @@ describe("compareStages mit allRepos", () => {
     expect(new Set(calls).size).toBe(calls.length);
   });
 
-  it("ohne allRepos oder ohne live: keine Repo-Liste, nur Inventar-Repos", async () => {
+  it("without allRepos or without live: no repo list, inventory repos only", async () => {
     const a = await setup(base);
     const r = await compareStages(a.rt, { live: true });
     expect(a.calls.some((c) => c.includes("/orgs/acme/repos"))).toBe(false);
@@ -132,14 +132,14 @@ describe("compareStages mit allRepos", () => {
     expect(b.calls).toEqual([]);
   });
 
-  it("Repo-Liste nicht lesbar: Fehler als Hinweis, Inventar-Vergleich bleibt", async () => {
+  it("repo list unreadable: error as hint, inventory comparison stays", async () => {
     const { rt } = await setup({ ...base, "/orgs/acme/repos": 500, "/users/acme/repos": 500 });
     const r = await compareStages(rt, { live: true, allRepos: true });
     expect(r.errors.some((e) => e.target === "repositories")).toBe(true);
     expect(r.rows.find((x) => x.name === "API_KEY")).toBeTruthy();
   });
 
-  it("repo-Filter beschraenkt auch die Zusatz-Repositories", async () => {
+  it("repo filter limits the extra repositories too", async () => {
     const { rt, calls } = await setup(base);
     const r = await compareStages(rt, { live: true, allRepos: true, repo: "costs" });
     expect(r.repos.map((x) => x.name)).toEqual(["costs"]);
@@ -147,7 +147,7 @@ describe("compareStages mit allRepos", () => {
   });
 });
 
-describe("compareStages mit workflows", () => {
+describe("compareStages with workflows", () => {
   const wfSpec: Spec = {
     ...base,
     "/repos/acme/night-before/contents/.github/workflows": [dirEntry("deploy.yml"), dirEntry("README.md")],
@@ -157,7 +157,7 @@ describe("compareStages mit workflows", () => {
     "/repos/acme/status/contents/.github/workflows": 403,
   };
 
-  it("Contents-API: needed-Zeilen, Hinweis bei 403, 404 = keine Workflows", async () => {
+  it("Contents API: needed rows, hint on 403, 404 = no workflows", async () => {
     const { rt, calls } = await setup(wfSpec);
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
     const row = (n: string) => r.rows.find((x) => x.repo === "night-before" && x.name === n)!;
@@ -178,7 +178,7 @@ describe("compareStages mit workflows", () => {
     expect(calls.some((c) => c.endsWith("README.md"))).toBe(false);
   });
 
-  it("lokal verknuepfter Ordner hat Vorrang, die Contents-API wird nicht gefragt", async () => {
+  it("locally linked folder takes precedence, the Contents API is not asked", async () => {
     const { rt, calls, projects } = await setup(wfSpec);
     const dir = join(projects, "night-before");
     await mkdir(join(dir, ".git"), { recursive: true });
@@ -191,7 +191,7 @@ describe("compareStages mit workflows", () => {
     expect(calls.some((c) => c.includes("/repos/acme/night-before/contents"))).toBe(false);
   });
 
-  it("ohne live: nur lokale Ordner, kein Netz", async () => {
+  it("without live: local folders only, no network", async () => {
     const { rt, calls, projects } = await setup(wfSpec);
     const dir = join(projects, "web");
     await mkdir(join(dir, ".git"), { recursive: true });
@@ -203,7 +203,7 @@ describe("compareStages mit workflows", () => {
     expect(r.rows.find((x) => x.name === "FRESH_KEY")!.cells.staging!.state).toBe("needed");
   });
 
-  it("Organisations-Secrets decken Workflow-Bedarf", async () => {
+  it("organization secrets cover workflow needs", async () => {
     const { rt } = await setup({ ...wfSpec, "/orgs/acme/actions/secrets": sec("TURNSTILE_SECRET_KEY") });
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
     const t = r.rows.find((x) => x.repo === "night-before" && x.name === "TURNSTILE_SECRET_KEY")!;
@@ -212,7 +212,7 @@ describe("compareStages mit workflows", () => {
   });
 });
 
-describe("compareStages mit ignoreRepos", () => {
+describe("compareStages with ignoreRepos", () => {
   const spec: Spec = {
     ...base,
     "/repos/acme/status/contents/.github/workflows": [dirEntry("up.yml")],
@@ -226,7 +226,7 @@ describe("compareStages mit ignoreRepos", () => {
     "/repos/acme/costs/contents/.github/workflows": 404,
   };
 
-  it("Standard aus der Konfiguration: .github und .github-private, status bleibt sichtbar", async () => {
+  it("default from the configuration: .github and .github-private, status stays visible", async () => {
     const { rt, calls } = await setup(spec);
     expect(rt.config.compare.ignoreRepos).toEqual([".github", ".github-private"]);
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
@@ -235,7 +235,7 @@ describe("compareStages mit ignoreRepos", () => {
     expect(calls.some((c) => /\/repos\/acme\/\.github/.test(c))).toBe(false);
   });
 
-  it("ignorierte Repositories (auch aus dem Inventar) lesen weder GitHub noch Workflows und erscheinen nur in der Liste", async () => {
+  it("ignored repositories (also from the inventory) read neither GitHub nor workflows and appear only in the list", async () => {
     const { rt, calls } = await setup(spec);
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true, ignoreRepos: ["status", "leitfaden", ".github", ".github-private"] });
     expect(r.ignored).toEqual([".github", ".github-private", "leitfaden", "status"]);
@@ -247,17 +247,17 @@ describe("compareStages mit ignoreRepos", () => {
   });
 });
 
-describe("umbenannte Repositories", () => {
+describe("renamed repositories", () => {
   const renamed = (u: string) => (u.endsWith("/repos/acme/leitfaden") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/9" } }) : new Response(JSON.stringify({ name: "night-before", full_name: "acme/night-before" }), { status: 200 }));
   const spec: Spec = { ...base, "/repos/acme/leitfaden": renamed, "/repositories/9": renamed };
 
-  it("compareStages: Inventar-Repo fehlt in der Liste, 301 liefert den neuen Namen", async () => {
+  it("compareStages: inventory repo missing in the list, 301 returns the new name", async () => {
     const { rt } = await setup(spec);
     const r = await compareStages(rt, { live: true, allRepos: true });
     expect(r.repos.find((x) => x.name === "leitfaden")).toMatchObject({ inInventory: true, onGitHub: false, renamedTo: "night-before" });
   });
 
-  it("Repositories-Liste: renamedTo, nicht aufloesbare bleiben ohne", async () => {
+  it("repository list: renamedTo, unresolvable ones stay without", async () => {
     const { rt } = await setup({ ...spec, "/repos/acme/leitfaden": 404 });
     const none = await listRepos(rt, { live: true });
     expect(none.repos.find((x) => x.name === "leitfaden")!.renamedTo).toBeUndefined();
@@ -267,7 +267,7 @@ describe("umbenannte Repositories", () => {
     expect(list.repos.find((x) => x.name === "web")!.renamedTo).toBeUndefined();
   });
 
-  it("renameInventoryRepo: Inventar wird angepasst und gespeichert, Verknuepfung zieht mit", async () => {
+  it("renameInventoryRepo: inventory is adjusted and saved, link moves along", async () => {
     const { rt, projects, dir } = await setup(spec);
     const folder = join(projects, "lf");
     await mkdir(join(folder, ".git"), { recursive: true });

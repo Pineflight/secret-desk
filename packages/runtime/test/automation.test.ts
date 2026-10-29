@@ -114,8 +114,8 @@ const until = async (fn: () => boolean, ms = 3000) => {
   }
 };
 
-describe("Rezepte und Anbieter", () => {
-  it("registriert je Rezept <id>-browser und sammelt ungueltige Rezepte", async () => {
+describe("recipes and providers", () => {
+  it("registers <id>-browser per recipe and collects invalid recipes", async () => {
     const { rt } = await setup();
     const p = rt.providers.get("sample-token-browser");
     expect(p).toMatchObject({ id: "sample-token-browser", label: "Beispiel (Browser)", kind: "automatic" });
@@ -127,19 +127,19 @@ describe("Rezepte und Anbieter", () => {
     expect((await listSecrets(rt))[0]).toMatchObject({ browser: true, automatic: true });
   });
 
-  it("registriert nichts, wenn automation.enabled false ist", async () => {
+  it("registers nothing when automation.enabled is false", async () => {
     const { rt } = await setup({ automation: "automation: { enabled: false }\n" });
     expect(rt.providers.get("sample-token-browser")).toBeUndefined();
     expect(rt.automation.info()).toMatchObject({ enabled: false, recipes: [] });
   });
 
-  it("liest Rezeptordner aus der Konfiguration (relativ zur Konfigurationsdatei)", async () => {
+  it("reads recipe folders from the configuration (relative to the config file)", async () => {
     const { rt } = await setup({ automation: "automation: { recipesDirs: [./leer], loginTimeoutMinutes: 3 }\n" });
     expect(rt.automation.loginTimeoutMinutes).toBe(3);
     expect(rt.automation.recipes).toHaveLength(1);
   });
 
-  it("meldet einen fehlenden Chrome im Stand, ohne zu scheitern", async () => {
+  it("reports a missing Chrome in the state without failing", async () => {
     const { rt } = await setup({ automation: "automation: { chromePath: /gibt/es/nicht }\n" });
     const info = getAutomation(rt, human);
     expect(info.chrome).toMatchObject({ found: false, path: null });
@@ -147,8 +147,8 @@ describe("Rezepte und Anbieter", () => {
   });
 });
 
-describe("Lauf", () => {
-  it("erzeugt, haengt Belege an den Bericht, Zustand done ohne Wert", async () => {
+describe("run", () => {
+  it("creates, attaches receipts to the report, state done without value", async () => {
     const { rt, drivers } = await setup();
     const r = await requestIssuance(rt, human, "sample-a");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
@@ -161,7 +161,7 @@ describe("Lauf", () => {
     expect(rt.issuances.get(r.issuance.id)?.value.reveal()).toBe(TOKEN);
   });
 
-  it("wartet auf den Menschen, zeigt Host und Grund, macht danach weiter", async () => {
+  it("waits for the human, shows host and reason, continues afterwards", async () => {
     const { rt, drivers, login } = await setup({ mode: "login" });
     const p = requestIssuance(rt, human, "sample-a");
     await until(() => rt.automation.state("sample-a").status === "waiting-human");
@@ -177,7 +177,7 @@ describe("Lauf", () => {
     expect(rt.automation.state("sample-a").status).toBe("done");
   });
 
-  it("lehnt einen zweiten gleichzeitigen Lauf ab", async () => {
+  it("rejects a second concurrent run", async () => {
     const { rt } = await setup({ mode: "login" });
     const first = requestIssuance(rt, human, "sample-a");
     await until(() => rt.automation.state("sample-a").status === "waiting-human");
@@ -188,7 +188,7 @@ describe("Lauf", () => {
     await expect(first).rejects.toThrow(AutomationError);
   });
 
-  it("bricht ab: Zustand cancelled, Browser geschlossen, danach ist ein neuer Lauf moeglich", async () => {
+  it("cancels: state cancelled, browser closed, a new run is possible afterwards", async () => {
     const { rt, drivers } = await setup({ mode: "login" });
     const p = requestIssuance(rt, human, "sample-a");
     const assertion = expect(p).rejects.toMatchObject({ name: "AutomationError", kind: "abort" });
@@ -205,7 +205,7 @@ describe("Lauf", () => {
     await expect(next).rejects.toThrow(AutomationError);
   });
 
-  it("scheitert nach dem Erzeugen mit dem Hinweis, den Token beim Anbieter zu loeschen", async () => {
+  it("fails after creation with the hint to delete the token at the provider", async () => {
     const { rt, drivers } = await setup({ mode: "fail" });
     await expect(requestIssuance(rt, human, "sample-a")).rejects.toThrow(AutomationError);
     const st = rt.automation.state("sample-a");
@@ -216,7 +216,7 @@ describe("Lauf", () => {
     expect(rt.issuances.list()).toHaveLength(0);
   });
 
-  it("liefert ohne Playwright/Chrome eine klare Meldung statt eines Absturzes", async () => {
+  it("returns a clear message without Playwright/Chrome instead of a crash", async () => {
     await sodium.ready;
     const { rt } = await setup({ automation: "automation: { chromePath: /gibt/es/nicht }\n" });
     const real = await createRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x" }, bundledRecipes: null });
@@ -225,8 +225,8 @@ describe("Lauf", () => {
   });
 });
 
-describe("Agenten", () => {
-  it("brauchen fuer einen Browser-Anbieter immer eine Freigabe, auch in einer freigegebenen Stage", async () => {
+describe("agents", () => {
+  it("always need an approval for a browser provider, even in an approved stage", async () => {
     const { rt, drivers } = await setup();
     const r = await requestIssuance(rt, agent, "sample-b"); // dev, agentStages=[dev]
     expect(r).toMatchObject({ status: "pending-approval", secretId: "sample-b" });
@@ -240,7 +240,7 @@ describe("Agenten", () => {
     expect(rt.automation.state("sample-b").status).toBe("done");
   });
 
-  it("duerfen Zustand und Abbruch nicht aufrufen", async () => {
+  it("may not call state and cancel", async () => {
     const { rt } = await setup();
     expect(() => getAutomation(rt, agent)).toThrow(PolicyError);
     expect(() => getAutomationRun(rt, agent, "sample-a")).toThrow(PolicyError);

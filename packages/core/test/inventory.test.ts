@@ -3,45 +3,45 @@ import { InventoryError, InventoryStore } from "../src/inventory.js";
 import { INVENTORY_YAML } from "./fixtures.js";
 
 describe("InventoryStore", () => {
-  it("liest Daten und behaelt Datumsangaben als Text", () => {
+  it("reads data and keeps dates as text", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     expect(s.data.secrets).toHaveLength(3);
     expect(s.getSecret("cf-deploy-acme-app")!.expires).toBe("2027-01-21");
   });
-  it("patchSecret schreibt zurueck und erhaelt Kommentare", () => {
+  it("patchSecret writes back and keeps comments", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.patchSecret("cf-deploy-acme-app", { expires: "2027-04-21", rotatedAt: "2027-01-21" });
     expect(s.getSecret("cf-deploy-acme-app")!.expires).toBe("2027-04-21");
     expect(s.toString()).toContain("# Kommentar bleibt erhalten");
   });
-  it("lehnt ungueltige Aenderungen ab und rollt zurueck", () => {
+  it("rejects invalid changes and rolls back", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     expect(() => s.patchSecret("stripe-webhook-acme-docs-staging", { expires: "2027-01-01" })).toThrow(InventoryError);
     expect(s.getSecret("stripe-webhook-acme-docs-staging")!.expires).toBeNull();
   });
-  it("addSecret prueft Schema und doppelte ids", () => {
+  it("addSecret checks schema and duplicate ids", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.addSecret({ id: "resend-acme-app", name: "RESEND_SMTP_KEY", service: "resend", stage: "staging", places: [{ repo: "acme-app", scope: "environment", environment: "staging" }] });
     expect(s.data.secrets).toHaveLength(4);
     expect(() => s.addSecret({ id: "resend-acme-app", name: "X_Y", service: "a", places: [] })).toThrow(InventoryError);
     expect(() => s.addSecret({ id: "neu", name: "kleinbuchstaben", service: "a", stage: "shared", places: [{ repo: "r", scope: "repository" }] })).toThrow(InventoryError);
   });
-  it("nur dev darf ohne Ziel sein", () => {
+  it("only dev may be without target", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     expect(() => s.addSecret({ id: "ohne-ziel", name: "A_B", service: "x", stage: "staging", places: [] })).toThrow(/places/);
   });
-  it("addEnvEntry und addProvider", () => {
+  it("addEnvEntry and addProvider", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.addEnvEntry("acme-web-dev", { key: "FOO", from: { type: "default", value: "bar" } });
     expect(s.data.envTemplates[0]!.entries).toHaveLength(4);
     s.addProvider({ id: "acme-api", label: "Acme API", url: "https://acme.example.com", steps: ["Dashboard oeffnen"] });
     expect(s.data.providers).toHaveLength(1);
   });
-  it("Env-Vorlage verweist nur auf bekannte Secrets", () => {
+  it("env template references known secrets only", () => {
     const bad = INVENTORY_YAML.replace("{ key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 16 } }", "{ key: X, from: { type: issue, secret: gibt-es-nicht } }");
     expect(() => InventoryStore.fromText(bad)).toThrow(/unbekanntes Secret/);
   });
-  it("speichert Beschreibung, Verantwortlichen, Link und Schlagworte und prueft sie", () => {
+  it("stores description, owner, link and tags and validates them", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.addSecret({ id: "acme-key", name: "ACME_API_KEY", service: "acme-api", stage: "staging", description: "Druckauftraege an Acme API senden (Edge Function print-order)", owner: "alice", link: "https://acme.example.com", tags: ["druck", "acme-app"], places: [{ repo: "acme-app", scope: "environment", environment: "staging" }] });
     expect(s.getSecret("acme-key")).toMatchObject({ owner: "alice", tags: ["druck", "acme-app"] });
@@ -52,7 +52,7 @@ describe("InventoryStore", () => {
     expect(() => s.addSecret({ id: "x1", name: "X_Y", service: "a", stage: "dev", link: "kein-link" })).toThrow(InventoryError);
     expect(() => s.addSecret({ id: "x2", name: "X_Y", service: "a", stage: "dev", tags: ["Gross Schrift"] })).toThrow(InventoryError);
   });
-  it("Variablen: Beschreibungsfelder aendern und entfernen", () => {
+  it("variables: change and remove description fields", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.addVariable({ id: "site-url", name: "NEXT_PUBLIC_SITE_URL", stage: "staging", value: "https://s.example.com", places: [{ repo: "acme-web", scope: "environment", environment: "staging" }] });
     s.patchVariable("site-url", { description: "Basis-URL der Staging-Seite", owner: "alice", link: "https://example.com/doku", tags: ["url"] });

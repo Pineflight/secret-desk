@@ -67,7 +67,7 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown): 
 
 
 describe("Stages", () => {
-  it("GET liefert die Standard-Stages, PUT ersetzt die Liste (nur Portal)", async () => {
+  it("GET returns the default stages, PUT replaces the list (portal only)", async () => {
     const { deps } = await setup();
     const list = (await (await route(ui(deps, "GET", "stages"), deps)).json()) as { id: string; kind: string; environmentName: string | null }[];
     expect(list.map((s) => [s.id, s.kind, s.environmentName])).toEqual([["dev", "dev", null], ["staging", "test", "staging"], ["production", "live", "production"], ["shared", "shared", null]]);
@@ -76,7 +76,7 @@ describe("Stages", () => {
     const after = (await (await route(ui(deps, "GET", "stages"), deps)).json()) as { id: string }[];
     expect(after.map((s) => s.id)).toContain("qa");
   });
-  it("entfernen blockiert, wenn genutzt; ungueltige Eingaben liefern 400", async () => {
+  it("removing is blocked when in use; invalid input returns 400", async () => {
     const { deps } = await setup();
     const noStaging = await route(ui(deps, "PUT", "stages", { stages: [{ id: "dev", kind: "dev" }, { id: "shared", kind: "shared" }, { id: "production", kind: "live" }] }), deps);
     expect(noStaging.status).toBe(400);
@@ -84,16 +84,16 @@ describe("Stages", () => {
     expect((await route(ui(deps, "PUT", "stages", { stages: [{ id: "A B", kind: "dev" }] }), deps)).status).toBe(400);
     expect((await route(ui(deps, "PUT", "stages", {}), deps)).status).toBe(400);
   });
-  it("Agenten duerfen lesen, aber nicht schreiben", async () => {
+  it("agents may read but not write", async () => {
     const { deps } = await setup();
     expect((await route(agent(deps, "GET", "stages"), deps)).status).toBe(200);
     expect((await route(agent(deps, "PUT", "stages", { stages: [{ id: "x", kind: "dev" }] }), deps)).status).toBe(404);
   });
 });
 
-describe("Stage-Vergleich (GET compare)", () => {
+describe("stage comparison (GET compare)", () => {
   const json = async (res: Response) => (await res.json()) as { live: boolean; rows: { name: string; kind: string; cells: Record<string, { state: string }> }[]; stages: { id: string }[]; errors: unknown[] };
-  it("Portal und Agent duerfen lesen, ohne live bleibt es im Inventar", async () => {
+  it("portal and agent may read, without live it stays in the inventory", async () => {
     const { deps } = await setup();
     for (const req of [ui(deps, "GET", "compare"), agent(deps, "GET", "compare")]) {
       const res = await route(req, deps);
@@ -104,7 +104,7 @@ describe("Stage-Vergleich (GET compare)", () => {
       expect(body.rows.find((r) => r.name === "NEXT_PUBLIC_SITE_URL")!.cells.staging!.state).toBe("unknown");
     }
   });
-  it("live=1, kinds und repo wirken; keine Werte in der Antwort", async () => {
+  it("live=1, kinds and repo take effect; no values in the response", async () => {
     const { deps } = await setup();
     const res = await route(agent(deps, "GET", "compare?live=1&kinds=secret&repo=acme-app&compare=staging,production&normalize=1"), deps);
     expect(res.status).toBe(200);
@@ -116,7 +116,7 @@ describe("Stage-Vergleich (GET compare)", () => {
     expect(text).not.toContain("ghp_geheim_token_1");
     expect(text).not.toContain("https://staging.example.com");
   });
-  it("Agent ohne Token wird abgewiesen, schreibende Methode gibt es nicht", async () => {
+  it("agent without token is rejected, no writing method exists", async () => {
     const { deps } = await setup();
     const bad = new Request(`${base}/api/agent/compare`, { headers: { host: HOST } });
     expect((await route(bad, deps)).status).toBe(401);

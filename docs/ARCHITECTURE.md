@@ -70,7 +70,7 @@ organization secrets need a repository selection that is not modeled yet.
 
 ## Stage comparison
 
-The **Compare** page (`/vergleich`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value. The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`; workflow parsing is `packages/core/src/workflow-needs.ts`. Cell states, parity, orphans, workflow needs, ignored and renamed repositories are described in [COMPARE.md](COMPARE.md).
+The **Compare** page (`/compare`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value. The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`; workflow parsing is `packages/core/src/workflow-needs.ts`. Cell states, parity, orphans, workflow needs, ignored and renamed repositories are described in [COMPARE.md](COMPARE.md).
 
 ## Packages
 

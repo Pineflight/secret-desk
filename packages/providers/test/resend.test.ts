@@ -4,7 +4,7 @@ import { ProviderError } from "../src/http.js";
 import { CONN_TOKEN, ISSUED, LEAK, issueCtx, mockFetch, revokeCtx } from "./helpers.js";
 
 describe("resend-api-key", () => {
-  it("erzeugt einen Schluessel (Standard sending_access)", async () => {
+  it("creates a key (default sending_access)", async () => {
     const m = mockFetch({ body: { id: "r1", token: ISSUED } });
     const r = await p.issue!(issueCtx(m.fetch, {}, { conns: ["resend"] }));
     expect(m.calls[0]).toMatchObject({ url: "https://api.resend.com/api-keys", method: "POST" });
@@ -14,20 +14,20 @@ describe("resend-api-key", () => {
     expect(r.externalId).toBe("r1");
     expect(m.calls[0]!.signal).toBeInstanceOf(AbortSignal);
   });
-  it("sendet domain_id nur wenn gesetzt", async () => {
+  it("sends domain_id only when set", async () => {
     const m = mockFetch({ body: { id: "r1", token: ISSUED } });
     await p.issue!(issueCtx(m.fetch, { permission: "full_access", domainId: "d1" }, { conns: ["resend"] }));
     expect(JSON.parse(m.calls[0]!.body!)).toMatchObject({ permission: "full_access", domain_id: "d1" });
   });
-  it("lehnt ungueltige Berechtigung ab", async () => {
+  it("rejects invalid permission", async () => {
     await expect(p.issue!(issueCtx(mockFetch().fetch, { permission: "root" }, { conns: ["resend"] }))).rejects.toThrow(ProviderError);
   });
-  it("widerruft per DELETE", async () => {
+  it("revokes via DELETE", async () => {
     const m = mockFetch({ status: 200, body: {} });
     await p.revoke!(revokeCtx(m.fetch, {}, "r1", ["resend"]));
     expect(m.calls[0]).toMatchObject({ url: "https://api.resend.com/api-keys/r1", method: "DELETE" });
   });
-  it("Fehler 403 ohne Werte", async () => {
+  it("error 403 without values", async () => {
     const m = mockFetch({ status: 403, body: LEAK });
     const err = await p.issue!(issueCtx(m.fetch, {}, { conns: ["resend"] })).catch((e: unknown) => e as Error);
     expect(err.message).not.toContain(CONN_TOKEN);

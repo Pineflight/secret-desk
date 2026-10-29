@@ -51,6 +51,7 @@ Tests run with [Vitest](https://vitest.dev). Every behavior change needs a test.
 - Comments explain *why*. The existing source comments are partly German; new code comments and all documentation are in **English**.
 - Scripts are Node files under `scripts/`, not shell lines, so they work on Windows.
 - Never weaken the secret guard for variables (`packages/core/src/guards.ts`) or the policy in `packages/runtime/src/agent-api.ts`. GitHub is written only after a human confirms; the old value is revoked only after that.
+- **Naming:** identifiers, file and directory names, routes, API/JSON fields, config keys, env vars, CLI, error codes and test names are English; only visible UI texts, legal texts, doc prose and comments may be German. Saved formats (inventory, team file) keep accepting old German keys when read.
 
 ## Security rules
 

@@ -63,9 +63,9 @@ function reads(secret: [string, LocationRead][], variable: [string, LocationRead
 }
 const row = (r: ReturnType<typeof compareMatrix>, name: string, kind: "secret" | "variable" = "secret") => r.rows.find((x) => x.name === name && x.kind === kind)!;
 
-describe("compareMatrix ohne Live", () => {
+describe("compareMatrix without live", () => {
   const r = compareMatrix(inv(), {});
-  it("Spalten sind alle Stages, Zeilen je Repository und Name", () => {
+  it("columns are all stages, rows per repository and name", () => {
     expect(r.stages.map((s) => s.id)).toEqual(["dev", "staging", "production", "shared"]);
     expect(r.live).toBe(false);
     expect(r.rows.map((x) => `${x.kind}:${x.name}`)).toEqual([
@@ -77,7 +77,7 @@ describe("compareMatrix ohne Live", () => {
       "variable:SITE_URL",
     ]);
   });
-  it("Erwartung ohne Live ist unknown, sonst leer oder nicht anwendbar", () => {
+  it("expectation without live is unknown, otherwise empty or not applicable", () => {
     const s = row(r, "STRIPE_KEY");
     expect(s.cells.staging).toMatchObject({ state: "unknown", expected: true });
     expect(s.cells.production).toMatchObject({ state: "unknown", expected: true });
@@ -86,7 +86,7 @@ describe("compareMatrix ohne Live", () => {
     expect(s.ids.sort()).toEqual(["stripe-prod", "stripe-staging"]);
     expect(s.tags).toEqual(["pay"]);
   });
-  it("Paritaet: gleich konsistent, sonst Luecke mit fehlender Stage", () => {
+  it("parity: equal is consistent, otherwise gap with the missing stage", () => {
     expect(row(r, "STRIPE_KEY")).toMatchObject({ parity: "consistent", missingIn: [] });
     expect(row(r, "DEBUG_TOKEN")).toMatchObject({ parity: "gap", missingIn: ["production"] });
     expect(row(r, "CLOUDFLARE_API_TOKEN").parity).toBe("n/a");
@@ -94,7 +94,7 @@ describe("compareMatrix ohne Live", () => {
     expect(r.summary.perStage.staging).toMatchObject({ expected: 4, present: 0 });
     expect(r.summary.orphans).toBe(0);
   });
-  it("Namen mit Stage-Wort werden nicht gleichgesetzt, mit Schalter schon", () => {
+  it("names with a stage word are not equated, with the switch they are", () => {
     expect(row(r, "SUPABASE_STAGING_URL").parity).toBe("gap");
     const n = compareMatrix(inv(), { normalizeNames: true });
     const u = row(n, "SUPABASE_URL");
@@ -102,14 +102,14 @@ describe("compareMatrix ohne Live", () => {
     expect(u.ids.sort()).toEqual(["url-prod", "url-staging"]);
     expect(n.rows.some((x) => x.name === "SUPABASE_STAGING_URL")).toBe(false);
   });
-  it("compare waehlt die verglichenen Stages", () => {
+  it("compare picks the compared stages", () => {
     const only = compareMatrix(inv(), { compare: ["staging", "shared"] });
     expect(only.compared).toEqual(["staging", "shared"]);
     expect(row(only, "STRIPE_KEY")).toMatchObject({ parity: "gap", missingIn: ["shared"] });
     expect(compareMatrix(inv(), { compare: ["gibt-es-nicht"] }).compared).toEqual(["staging", "production"]);
     expect(compareMatrix(inv(), { compare: ["staging"] }).rows.every((x) => x.parity === "n/a")).toBe(true);
   });
-  it("kinds und repo filtern", () => {
+  it("kinds and repo filter", () => {
     expect(compareMatrix(inv(), { kinds: ["variable"] }).rows.map((x) => x.name)).toEqual(["SITE_URL"]);
     expect(compareMatrix(inv(), { repo: "anderes" }).rows).toEqual([]);
   });
@@ -130,7 +130,7 @@ describe("compareMatrix live", () => {
       ],
     );
   const r = compareMatrix(inv(), {}, base());
-  it("ok, missing und different", () => {
+  it("ok, missing and different", () => {
     expect(row(r, "STRIPE_KEY").cells.production).toMatchObject({ state: "ok", expected: true, present: true });
     expect(row(r, "DEBUG_TOKEN").cells.staging.state).toBe("ok");
     expect(row(r, "DEBUG_TOKEN").cells.production).toMatchObject({ state: "not-expected", expected: false });
@@ -139,7 +139,7 @@ describe("compareMatrix live", () => {
     expect(diff).toMatchObject({ state: "different", present: true });
     expect(diff.detail).toMatchObject({ expectedValues: ["https://example.com"], actualValues: ["https://other.example.com"] });
   });
-  it("fehlendes Secret ist missing und eine Luecke", () => {
+  it("missing secret is missing and a gap", () => {
     const gone = base();
     gone.secret.set(k("environment", "production"), names("SUPABASE_PRODUCTION_URL"));
     const m = compareMatrix(inv(), {}, gone);
@@ -149,7 +149,7 @@ describe("compareMatrix live", () => {
     expect(s).toMatchObject({ parity: "gap", missingIn: ["production"] });
     expect(m.summary.perStage.production).toMatchObject({ missing: 1 });
   });
-  it("Waisen: unbekannte Namen im Ziel sind eigene Zeilen mit unexpected", () => {
+  it("orphans: unknown names in the target are own rows with unexpected", () => {
     const o = row(r, "LEFTOVER");
     expect(o.ids).toEqual([]);
     expect(o.cells.staging).toMatchObject({ state: "unexpected", present: true, expected: false });
@@ -159,7 +159,7 @@ describe("compareMatrix live", () => {
     expect(r.summary.orphans).toBe(2);
     expect(r.summary.perStage.staging.unexpected).toBe(1);
   });
-  it("vorhandener Name in einer Stage ohne Erwartung ist unexpected", () => {
+  it("existing name in a stage without expectation is unexpected", () => {
     const x = base();
     x.secret.set(k("environment", "production"), names("STRIPE_KEY", "DEBUG_TOKEN", "SUPABASE_PRODUCTION_URL"));
     const d = row(compareMatrix(inv(), {}, x), "DEBUG_TOKEN");
@@ -167,7 +167,7 @@ describe("compareMatrix live", () => {
     expect(d.ids).toEqual(["only-staging"]);
     expect(d.parity).toBe("consistent");
   });
-  it("nicht lesbares Ziel ergibt error-Zellen, Paritaet ueberspringt sie", () => {
+  it("unreadable target yields error cells, parity skips them", () => {
     const x = base();
     x.secret.set(k("environment", "production"), { error: "GitHub GET /x -> 403: no", status: 403 });
     const m = compareMatrix(inv(), {}, x);
@@ -179,14 +179,14 @@ describe("compareMatrix live", () => {
     expect(m.errors).toEqual([{ target: "secret web/environment/production", message: "GitHub GET /x -> 403: no" }]);
     expect(m.summary.perStage.production.error).toBeGreaterThan(0);
   });
-  it("Environment gibt es nicht (404): Name fehlt, notFound gemerkt", () => {
+  it("environment does not exist (404): name missing, notFound remembered", () => {
     const x = base();
     x.secret.set(k("environment", "production"), { names: new Map(), notFound: true });
     const c = row(compareMatrix(inv(), {}, x), "STRIPE_KEY").cells.production;
     expect(c.state).toBe("missing");
     expect(c.detail?.notFound).toEqual(["web/env:production"]);
   });
-  it("normalisierte Namen fuehren Live-Zeilen zusammen", () => {
+  it("normalized names merge live rows", () => {
     const m = compareMatrix(inv(), { normalizeNames: true }, base());
     const u = row(m, "SUPABASE_URL");
     expect(u.cells.staging.state).toBe("ok");
@@ -195,7 +195,7 @@ describe("compareMatrix live", () => {
   });
 });
 
-describe("Stage-Definitionen und Ziele", () => {
+describe("stage definitions and targets", () => {
   const CUSTOM = `version: 1
 stages:
   - { id: dev, kind: dev }
@@ -208,21 +208,21 @@ secrets:
   - { id: org, name: ORG_TOKEN, stage: common, service: x, expiry: none, places: [{ repo: app, scope: organization }] }
 `;
   const c = InventoryStore.fromText(CUSTOM).data;
-  it("Environment kommt aus der Stage, Repo-Ebene gehoert der shared-Stage", () => {
+  it("environment comes from the stage, repo level belongs to the shared stage", () => {
     expect(repoLevelStage(c.stages)).toBe("common");
     expect(stageLocation(c.stages, "qa", "app")).toEqual({ repo: "app", scope: "environment", environment: "qa" });
     expect(stageLocation(c.stages, "prod", "app")).toEqual({ repo: "app", scope: "environment", environment: "production-eu" });
     expect(stageLocation(c.stages, "dev", "app")).toBeUndefined();
     expect(stageLocation(c.stages, "common", "app")).toEqual({ repo: "app", scope: "repository" });
   });
-  it("requiredLocations: jedes Ziel einmal, Organisation einmal", () => {
+  it("requiredLocations: every target once, organization once", () => {
     const need = requiredLocations(c, {});
     const keys = need.secret.map(locationKey).sort();
     expect(keys).toEqual(["app/environment/production-eu", "app/environment/qa", "app/repository/", "organization"]);
     expect(requiredLocations(c, { kinds: ["variable"] }).secret).toEqual([]);
     expect(requiredLocations(c, { repo: "nope" }).secret).toEqual([]);
   });
-  it("mehrere Places: Ziel mit eigenem Namen bekommt eine eigene Zeile, fehlt dort -> missing", () => {
+  it("several places: target with its own name gets its own row, missing there -> missing", () => {
     const live = reads([
       [k("environment", "qa", "app"), names("API_KEY")],
       [k("environment", "production-eu", "app"), names("API_KEY")],
@@ -242,12 +242,12 @@ secrets:
   });
 });
 
-describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
+describe("compareMatrix: repositories without inventory and workflows", () => {
   const meta = (name: string, over: Partial<{ private: boolean; archived: boolean; pushedAt: string | null }> = {}) => ({ name, private: true, archived: false, pushedAt: "2026-10-20T08:00:00Z", ...over });
   const repos = [meta("web"), meta("night-before"), meta("costs"), meta("old", { archived: true }), meta(".github"), meta("status")];
   const kn = (repo: string, scope: "repository" | "environment", env?: string) => k(scope, env, repo);
 
-  it("Funde in Repos ohne Eintrag sind unexpected, auch in anderen Environments; leere Repos erscheinen in der Liste", () => {
+  it("findings in repos without an entry are unexpected, also in other environments; empty repos appear in the list", () => {
     const extra = {
       repos,
       readRepos: ["night-before", "costs", "status"],
@@ -280,7 +280,7 @@ describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
     expect(r.errors).toEqual([]);
   });
 
-  it("needed: Workflow braucht den Namen, er fehlt im Inventar und in GitHub; Zeilen im Inventar bekommen nur das Abzeichen", () => {
+  it("needed: workflow needs the name, it is missing in inventory and in GitHub; inventory rows only get the badge", () => {
     const needs = new Map([
       [
         "web",
@@ -326,7 +326,7 @@ describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
     expect(r.repos.find((x) => x.name === "web")!.notes).toEqual([{ code: "inherit", file: "ci.yml", job: "call" }]);
   });
 
-  it("ohne Live: needed ohne GitHub-Wissen; Art-Filter und Repo-Filter gelten auch fuer Workflows", () => {
+  it("without live: needed without GitHub knowledge; kind filter and repo filter apply to workflows too", () => {
     const needs = new Map([["web", { refs: [{ kind: "secret" as const, name: "NEW_KEY", file: "a.yml", environment: "staging" }, { kind: "variable" as const, name: "NEW_VAR", file: "a.yml", environment: "staging" }], notes: [] }], ["other", { refs: [{ kind: "secret" as const, name: "X", file: "a.yml" }], notes: [] }]]);
     const r = compareMatrix(inv(), { kinds: ["secret"] }, undefined, { needs });
     expect(row(r, "NEW_KEY").cells.staging!.state).toBe("needed");
@@ -334,7 +334,7 @@ describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
     expect(r.rows.some((x) => x.repo === "other")).toBe(false);
   });
 
-  it("Environment ohne Stage: bei gelesenem Repo fehlt der Name -> other.needed, sonst nicht gezaehlt", () => {
+  it("environment without stage: for a read repo the name is missing -> other.needed, otherwise not counted", () => {
     const needs = new Map([["night-before", { refs: [{ kind: "secret" as const, name: "PREVIEW_KEY", file: "p.yml", environment: "preview" }, { kind: "secret" as const, name: "GONE_KEY", file: "p.yml", environment: "nope" }], notes: [] }]]);
     const extra = {
       repos: [meta("night-before")],
@@ -350,20 +350,20 @@ describe("compareMatrix: Repositories ohne Inventar und Workflows", () => {
     expect(row(r, "GONE_KEY").neededMissing).toBe(true);
   });
 
-  it("umbenannte und fehlende Inventar-Repositories", () => {
+  it("renamed and missing inventory repositories", () => {
     const r = compareMatrix(inv(), {}, reads([]), { repos: [meta("web2")], renames: { web: "web2" } });
     const web = r.repos.find((x) => x.name === "web")!;
     expect(web).toMatchObject({ inInventory: true, onGitHub: false, renamedTo: "web2" });
     expect(r.repos.find((x) => x.name === "web2")!.inInventory).toBe(false);
   });
 
-  it("ohne Extras bleibt die Repository-Liste auf das Inventar beschraenkt", () => {
+  it("without extras the repository list stays limited to the inventory", () => {
     const r = compareMatrix(inv(), {});
     expect(r.repos).toEqual([{ name: "web", inInventory: true, private: null, archived: null, pushedAt: null, onGitHub: null, found: { secrets: 0, variables: 0 }, needed: 0, notes: [] }]);
   });
 });
 
-describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories", () => {
+describe("compareMatrix: level mismatch, optional, ignored repositories", () => {
   const wfNeeds = (repo: string, refs: { kind: "secret" | "variable"; name: string; file: string; environment?: string; optional?: boolean }[]) => new Map([[repo, { refs, notes: [] }]]);
   const liveReads = reads(
     [
@@ -374,7 +374,7 @@ describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories",
     [[k("environment", "staging"), vars({})], [k("environment", "production"), vars({})], [k("repository"), vars({})]],
   );
 
-  it("level-mismatch: Name steht im Inventar auf anderer Stage; ohne Aufnahmezustand, getrennt gezaehlt", () => {
+  it("level-mismatch: name is in the inventory on another stage; without adoption state, counted separately", () => {
     const needs = wfNeeds("web", [
       { kind: "secret", name: "STRIPE_KEY", file: "provision.yml" },
       { kind: "secret", name: "BRAND_NEW", file: "provision.yml" },
@@ -391,7 +391,7 @@ describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories",
     expect(r.repos.find((x) => x.name === "web")!.needed).toBe(1);
   });
 
-  it("level-mismatch gilt auch ohne Live; von der Repo-Ebene gedeckt bleibt es not-expected", () => {
+  it("level-mismatch applies without live too; when covered by the repo level it stays not-expected", () => {
     const needs = wfNeeds("web", [{ kind: "secret", name: "STRIPE_KEY", file: "provision.yml" }]);
     expect(row(compareMatrix(inv(), {}, undefined, { needs }), "STRIPE_KEY").cells.shared!.state).toBe("level-mismatch");
     const covered = reads([[k("environment", "staging"), names("STRIPE_KEY")], [k("environment", "production"), names("STRIPE_KEY")], [k("repository"), names("STRIPE_KEY")]]);
@@ -400,7 +400,7 @@ describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories",
     expect(row(r, "STRIPE_KEY").levelMismatch).toBe(false);
   });
 
-  it("optional: nur geprueft, nie needed oder level-mismatch, auch nicht bei Namen im Inventar", () => {
+  it("optional: only checked, never needed or level-mismatch, not even for names in the inventory", () => {
     const needs = wfNeeds("web", [
       { kind: "secret", name: "STRIPE_KEY", file: "up.yml", optional: true },
       { kind: "secret", name: "SLACK_HOOK", file: "up.yml", optional: true },
@@ -417,13 +417,13 @@ describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories",
     expect(r.summary).toMatchObject({ neededMissing: 1, levelMismatch: 0 });
   });
 
-  it("optional: Environment ohne Stage zaehlt nicht als fehlend", () => {
+  it("optional: environment without stage does not count as missing", () => {
     const needs = wfNeeds("web", [{ kind: "secret", name: "GONE_KEY", file: "a.yml", environment: "nope", optional: true }]);
     const r = compareMatrix(inv(), {}, liveReads, { needs, readRepos: ["web"], envs: new Map([["web", []]]), reads: liveReads });
     expect(row(r, "GONE_KEY").neededMissing).toBe(false);
   });
 
-  it("ignoreRepos: keine Zeilen, keine Repo-Eintraege, nicht in required Locations; Liste der Ignorierten", () => {
+  it("ignoreRepos: no rows, no repo entries, not in required locations; list of the ignored", () => {
     const text = YAML.replace("\nvariables:", `\n  - id: tpl\n    name: TPL_SECRET\n    stage: shared\n    service: x\n    expiry: none\n    places: [{ repo: status, scope: repository }]\nvariables:`);
     const i = InventoryStore.fromText(text.replace("variables:", "variables:")).data;
     expect(compareRepos(i, {})).toEqual(["status", "web"]);
@@ -442,8 +442,8 @@ describe("compareMatrix: Ebenen-Unterschied, optional, ignorierte Repositories",
   });
 });
 
-describe("requiredLocations und ignoreRepos", () => {
-  it("liest Ziele ignorierter Inventar-Repositories nicht", () => {
+describe("requiredLocations and ignoreRepos", () => {
+  it("does not read targets of ignored inventory repositories", () => {
     const text = YAML.replace("\nvariables:", `\n  - id: tpl\n    name: TPL_SECRET\n    stage: shared\n    service: x\n    expiry: none\n    places: [{ repo: status, scope: repository }]\nvariables:`);
     const i = InventoryStore.fromText(text).data;
     expect(requiredLocations(i, {}).secret.some((l) => l.repo === "status")).toBe(true);

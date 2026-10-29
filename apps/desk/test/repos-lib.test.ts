@@ -10,35 +10,35 @@ const all = buildSuggestions({
   ],
 });
 
-describe("Repository-Vorschlaege", () => {
-  it("fuehrt die Quellen je Repository zusammen", () => {
+describe("repository suggestions", () => {
+  it("merges the sources per repository", () => {
     expect(all.find((s) => s.name === "acme-app")?.sources).toEqual(["inventory", "github", "linked"]);
     expect(all.find((s) => s.name === "acme-api")?.sources).toEqual(["inventory"]);
     expect(buildSuggestions(null)).toEqual([]);
   });
-  it("leere Eingabe zeigt alles alphabetisch, begrenzt", () => {
+  it("empty input shows everything alphabetically, limited", () => {
     expect(filterSuggestions(all, "").map((s) => s.name)).toEqual(["acme-api", "acme-app", "acme-app-landing", "my-acme-app"]);
     expect(filterSuggestions(all, "", 2)).toHaveLength(2);
   });
-  it("filtert ohne Gross-/Kleinschreibung, genau vor Praefix vor Teilstring", () => {
+  it("filters case-insensitively, exact before prefix before substring", () => {
     expect(filterSuggestions(all, "ACME-APP").map((s) => s.name)).toEqual(["acme-app", "acme-app-landing", "my-acme-app"]);
     expect(filterSuggestions(all, "my-acme").map((s) => s.name)).toEqual(["my-acme-app"]);
     expect(filterSuggestions(all, "  acme-api ").map((s) => s.name)).toEqual(["acme-api"]);
   });
-  it("liefert nichts bei Nichttreffer (freie Eingabe bleibt Sache des Feldes)", () => {
+  it("yields nothing on no match (free input stays the field's business)", () => {
     expect(filterSuggestions(all, "zzz")).toEqual([]);
   });
 });
 
-describe("Verknuepfungs-Status und Standardpfad", () => {
-  it("ordnet Zustaende ein", () => {
+describe("link status and default path", () => {
+  it("classifies states", () => {
     expect(linkState(null)).toBe("none");
     expect(linkState({ exists: false, remote: null, remoteMatches: null })).toBe("missing");
     expect(linkState({ exists: true, remote: null, remoteMatches: null })).toBe("no-remote");
     expect(linkState({ exists: true, remote: "x", remoteMatches: false })).toBe("mismatch");
     expect(linkState({ exists: true, remote: "x", remoteMatches: true })).toBe("ok");
   });
-  it("baut den Standardpfad aus Ordner und Vorlagendatei", () => {
+  it("builds the default path from folder and template file", () => {
     expect(defaultEnvPath("/p/wm/", ".env.local")).toBe("/p/wm/.env.local");
     expect(defaultEnvPath(null, ".env.local")).toBeNull();
   });

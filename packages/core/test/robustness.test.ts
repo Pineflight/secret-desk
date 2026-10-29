@@ -49,8 +49,8 @@ async function make(o: Opts = {}) {
   return { deps, inventory, issue, revoke, puts };
 }
 
-describe("M1: commitIssuance ist einmalig und nebenlaeufig sicher", () => {
-  it("Promise.all([confirm, confirm]) schreibt einmal, das zweite wirft", async () => {
+describe("M1: commitIssuance is single-use and concurrency-safe", () => {
+  it("Promise.all([confirm, confirm]) writes once, the second throws", async () => {
     const { deps, puts } = await make();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const res = await Promise.allSettled([commitIssuance(p, deps, { by: "a", ticks: ["c1"] }), commitIssuance(p, deps, { by: "a", ticks: ["c1"] })]);
@@ -58,7 +58,7 @@ describe("M1: commitIssuance ist einmalig und nebenlaeufig sicher", () => {
     expect((res.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toBeInstanceOf(IssuanceError);
     expect(puts.filter((w) => w.startsWith("PUT"))).toHaveLength(2); // zwei Ziele, einmal geschrieben
   });
-  it("spaeterer zweiter Commit wirft ebenfalls, reject danach auch", async () => {
+  it("later second commit throws too, reject afterwards as well", async () => {
     const { deps, puts } = await make();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     await commitIssuance(p, deps, { by: "a", ticks: ["c1"] });
@@ -66,7 +66,7 @@ describe("M1: commitIssuance ist einmalig und nebenlaeufig sicher", () => {
     await expect(discardIssuance(p, deps, { by: "a", why: "rejected" })).rejects.toThrow(/erledigt/);
     expect(puts.filter((w) => w.startsWith("PUT"))).toHaveLength(2);
   });
-  it("nach einem Zielfehler bleibt die Anfrage offen und kann wiederholt werden", async () => {
+  it("after a target error the request stays open and can be retried", async () => {
     const ctx = await make({ failRepos: ["acme-app-landing"] });
     const p = await prepareIssuance("cf-deploy-acme-app", ctx.deps);
     const first = await commitIssuance(p, ctx.deps, { by: "a", ticks: ["c1"] });
@@ -75,7 +75,7 @@ describe("M1: commitIssuance ist einmalig und nebenlaeufig sicher", () => {
     const second = await commitIssuance(p, ctx.deps, { by: "a", ticks: ["c1"] });
     expect(second.ok).toBe(false);
   });
-  it("Inventar nicht speicherbar nach erfolgreichem Widerruf: Ergebnis warnt klar", async () => {
+  it("inventory not savable after successful revoke: result warns clearly", async () => {
     const { deps, inventory, revoke } = await make();
     vi.spyOn(inventory, "save").mockRejectedValue(new Error("ENOSPC"));
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
@@ -87,8 +87,8 @@ describe("M1: commitIssuance ist einmalig und nebenlaeufig sicher", () => {
   });
 });
 
-describe("M2: Randfaelle der Ausstellung", () => {
-  it("Ablaufgrenze: now == expiresAt gilt noch, eine Millisekunde spaeter nicht", async () => {
+describe("M2: edge cases of issuance", () => {
+  it("expiry boundary: now == expiresAt still valid, one millisecond later not", async () => {
     const { deps } = await make();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const at = (iso: number) => ({ ...deps, now: () => new Date(iso) });
@@ -96,7 +96,7 @@ describe("M2: Randfaelle der Ausstellung", () => {
     const r = await commitIssuance(p, at(Date.parse(p.expiresAt)), { by: "a", ticks: ["c1"] });
     expect(r.ok).toBe(true);
   });
-  it("putSecret-Teilfehler: alter Wert bleibt, nichts widerrufen, Inventar unveraendert", async () => {
+  it("putSecret partial failure: old value stays, nothing revoked, inventory unchanged", async () => {
     const { deps, inventory, revoke } = await make({ failRepos: ["acme-app-landing"] });
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const r = await commitIssuance(p, deps, { by: "a", ticks: ["c1"] });
@@ -104,7 +104,7 @@ describe("M2: Randfaelle der Ausstellung", () => {
     expect(revoke).not.toHaveBeenCalled();
     expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("old-token-id");
   });
-  it("revoke des alten Werts wirft: Commit gelingt, Bericht warnt", async () => {
+  it("revoke of the old value throws: commit succeeds, report warns", async () => {
     const { deps, inventory } = await make({ revokeImpl: async () => { throw new Error("401"); } });
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const r = await commitIssuance(p, deps, { by: "a", ticks: ["c1"] });
@@ -113,14 +113,14 @@ describe("M2: Randfaelle der Ausstellung", () => {
     expect(p.report.checks.find((c) => c.id === "revoke-old")).toMatchObject({ status: "warn" });
     expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("new-id");
   });
-  it("discard mit werfendem revoke: nicht widerrufen steht in der Notiz", async () => {
+  it("discard with throwing revoke: not revoked is in the note", async () => {
     const { deps } = await make({ revokeImpl: async () => { throw new Error("boom"); } });
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const r = await discardIssuance(p, deps, { by: "a", why: "rejected" });
     expect(r.revokedNew).toBe(false);
     expect(p.report.confirmation?.note).toContain("NICHT widerrufen");
   });
-  it("Ablauf unbekannt (possible, kein ttl, keine Anbieterangabe): kein altes Datum, Status unknown", async () => {
+  it("expiry unknown (possible, no ttl, no provider hint): no old date, status unknown", async () => {
     const yaml = INVENTORY_YAML.replace("    ttlDays: 90\n", "");
     const { deps, inventory } = await make({ yaml, issued: { expiresAt: null } });
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
@@ -136,15 +136,15 @@ describe("M2: Randfaelle der Ausstellung", () => {
   });
 });
 
-describe("M4/H8: rotateSecret Fehlerpfade", () => {
-  it("issue wirft: Fehler geht durch, nichts geschrieben, nichts widerrufen", async () => {
+describe("M4/H8: rotation error paths", () => {
+  it("issue throws: error passes through, nothing written, nothing revoked", async () => {
     const { deps, issue, revoke, puts } = await make();
     issue.mockRejectedValueOnce(new Error("Anbieter 500"));
     await expect(rotateSecret("cf-deploy-acme-app", deps)).rejects.toThrow("Anbieter 500");
     expect(puts).toHaveLength(0);
     expect(revoke).not.toHaveBeenCalled();
   });
-  it("alle Ziele schlagen fehl: frisch ausgestellter Token wird widerrufen", async () => {
+  it("all targets fail: freshly issued token is revoked", async () => {
     const { deps, revoke } = await make({ failRepos: ["acme-app", "acme-app-landing"] });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.ok).toBe(false);
@@ -152,38 +152,38 @@ describe("M4/H8: rotateSecret Fehlerpfade", () => {
     expect(r.newTokenRevoked).toBe(true);
     expect(r.orphanExternalId).toBeUndefined();
   });
-  it("alle Ziele fehlen und Widerruf scheitert: externalId im Ergebnis und in der Warnung", async () => {
+  it("all targets fail and revoke fails: externalId in the result and in the warning", async () => {
     const { deps } = await make({ failRepos: ["acme-app", "acme-app-landing"], revokeImpl: async () => { throw new Error("nope"); } });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.orphanExternalId).toBe("new-id");
     expect(r.warnings?.join(" ")).toContain("new-id");
   });
-  it("Anbieter ohne revoke: externalId in der Warnung", async () => {
+  it("provider without revoke: externalId in the warning", async () => {
     const { deps } = await make({ failRepos: ["acme-app", "acme-app-landing"], noRevoke: true });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.orphanExternalId).toBe("new-id");
   });
-  it("Teilfehler: neuer Token bleibt (in Einsatz), Ergebnis nennt die Kennung", async () => {
+  it("partial failure: new token stays (in use), result names the identifier", async () => {
     const { deps, revoke } = await make({ failRepos: ["acme-app-landing"] });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.partial).toBe(true);
     expect(r.orphanExternalId).toBe("new-id");
     expect(revoke).not.toHaveBeenCalled();
   });
-  it("revoke des alten wirft: Rotation gelingt trotzdem, revoked false", async () => {
+  it("revoke of the old one throws: rotation succeeds anyway, revoked false", async () => {
     const { deps, inventory } = await make({ revokeImpl: async () => { throw new Error("401"); } });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r).toMatchObject({ ok: true, revoked: false });
     expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("new-id");
   });
-  it("expiry none: expires bleibt null", async () => {
+  it("expiry none: expires stays null", async () => {
     const yaml = INVENTORY_YAML.replace('expiry: possible\n    expires: "2027-01-21"', "expiry: none");
     const { deps, inventory } = await make({ yaml, issued: { expiresAt: null } });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.expires).toBeNull();
     expect(inventory.getSecret("cf-deploy-acme-app")!.expires).toBeNull();
   });
-  it("possible ohne ttl und ohne Anbieterablauf: altes Datum entfaellt, Hinweis", async () => {
+  it("possible without ttl and without provider expiry: old date dropped, hint", async () => {
     const yaml = INVENTORY_YAML.replace("    ttlDays: 90\n", "");
     const { deps, inventory } = await make({ yaml, issued: { expiresAt: null } });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
@@ -191,7 +191,7 @@ describe("M4/H8: rotateSecret Fehlerpfade", () => {
     expect(inventory.getSecret("cf-deploy-acme-app")!.expires).toBeNull();
     expect(r.warnings?.join(" ")).toMatch(/Ablaufdatum.*unbekannt/);
   });
-  it("Inventar nicht speicherbar: Warnung mit neuer Kennung statt Stille", async () => {
+  it("inventory not savable: warning with new identifier instead of silence", async () => {
     const { deps, inventory } = await make();
     vi.spyOn(inventory, "save").mockRejectedValue(new Error("EIO"));
     const r = await rotateSecret("cf-deploy-acme-app", deps);
@@ -200,23 +200,23 @@ describe("M4/H8: rotateSecret Fehlerpfade", () => {
   });
 });
 
-describe("H8: buildEnvFile prueft vor dem ersten issue", () => {
+describe("H8: buildEnvFile checks before the first issue", () => {
   const yaml = INVENTORY_YAML.replace(
     "      - { key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 16 } }\n      - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: Sandbox-Key } }",
     "      - { key: CF_DEV_TOKEN, from: { type: issue, secret: cf-deploy-acme-app } }\n      - { key: LATER, from: { type: issue, secret: lead-token-dev } }",
   );
-  it("Variable ohne Sollwert: kein issue vorher", async () => {
+  it("variable without target value: no issue before", async () => {
     const y = yaml.replace("envTemplates:", "variables:\n  - { id: v1, name: V_ONE, stage: dev, places: [ { repo: r, scope: repository } ] }\nenvTemplates:").replace("{ key: LATER, from: { type: issue, secret: lead-token-dev } }", "{ key: LATER, from: { type: variable, variable: v1 } }");
     const { deps, issue } = await make({ yaml: y });
     await expect(buildEnvFile(deps.inventory.data.envTemplates[0]!, deps)).rejects.toThrow(/keinen Sollwert/);
     expect(issue).not.toHaveBeenCalled();
   });
-  it("spaetere Quelle ohne Anbieter, der ausstellen kann: kein issue vorher", async () => {
+  it("later source without provider that can issue: no issue before", async () => {
     const { deps, issue } = await make({ yaml });
     await expect(buildEnvFile(deps.inventory.data.envTemplates[0]!, deps)).rejects.toThrow(EnvExportError);
     expect(issue).not.toHaveBeenCalled();
   });
-  it("scheitert ein spaeteres issue, wird das frueher ausgestellte widerrufen", async () => {
+  it("if a later issue fails, the earlier issued one is revoked", async () => {
     const { deps, issue, revoke } = await make({ yaml });
     // Zweites Secret nutzt denselben Anbieter, der beim zweiten Aufruf scheitert.
     deps.inventory.patchSecret("lead-token-dev", {});
@@ -230,7 +230,7 @@ describe("H8: buildEnvFile prueft vor dem ersten issue", () => {
   });
 });
 
-describe("M3: computeStatus und findings", () => {
+describe("M3: computeStatus and findings", () => {
   const secret = InventoryStore.fromText(INVENTORY_YAML).getSecret("cf-deploy-acme-app")!; // expires 2027-01-21
   const table: [number, string][] = [[31, "ok"], [30, "soon"], [15, "soon"], [14, "soon"], [8, "soon"], [7, "due"], [1, "due"], [0, "due"], [-1, "expired"]];
   for (const [daysLeft, status] of table) {
@@ -241,7 +241,7 @@ describe("M3: computeStatus und findings", () => {
       expect(r.status).toBe(status);
     });
   }
-  it("findings: Stufe, Schluessel und Text je Schwelle", () => {
+  it("findings: level, key and text per threshold", () => {
     const inv = InventoryStore.fromText(INVENTORY_YAML).data;
     const at = (daysLeft: number) => findings(inv, new Date(Date.parse("2027-01-21T12:00:00Z") - daysLeft * 86_400_000))[0];
     expect(at(31)).toBeUndefined();

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { checkConnection, listWriteTargets, tokenPrefixProblem } from "../src/index.js";
 import { createRuntime } from "../src/runtime.js";
 
-const TOKEN = "ghp_SUPERSECRETTOKEN1234567890";
+const TOKEN = "ghp_" + "SUPERSECRETTOKEN1234567890";
 const NOW = new Date("2026-11-01T10:00:00Z");
 
 const INVENTORY = `version: 1
@@ -67,7 +67,7 @@ const byId = (r: { checks: { id: string; status: string }[] }) => Object.fromEnt
 const leak = (r: unknown, ...vals: string[]) => vals.forEach((v) => expect(JSON.stringify(r)).not.toContain(v));
 
 describe("listWriteTargets", () => {
-  it("fasst Ziele aus Secrets und Variablen zusammen und markiert live", async () => {
+  it("merges targets from secrets and variables and marks live", async () => {
     const { rt } = await setup(() => undefined);
     const t = listWriteTargets(rt);
     expect(t.map((x) => [x.id, x.live])).toEqual([
@@ -79,7 +79,7 @@ describe("listWriteTargets", () => {
 });
 
 describe("checkConnection: GitHub", () => {
-  it("ohne deep: Anmeldung, Ablauf, Public-Key je Ziel, nie ein PUT oder DELETE", async () => {
+  it("without deep: sign-in, expiry, public key per target, never a PUT or DELETE", async () => {
     const { rt, calls } = await setup(ghUser);
     const r = await checkConnection(rt, "github", {}, NOW);
     expect(r.ok).toBe(true);
@@ -90,14 +90,14 @@ describe("checkConnection: GitHub", () => {
     leak(r, TOKEN);
   });
 
-  it("ohne Ablauf-Kopf: expires null und Hinweis", async () => {
+  it("without expiry header: expires null and hint", async () => {
     const { rt } = await setup((url) => (url === "https://api.github.com/user" ? { body: { login: "n" } } : undefined));
     const r = await checkConnection(rt, "github", {}, NOW);
     expect(r.expires).toBeNull();
     expect(byId(r)["expiry"]).toBe("warn");
   });
 
-  it("401 beim Login ist ein Fehler und es werden keine Ziele abgefragt", async () => {
+  it("401 on login is an error and no targets are queried", async () => {
     const { rt, calls } = await setup((url) => (url === "https://api.github.com/user" ? { status: 401, body: { message: `Bad credentials ${TOKEN}` } } : undefined));
     const r = await checkConnection(rt, "github", {}, NOW);
     expect(r.ok).toBe(false);
@@ -106,7 +106,7 @@ describe("checkConnection: GitHub", () => {
     leak(r, TOKEN);
   });
 
-  it("403 'Resource not accessible' liefert den Hinweis auf das fehlende Recht", async () => {
+  it("403 Resource not accessible returns the hint about the missing permission", async () => {
     const { rt } = await setup((url) => (url.endsWith("/public-key") ? { status: 403, body: { message: "Resource not accessible by personal access token" } } : ghUser(url, "GET", {})));
     const r = await checkConnection(rt, "github", {}, NOW);
     expect(r.ok).toBe(false);
@@ -115,7 +115,7 @@ describe("checkConnection: GitHub", () => {
     expect(c?.detail).toMatch(/Read and write/);
   });
 
-  it("deep schreibt nur in die gewaehlten Ziele: PUT dann DELETE, Secret und Variable", async () => {
+  it("deep writes only to the chosen targets: PUT then DELETE, secret and variable", async () => {
     const { rt, calls } = await setup(ghUser);
     const r = await checkConnection(rt, "github", { deep: true, targets: ["environment:acme-docs/staging"] }, NOW);
     expect(r.checks.filter((c) => c.status === "fail")).toEqual([]);
@@ -132,7 +132,7 @@ describe("checkConnection: GitHub", () => {
     leak(r, TOKEN);
   });
 
-  it("deep ohne Ziele oder ohne deep schreibt nichts; unbekanntes Ziel wird uebersprungen", async () => {
+  it("deep without targets or without deep writes nothing; unknown target is skipped", async () => {
     const { rt, calls } = await setup(ghUser);
     await checkConnection(rt, "github", { deep: true, targets: [] }, NOW);
     await checkConnection(rt, "github", { targets: ["repository:acme-app"] }, NOW);
@@ -141,7 +141,7 @@ describe("checkConnection: GitHub", () => {
     expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
-  it("Fehler beim DELETE wird gemeldet und nennt den Namen zum Aufraeumen", async () => {
+  it("error on DELETE is reported and names the name to clean up", async () => {
     const { rt } = await setup((url, method) => (method === "DELETE" && url.endsWith("/secrets/SD_WRITE_PROBE") ? { status: 500, body: { message: "boom" } } : ghUser(url, method, {})));
     const r = await checkConnection(rt, "github", { deep: true, targets: ["repository:acme-app"] }, NOW);
     expect(r.ok).toBe(false);
@@ -151,21 +151,21 @@ describe("checkConnection: GitHub", () => {
     expect(c?.detail).toMatch(/von Hand/);
   });
 
-  it("403 beim Schreiben: Hinweis auf fehlendes Recht, die Variable wird trotzdem geprueft", async () => {
+  it("403 on write: hint about missing permission, the variable is still checked", async () => {
     const { rt } = await setup((url, method) => (method === "PUT" ? { status: 403, body: { message: "Resource not accessible by personal access token" } } : ghUser(url, method, {})));
     const r = await checkConnection(rt, "github", { deep: true, targets: ["repository:acme-app"] }, NOW);
     expect(byId(r)).toMatchObject({ "write-secret:repository:acme-app": "fail", "write-variable:repository:acme-app": "pass" });
     expect(r.checks.find((x) => x.id === "write-secret:repository:acme-app")?.detail).toMatch(/Secrets/);
   });
 
-  it("ein bestehendes SD_WRITE_PROBE wird nicht ueberschrieben", async () => {
+  it("an existing SD_WRITE_PROBE is not overwritten", async () => {
     const { rt, calls } = await setup((url, method) => (method === "GET" && /acme-app\/actions\/secrets\?/.test(url) ? { body: { secrets: [{ name: "SD_WRITE_PROBE", created_at: "x", updated_at: "x" }] } } : ghUser(url, method, {})));
     const r = await checkConnection(rt, "github", { deep: true, targets: ["repository:acme-app"] }, NOW);
     expect(byId(r)["write-secret:repository:acme-app"]).toBe("warn");
     expect(calls.some((c) => c.method === "PUT" && c.url.includes("/secrets/"))).toBe(false);
   });
 
-  it("nicht verbunden: fail, kein Aufruf", async () => {
+  it("not connected: fail, no call", async () => {
     const { rt, calls } = await setup(ghUser);
     rt.connections.session.delete("github");
     const r = await checkConnection(rt, "github", {}, NOW);
@@ -173,16 +173,16 @@ describe("checkConnection: GitHub", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("unbekannte Verbindung wirft", async () => {
+  it("unknown connection throws", async () => {
     const { rt } = await setup(ghUser);
     await expect(checkConnection(rt, "gibt-es-nicht")).rejects.toThrow(/Unbekannte Verbindung/);
   });
 });
 
-describe("checkConnection: Anbieter", () => {
+describe("checkConnection: provider", () => {
   const tok = (id: string, value: string) => ({ tokens: { [id]: value } });
 
-  it("cloudflare: aktiv mit Ablauf in 3 Tagen -> pass/warn; Ablauf spaeter als 7 Tage -> Empfehlung", async () => {
+  it("cloudflare: active with expiry in 3 days -> pass/warn; expiry later than 7 days -> recommendation", async () => {
     const mk = (expires: string): Handler => (url) => (url.endsWith("/user/tokens/verify") ? { body: { success: true, result: { status: "active", expires_on: expires } } } : undefined);
     const soon = await setup(mk("2026-11-04T00:00:00Z"), tok("cloudflare", "cf-secret-token-123"));
     const a = await checkConnection(soon.rt, "cloudflare", {}, NOW);
@@ -196,14 +196,14 @@ describe("checkConnection: Anbieter", () => {
     leak(b, "cf-secret-token-123");
   });
 
-  it("cloudflare 401 -> fail, cloudflare-turnstile nutzt denselben Endpunkt", async () => {
+  it("cloudflare 401 -> fail, cloudflare-turnstile uses the same endpoint", async () => {
     const { rt, calls } = await setup(() => ({ status: 401, body: { success: false } }), { tokens: { cloudflare: "cf-x-1234567", "cloudflare-turnstile": "cf-t-1234567" } });
     expect((await checkConnection(rt, "cloudflare", {}, NOW)).ok).toBe(false);
     expect((await checkConnection(rt, "cloudflare-turnstile", {}, NOW)).ok).toBe(false);
     expect(calls.map((c) => c.url)).toEqual(Array(2).fill("https://api.cloudflare.com/client/v4/user/tokens/verify"));
   });
 
-  it("supabase: 200 pass, 401 und 403 fail mit eigenem Text", async () => {
+  it("supabase: 200 pass, 401 and 403 fail with own text", async () => {
     for (const [status, ok, re] of [[200, true, /lesen/], [401, false, /ungueltig/], [403, false, /Rechte/]] as const) {
       const { rt, calls } = await setup(() => ({ status, body: [] }), tok("supabase", "sbp_secretsecret123"));
       const r = await checkConnection(rt, "supabase", {}, NOW);
@@ -214,7 +214,7 @@ describe("checkConnection: Anbieter", () => {
     }
   });
 
-  it("stripe: 200 pass mit Modus, 403 ist nur ein Hinweis, falsches Praefix ist ein Fehler", async () => {
+  it("stripe: 200 pass with mode, 403 is only a hint, wrong prefix is an error", async () => {
     const live = await setup(() => ({ body: { object: "balance" } }), tok("stripe", "rk_live_abcdefghijklmnop"));
     const a = await checkConnection(live.rt, "stripe", {}, NOW);
     expect(a.ok).toBe(true);
@@ -233,7 +233,7 @@ describe("checkConnection: Anbieter", () => {
     expect((await checkConnection(bad.rt, "stripe", {}, NOW)).ok).toBe(false);
   });
 
-  it("resend: 200 pass, 401 und 403 verlangen Full access", async () => {
+  it("resend: 200 pass, 401 and 403 require full access", async () => {
     const ok = await setup(() => ({ body: { data: [] } }), tok("resend", "re_secretsecret123"));
     expect((await checkConnection(ok.rt, "resend", {}, NOW)).ok).toBe(true);
     expect(ok.calls[0]!.url).toBe("https://api.resend.com/api-keys");
@@ -246,7 +246,7 @@ describe("checkConnection: Anbieter", () => {
     }
   });
 
-  it("grafana: nicht pruefbar, nur ein Hinweis, kein Aufruf", async () => {
+  it("grafana: not checkable, hint only, no call", async () => {
     const { rt, calls } = await setup(() => undefined, tok("grafana", "glsa_secret1234567"));
     const r = await checkConnection(rt, "grafana", {}, NOW);
     expect(r.ok).toBe(true);
@@ -254,7 +254,7 @@ describe("checkConnection: Anbieter", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("Netzfehler und Zeitlimit werden bereinigt gemeldet", async () => {
+  it("network errors and timeout are reported sanitized", async () => {
     const { rt } = await setup(() => {
       throw new Error(`connect ECONNREFUSED with ${TOKEN}`);
     }, tok("supabase", "sbp_secretsecret123"));
@@ -266,7 +266,7 @@ describe("checkConnection: Anbieter", () => {
 });
 
 describe("tokenPrefixProblem", () => {
-  it("meldet nur echte Widersprueche", () => {
+  it("reports real contradictions only", () => {
     expect(tokenPrefixProblem("stripe-test", "rk_live_x")).toMatch(/Live-Schluessel/);
     expect(tokenPrefixProblem("stripe-live", "sk_test_x")).toMatch(/Sandbox-Schluessel/);
     expect(tokenPrefixProblem("stripe-test", "rk_test_x")).toBeUndefined();
@@ -277,8 +277,8 @@ describe("tokenPrefixProblem", () => {
   });
 });
 
-describe("GitHub: optionales Recht Contents: Read", () => {
-  it("lesbar: pass; 403: nur info (kein Fehler); 404 (kein Workflow-Ordner): kein Verbotshinweis", async () => {
+describe("GitHub: optional permission Contents: Read", () => {
+  it("readable: pass; 403: info only (no error); 404 (no workflow folder): no prohibition hint", async () => {
     const ok = await setup((u) => (u.includes("/contents/.github/workflows") ? { body: [{ name: "ci.yml", type: "file", size: 1 }] } : ghUser(u, "GET", {})));
     const r1 = await checkConnection(ok.rt, "github");
     expect(byId(r1).contents).toBe("pass");

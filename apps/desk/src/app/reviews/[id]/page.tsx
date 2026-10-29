@@ -45,7 +45,7 @@ export default function ReviewDetailPage() {
   if (q.error) {
     return (
       <>
-        <p className="mb-2 text-sm"><Link href="/pruefen" className="text-primary hover:underline">{t("reviews.detail.backAll")}</Link></p>
+        <p className="mb-2 text-sm"><Link href="/reviews" className="text-primary hover:underline">{t("reviews.detail.backAll")}</Link></p>
         <ErrorState error={q.error} onRetry={q.reload} />
         <p className="mt-3 text-sm text-muted-text">{t("reviews.detail.expiresHint")}</p>
       </>
@@ -71,7 +71,7 @@ export default function ReviewDetailPage() {
     const res = await reject.run();
     if (res) {
       toast.success(res.revokedNew ? t("reviews.detail.rejectedDeleted") : t("reviews.detail.rejected"));
-      router.push("/pruefen");
+      router.push("/reviews");
     }
   };
   const pickFile = async () => {
@@ -94,7 +94,7 @@ export default function ReviewDetailPage() {
 
   return (
     <>
-      <p className="mb-2 text-sm"><Link href="/pruefen" className="text-primary hover:underline">{t("reviews.detail.backAll")}</Link></p>
+      <p className="mb-2 text-sm"><Link href="/reviews" className="text-primary hover:underline">{t("reviews.detail.backAll")}</Link></p>
       <PageHeader
         title={r.secretName}
         subtitle={<span className="flex flex-wrap items-center gap-2"><StageBadge stage={r.stage} /><Badge info={overallInfo(r.overall)} /><span>{t("reviews.detail.atProvider", { kind: r.kind === "manual" ? t("reviews.detail.kindManual") : t("reviews.detail.kindAuto"), provider: r.provider })}</span></span>}
@@ -213,7 +213,7 @@ function CommitDone({ result }: { result: CommitResult }) {
         </dl>
         <div className="mt-5 flex gap-2">
           <Link href={`/secrets/${enc(result.secretId)}`} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white">{t("reviews.done.toSecret")}</Link>
-          <Link href="/pruefen" className="rounded-xl border border-line px-4 py-2 text-sm font-medium">{t("reviews.done.moreReviews")}</Link>
+          <Link href="/reviews" className="rounded-xl border border-line px-4 py-2 text-sm font-medium">{t("reviews.done.moreReviews")}</Link>
         </div>
         {failedPlaces.length > 0 ? <p className="mt-3 text-xs text-muted">{t("reviews.done.failedPlaces", { count: failedPlaces.length })}</p> : null}
       </Card>

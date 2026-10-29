@@ -62,7 +62,7 @@ async function setup(github: (url: string) => Response = () => new Response(JSON
 }
 
 describe("parseGitRemote", () => {
-  it("versteht https, ssh und scp-Form", () => {
+  it("understands https, ssh and scp form", () => {
     expect(parseGitRemote("https://github.com/acme/acme-app.git")).toEqual({ owner: "acme", repo: "acme-app" });
     expect(parseGitRemote("git@github.com:acme/acme-app.git")).toEqual({ owner: "acme", repo: "acme-app" });
     expect(parseGitRemote("ssh://git@github.com/acme/acme-app")).toEqual({ owner: "acme", repo: "acme-app" });
@@ -70,8 +70,8 @@ describe("parseGitRemote", () => {
   });
 });
 
-describe("Verknuepfen", () => {
-  it("speichert den absoluten Pfad lokal mit Modus 600 (Ordner 700)", async () => {
+describe("linking", () => {
+  it("stores the absolute path locally with mode 600 (folder 700)", async () => {
     const { rt, projects, linksFile, dir } = await setup();
     const repo = await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git");
     const r = await setLink(rt, "acme-app", repo);
@@ -83,7 +83,7 @@ describe("Verknuepfen", () => {
     expect(await linkedFolder(rt, "acme-app")).toBe(repo);
   });
 
-  it("entfernt eine Verknuepfung", async () => {
+  it("removes a link", async () => {
     const { rt, projects } = await setup();
     await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
     expect(await removeLink(rt, "acme-app")).toEqual({ ok: true, removed: true });
@@ -91,7 +91,7 @@ describe("Verknuepfen", () => {
     expect(await removeLink(rt, "acme-app")).toEqual({ ok: true, removed: false });
   });
 
-  it("lehnt ungueltige Pfade ab", async () => {
+  it("rejects invalid paths", async () => {
     const { rt, projects, dir } = await setup();
     await expect(setLink(rt, "acme-app", join(projects, "gibt-es-nicht"))).rejects.toThrow("Ordner existiert nicht");
     await expect(setLink(rt, "acme-app", "relativ/pfad")).rejects.toThrow("absolut");
@@ -103,16 +103,16 @@ describe("Verknuepfen", () => {
     expect(await stat(join(dir, "state")).then(() => true, () => false)).toBe(false);
   });
 
-  it("lehnt Pfade ausserhalb von Home und envRoots ab", async () => {
+  it("rejects paths outside home and envRoots", async () => {
     const { rt } = await setup();
     // Ein eigener Temp-Ordner (nicht /tmp fest); ausserhalb von Home liegt er, solange das Home nicht darueber liegt.
-    const outside = await realpath(await mkdtemp(join(tmpdir(), "sd-fremd-")));
-    const fremd = await repoDir(outside, "fremd");
+    const outside = await realpath(await mkdtemp(join(tmpdir(), "sd-foreign-")));
+    const foreign = await repoDir(outside, "foreign");
     const savedHome = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
     process.env["HOME"] = join(outside, "..", "sd-home-unrelated");
     process.env["USERPROFILE"] = process.env["HOME"];
     try {
-      await expect(setLink(rt, "acme-app", fremd)).rejects.toThrow("ausserhalb");
+      await expect(setLink(rt, "acme-app", foreign)).rejects.toThrow("ausserhalb");
       await expect(setLink(rt, "acme-app", "/etc")).rejects.toThrow("ausserhalb");
     } finally {
       for (const [k, v] of Object.entries(savedHome)) {
@@ -123,25 +123,25 @@ describe("Verknuepfen", () => {
     }
   });
 
-  it("warnt bei fremdem oder fehlendem Remote, blockiert aber nicht", async () => {
+  it("warns on a foreign or missing remote, but does not block", async () => {
     const { rt, projects } = await setup();
-    const fremd = await repoDir(projects, "a", "https://github.com/Andere/acme-app.git");
-    const r1 = await setLink(rt, "acme-app", fremd);
+    const foreign = await repoDir(projects, "a", "https://github.com/Andere/acme-app.git");
+    const r1 = await setLink(rt, "acme-app", foreign);
     expect(r1.remoteMatches).toBe(false);
     expect(r1.warnings[0]).toContain("zeigt nicht auf acme/acme-app");
-    const ohne = await repoDir(projects, "b");
-    const r2 = await setLink(rt, "acme-app", ohne);
+    const without = await repoDir(projects, "b");
+    const r2 = await setLink(rt, "acme-app", without);
     expect(r2.remote).toBeNull();
     expect(r2.warnings).toHaveLength(1);
   });
 });
 
-describe("Lokal suchen", () => {
-  it("findet Git-Ordner mit passendem origin (Tiefe 2), sonst nichts", async () => {
+describe("search locally", () => {
+  it("finds Git folders with matching origin (depth 2), nothing else", async () => {
     const { rt, projects } = await setup();
     const a = await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git");
     const b = await repoDir(join(projects, "gruppe"), "acme-api", "https://github.com/acme/acme-api.git");
-    await repoDir(projects, "fremd", "https://github.com/Andere/x.git");
+    await repoDir(projects, "foreign", "https://github.com/Andere/x.git");
     await repoDir(projects, "ohne-remote");
     await repoDir(join(projects, "x", "y"), "zu-tief", "https://github.com/acme/zu-tief.git");
     await setLink(rt, "acme-app", a);
@@ -153,8 +153,8 @@ describe("Lokal suchen", () => {
   });
 });
 
-describe("Liste", () => {
-  it("fasst Inventar, Verknuepfungen und GitHub zusammen; GitHub-Fehler blockieren nicht", async () => {
+describe("list", () => {
+  it("merges inventory, links and GitHub; GitHub errors do not block", async () => {
     const { rt, projects } = await setup();
     await setLink(rt, "acme-app", await repoDir(projects, "acme-app", "git@github.com:acme/acme-app.git"));
     const off = await listRepos(rt);
@@ -166,7 +166,7 @@ describe("Liste", () => {
     expect(failed.repos.map((r) => r.name)).toEqual(["acme-app"]);
   });
 
-  it("markiert Repositories, die nur auf GitHub existieren", async () => {
+  it("marks repositories that exist on GitHub only", async () => {
     const { rt } = await setup(() => new Response(JSON.stringify([{ name: "nur-github", private: true, archived: false, default_branch: "main", pushed_at: null }, { name: "acme-app" }]), { status: 200 }));
     const list = await listRepos(rt, { live: true });
     expect(list.github).toBe("ok");
@@ -174,15 +174,15 @@ describe("Liste", () => {
     expect(list.repos.find((r) => r.name === "acme-app")?.inInventory).toBe(true);
   });
 
-  it("zeigt Agenten keine Pfade", async () => {
+  it("shows agents no paths", async () => {
     const { rt, projects } = await setup();
     await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
     expect((await listRepos(rt, { includePaths: false })).repos[0]?.link).toMatchObject({ path: null, exists: true });
   });
 });
 
-describe("Env-Export mit Verknuepfung", () => {
-  it("nimmt <ordner>/<template.file> als Standardpfad", async () => {
+describe("env export with link", () => {
+  it("takes <folder>/<template.file> as default path", async () => {
     const { rt, projects } = await setup();
     const repo = await repoDir(projects, "acme-app");
     await setLink(rt, "acme-app", repo);
@@ -191,12 +191,12 @@ describe("Env-Export mit Verknuepfung", () => {
     expect(await readFile(join(repo, ".env.local"), "utf8")).toContain("SITE_URL=");
   });
 
-  it("verlangt Pfad oder Verknuepfung", async () => {
+  it("requires path or link", async () => {
     const { rt } = await setup();
     await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "acme-app" })).rejects.toThrow("kein Ordner");
   });
 
-  it("explizite Pfade ausserhalb der Wurzeln bleiben abgelehnt", async () => {
+  it("explicit paths outside the roots stay rejected", async () => {
     const { rt, projects, dir } = await setup();
     await setLink(rt, "acme-app", await repoDir(projects, "acme-app"));
     await expect(exportEnv(rt, { kind: "human", name: "n" }, { repo: "acme-app", path: join(dir, "anderswo", ".env") })).rejects.toThrow("ausserhalb");

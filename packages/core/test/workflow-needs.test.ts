@@ -6,22 +6,22 @@ const wf = (name: string, content: string) => ({ name, content });
 const brief = (r: { kind: string; name: string; file: string; environment?: string }[]) => r.map((x) => `${x.file}|${x.environment ?? "-"}|${x.kind}|${x.name}`).sort();
 
 describe("refsInExpression", () => {
-  it("secrets.X, vars.X und Klammerform, ohne GITHUB_TOKEN und fremde Kontexte", () => {
+  it("secrets.X, vars.X and bracket form, without GITHUB_TOKEN and foreign contexts", () => {
     const r = refsInExpression("secrets.A && vars.B || secrets['C'] || secrets.GITHUB_TOKEN || github.secrets.D || mysecrets.E");
     expect(r.refs).toEqual([{ kind: "secret", name: "C" }, { kind: "secret", name: "A" }, { kind: "variable", name: "B" }]);
     expect(r.all).toBe(false);
   });
-  it("Zeichenketten sind keine Treffer", () => {
+  it("strings are no matches", () => {
     expect(refsInExpression("'secrets.X' == 'a'").refs).toEqual([]);
   });
-  it("secrets als Ganzes ist ein Hinweis", () => {
+  it("secrets as a whole is a hint", () => {
     expect(refsInExpression("toJSON(secrets)").all).toBe(true);
     expect(refsInExpression("secrets.A").all).toBe(false);
   });
 });
 
 describe("extractWorkflowNeeds", () => {
-  it("Jobs mit Environment, ohne Environment, Mehrfachnennung in mehreren Dateien", () => {
+  it("jobs with environment, without environment, multiple mentions in several files", () => {
     const deploy = wf("deploy.yml", `
 name: Deploy
 on: push
@@ -71,7 +71,7 @@ jobs:
     expect(resend.at).toEqual([{ environment: "staging", files: ["deploy.yml", "ci.yaml"] }, { environment: "production", files: ["deploy.yml"] }]);
   });
 
-  it("Kommentare und Dateinamen wie secrets.sh zaehlen nicht", () => {
+  it("comments and file names like secrets.sh do not count", () => {
     const { refs } = extractWorkflowNeeds([
       wf("a.yml", `
 # token: \${{ secrets.COMMENTED }}
@@ -88,7 +88,7 @@ jobs:
     expect(brief(refs)).toEqual(["a.yml|-|secret|REAL"]);
   });
 
-  it("if, with, env und workflow-weites env; GITHUB_TOKEN faellt weg", () => {
+  it("if, with, env and workflow-wide env; GITHUB_TOKEN drops out", () => {
     const { refs } = extractWorkflowNeeds([
       wf("b.yml", `
 on: push
@@ -121,7 +121,7 @@ jobs:
     ]);
   });
 
-  it("Matrix-Environment wird aufgeloest, dynamische nur als Hinweis", () => {
+  it("matrix environment is resolved, dynamic only as hint", () => {
     const { refs, notes } = extractWorkflowNeeds([
       wf("m.yml", `
 on: push
@@ -145,7 +145,7 @@ jobs:
     expect(notes).toEqual([{ code: "dynamic-environment", file: "m.yml", job: "dyn" }]);
   });
 
-  it("reusable workflow: secrets-Block zaehlt, inherit und secrets als Ganzes sind Hinweise", () => {
+  it("reusable workflow: secrets block counts, inherit and secrets as a whole are hints", () => {
     const { refs, notes } = extractWorkflowNeeds([
       wf("r.yml", `
 on: push
@@ -169,15 +169,15 @@ jobs:
     expect(notes.map((n) => `${n.code}:${n.job}`).sort()).toEqual(["all-secrets:all", "inherit:call2"]);
   });
 
-  it("ungueltiges YAML ist ein Hinweis, kein Absturz", () => {
+  it("invalid YAML is a hint, not a crash", () => {
     const r = extractWorkflowNeeds([wf("bad.yml", "a: [unclosed\n  - x: : :")]);
     expect(r.refs).toEqual([]);
     expect(r.notes).toEqual([{ code: "parse-error", file: "bad.yml" }]);
   });
 });
 
-describe("Zuordnung zu Stages", () => {
-  it("Environment -> Stage ohne Gross-/Kleinschreibung, ohne Environment -> Repo-Ebene", () => {
+describe("mapping to stages", () => {
+  it("environment -> stage case-insensitively, without environment -> repo level", () => {
     expect(environmentStage(DEFAULT_STAGES, "Production")?.id).toBe("production");
     expect(environmentStage(DEFAULT_STAGES, "preview")).toBeUndefined();
     expect(needStage(DEFAULT_STAGES, "staging", "shared")).toBe("staging");
@@ -187,16 +187,16 @@ describe("Zuordnung zu Stages", () => {
   });
 });
 
-describe("optionale Namen (nur geprueft)", () => {
+describe("optional names (checked only)", () => {
   const opt = (r: { name: string; optional?: boolean }[]) => r.map((x) => `${x.name}${x.optional ? "?" : ""}`).sort();
-  it("refsInExpression: Vergleiche und if-Ausdruecke sind optional, Werte nicht", () => {
+  it("refsInExpression: comparisons and if expressions are optional, values are not", () => {
     expect(opt(refsInExpression("secrets.A != ''").refs)).toEqual(["A?"]);
     expect(opt(refsInExpression("'' == secrets.A").refs)).toEqual(["A?"]);
     expect(opt(refsInExpression("secrets['B'] == ''").refs)).toEqual(["B?"]);
     expect(opt(refsInExpression("secrets.A").refs)).toEqual(["A"]);
     expect(opt(refsInExpression("secrets.A", true).refs)).toEqual(["A?"]);
   });
-  it("nur in if:/Vergleichen = optional; als env:/with:-Wert verbindlich", () => {
+  it("only in if:/comparisons = optional; as env:/with: value binding", () => {
     const needs = extractWorkflowNeeds([
       wf("upptime.yml", `
 on: push

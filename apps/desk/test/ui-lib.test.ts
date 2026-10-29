@@ -13,7 +13,7 @@ describe("format", () => {
     expect(daysLabel(-1)).toBe("seit 1 Tag abgelaufen");
     expect(daysLabel(null)).toBe("kein Ablauf");
   });
-  it("Datum", () => {
+  it("date", () => {
     expect(formatDate("2026-11-02")).toBe("02.11.2026");
     expect(formatDate(null)).toBe("–");
     expect(formatDate("kaputt")).toBe("–");
@@ -24,7 +24,7 @@ describe("format", () => {
     expect(countdown(-5)).toBe("00:00");
     expect(countdown(59_999)).toBe("00:59");
   });
-  it("Suche und Ziel", () => {
+  it("search and target", () => {
     expect(matchesQuery("", "x")).toBe(true);
     expect(matchesQuery("ACME", "acme-app")).toBe(true);
     expect(matchesQuery("zzz", "a", null)).toBe(false);
@@ -34,7 +34,7 @@ describe("format", () => {
 });
 
 describe("status", () => {
-  it("jede Stufe hat Text, Ton und Symbol", () => {
+  it("every level has text, tone and symbol", () => {
     const levels = ["ok", "soon", "due", "expired", "missing", "no-date", "unknown"] as const;
     for (const l of levels) {
       const i = statusInfo(l);
@@ -49,7 +49,7 @@ describe("status", () => {
     expect(statusInfo("no-date").label).toBe("Datum fehlt");
     expect(statusInfo("unknown")).toMatchObject({ label: "Ablauf unklar", tone: "neutral" });
   });
-  it("Stage, Anbieter, Prüfung, Drift", () => {
+  it("stage, provider, review, drift", () => {
     expect(stageInfo("production").tone).toBe("stage-prod");
     expect(stageInfo("dev").tone).toBe("info");
     expect(stageInfo("staging").tone).toBe("ki");
@@ -64,7 +64,7 @@ describe("status", () => {
     expect(driftInfo("unreachable").label).toBe("Nicht erreichbar");
     expect(toneClass("danger")).toContain("danger");
   });
-  it("Variablen-Fehler einordnen: nur nach dem Code, nicht nach dem Text", () => {
+  it("classify variable errors: by the code only, not by the text", () => {
     expect(classifyVariableError({ code: "secret-blocked" })).toBe("secret");
     expect(classifyVariableError({ code: "secret-ack" })).toBe("acknowledge");
     expect(classifyVariableError({ code: "not-connected" })).toBe("other");
@@ -76,7 +76,7 @@ describe("status", () => {
 });
 
 describe("places", () => {
-  it("leere Zeilen entfallen, Fehler werden gemeldet", () => {
+  it("empty rows are dropped, errors are reported", () => {
     expect(rowsToPlaces([{ repo: "", scope: "repository", environment: "" }])).toEqual({ places: [], error: null });
     expect(rowsToPlaces([{ repo: "a", scope: "environment", environment: "" }]).error).toMatch(/Umgebungsname/);
     expect(rowsToPlaces([{ repo: "", scope: "repository", environment: "x" }]).error).toMatch(/Repository/);
@@ -101,7 +101,7 @@ describe("api", () => {
   afterEach(() => vi.unstubAllGlobals());
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
-  it("Pfad und Fehlerform", () => {
+  it("path and error shape", () => {
     expect(apiPath("/overview")).toBe("/api/ui/overview");
     const e = toApiError(409, { error: "nein", code: "not-connected", hint: "h", connection: "github" });
     expect(e).toBeInstanceOf(ApiError);
@@ -109,7 +109,7 @@ describe("api", () => {
     expect(toApiError(500, null).message).toMatch(/500/);
   });
 
-  it("holt die Sitzung einmal und sendet die CSRF-Kennung", async () => {
+  it("fetches the session once and sends the CSRF token", async () => {
     handler = (url) => (url === "/api/session" ? json({ csrf: "abc", user: "n", demo: true, owner: "o" }) : json({ ok: 1 }));
     await api("GET", "overview");
     await api("POST", "x", { a: 1 });
@@ -120,7 +120,7 @@ describe("api", () => {
     expect(post.init!.credentials).toBe("same-origin");
   });
 
-  it("holt die Sitzung bei 401 neu und wiederholt einmal", async () => {
+  it("fetches the session again on 401 and retries once", async () => {
     let n = 0;
     handler = (url) => {
       if (url === "/api/session") return json({ csrf: `c${++n}`, user: "n", demo: false, owner: "o" });
@@ -130,7 +130,7 @@ describe("api", () => {
     expect(n).toBe(2);
   });
 
-  it("wirft ApiError mit Code bei 409", async () => {
+  it("throws ApiError with code on 409", async () => {
     handler = (url) => (url === "/api/session" ? json({ csrf: "c", user: "n", demo: false, owner: "o" }) : json({ error: "fehlt", code: "not-connected", connection: "github", hint: "Token" }, 409));
     await expect(api("POST", "renewal-requests", {})).rejects.toMatchObject({ status: 409, code: "not-connected", connection: "github" });
     expect((await ensureSession()).csrf).toBe("c");
