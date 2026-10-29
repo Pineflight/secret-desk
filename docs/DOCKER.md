@@ -15,6 +15,28 @@ The portal still has no user accounts. Access is protected by the launch secret,
 
 Browser automation (the visible Chrome of the [recipes](RECIPES.md)) needs a display and a browser on the machine, and the OS keychain does not exist in the container. Providers with an API and the manual paste flow work. The vault key therefore comes from `SECRET_DESK_VAULT_KEY`.
 
+## Find the launch address
+
+The portal only opens for someone who has the launch secret. The secret is part of an address that the portal prints into its log when it starts. In a container you read that log:
+
+```bash
+docker compose logs secret-desk
+```
+
+(or `docker logs <container name>` if you did not use compose). Look for this line:
+
+```
+secret-desk: Portal oeffnen unter
+  http://127.0.0.1:4747/?launch=<secret>
+```
+
+The portal does not know under which address you reach it, so it always prints `127.0.0.1:4747`. Keep everything from `?launch=` and replace the start with your own address:
+
+- Port published directly on the host: `http://192.168.1.20:4747/?launch=<secret>`
+- Behind a reverse proxy on port 80 (see below): `http://desk.local/?launch=<secret>`
+
+By default a new secret is created at every container start, so read the log again after every restart and after every automatic update. With `SECRET_DESK_LAUNCH_SECRET_FILE` set (the compose file below does that) the secret is created once and reused, so the address stays the same. The page removes the secret from the address bar after opening. Do not share the address and do not paste it into chats or tickets: whoever has it can open the portal.
+
 ## Prepare the host
 
 The container runs as the user `node` (UID 1000). The data directory must belong to that user, otherwise the portal cannot write inventory, vault and agent token.
@@ -79,21 +101,94 @@ The health check only asks whether the portal answers (any status below 500, usu
 
 `SECRET_DESK_ALLOWED_HOSTS` is a comma-separated list of additional `host:port` values the portal accepts in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Without it (or when empty) only `127.0.0.1`, `localhost` and `[::1]` with the port are accepted, and a call over the LAN address gets 403. Every entry must contain the port as the browser sends it. To use the mDNS name of the Pi, add `<hostname>.local:4747` as shown above (replace `raspberrypi` with the hostname of the Pi) and open the portal under that name. All other checks (DNS rebinding, `Origin`, `Sec-Fetch-Site`, launch secret, CSRF) stay in force.
 
-Start it:
+Start it, then read the launch address from the log:
 
 ```bash
 docker compose up -d
+# Launch address (replace 127.0.0.1:4747 with your own address):
+docker compose logs secret-desk
 ```
 
 ## Open the portal
 
-The portal prints a one-time address with the launch secret into the container log:
+Read the address from the log as described in [Find the launch address](#find-the-launch-address), replace `127.0.0.1:4747` with your own address, for example `http://192.168.1.20:4747/?launch=...`, and open it in your browser. The address is printed at every start, directly after the server is ready. With `SECRET_DESK_LAUNCH_SECRET_FILE` (set in the compose file above) the secret is created once, written to that file with mode 600 and reused after restarts and updates, so a bookmarked address keeps working. Treat the file like a password: anyone who can read it can open the portal from your LAN. Do not share the address.
+
+## Reaching the portal without a port: a `.local` name (reverse proxy)
+
+This section is optional. It makes the portal available as `http://desk.local` instead of `http://192.168.1.20:4747`. A reverse proxy on port 80 can also serve several services on one machine and tell them apart by host name. It was developed on a Raspberry Pi (Raspberry Pi OS, Docker Compose); the HTTP operation described here is only partly tested, see the notes in each step.
+
+### 1. A `.local` alias with mDNS
+
+Install the Avahi tools and publish an alias for the LAN address of the machine:
 
 ```bash
-docker compose logs secret-desk
+sudo apt install avahi-daemon avahi-utils
 ```
 
-The address starts with `http://127.0.0.1:4747/?launch=...`. Replace `127.0.0.1` with the address of the Pi, for example `http://192.168.1.20:4747/?launch=...`, and open it in your browser. The address is printed at every start, directly after the server is ready. By default the secret changes with every container start, so read the log again after each restart or update. With `SECRET_DESK_LAUNCH_SECRET_FILE` (set in the compose file above) the secret is created once, written to that file with mode 600 and reused after restarts and updates, so a bookmarked address keeps working. Treat the file like a password: anyone who can read it can open the portal from your LAN. Do not share the address.
+Create `/etc/systemd/system/avahi-alias-desk.service`:
+
+```ini
+[Unit]
+Description=mDNS alias desk.local
+After=avahi-daemon.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/avahi-publish -a -R desk.local 192.168.1.20
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now avahi-alias-desk.service
+ping desk.local
+```
+
+`192.168.1.20` is the (fixed) LAN address of the machine. Use another name than `<hostname>.local` for the alias; the hostname itself is already published by Avahi. macOS and most Linux desktops resolve `.local` on their own, Windows 10/11 usually does as well (otherwise install Bonjour). Android often does not resolve `.local`; use the DNS of your router or a hosts entry instead. Some networks and VLANs block mDNS.
+
+### 2. Caddy in front of the portal
+
+Remove the `ports` entry from the `secret-desk` service (the portal is then reachable only inside the compose network) and add Caddy. Port 80 is published on the LAN address only:
+
+```yaml
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "192.168.1.20:80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+```
+
+`Caddyfile` next to the compose file:
+
+```
+http://desk.local, http://192.168.1.20 {
+	reverse_proxy secret-desk:4747
+}
+```
+
+The `http://` prefix stops Caddy from switching to HTTPS on its own. Set the allowed hosts **without a port**, because a browser sends no port for port 80:
+
+```yaml
+      SECRET_DESK_ALLOWED_HOSTS: "desk.local,192.168.1.20"
+```
+
+Every entry must equal the `Host` header exactly (with a port only for a non-standard port). Caddy passes the `Host` header on unchanged, and the portal keeps checking host, `Origin`, `Sec-Fetch-Site`, launch secret and CSRF token. The session cookie has no `Secure` attribute (checked in the code and covered by a test), so the portal works over plain HTTP. The complete flow through Caddy is not covered by an automated test.
+
+Open `http://desk.local/?launch=<secret>`, see [Find the launch address](#find-the-launch-address). Further services can get their own block in the same `Caddyfile` with their own alias name.
+
+### Security and HTTPS
+
+HTTP in the LAN is not encrypted: the launch secret in the address and the tokens you enter in the portal cross the network in clear text. Use it only in networks you trust, and never forward the port to the internet. HTTPS is possible, for example with Caddy `tls internal` (own certificate authority, which every device must trust), but is not described or tested here.
+
+### Troubleshooting
+
+- **403 "Host nicht erlaubt":** the name or address you typed is not in `SECRET_DESK_ALLOWED_HOSTS`, or the port does not match.
+- **502 from Caddy:** the portal is not ready yet, or the service name in the `Caddyfile` is wrong. Check `docker compose logs secret-desk`.
+- **The name does not resolve:** this is mDNS, check with `ping desk.local` and the notes in step 1.
 
 ## Restart behavior
 
