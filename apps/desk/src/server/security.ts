@@ -140,3 +140,24 @@ export async function loadOrCreateAgentToken(path = agentTokenPath(), rotate = f
   await chmod(path, 0o600);
   return token;
 }
+
+/** Opt-in: Startgeheimnis ueber Neustarts stabil halten (SECRET_DESK_LAUNCH_SECRET_FILE). Vorhandene Datei wird genutzt (Modus 600 erzwungen), sonst neu angelegt. */
+export async function loadOrCreateLaunchSecret(path: string, platform: NodeJS.Platform = process.platform, warn: (msg: string) => void = (m) => console.warn(m)): Promise<string> {
+  try {
+    const existing = (await readFile(path, "utf8")).trim();
+    if (existing.length >= 32) {
+      if (platform !== "win32" && ((await stat(path)).mode & 0o077) !== 0) {
+        await chmod(path, 0o600);
+        warn(`Die Datei des Startgeheimnisses ${path} war fuer andere lesbar und wurde auf Modus 600 gesetzt. Datei erneuern, falls andere Benutzer Zugriff hatten.`);
+      }
+      return existing;
+    }
+  } catch {
+    /* neu anlegen */
+  }
+  const secret = randomBytes(32).toString("base64url");
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${secret}\n`, { mode: 0o600 });
+  await chmod(path, 0o600);
+  return secret;
+}

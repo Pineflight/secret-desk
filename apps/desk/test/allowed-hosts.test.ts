@@ -85,3 +85,26 @@ describe("extra allowed hosts at the router", () => {
     for (const secret of ["ghp_made_up_token_1", deps.agentToken, deps.session.cookie, deps.session.csrf, deps.session.launchSecret ?? "-"]) expect(bodies).not.toContain(secret);
   });
 });
+
+describe("reverse proxy on port 80 (hosts without port)", () => {
+  it("accepts entries without a port exactly as sent in the Host header", async () => {
+    const deps = await setup({ SECRET_DESK_ALLOWED_HOSTS: "desk.local,192.168.1.20" });
+    expect((await route(ui(deps, "desk.local", "GET"), deps)).status).toBe(200);
+    expect((await route(ui(deps, "192.168.1.20", "GET"), deps)).status).toBe(200);
+    expect((await route(ui(deps, "desk.local:4747", "GET"), deps)).status).toBe(403);
+    expect((await route(ui(deps, "other.local", "GET"), deps)).status).toBe(403);
+  });
+
+  it("origin without port passes for such a host, foreign origin fails", async () => {
+    const deps = await setup({ SECRET_DESK_ALLOWED_HOSTS: "desk.local" });
+    expect(checkOrigin(ui(deps, "desk.local", "POST", "http://desk.local"), deps.hosts)).toBe(true);
+    expect(checkOrigin(ui(deps, "desk.local", "POST", "http://evil.example"), deps.hosts)).toBe(false);
+  });
+
+  it("session cookie has no Secure attribute, so it is set over plain HTTP", () => {
+    const header = new PortalSession({ env: {} }).cookieHeader();
+    expect(header).not.toMatch(/;\s*Secure/i);
+    expect(header).toContain("HttpOnly");
+    expect(header).toContain("SameSite=Strict");
+  });
+});

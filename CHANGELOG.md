@@ -11,22 +11,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **English naming:** the portal routes are now `/settings`, `/approvals`, `/reviews`, `/reviews/:id`, `/variables`, `/connections` and `/compare`; the new-entry query parameter is `new=1`. All test names are English, and `assets/logo-protokoll.json` became `assets/logo-log.json` with English keys.
 - **Migration:** the old German routes (`/einstellungen`, `/freigaben`, `/pruefen`, `/variablen`, `/verbindungen`, `/vergleich`) redirect permanently with the query string kept, and `?neu=1` is still accepted. Inventory, config and team files already used English keys, so nothing needs to be migrated there; bookmarks keep working through the redirects.
 
+### Fixed
+
+- Container starts without internet access: `CMD` runs `next start` directly instead of `pnpm` (corepack no longer downloads pnpm at start).
+- The launch address is printed when the server starts (`instrumentation.ts`), not at the first API call.
+- Release workflow: image references in the manifest job are lowercased (`Pineflight/...` made `imagetools create` fail); annotations are set on the index only and the step also works with none.
+- Cloudflare permission groups with the same name for different scopes (for example account and zone) are listed once, with their scopes combined, instead of twice.
+- Grafana integration link: `https://grafana.com/profile/org` instead of `https://grafana.com/orgs` (404 without an org slug); with a known stack address the card links to `<baseUrl>/org/serviceaccounts`.
+
 ### Added
 
 - **Mapping repositories to resources:** an explicit, human-maintained `resourceMap` in the inventory (`kind`, `repo`, optional `stage`, `value`, optional `label`) takes precedence over the name rules of the resource suggestions (reason *Mapping*), so Resend domains and similarly named Supabase projects can be suggested unambiguously. A mapped value the provider no longer lists gives no suggestion and a `mapMismatch` hint. Portal routes `GET`/`PUT`/`DELETE /api/ui/resource-map` (humans only), a mapping section in **Resources and defaults**, and *Remember for <repo>* after choosing a resource. Part of the team file. See [docs/RESOURCES.md](docs/RESOURCES.md).
 - **Provider parameters:** every provider declares its parameters (`Provider.params`); entries are validated before any provider call (`400` / `params_invalid` with the missing keys instead of a misleading provider error), also when creating a secret. Read-only discovery of accounts, projects, zones and domains from the connected integration, at most one never-applied suggestion by repository and stage, a read-only preflight that names the chosen resource (`409` / `preflight_failed` on a sure mismatch), non-secret integration defaults, zone-bound Cloudflare permissions with presets, and `domainId` required for Resend `sending_access`. New portal routes are listed in `apps/desk/API.md`; agents only see `params: { status, missing }` per secret.
 - **Variables from sources:** `from: { connection, kind, resource, field }` on variables, a fixed allowlist of public fields, `POST variables/:id/load-from-source` (proposal, then `apply`), `POST variables/suggest-all`.
-
 - **Parameters in the portal:** a **Parameters** card on every secret (choose from the list or enter by hand, suggestion with a click, presets, status, preflight result); the same section in the create dialog; **Generate new value** is locked with a plain explanation while required parameters are missing; a *Parameters missing* badge and filter on the Secrets list; the dry run shows parameters and the chosen resource. Documented in [docs/RESOURCES.md](docs/RESOURCES.md).
 - **Complete parameters:** a dialog on the Secrets page that reads the connected integrations once and proposes unambiguous values for all entries with missing parameters, applied per entry or all at once, only on click.
 - **Resources and defaults:** per integration card, the accounts, projects, zones, domains and service accounts the token can read (with a hint and a way out when a list is not readable) and the non-secret defaults (Cloudflare `accountId`, Grafana `baseUrl`).
 - **Variables from a provider:** a **Load from provider** section in the variable dialog and **Suggest values from providers** on the Variables page, comparing stored sources with what the provider reports now; applying changes the inventory only.
-
-### Fixed
-
-- Cloudflare permission groups with the same name for different scopes (for example account and zone) are listed once, with their scopes combined, instead of twice.
-- Grafana integration link: `https://grafana.com/profile/org` instead of `https://grafana.com/orgs` (404 without an org slug); with a known stack address the card links to `<baseUrl>/org/serviceaccounts`.
-
+- `SECRET_DESK_LAUNCH_SECRET_FILE`: optional path of a file (mode 600) that keeps the launch secret stable across restarts. Without it the secret is new at every start, as before.
+- Docker guide: where to find the launch address, `.local` name with a Caddy reverse proxy (HTTP).
+- The launch-required message now also names `docker compose logs secret-desk`.
+- Docker guide: configuration file in the volume (`SECRET_DESK_CONFIG`), minimal container configuration, mDNS host name, restart behavior and a health check.
 - `SECRET_DESK_ALLOWED_HOSTS`: comma-separated extra `host:port` values accepted by the portal host and origin checks, so it can be reached over a LAN address. Default unchanged (loopback only).
 - Release workflow checks that the image manifest lists both platforms and sets source, description and license labels; pull requests build the Dockerfile (amd64, no push).
 - Docker image for `linux/amd64` and `linux/arm64` built natively per platform (`ubuntu-latest`, `ubuntu-24.04-arm`), tagged `<tag>-amd64`, `<tag>-arm64`, `latest-amd64` and `latest-arm64`, and combined into a multi-arch manifest for `<tag>` and `latest` with OCI annotations.

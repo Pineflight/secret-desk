@@ -152,7 +152,7 @@ docker pull ghcr.io/pineflight/secret-desk:latest
 docker run --rm -p 127.0.0.1:4747:4747 -v secret-desk-data:/data ghcr.io/pineflight/secret-desk:latest
 ```
 
-To reach the portal over a LAN address, publish the port on that address (`-p 192.168.1.20:4747:4747`) and set `SECRET_DESK_ALLOWED_HOSTS=192.168.1.20:4747`. The launch address is in the container log (`docker logs`). Compose file, vault key and automatic updates: [docs/DOCKER.md](docs/DOCKER.md).
+To reach the portal over a LAN address, publish the port on that address (`-p 192.168.1.20:4747:4747`) and set `SECRET_DESK_ALLOWED_HOSTS=192.168.1.20:4747`. The portal opens only with the launch address: start the container, read it with `docker logs <container>` (line `secret-desk: Portal oeffnen unter http://127.0.0.1:4747/?launch=...`) and replace host and port with your own. Compose file, vault key, automatic updates and a `.local` name without a port (reverse proxy): [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Security principles
 
