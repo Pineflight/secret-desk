@@ -54,8 +54,7 @@ const uniq = <T,>(xs: T[]): T[] => [...new Set(xs)];
 /** Seiten und Aktionen: Aktionen oeffnen nur die Seite/den Dialog, fuehren nie etwas mit Nebenwirkung aus. */
 const PAGES: { id: string; href: string; icon: string; label: string; keywords: string; kind: "page" | "action" }[] = [
   { id: "overview", href: "/", icon: "grid", label: "common.nav.overview", keywords: "dashboard home start overview", kind: "page" },
-  { id: "secrets", href: "/secrets", icon: "key", label: "common.nav.secrets", keywords: "geheimnisse tokens keys", kind: "page" },
-  { id: "variables", href: "/variables", icon: "sliders", label: "common.nav.variables", keywords: "variablen vars config", kind: "page" },
+  { id: "entries", href: "/entries", icon: "key", label: "common.nav.entries", keywords: "secrets variables variablen geheimnisse tokens keys vars config eintraege entries", kind: "page" },
   { id: "compare", href: "/compare", icon: "compare", label: "palette.page.compare", keywords: "vergleich vergleichen compare stages parity", kind: "page" },
   { id: "repos", href: "/repos", icon: "folder", label: "common.nav.repos", keywords: "repositories repos github", kind: "page" },
   { id: "reviews", href: "/reviews", icon: "shield", label: "common.nav.reviews", keywords: "pruefen reviews pruefung", kind: "page" },
@@ -64,8 +63,8 @@ const PAGES: { id: string; href: string; icon: string; label: string; keywords: 
   { id: "connections", href: "/connections", icon: "plug", label: "common.nav.integrations", keywords: "integrationen verbindungen connections tokens anbieter", kind: "page" },
   { id: "team", href: "/team", icon: "users", label: "common.nav.team", keywords: "team export import sync github repo", kind: "page" },
   { id: "settings", href: "/settings", icon: "wrench", label: "common.nav.settings", keywords: "einstellungen settings stages policy", kind: "page" },
-  { id: "new-secret", href: "/secrets?new=1", icon: "plus", label: "palette.action.newSecret", keywords: "neu anlegen erstellen add create secret eintrag", kind: "action" },
-  { id: "new-variable", href: "/variables?new=1", icon: "plus", label: "palette.action.newVariable", keywords: "neu anlegen erstellen add create variable", kind: "action" },
+  { id: "new-secret", href: "/entries?new=secret", icon: "plus", label: "palette.action.newSecret", keywords: "neu anlegen erstellen add create secret eintrag", kind: "action" },
+  { id: "new-variable", href: "/entries?new=variable", icon: "plus", label: "palette.action.newVariable", keywords: "neu anlegen erstellen add create variable", kind: "action" },
   { id: "add-connection", href: "/connections", icon: "plug", label: "palette.action.addConnection", keywords: "integration hinzufuegen verbinden connect add token", kind: "action" },
   { id: "dev-env", href: "/dev", icon: "terminal", label: "palette.action.devEnv", keywords: "dev env erzeugen exportieren export generate", kind: "action" },
   { id: "team-sync", href: "/team", icon: "users", label: "palette.action.teamSync", keywords: "team sync synchronisieren github repository", kind: "action" },
@@ -90,13 +89,13 @@ export function buildIndex(input: IndexInput): PaletteDoc[] {
   for (const v of input.variables) {
     const repos = uniq(v.places.map((p) => p.repo));
     docs.push({
-      id: `variable:${v.id}`, recentId: `variable:${v.id}`, kind: "variable", title: v.name, subtitle: [repos.join(", "), stageLabel.get(v.stage) ?? v.stage].filter(Boolean).join(" · "), href: `/variables?q=${encodeURIComponent(v.id)}`, icon: "sliders",
+      id: `variable:${v.id}`, recentId: `variable:${v.id}`, kind: "variable", title: v.name, subtitle: [repos.join(", "), stageLabel.get(v.stage) ?? v.stage].filter(Boolean).join(" · "), href: `/entries?kind=variable&q=${encodeURIComponent(v.id)}`, icon: "sliders",
       fields: [...f("name", v.name), ...f("id", v.id), ...(v.tags ?? []).flatMap((x) => f("tag", x)), ...f("owner", v.owner), ...f("service", v.product), ...repos.flatMap((r) => f("repo", r)), ...f("stage", v.stage), ...f("description", v.description)],
       attrs: { stage: [v.stage], repo: repos, tag: v.tags ?? [], owner: v.owner ? [v.owner] : [] },
     });
   }
   for (const r of input.repos) {
-    docs.push({ id: `repo:${r.name}`, recentId: `repo:${r.name}`, kind: "repo", title: r.name, subtitle: t("palette.repoCounts", { secrets: r.secrets, variables: r.variables }), href: `/secrets?repo=${encodeURIComponent(r.name)}`, icon: "folder", fields: f("name", r.name), attrs: { repo: [r.name] } });
+    docs.push({ id: `repo:${r.name}`, recentId: `repo:${r.name}`, kind: "repo", title: r.name, subtitle: t("palette.repoCounts", { secrets: r.secrets, variables: r.variables }), href: `/entries?repo=${encodeURIComponent(r.name)}`, icon: "folder", fields: f("name", r.name), attrs: { repo: [r.name] } });
   }
   for (const s of input.stages) {
     docs.push({ id: `stage:${s.id}`, recentId: `stage:${s.id}`, kind: "stage", title: s.label ?? s.id, subtitle: t("palette.stageKind", { kind: s.kind }), href: "/settings", icon: "grid", fields: [...f("name", s.label ?? s.id), ...f("id", s.id)], attrs: { stage: [s.id] } });
@@ -105,7 +104,7 @@ export function buildIndex(input: IndexInput): PaletteDoc[] {
     docs.push({ id: `connection:${c.id}`, recentId: `connection:${c.id}`, kind: "connection", title: c.label, subtitle: c.connected ? t("palette.connected") : t("palette.notConnected"), href: "/connections", icon: "plug", badge: c.connected ? undefined : { text: t("palette.notConnected"), tone: "warn" }, fields: [...f("name", c.label), ...f("id", c.id)], attrs: { provider: [c.id] } });
   }
   for (const p of input.providers) {
-    docs.push({ id: `provider:${p.id}`, recentId: `provider:${p.id}`, kind: "provider", title: p.label, subtitle: p.id, href: `/secrets?provider=${encodeURIComponent(p.id)}`, icon: "bolt", fields: [...f("name", p.label), ...f("id", p.id)], attrs: { provider: [p.id] } });
+    docs.push({ id: `provider:${p.id}`, recentId: `provider:${p.id}`, kind: "provider", title: p.label, subtitle: p.id, href: `/entries?kind=secret&q=${encodeURIComponent(`provider:${p.id}`)}`, icon: "bolt", fields: [...f("name", p.label), ...f("id", p.id)], attrs: { provider: [p.id] } });
   }
   for (const p of PAGES) {
     const title = t(p.label);

@@ -89,7 +89,7 @@ export default function SecretDetailPage() {
 
   return (
     <>
-      <p className="mb-2 text-sm"><Link href="/secrets" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
+      <p className="mb-2 text-sm"><Link href="/entries?kind=secret" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
       <PageHeader
         title={s.title ?? s.name}
         subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /></span>}

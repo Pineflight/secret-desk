@@ -22,8 +22,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/", label: "common.nav.overview", icon: "grid" },
-  { href: "/secrets", label: "common.nav.secrets", icon: "key" },
-  { href: "/variables", label: "common.nav.variables", icon: "sliders" },
+  { href: "/entries", label: "common.nav.entries", icon: "key" },
   { href: "/compare", label: "common.nav.compare", icon: "compare" },
   { href: "/repos", label: "common.nav.repos", icon: "folder" },
   { href: "/reviews", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
@@ -34,8 +33,8 @@ const NAV: NavItem[] = [
   { href: "/settings", label: "common.nav.settings", icon: "wrench" },
 ];
 
-const isActive = (path: string, href: string): boolean => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
-const SEARCHABLE = ["/secrets", "/variables", "/approvals"];
+const isActive = (path: string, href: string): boolean => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`) || (href === "/entries" && path.startsWith("/secrets/")));
+const SEARCHABLE = ["/entries", "/approvals"];
 
 export function Shell({ children }: { children: ReactNode }) {
   const { t, locale, setLocale } = useI18n();
@@ -89,7 +88,7 @@ export function Shell({ children }: { children: ReactNode }) {
     }
     const key = `sd:query:${path}`;
     const keep = new URLSearchParams();
-    for (const k of ["q", "tag", "repo"]) {
+    for (const k of ["q", "tag", "repo", "kind", "stage", "status"]) {
       const v = params.get(k);
       if (v) keep.set(k, v);
     }
@@ -100,7 +99,8 @@ export function Shell({ children }: { children: ReactNode }) {
         const saved = window.sessionStorage.getItem(key);
         if (saved) {
           const next = new URLSearchParams(saved);
-          if (params.get("new") === "1" || params.get("neu") === "1") next.set("new", "1");
+          const flag = params.get("new") ?? (params.get("neu") === "1" ? "1" : null);
+          if (flag) next.set("new", flag);
           router.replace(`${path}?${next}`);
           return;
         }
@@ -125,7 +125,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const counts = { reviews: overview.data?.pendingReviews ?? 0, approvals: overview.data?.pendingApprovals ?? 0 };
   const alerts = counts.reviews + counts.approvals;
-  const newHref = path.startsWith("/variables") ? "/variables?new=1" : "/secrets?new=1";
+  const newHref = path === "/entries" && params.get("kind") ? `/entries?kind=${params.get("kind")}&new=1` : "/entries?new=1";
 
   return (
     <div className="min-h-screen lg:pl-[248px]">
@@ -183,7 +183,7 @@ export function Shell({ children }: { children: ReactNode }) {
           className="relative flex-1"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!SEARCHABLE.includes(path)) router.push(q ? `/secrets?q=${encodeURIComponent(q)}` : "/secrets");
+            if (!SEARCHABLE.includes(path)) router.push(q ? `/entries?q=${encodeURIComponent(q)}` : "/entries");
           }}
         >
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />

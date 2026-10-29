@@ -301,8 +301,8 @@ export function adoptRequest(c: Pick<AdoptCandidate, "repo" | "name" | "kind" | 
   return { path: "variables", body: common };
 }
 
-/** Parameter fuer die Neu-Dialoge auf /secrets und /variables (Vorbelegung per Link). */
+/** Link to the new-entry dialog on /entries with the kind preselected and the fields prefilled. */
 export function adoptLink(c: Pick<AdoptCandidate, "repo" | "name" | "kind" | "stage" | "id" | "files">, description: string): string {
-  const q = new URLSearchParams({ new: "1", pf_name: c.name, pf_repo: c.repo, pf_stage: c.stage, pf_id: c.id, pf_desc: description });
-  return `${c.kind === "secret" ? "/secrets" : "/variables"}?${q.toString()}`;
+  const q = new URLSearchParams({ new: c.kind, pf_name: c.name, pf_repo: c.repo, pf_stage: c.stage, pf_id: c.id, pf_desc: description });
+  return `/entries?${q.toString()}`;
 }
