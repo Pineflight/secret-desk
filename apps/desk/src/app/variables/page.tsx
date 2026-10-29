@@ -9,6 +9,9 @@ import { SourceSection, SuggestSourcesDialog, useVariableSources } from "@/compo
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, RowIconButton, TagFilterChip } from "@/components/ListTable";
+import { PageSearch } from "@/components/PageSearch";
+import { filterBySearch } from "@/lib/page-search";
+import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
 import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
@@ -60,7 +63,7 @@ export default function VariablesPage() {
   const defs = useStageDefs();
   const params = useSearchParams();
   const router = useRouter();
-  const q = params.get("q") ?? "";
+  const { text: q, setText: setQ } = usePageSearch("/variables");
   const tag = params.get("tag") ?? "";
   const setTag = (v: string) => {
     const next = new URLSearchParams(params.toString());
@@ -104,14 +107,14 @@ export default function VariablesPage() {
 
   const qs = new URLSearchParams();
   if (stage) qs.set("stage", stage);
-  if (q.trim()) qs.set("q", q.trim());
   if (tag) qs.set("tag", tag);
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
   const known = anyCompared(drifts, (list.data ?? []).map((v) => v.id));
+  const searched = useMemo(() => filterBySearch(list.data ?? [], q), [list.data, q]);
   const rows = useMemo(
-    () => sortItems(filterByDrift((list.data ?? []).filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
-    [list.data, browse.repo, browse.sort, defs, drifts, status],
+    () => sortItems(filterByDrift(searched.filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
+    [searched, browse.repo, browse.sort, defs, drifts, status],
   );
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
 
@@ -217,6 +220,7 @@ export default function VariablesPage() {
           </>
         }
       />
+      <PageSearch value={q} onChange={setQ} count={list.data ? rows.length : null} total={list.data ? list.data.length : null} />
       <FilterRow>
         <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
@@ -238,7 +242,7 @@ export default function VariablesPage() {
       <TagFilterChip tag={tag} label={t("variables.filteredByTag")} removeLabel={t("variables.removeFilter", { tag })} onClear={() => setTag("")} />
       {list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : null}
       {list.loading && !list.data ? <ListSkeleton rows={6} /> : null}
-      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q || tag || stage || status || browse.repo ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
+      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q.trim() || tag || stage || status || browse.repo ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}

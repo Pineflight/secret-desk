@@ -74,4 +74,8 @@ export default {
   "common.provider.browser": "Browser",
   "common.selectSearch": "Suchen…",
   "common.noMatches": "Keine Treffer",
+  "common.pageSearchPlaceholder": "Suchen in dieser Liste (Taste /)",
+  "common.pageSearch": "In dieser Liste suchen",
+  "common.pageSearchClear": "Suche leeren",
+  "common.pageSearchCount": "{count} von {total} Treffern",
 } satisfies Record<string, string>;

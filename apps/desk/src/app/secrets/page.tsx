@@ -10,6 +10,9 @@ import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { MetaFields, TagPills, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, TagFilterChip } from "@/components/ListTable";
+import { PageSearch } from "@/components/PageSearch";
+import { filterBySearch } from "@/lib/page-search";
+import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
 import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
@@ -44,7 +47,7 @@ export default function SecretsPage() {
   const defs = useStageDefs();
   const params = useSearchParams();
   const router = useRouter();
-  const q = params.get("q") ?? "";
+  const { text: q, setText: setQ } = usePageSearch("/secrets");
   const tag = params.get("tag") ?? "";
   const setTag = (v: string) => {
     const next = new URLSearchParams(params.toString());
@@ -81,14 +84,14 @@ export default function SecretsPage() {
   if (stage) qs.set("stage", stage);
   if (status) qs.set("status", status);
   if (live) qs.set("live", "1");
-  if (q.trim()) qs.set("q", q.trim());
   if (tag) qs.set("tag", tag);
   const secrets = useQuery<SecretView[]>(`secrets?${qs}`, () => api<SecretView[]>("GET", `secrets?${qs}`));
 
   const repos = useMemo(() => allRepos(secrets.data ?? []), [secrets.data]);
+  const searched = useMemo(() => filterBySearch(secrets.data ?? [], q), [secrets.data, q]);
   const rows = useMemo(
-    () => sortItems(filterByParams((secrets.data ?? []).filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), paramsFilter), browse.sort, stageOrder(defs)),
-    [secrets.data, kind, paramsFilter, browse.repo, browse.sort, defs],
+    () => sortItems(filterByParams(searched.filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), paramsFilter), browse.sort, stageOrder(defs)),
+    [searched, kind, paramsFilter, browse.repo, browse.sort, defs],
   );
   const missingParams = useMemo(() => countNeedingParams(secrets.data ?? []), [secrets.data]);
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
@@ -110,6 +113,7 @@ export default function SecretsPage() {
       />
       {live ? <div className="mb-4"><Notice tone="info">{t("secrets.liveNotice")}</Notice></div> : null}
 
+      <PageSearch value={q} onChange={setQ} count={secrets.data ? rows.length : null} total={secrets.data ? secrets.data.length : null} />
       <FilterRow>
         <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
@@ -144,7 +148,7 @@ export default function SecretsPage() {
       {secrets.error ? <ErrorState error={secrets.error} onRetry={secrets.reload} /> : null}
       {secrets.loading && !secrets.data ? <ListSkeleton rows={6} /> : null}
       {secrets.data && rows.length === 0 ? (
-        <EmptyState title={t("secrets.emptyTitle")} icon="key">{q || tag || stage || status || kind || paramsFilter || browse.repo ? t("secrets.emptyFiltered") : t("secrets.emptyFirst")}</EmptyState>
+        <EmptyState title={t("secrets.emptyTitle")} icon="key">{q.trim() || tag || stage || status || kind || paramsFilter || browse.repo ? t("secrets.emptyFiltered") : t("secrets.emptyFirst")}</EmptyState>
       ) : null}
       {groups.map((g) => (
         <div key={g.key}>
