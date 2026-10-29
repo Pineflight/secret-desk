@@ -33,7 +33,7 @@ export default function SetupPage() {
   };
   const previewGitHub = useMutation(async () => {
     // Token nur in die Sitzung; die Konfiguration bekommt nur Repository, Pfad und Zweig.
-    await api("POST", "connections/team-sync/token", { token });
+    if (token.trim()) await api("POST", "connections/team-sync/token", { token });
     await api("PUT", "team-sync/config", { teamSync: { repo, path, branch, mode, push: { strategy } } });
     return api<SyncCheck>("POST", "team-sync/check");
   });
@@ -75,9 +75,9 @@ export default function SetupPage() {
                 <option value="direct">{t("teamSync.config.strategy.direct")}</option>
               </SelectField>
             ) : null}
-            <TextField label={t("teamSync.config.token")} hint={t("teamSync.config.tokenHint")} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required />
+            <TextField label={t("teamSync.config.tokenOptional")} hint={t("teamSync.config.tokenHint")} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
             {previewGitHub.error ? <Notice tone="danger">{previewGitHub.error.message}</Notice> : null}
-            <Button type="submit" loading={previewGitHub.pending} disabled={!repo || !token}>{t("setup.github.preview")}</Button>
+            <Button type="submit" loading={previewGitHub.pending} disabled={!repo}>{t("setup.github.preview")}</Button>
           </form>
           {check ? (
             <div className="mt-4 space-y-3">

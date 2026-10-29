@@ -7,6 +7,8 @@ export interface BundleDiff {
 export interface SyncStatus {
   configured: boolean;
   connected: boolean;
+  tokenSource: "own" | "github-pat" | "github-app" | "none";
+  neededRights: string[];
   repo: string | null;
   path: string | null;
   branch: string | null;

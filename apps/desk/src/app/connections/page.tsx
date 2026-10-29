@@ -48,7 +48,7 @@ interface Provider {
 
 const NAMES: Record<string, string> = { github: "GitHub", cloudflare: "Cloudflare", supabase: "Supabase", stripe: "Stripe", resend: "Resend", grafana: "Grafana" };
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", none: "connections.srcNone" };
+const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", github: "connections.srcGithub", none: "connections.srcNone" };
 
 export default function ConnectionsPage() {
   const t = useT();

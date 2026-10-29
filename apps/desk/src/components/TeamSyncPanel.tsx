@@ -74,7 +74,8 @@ export function TeamSyncPanel() {
             <dt className="text-muted-text">{t("teamSync.repo")}</dt><dd className="font-mono">{s.repo}</dd>
             <dt className="text-muted-text">{t("teamSync.file")}</dt><dd className="font-mono">{s.path} @ {s.branch}</dd>
             <dt className="text-muted-text">{t("teamSync.mode")}</dt><dd>{t(`teamSync.mode.${s.mode}`)}</dd>
-            <dt className="text-muted-text">{t("teamSync.connection")}</dt><dd>{s.connected ? t("teamSync.connected") : t("teamSync.notConnected")}</dd>
+            <dt className="text-muted-text">{t("teamSync.source")}</dt><dd>{t(`teamSync.source.${s.tokenSource}`)}</dd>
+            <dt className="text-muted-text">{t("teamSync.neededRights")}</dt><dd>{s.neededRights.join(", ")}</dd>
             <dt className="text-muted-text">{t("teamSync.lastSync")}</dt><dd>{s.lastSyncAt ?? t("teamSync.never")}</dd>
           </dl>
           {s.lastError ? <div className="mt-3"><Notice tone="warn" title={t("teamSync.error")}>{s.lastError}</Notice></div> : null}

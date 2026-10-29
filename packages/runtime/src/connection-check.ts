@@ -363,13 +363,15 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     return { id, ok: true, checks: [item("token", "Schluessel", "info", "Der App-Schluessel wird beim ersten Zugriff geprueft: Test ueber die Verbindung GitHub.")] };
   }
   if (id === "team-sync") {
-    const st = await rt.connections.status(id);
-    if (!st.connected) return { id, ok: false, checks: [item("connected", "Verbunden", "fail", "Nicht verbunden")] };
-    if (!rt.config.teamSync) return { id, ok: true, checks: [item("token", "Token", "info", "Team-Sync ist noch nicht eingerichtet (teamSync in der Konfiguration).")] };
+    if (!rt.config.teamSync) {
+      const st = await rt.connections.status(id);
+      const gh = await rt.connections.status("github");
+      return { id, ok: st.connected || gh.connected, checks: [item("token", "Token", "info", "Team-Sync ist noch nicht eingerichtet (teamSync in der Konfiguration). Ohne eigenes Token wird die GitHub-Integration verwendet.")] };
+    }
     try {
-      const { checkTeamSync } = await import("./team-sync.js");
-      const r = await checkTeamSync(rt, now);
-      return { id, ok: true, checks: [item("repo", "Team-Repository", r.state === "missing-remote" ? "warn" : "pass", r.state === "missing-remote" ? "Zugriff ok, die Team-Datei fehlt noch im Repository." : "Zugriff ok, Team-Datei gelesen.")] };
+      const { checkTeamSyncAccess } = await import("./team-sync.js");
+      const checks = (await checkTeamSyncAccess(rt, { deep: options.deep === true })).map((c) => item(c.id, c.label, c.status as CheckStatus, c.detail));
+      return { id, ok: !checks.some((c) => c.status === "fail"), checks };
     } catch (err) {
       return { id, ok: false, checks: [item("repo", "Team-Repository", "fail", (err as Error).message)] };
     }

@@ -1,5 +1,6 @@
 import { join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
+import { neededRights } from "./team-sync.js";
 import {
   EnvEntrySchema,
   EnvExportError,
@@ -239,13 +240,19 @@ function grafanaBase(rt: Runtime): string | undefined {
 export async function listConnections(rt: Runtime) {
   const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
+  // Team-Sync ohne eigenes Token nutzt die GitHub-Integration: so anzeigen, nicht als "nicht verbunden".
+  const gh = [statuses.find((x) => x.id === "github"), statuses.find((x) => x.id === "github-app-key")].find((x) => x?.connected);
+  for (let i = 0; i < statuses.length; i++) {
+    const s = statuses[i]!;
+    if (s.id === "team-sync" && !s.connected && gh?.connected) statuses[i] = { ...s, connected: true, source: "github" as never, ...(gh.expires !== undefined ? { expires: gh.expires } : {}) };
+  }
   const saved = new Map<string, string>();
   for (const s of statuses) {
     const info = s.source === "vault" ? await rt.connections.vault?.info(s.id).catch(() => null) : null;
     if (info) saved.set(s.id, info.savedAt);
   }
   return statuses.map((s) => {
-    const g = connectionGuide(s.id, rt.owner, s.id === "grafana" ? { grafanaBaseUrl: grafanaBase(rt) } : {});
+    const g = connectionGuide(s.id, rt.owner, s.id === "grafana" ? { grafanaBaseUrl: grafanaBase(rt) } : s.id === "team-sync" && rt.config.teamSync ? { teamRepo: rt.config.teamSync.repo, teamRights: neededRights(rt.config.teamSync) } : {});
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
     return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });

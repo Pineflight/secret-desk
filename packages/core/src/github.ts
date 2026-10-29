@@ -285,6 +285,11 @@ export class GitHubClient {
     await this.#request("POST", `/repos/${enc(owner)}/${enc(repo)}/git/refs`, { ref: `refs/heads/${branch}`, sha: fromSha });
   }
 
+  /** Loescht einen Zweig (nur fuer den Schreibtest mit einem eigenen Probe-Zweig). */
+  async deleteBranch(owner: string, repo: string, branch: string): Promise<void> {
+    await this.#request("DELETE", `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${branch.split("/").map(enc).join("/")}`);
+  }
+
   /** Offener Pull Request von `head` nach `base` (gleiches Repository). */
   async findOpenPull(owner: string, repo: string, head: string, base: string): Promise<{ number: number; url: string } | null> {
     const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`);
@@ -421,6 +426,8 @@ export interface GitHubAppOptions {
   fetch?: FetchLike;
   baseUrl?: string;
   now?: () => Date;
+  /** Wird nach jedem neu ausgestellten Installationstoken aufgerufen: was GitHub wirklich gewaehrt hat (nie der Token selbst). */
+  onToken?: (info: { permissions: Record<string, string>; repositories: string[]; expiresAt: string }) => void;
 }
 
 /** Erzeugt bei Bedarf ein Installations-Token (eine Stunde gueltig) und cached es bis kurz vor Ablauf. */
@@ -463,7 +470,8 @@ export function githubAppProvider(options: GitHubAppOptions): TokenProvider {
     const body: Record<string, unknown> = {};
     if (options.repositories?.length) body.repositories = options.repositories;
     if (options.permissions) body.permissions = options.permissions;
-    const created = (await (await call("POST", `/app/installations/${inst.id}/access_tokens`, app, body)).json()) as { token: string; expires_at: string };
+    const created = (await (await call("POST", `/app/installations/${inst.id}/access_tokens`, app, body)).json()) as { token: string; expires_at: string; permissions?: Record<string, string>; repositories?: { name?: string }[] };
+    options.onToken?.({ permissions: created.permissions ?? {}, repositories: (created.repositories ?? []).map((r) => r.name ?? "").filter(Boolean), expiresAt: created.expires_at });
     cached = { token: new SecretValue(created.token), expiresAt: Date.parse(created.expires_at) };
     return cached.token;
   };

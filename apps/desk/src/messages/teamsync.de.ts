@@ -1,4 +1,11 @@
 const m: Record<string, string> = {
+  "teamSync.source": "Token-Quelle",
+  "teamSync.source.own": "eigenes Team-Sync-Token",
+  "teamSync.source.github-pat": "verwendet die GitHub-Integration (Token)",
+  "teamSync.source.github-app": "verwendet die GitHub-Integration (App, kurzlebiges Token nur für dieses Repository)",
+  "teamSync.source.none": "keine (GitHub verbinden oder Token eintragen)",
+  "teamSync.neededRights": "Benötigte Rechte",
+  "teamSync.config.tokenOptional": "Zugangs-Token (leer lassen, um die GitHub-Integration zu verwenden)",
   "teamSync.title": "Team-Sync mit GitHub",
   "teamSync.intro": "Die Team-Datei (nur Struktur, keine Werte) liegt in einem privaten GitHub-Repository. Das Portal fragt sie ab, zeigt dir vor jeder Übernahme, was sich ändert, und schiebt Änderungen erst nach deiner Bestätigung zurück.",
   "teamSync.notConfigured": "Team-Sync ist nicht eingerichtet.",

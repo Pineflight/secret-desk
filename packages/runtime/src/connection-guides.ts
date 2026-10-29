@@ -22,7 +22,7 @@ export function grafanaServiceAccountsUrl(baseUrl: string | undefined): string |
   }
 }
 
-export function connectionGuide(id: string, owner: string, options: { grafanaBaseUrl?: string } = {}): ConnectionGuide | undefined {
+export function connectionGuide(id: string, owner: string, options: { grafanaBaseUrl?: string; teamRepo?: string; teamRights?: string[] } = {}): ConnectionGuide | undefined {
   switch (id) {
     case "github": {
       const q = new URLSearchParams({
@@ -51,18 +51,35 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read and write (needed for environment secrets)", "Contents: Read (optional, to read workflow files)", "Metadata: Read"],
       };
     }
-    case "team-sync":
+    case "team-sync": {
+      const repo = options.teamRepo ?? "";
+      const [repoOwner, repoName] = repo.split("/");
+      const rights = options.teamRights ?? ["Contents: Read", "Metadata: Read"];
+      const q = new URLSearchParams({
+        name: "secret-desk team sync",
+        description: "secret-desk: Team-Datei im Team-Repository lesen und schreiben (keine Werte)",
+        target_name: repoOwner ?? owner,
+        expires_in: "90",
+        contents: rights.some((r) => r.startsWith("Contents: Read and write")) ? "write" : "read",
+        ...(rights.some((r) => r.startsWith("Pull requests")) ? { pull_requests: "write" } : {}),
+        metadata: "read",
+      });
       return {
         label: "Team-Repository",
-        description: "Liest (und, wenn eingestellt, schreibt) die Team-Datei im privaten GitHub-Repository. Die Datei enthaelt nur Struktur, keine Werte.",
+        description: "Liest (und, wenn eingestellt, schreibt) die Team-Datei im privaten GitHub-Repository. Ohne eigenes Token hier wird die GitHub-Integration verwendet; bei einer GitHub App fordert das Portal je Lauf ein kurzlebiges Token nur fuer dieses Repository an. Die Datei enthaelt nur Struktur, keine Werte.",
         url: "https://github.com/settings/personal-access-tokens/new",
+        openUrl: `https://github.com/settings/personal-access-tokens/new?${q.toString()}`,
         steps: [
-          "Fine-grained Token nur fuer das Team-Repository anlegen (Repository access: Only select repositories, genau dieses Repository).",
-          "Contents: Read-only reicht zum Abgleichen. Zum Schieben Contents: Read and write, bei Pull Requests zusaetzlich Pull requests: Read and write.",
+          "Nur noetig, wenn die GitHub-Integration nicht reicht (zum Beispiel ein PAT ohne Zugriff auf das Team-Repository). Fine-grained Tokens lassen sich bei GitHub nicht per API erzeugen.",
+          `Der Link oeffnet das Formular mit Name, Eigentuemer${repoOwner ? ` (${repoOwner})` : ""}, Ablauf (90 Tage) und Rechten schon eingetragen: kurz gegenpruefen.`,
+          `Unter Repository access "Only select repositories" waehlen und genau ${repoName ? `${repoName}` : "das Team-Repository"} ankreuzen (das kann GitHub nicht vorausfuellen).`,
+          `Rechte: ${rights.join(", ")}.`,
           "Token erzeugen, kopieren und unten einfuegen. Er wird nie in eine Datei geschrieben.",
+          "Mit Browser-Automatisierung (nicht im Container) laesst sich dafuer ein Eintrag mit dem Anbieter github-fine-grained-token anlegen; die Rechte oben gelten auch dort.",
         ],
-        permissions: ["Contents: Read (Read and write zum Schieben)", "Pull requests: Read and write (nur bei push.strategy pull-request)", "Metadata: Read"],
+        permissions: rights,
       };
+    }
     case "cloudflare":
       return {
         label: "Cloudflare",

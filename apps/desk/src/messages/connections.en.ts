@@ -2,6 +2,7 @@ export default {
   "connections.srcSession": "session",
   "connections.srcEnv": "environment variable",
   "connections.srcOp": "1Password",
+  "connections.srcGithub": "GitHub integration",
   "connections.srcNone": "none",
   "connections.title": "Integrations",
   "connections.subtitle": "What the portal is allowed to work with. Credentials stay in memory or, if you choose, encrypted in the local vault.",
