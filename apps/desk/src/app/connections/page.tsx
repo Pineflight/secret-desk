@@ -142,7 +142,7 @@ function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined
   const t = useT();
   const a = q.data;
   return (
-    <section className="mt-10" aria-labelledby="browser-automation-title">
+    <section className="sd-section" aria-labelledby="browser-automation-title">
       <h2 id="browser-automation-title" className="text-lg font-semibold tracking-tight">{t("connections.browserTitle")}</h2>
       <p className="mt-1 max-w-2xl text-sm text-muted">{t("connections.browserSubtitle")}</p>
       {q.error ? <div className="mt-4"><ErrorState error={q.error} onRetry={q.reload} /></div> : null}

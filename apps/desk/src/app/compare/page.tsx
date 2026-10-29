@@ -252,7 +252,7 @@ export default function ComparePage() {
       </div>
 
       {data ? (
-        <section aria-label={t("compare.sumTitle")} className="mb-6">
+        <section aria-label={t("compare.sumTitle")} className="mb-8">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {orderedStages.map((s) => {
               const n = totals[s.id];
@@ -362,8 +362,8 @@ export default function ComparePage() {
         const hasOther = g.rows.some((r) => r.other);
         const repoInfo = data?.repos.find((x) => x.name === g.repo);
         return (
-        <div key={g.repo}>
-          <p className="mb-2 mt-6 flex flex-wrap items-baseline gap-2 text-sm font-semibold first:mt-0">
+        <div key={g.repo} className="sd-section first-of-type:mt-0">
+          <p className="sd-group-head flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold">
             {g.repo}
             <span className="text-xs font-normal text-muted">{g.rows.length}</span>
             {g.gaps > 0 ? <span className="text-xs font-medium text-danger-text">{t("compare.groupGaps", { count: g.gaps })}</span> : null}
