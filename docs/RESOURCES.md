@@ -124,6 +124,32 @@ Exactly one list entry or none. A tie, a weak match or no match gives no suggest
 
 Example: repository `acme-app`, stage `staging` (kind test): a project `acme-app-staging` is suggested, `acme-app-production` is not, and with both `acme-app-staging` and `acme-app-staging-eu` there is no suggestion.
 
+### Mapping repositories to resources
+
+Name matching cannot always work: a Resend domain `example.com` does not contain the repository `acme-app`, and a Supabase production project may carry the repository name alone. For these cases you keep an explicit **mapping** from repository (and optionally stage) to a resource. It is stored in the inventory as `resourceMap` and is not a secret.
+
+```yaml
+resourceMap:
+  - { kind: resend.domain, repo: acme-app, value: dom_123, label: example.com }
+  - { kind: supabase.project, repo: acme-app, stage: production, value: abcdefgh, label: acme-app }
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | The discovery kind: `supabase.project`, `cloudflare.zone`, `cloudflare.account`, `resend.domain`, `grafana.serviceAccount`. |
+| `repo` | Repository the entry applies to (a repository of one of the places of the secret). |
+| `stage` | Optional stage id. Without it the entry applies to all stages; an entry with a matching stage wins over one without. |
+| `value` | The id of the resource, the same value the list returns. |
+| `label` | The display name at the time of choosing. Display only. |
+
+Rules:
+
+- A mapping takes precedence over the name rules above and is unambiguous by itself: exactly that list entry is marked as the suggestion, with the reason *Mapping*. It is still only a suggestion that you apply with a click.
+- If the secret has places in several repositories that map to different resources, the mapping is ignored for that entry and the name rules apply.
+- If the mapped `value` is not in the list (wrong account, resource deleted), nothing is suggested and the portal shows *The mapping points to a resource the provider does not know*. The API returns `mapMismatch: { value, label? }` for that list.
+- In the portal: **Resources and defaults** of an integration has a section *Mapping repository → resource* (table with remove, and a row to add one). In the Parameters card and the create dialog, a resource you chose that was not a suggestion offers *Remember for <repo>* (optionally only for the stage).
+- The mapping is part of the team file ([TEAM.md](TEAM.md)).
+
 ## What the preflight checks
 
 | Provider | Checks | Fails (blocks issuing) | Warns only |

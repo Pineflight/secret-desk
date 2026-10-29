@@ -287,7 +287,7 @@ function CreateSecretDialog({ initial = null, onClose, onCreated }: { initial?: 
               <p className="text-xs text-muted">{t("params.intro", { provider: pv.view?.providerLabel ?? f.provider })}</p>
             </div>
             {repo === "" ? <p className="text-xs text-muted">{t("params.create.noRepo")}</p> : null}
-            <ParamsForm specs={specs} draft={paramDraft} onDraft={setParamDraft} resources={pv.view?.resources ?? {}} loading={pv.loading} connection={pv.view?.connection ?? null} defaults={pv.view?.defaults ?? {}} errors={fieldErrors} onReload={pv.reload} />
+            <ParamsForm specs={specs} draft={paramDraft} onDraft={setParamDraft} resources={pv.view?.resources ?? {}} loading={pv.loading} connection={pv.view?.connection ?? null} defaults={pv.view?.defaults ?? {}} errors={fieldErrors} onReload={pv.reload} remember={repo ? { repo, stage: stageId } : undefined} />
             {missing.length > 0 ? <p className="text-xs font-medium text-warn-text">{t("params.create.missing", { keys: missingText })}</p> : null}
           </section>
         ) : null}

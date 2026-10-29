@@ -128,6 +128,20 @@ export const VariableSchema = z.object({
 });
 export type VariableEntry = z.infer<typeof VariableSchema>;
 
+/** Vom Menschen gepflegte Zuordnung Repository (und optional Stage) zu einer Ressource beim Anbieter. Kein Geheimnis. */
+export const ResourceMapEntrySchema = z.object({
+  /** Entdeckungsart, zum Beispiel "resend.domain", "supabase.project". */
+  kind: z.string().min(1),
+  repo: z.string().min(1),
+  /** Ohne Stage gilt der Eintrag fuer alle Stages; mit Stage hat er Vorrang. */
+  stage: z.string().min(1).optional(),
+  /** Kennung der Ressource, wie options[].value der Entdeckung. */
+  value: z.string().min(1),
+  /** Anzeigename zum Zeitpunkt der Wahl, nur zur Anzeige. */
+  label: z.string().optional(),
+});
+export type ResourceMapEntry = z.infer<typeof ResourceMapEntrySchema>;
+
 const InventoryObject = z.object({
   version: z.literal(1),
   thresholds: z.array(z.number().int().positive()).default([30, 14, 7]),
@@ -139,6 +153,8 @@ const InventoryObject = z.object({
   providers: z.array(ProviderDefSchema).default([]),
   /** Nicht geheime Standardwerte je Integration (Verbindungs-Id), zum Beispiel cloudflare: { accountId }. Fallback fuer Eintraege ohne den Parameter. */
   integrationDefaults: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  /** Zuordnung Repository (und Stage) zu Ressourcen beim Anbieter; geht den Namensregeln der Vorschlaege vor. */
+  resourceMap: z.array(ResourceMapEntrySchema).optional(),
 });
 
 export const InventorySchema = InventoryObject.superRefine((inv, ctx) => {

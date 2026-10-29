@@ -20,6 +20,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Name enthaelt das Repository", "Name contains the repository"],
   ["Name enthaelt Repository und Stage", "Name contains repository and stage"],
   ["einzige Option", "only option"],
+  ["Zuordnung", "Mapping"],
   ["Konten", "Accounts"],
   ["Projekte", "Projects"],
   ["Domains", "Domains"],

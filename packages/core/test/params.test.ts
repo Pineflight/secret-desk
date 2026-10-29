@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ParamsInvalidError, effectiveParams, markSuggestions, paramsMessage, validateEntryParams, type ParamSpec } from "../src/index.js";
+import { ParamsInvalidError, effectiveParams, mappedResource, markSuggestions, paramsMessage, validateEntryParams, type ParamSpec } from "../src/index.js";
 
 const spec = (extra: Partial<ParamSpec> & { key: string }): ParamSpec => ({ label: extra.key, labelEn: extra.key, type: "string", required: false, help: "", helpEn: "", ...extra });
 
@@ -67,5 +67,51 @@ describe("markSuggestions", () => {
     expect(markSuggestions("cloudflare.account", [opt("A", "1")], staging).suggested).toBe("1");
     expect(markSuggestions("cloudflare.account", [opt("A", "1"), opt("B", "2")], staging).suggested).toBeNull();
     expect(markSuggestions("cloudflare.permissionGroups", [opt("A")], staging).suggested).toBeNull();
+  });
+});
+
+describe("markSuggestions with a resource map", () => {
+  const opt = (label: string, value: string = label) => ({ value, label });
+  const entry = (extra: Record<string, unknown>) => ({ kind: "resend.domain", repo: "acme-app", value: "d2", ...extra }) as never;
+  const hint = (map: unknown[], stage = "staging") => ({ repos: ["acme-app"], stage, stageKind: "test" as const, resourceMap: map as never });
+  const domains = [opt("example.com", "d1"), opt("mail.example.net", "d2")];
+  it("takes precedence over the name rules and marks exactly that option", () => {
+    // Namensregel allein: "acme-app" passt zu keiner Domain; mit Zuordnung ist die Wahl eindeutig.
+    expect(markSuggestions("resend.domain", domains, hint([])).suggested).toBeNull();
+    const r = markSuggestions("resend.domain", domains, hint([entry({})]));
+    expect(r.suggested).toBe("d2");
+    expect(r.options.filter((o) => o.suggestedFor)).toEqual([{ value: "d2", label: "mail.example.net", suggestedFor: { score: 4, reason: "Zuordnung" } }]);
+    expect(r.mapMismatch).toBeUndefined();
+  });
+  it("beats a name match that points elsewhere", () => {
+    const r = markSuggestions("resend.domain", [opt("acme-app.com", "d3"), ...domains], hint([entry({})]));
+    expect(r.suggested).toBe("d2");
+  });
+  it("resolves ambiguous names", () => {
+    const projects = [opt("acme-app-staging", "p1"), opt("acme-app-staging-2", "p2")];
+    expect(markSuggestions("supabase.project", projects, hint([])).suggested).toBeNull();
+    expect(markSuggestions("supabase.project", projects, hint([entry({ kind: "supabase.project", value: "p2" })])).suggested).toBe("p2");
+  });
+  it("prefers the entry with the matching stage over the one without a stage", () => {
+    const map = [entry({ value: "d1" }), entry({ stage: "production", value: "d2" })];
+    expect(markSuggestions("resend.domain", domains, hint(map, "staging")).suggested).toBe("d1");
+    expect(markSuggestions("resend.domain", domains, hint(map, "production")).suggested).toBe("d2");
+    expect(markSuggestions("resend.domain", domains, hint([entry({ stage: "production" })], "staging")).suggested).toBeNull();
+  });
+  it("ignores other repositories and kinds", () => {
+    expect(markSuggestions("resend.domain", domains, hint([entry({ repo: "other" })])).suggested).toBeNull();
+    expect(markSuggestions("resend.domain", domains, hint([entry({ kind: "cloudflare.zone" })])).suggested).toBeNull();
+  });
+  it("suggests nothing but reports a mismatch when the value is not in the list", () => {
+    const r = markSuggestions("resend.domain", domains, hint([entry({ value: "gone", label: "old.example.com" })]));
+    expect(r.suggested).toBeNull();
+    expect(r.options.some((o) => o.suggestedFor)).toBe(false);
+    expect(r.mapMismatch).toEqual({ value: "gone", label: "old.example.com" });
+    expect(markSuggestions("resend.domain", [], hint([entry({})])).mapMismatch).toEqual({ value: "d2" });
+  });
+  it("falls back to the name rules when repositories map to different resources", () => {
+    const multi = { repos: ["acme-app", "acme-web"], resourceMap: [entry({ value: "d1" }), entry({ repo: "acme-web", value: "d2" })] as never };
+    expect(mappedResource("resend.domain", multi)).toBeNull();
+    expect(mappedResource("resend.domain", { repos: ["acme-app"], resourceMap: multi.resourceMap })?.value).toBe("d1");
   });
 });

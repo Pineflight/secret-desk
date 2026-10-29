@@ -1,4 +1,5 @@
 import type { StageKind } from "./stages.js";
+import type { ResourceMapEntry } from "./types.js";
 
 /**
  * Parameter-Spezifikation eines Anbieters. Sie beschreibt, was im Inventar unter `params` eines Eintrags stehen muss,
@@ -61,6 +62,14 @@ export interface DiscoverHint {
   repos: string[];
   stage?: string;
   stageKind?: StageKind;
+  /** Vom Menschen gepflegte Zuordnung Repository/Stage zu Ressourcen (Inventar `resourceMap`). Geht den Namensregeln vor. */
+  resourceMap?: ResourceMapEntry[];
+}
+
+/** Die Zuordnung zeigt auf eine Ressource, die der Anbieter nicht (mehr) kennt. */
+export interface MapMismatch {
+  value: string;
+  label?: string;
 }
 
 export type ParamProblemCode = "missing" | "wrong_type" | "not_in_options" | "unknown_key";
@@ -246,14 +255,36 @@ const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const tokens = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
 /**
+ * Zuordnung fuer (kind, Repositories, Stage): erst die mit passender Stage, sonst die ohne Stage. Nennen die Repositories des
+ * Hinweises verschiedene Ressourcen, gibt es keine eindeutige Zuordnung (dann gelten die Namensregeln).
+ */
+export function mappedResource(kind: string, hint: Pick<DiscoverHint, "repos" | "stage" | "resourceMap">): ResourceMapEntry | null {
+  const own = (hint.resourceMap ?? []).filter((m) => m.kind === kind && hint.repos.includes(m.repo));
+  for (const level of [own.filter((m) => hint.stage !== undefined && m.stage === hint.stage), own.filter((m) => m.stage === undefined)]) {
+    if (level.length === 0) continue;
+    return new Set(level.map((m) => m.value)).size === 1 ? level[0]! : null;
+  }
+  return null;
+}
+
+/**
  * Markiert hoechstens eine Option als Vorschlag. Zweideutig oder unsicher heisst: kein Vorschlag.
  * Es wird nie etwas uebernommen; die Wahl trifft der Mensch.
  */
-export function markSuggestions(kind: string, options: readonly DiscoveredOption[], hint: DiscoverHint): { options: DiscoveredOption[]; suggested: string | number | null } {
+export function markSuggestions(kind: string, options: readonly DiscoveredOption[], hint: DiscoverHint): { options: DiscoveredOption[]; suggested: string | number | null; mapMismatch?: MapMismatch } {
   const plain = options.map((o) => ({ value: o.value, label: o.label, ...(o.detail ? { detail: o.detail } : {}) }));
   const mode = SUGGEST_MODES[kind];
   const none = { options: plain as DiscoveredOption[], suggested: null };
-  if (!mode || plain.length === 0) return none;
+  if (!mode) return none;
+  // Eine ausdrueckliche Zuordnung geht den Namensregeln vor und ist selbst eindeutig. Fehlt die Ressource beim Anbieter, gibt es keinen Vorschlag, aber einen Hinweis.
+  const mapped = mappedResource(kind, hint);
+  if (mapped) {
+    const index = plain.findIndex((o) => String(o.value) === mapped.value);
+    if (index < 0) return { ...none, mapMismatch: { value: mapped.value, ...(mapped.label ? { label: mapped.label } : {}) } };
+    const marked = plain.map((o, i) => (i === index ? { ...o, suggestedFor: { score: 4, reason: "Zuordnung" } } : o)) as DiscoveredOption[];
+    return { options: marked, suggested: plain[index]!.value };
+  }
+  if (plain.length === 0) return none;
   let winner: { index: number; score: number; reason: string } | null = null;
   if (mode === "sole") {
     if (plain.length === 1) winner = { index: 0, score: 1, reason: "einzige Option" };

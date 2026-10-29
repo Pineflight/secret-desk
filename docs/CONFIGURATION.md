@@ -152,6 +152,7 @@ Top level:
 | `envTemplates` | [template](#env-templates)[] | `[]` | Dev `.env` templates. |
 | `providers` | [provider](#custom-providers)[] | `[]` | Custom providers without an API. |
 | `integrationDefaults` | map of connection id to map | unset | Non-secret default parameters per integration, for example `cloudflare: { accountId: ... }`. See [RESOURCES.md](RESOURCES.md). |
+| `resourceMap` | list of `{ kind, repo, stage?, value, label? }` | unset | Explicit mapping from repository (and optionally stage) to a provider resource, for example a Resend domain or a Supabase project. Takes precedence over the name rules of the suggestions. Not a secret. See [RESOURCES.md](RESOURCES.md#mapping-repositories-to-resources). |
 
 Validation across the file: ids are unique across secrets and variables; every `stage` exists; a secret outside stages of kind `dev` needs at least one `places` entry; `issue` and `variable` sources in templates must reference existing entries; stages and places are resolved (see [STAGES.md](STAGES.md)).
 

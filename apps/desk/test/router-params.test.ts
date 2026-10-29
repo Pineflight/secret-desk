@@ -275,6 +275,39 @@ describe("integration defaults and resources", () => {
   });
 });
 
+describe("resource map", () => {
+  it("is human only; PUT/DELETE validate and persist; GET lists entries and kinds", async () => {
+    const { deps, dir } = await setup();
+    expect((await call(deps, agent(deps, "GET", "resource-map"))).status).toBe(404);
+    expect((await call(deps, agent(deps, "PUT", "resource-map", { kind: "supabase.project", repo: "twin", value: "t2" }))).status).toBe(404);
+    expect((await call(deps, ui(deps, "GET", "resource-map"))).json).toMatchObject({ entries: [], kinds: expect.arrayContaining(["resend.domain", "supabase.project"]) });
+    expect((await call(deps, ui(deps, "PUT", "resource-map", { kind: "bogus", repo: "twin", value: "x" }))).status).toBe(400);
+    expect((await call(deps, ui(deps, "PUT", "resource-map", { kind: "supabase.project", repo: " ", value: "x" }))).status).toBe(400);
+    expect((await call(deps, ui(deps, "PUT", "resource-map", { kind: "supabase.project", repo: "twin" }))).status).toBe(400);
+    expect((await call(deps, ui(deps, "PUT", "resource-map", { kind: "supabase.project", repo: "twin", stage: "nope", value: "t2" }))).status).toBe(400);
+    const put = await call(deps, ui(deps, "PUT", "resource-map", { kind: "supabase.project", repo: "twin", value: "t2", label: "twin-staging-old" }));
+    expect(put.status).toBe(200);
+    expect(put.json.entry).toEqual({ kind: "supabase.project", repo: "twin", value: "t2", label: "twin-staging-old" });
+    expect(put.json.entries).toHaveLength(1);
+    expect(await readFile(join(dir, "inventory.yaml"), "utf8")).toContain("resourceMap");
+    // Ohne Zuordnung zweideutig, mit Zuordnung eindeutig und mit Grund "Zuordnung".
+    const twin = await call(deps, ui(deps, "GET", "secrets/supabase-ambiguous-staging/params"));
+    expect(twin.json.resources.projectRef.suggested).toBe("t2");
+    expect(twin.json.resources.projectRef.options.find((o: { value: string }) => o.value === "t2").suggestedFor.reason).toBe("Zuordnung");
+    const en = await call(deps, ui(deps, "GET", "secrets/supabase-ambiguous-staging/params", undefined, { "x-secret-desk-lang": "en" }));
+    expect(en.json.resources.projectRef.options.find((o: { value: string }) => o.value === "t2").suggestedFor.reason).toBe("Mapping");
+    // Wert unbekannt: kein Vorschlag, aber Hinweis.
+    await call(deps, ui(deps, "PUT", "resource-map", { kind: "supabase.project", repo: "twin", value: "gone" }));
+    const gone = await call(deps, ui(deps, "GET", "secrets/supabase-ambiguous-staging/params"));
+    expect(gone.json.resources.projectRef.suggested).toBeNull();
+    expect(gone.json.resources.projectRef.mapMismatch).toEqual({ value: "gone" });
+    const del = await call(deps, ui(deps, "DELETE", "resource-map", { kind: "supabase.project", repo: "twin" }));
+    expect(del.json).toMatchObject({ removed: true, entries: [] });
+    expect((await call(deps, ui(deps, "DELETE", "resource-map", { kind: "supabase.project", repo: "twin" }))).json.removed).toBe(false);
+    expect((await call(deps, ui(deps, "GET", "secrets/supabase-ambiguous-staging/params"))).json.resources.projectRef.suggested).toBeNull();
+  });
+});
+
 describe("draft routes and creating secrets", () => {
   const entry = (extra: Record<string, unknown>) => ({ name: "RESEND_API_KEY", service: "resend", stage: "staging", places: [{ repo: "wake-miles", scope: "environment", environment: "staging" }], ...extra });
   it("GET providers/:id/params and /resources work without an entry, with repo and stage as context", async () => {

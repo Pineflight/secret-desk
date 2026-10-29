@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import type { ParamSpec } from "@secret-desk/core";
 import { Icon } from "@/components/Icons";
+import { RememberMapping } from "@/components/ResourceMap";
 import { SelectBox } from "@/components/SelectBox";
 import { Button, inputClass } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
@@ -43,12 +44,14 @@ interface Props {
   errors?: Record<string, string>;
   disabled?: boolean;
   onReload?: () => void;
+  /** Repository und Stage des Eintrags: dann bietet eine gewaehlte Ressource, die kein Vorschlag war, "Fuer <repo> merken" an. */
+  remember?: { repo: string; stage?: string };
 }
 
 const BADGE = "rounded-full px-2 py-0.5 text-[11px] font-medium";
 
 /** Felder fuer die Parameter eines Anbieters aus seiner Spezifikation. Vorschlaege werden nie ohne Klick uebernommen. */
-export function ParamsForm({ specs, draft, onDraft, resources, loading = false, connection = null, defaults = {}, errors = {}, disabled = false, onReload }: Props) {
+export function ParamsForm({ specs, draft, onDraft, resources, loading = false, connection = null, defaults = {}, errors = {}, disabled = false, onReload, remember }: Props) {
   const { locale, t } = useI18n();
   const [manual, setManual] = useState<Record<string, boolean>>({});
   const effective = useMemo(() => effectiveValues(specs, toParams(specs, draft).params, defaults), [specs, draft, defaults]);
@@ -74,6 +77,7 @@ export function ParamsForm({ specs, draft, onDraft, resources, loading = false, 
           onChange={(v) => set(spec.key, v)}
           onDraft={onDraft}
           onReload={onReload}
+          remember={remember}
           lang={locale}
           t={t}
         />
@@ -99,6 +103,7 @@ interface FieldProps {
   onChange: (v: unknown) => void;
   onDraft: (d: Draft) => void;
   onReload: (() => void) | undefined;
+  remember: Props["remember"];
   lang: "de" | "en";
   t: (key: string, vars?: Record<string, string | number>) => string;
 }
@@ -215,6 +220,10 @@ function PickField(p: FieldProps & { id: string }) {
         </div>
       ) : null}
       {hasList && isSuggested(state, value) ? <p className="text-xs text-info-text"><span className={`${BADGE} bg-info-light`}>{t("params.suggestionTag")}</span></p> : null}
+      {state?.mapMismatch ? <p className="rounded-lg bg-warn-light px-3 py-2 text-xs text-warn-text">{t("params.map.mismatch", { name: state.mapMismatch.label ?? state.mapMismatch.value })}</p> : null}
+      {hasList && value !== "" && spec.discover && p.remember?.repo && !isSuggested(state, value) && options.some((o) => String(o.value) === value) ? (
+        <RememberMapping kind={spec.discover} repo={p.remember.repo} stage={p.remember.stage} value={value} label={options.find((o) => String(o.value) === value)?.label ?? value} onSaved={p.onReload} />
+      ) : null}
       {hasList && isUnlisted(spec, value, state) ? <p className="text-xs text-warn-text">{t("params.unlisted")}</p> : null}
       <div className="flex flex-wrap items-center gap-3 text-xs">
         {hasList ? <button type="button" className="text-primary underline" onClick={() => p.setManual(!p.manual)}>{p.manual ? t("params.fromList") : t("params.manual")}</button> : null}

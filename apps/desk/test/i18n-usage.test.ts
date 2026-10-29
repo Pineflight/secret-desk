@@ -9,6 +9,7 @@ const FILES = [
   "components/ParamsCard.tsx",
   "components/CompleteParamsDialog.tsx",
   "components/ConnectionResources.tsx",
+  "components/ResourceMap.tsx",
   "components/VariableSource.tsx",
   "lib/params-form.ts",
   "app/secrets/page.tsx",

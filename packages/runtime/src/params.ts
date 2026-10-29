@@ -13,6 +13,7 @@ import {
   type EntryPreflight,
   type ParamProblem,
   type ParamSpec,
+  type ResourceMapEntry,
   type Provider,
   type SecretEntry,
   stageKind,
@@ -49,7 +50,7 @@ function providerOrThrow(rt: Runtime, id: string): Provider {
 
 const deps = (rt: Runtime) => issuanceDeps(rt);
 
-export type ResourceState = Pick<DiscoveryResult, "status" | "options" | "suggested" | "error" | "hint" | "connection">;
+export type ResourceState = Pick<DiscoveryResult, "status" | "options" | "suggested" | "mapMismatch" | "error" | "hint" | "connection">;
 
 export interface ParamsView {
   /** Nur bei bestehendem Eintrag. */
@@ -74,7 +75,7 @@ export interface ParamsView {
   preflight: EntryPreflight | null;
 }
 
-const resourceOf = (d: DiscoveryResult): ResourceState => ({ status: d.status, options: d.options, suggested: d.suggested, ...(d.error ? { error: d.error } : {}), ...(d.hint ? { hint: d.hint } : {}), ...(d.connection ? { connection: d.connection } : {}) });
+const resourceOf = (d: DiscoveryResult): ResourceState => ({ status: d.status, options: d.options, suggested: d.suggested, ...(d.mapMismatch ? { mapMismatch: d.mapMismatch } : {}), ...(d.error ? { error: d.error } : {}), ...(d.hint ? { hint: d.hint } : {}), ...(d.connection ? { connection: d.connection } : {}) });
 
 /** Entdeckt fuer jeden Parameter mit `discover` (je Art und Parameterstand nur einmal). */
 async function discoverAll(rt: Runtime, provider: Provider, hint: DiscoverHint, params: Record<string, unknown>): Promise<Record<string, ResourceState>> {
@@ -175,7 +176,7 @@ export function paramStatus(rt: Runtime, secret: Pick<SecretEntry, "provider" | 
 
 // ------------------------------------------------------------------------------- Entwuerfe (ohne Eintrag)
 
-const draftHint = (rt: Runtime, repo?: string, stage?: string): DiscoverHint => ({ repos: repo ? [repo] : [], ...(stage ? { stage, stageKind: stageKind(rt.inventory.stages, stage) } : {}) });
+const draftHint = (rt: Runtime, repo?: string, stage?: string): DiscoverHint => ({ repos: repo ? [repo] : [], ...(stage ? { stage, stageKind: stageKind(rt.inventory.stages, stage) } : {}), ...(rt.inventory.data.resourceMap ? { resourceMap: rt.inventory.data.resourceMap } : {}) });
 
 /** Spezifikation und Vorschlaege fuer einen Eintrag, der noch nicht existiert (Anlegedialog). */
 export async function getProviderParams(rt: Runtime, actor: Actor, providerId: string, options: { repo?: string; stage?: string; live?: boolean; params?: Record<string, unknown> } = {}): Promise<ParamsView> {
@@ -288,6 +289,54 @@ export async function putConnectionDefaults(rt: Runtime, actor: Actor, connectio
   rt.inventory.setIntegrationDefaults(connection, next);
   await rt.inventory.save();
   return { connection, defaults: next, defaultSpecs: specs };
+}
+
+// ------------------------------------------------------------------------------------------ Zuordnung
+
+export interface ResourceMapView {
+  entries: ResourceMapEntry[];
+  /** Entdeckungsarten, fuer die eine Zuordnung moeglich ist. */
+  kinds: string[];
+}
+
+const mapView = (rt: Runtime): ResourceMapView => ({ entries: rt.inventory.data.resourceMap ?? [], kinds: Object.keys(SUGGEST_MODES) });
+
+function mapKeyOf(rt: Runtime, body: Record<string, unknown>): { kind: string; repo: string; stage?: string } {
+  const text = (k: string): string | undefined => (typeof body[k] === "string" && (body[k] as string).trim() !== "" ? (body[k] as string).trim() : undefined);
+  const kind = text("kind");
+  if (!kind) throw new InventoryError("Feld fehlt: kind");
+  if (!SUGGEST_MODES[kind]) throw new InventoryError(`Unbekannte Entdeckungsart: ${kind}`);
+  const repo = text("repo");
+  if (!repo) throw new InventoryError("Feld fehlt: repo");
+  const stage = text("stage");
+  if (stage && !rt.inventory.stages.some((d) => d.id === stage)) throw new InventoryError(`Unbekannte Stage: ${stage}`);
+  return { kind, repo, ...(stage ? { stage } : {}) };
+}
+
+/** Die Zuordnung Repository (und Stage) zu Ressourcen des Anbieters. Nicht geheim. */
+export function getResourceMap(rt: Runtime, actor: Actor): ResourceMapView {
+  requireHuman(actor, "Zuordnung ansehen");
+  return mapView(rt);
+}
+
+/** Setzt eine Zuordnung. (kind, repo, stage) ist der Schluessel; ein vorhandener Eintrag wird ersetzt. */
+export async function putResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { entry: ResourceMapEntry }> {
+  requireHuman(actor, "Zuordnung aendern");
+  const key = mapKeyOf(rt, body);
+  const value = typeof body["value"] === "string" ? body["value"].trim() : typeof body["value"] === "number" ? String(body["value"]) : "";
+  if (!value) throw new InventoryError("Feld fehlt: value");
+  const label = typeof body["label"] === "string" && body["label"].trim() !== "" ? body["label"].trim() : undefined;
+  const entry = rt.inventory.setResourceMap({ ...key, value, ...(label ? { label } : {}) });
+  await rt.inventory.save();
+  return { ...mapView(rt), entry };
+}
+
+/** Entfernt eine Zuordnung. */
+export async function deleteResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { removed: boolean }> {
+  requireHuman(actor, "Zuordnung aendern");
+  const removed = rt.inventory.removeResourceMapEntry(mapKeyOf(rt, body));
+  if (removed) await rt.inventory.save();
+  return { ...mapView(rt), removed };
 }
 
 // ------------------------------------------------------------------------------------------ Sammelvorschlag

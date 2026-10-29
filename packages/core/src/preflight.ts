@@ -10,6 +10,7 @@ import {
   markSuggestions,
   validateEntryParams,
   type DiscoverHint,
+  type MapMismatch,
   type DiscoveredOption,
   type ParamProblem,
   type PreflightFinding,
@@ -84,6 +85,8 @@ export interface DiscoveryResult {
   status: "ok" | "not-connected" | "needs-params" | "error" | "unsupported";
   options: DiscoveredOption[];
   suggested: string | number | null;
+  /** Die Zuordnung (resourceMap) nennt eine Ressource, die der Anbieter nicht kennt. */
+  mapMismatch?: MapMismatch;
   error?: string;
   hint?: string;
   connection?: string;
@@ -91,7 +94,7 @@ export interface DiscoveryResult {
 
 /** Hinweis fuer Vorschlaege aus einem Eintrag: Repositories der Ziele, Stage und deren Art. */
 export function hintFor(inventory: InventoryStore, secret: Pick<SecretEntry, "places" | "stage">): DiscoverHint {
-  return { repos: [...new Set(secret.places.map((p) => p.repo))], stage: secret.stage, stageKind: stageKind(inventory.stages, secret.stage) };
+  return { repos: [...new Set(secret.places.map((p) => p.repo))], stage: secret.stage, stageKind: stageKind(inventory.stages, secret.stage), ...(inventory.data.resourceMap ? { resourceMap: inventory.data.resourceMap } : {}) };
 }
 
 /** Entdeckung mit Vorschlag. Fehler werden zum Status, nicht zur Ausnahme (ausser Programmierfehlern). */

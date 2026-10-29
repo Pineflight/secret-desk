@@ -70,6 +70,36 @@ describe("team file", () => {
   });
 });
 
+describe("resource map in the inventory and the team file", () => {
+  const MAP = "resourceMap:\n  - { kind: resend.domain, repo: acme-app, value: d1, label: example.com }\n  - { kind: resend.domain, repo: acme-app, stage: production, value: d2 }\n";
+  it("setResourceMap replaces by (kind, repo, stage), removeResourceMapEntry deletes and drops an empty list", () => {
+    const inv = InventoryStore.fromText("version: 1\nsecrets: []\n");
+    inv.setResourceMap({ kind: "resend.domain", repo: "acme-app", value: "d1" });
+    inv.setResourceMap({ kind: "resend.domain", repo: "acme-app", stage: "production", value: "d2" });
+    inv.setResourceMap({ kind: "resend.domain", repo: "acme-app", value: "d3", label: "example.org" });
+    expect(inv.data.resourceMap).toEqual([{ kind: "resend.domain", repo: "acme-app", value: "d3", label: "example.org" }, { kind: "resend.domain", repo: "acme-app", stage: "production", value: "d2" }]);
+    expect(() => inv.setResourceMap({ kind: "", repo: "acme-app", value: "x" })).toThrow();
+    expect(inv.removeResourceMapEntry({ kind: "resend.domain", repo: "acme-app" })).toBe(true);
+    expect(inv.removeResourceMapEntry({ kind: "resend.domain", repo: "acme-app" })).toBe(false);
+    expect(inv.removeResourceMapEntry({ kind: "resend.domain", repo: "acme-app", stage: "production" })).toBe(true);
+    expect(inv.data.resourceMap).toBeUndefined();
+    expect(inv.toString()).not.toContain("resourceMap");
+  });
+  it("is exported, imported (merge keeps existing keys) and replaced", () => {
+    const source = InventoryStore.fromText(`version: 1\nsecrets: []\n${MAP}`);
+    const bundle = parseTeamBundle(exportTeamBundle(source.data));
+    expect(bundle.resourceMap).toHaveLength(2);
+    const target = InventoryStore.fromText("version: 1\nsecrets: []\nresourceMap:\n  - { kind: resend.domain, repo: acme-app, value: local }\n");
+    mergeTeamBundle(target, bundle);
+    expect(target.data.resourceMap).toEqual([{ kind: "resend.domain", repo: "acme-app", value: "local" }, { kind: "resend.domain", repo: "acme-app", stage: "production", value: "d2" }]);
+    mergeTeamBundle(target, bundle, "replace");
+    expect(target.data.resourceMap).toHaveLength(2);
+    expect(target.data.resourceMap![0]!.value).toBe("d1");
+    mergeTeamBundle(target, parseTeamBundle("version: 1\nsecrets: []\n"), "replace");
+    expect(target.data.resourceMap).toBeUndefined();
+  });
+});
+
 describe("H7: team import atomic", () => {
   const withComment = INVENTORY_YAML.replace("secrets:\n", "secrets:\n  # Kommentar in secrets\n");
   it("merge with conflict in the middle: no partial state", () => {

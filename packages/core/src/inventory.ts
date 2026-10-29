@@ -9,6 +9,8 @@ import {
   EnvTemplateSchema,
   InventorySchema,
   ProviderDefSchema,
+  ResourceMapEntrySchema,
+  type ResourceMapEntry,
   SecretSchema,
   type EnvTemplate,
   type Inventory,
@@ -104,6 +106,29 @@ export class InventoryStore {
         if (this.#doc.hasIn(["integrationDefaults"]) && Object.keys((this.#doc.getIn(["integrationDefaults"]) as { toJSON(): object }).toJSON()).length === 0) this.#doc.deleteIn(["integrationDefaults"]);
       } else this.#doc.setIn(["integrationDefaults", connection], this.#doc.createNode(clean(values)));
     }, () => this.#data.integrationDefaults?.[connection] ?? {});
+  }
+
+  /** Setzt einen Zuordnungseintrag; (kind, repo, stage) ist der Schluessel, ein vorhandener Eintrag wird ersetzt. */
+  setResourceMap(entry: ResourceMapEntry): ResourceMapEntry {
+    const parsed = ResourceMapEntrySchema.safeParse(entry);
+    if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
+    const e = parsed.data;
+    const list = [...(this.#data.resourceMap ?? [])];
+    const idx = list.findIndex((x) => sameMapKey(x, e));
+    if (idx >= 0) list[idx] = e;
+    else list.push(e);
+    return this.#mutate(() => this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(list))), () => e);
+  }
+
+  /** Entfernt einen Zuordnungseintrag. Gibt zurueck, ob es ihn gab. */
+  removeResourceMapEntry(key: { kind: string; repo: string; stage?: string | undefined }): boolean {
+    const list = this.#data.resourceMap ?? [];
+    const next = list.filter((x) => !sameMapKey(x, key));
+    if (next.length === list.length) return false;
+    return this.#mutate(() => {
+      if (next.length === 0) this.#doc.deleteIn(["resourceMap"]);
+      else this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(next)));
+    }, () => true);
   }
 
   addSecret(entry: z.input<typeof SecretSchema>): SecretEntry {
@@ -227,6 +252,8 @@ export class InventoryStore {
       this.#doc.set("variables", this.#doc.createNode(clean(parsed.data.variables)));
       this.#doc.set("envTemplates", this.#doc.createNode(clean(parsed.data.envTemplates)));
       this.#doc.set("providers", this.#doc.createNode(clean(parsed.data.providers)));
+      if (parsed.data.resourceMap && parsed.data.resourceMap.length > 0) this.#doc.set("resourceMap", this.#doc.createNode(clean(parsed.data.resourceMap)));
+      else this.#doc.delete("resourceMap");
     }, () => undefined);
   }
 
@@ -281,6 +308,8 @@ export class InventoryStore {
     this.#data = parsed.data;
   }
 }
+
+const sameMapKey = (a: { kind: string; repo: string; stage?: string | undefined }, b: { kind: string; repo: string; stage?: string | undefined }): boolean => a.kind === b.kind && a.repo === b.repo && (a.stage ?? "") === (b.stage ?? "");
 
 function clean<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

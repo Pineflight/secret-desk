@@ -83,7 +83,7 @@ export function ParamsCard({ secret, focusSignal, notice, onChanged }: { secret:
         ) : null}
         {editing ? (
           <div className="mt-4 space-y-4">
-            <ParamsForm specs={data.specs} draft={draft} onDraft={setDraft} resources={view.resources} loading={pv.loading} connection={data.connection} defaults={data.defaults} errors={errors} onReload={pv.reload} />
+            <ParamsForm specs={data.specs} draft={draft} onDraft={setDraft} resources={view.resources} loading={pv.loading} connection={data.connection} defaults={data.defaults} errors={errors} onReload={pv.reload} remember={repo ? { repo, stage: secret.stage } : undefined} />
             {save.error && problemsFromError(save.error).length === 0 ? <Notice tone="danger">{save.error.message}</Notice> : null}
             <div className="flex flex-wrap justify-end gap-2">
               <Button onClick={() => { setEditing(false); save.reset(); }}>{t("params.card.cancel")}</Button>

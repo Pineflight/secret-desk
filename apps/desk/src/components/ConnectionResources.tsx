@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { ConnectionResources } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { ParamsForm } from "@/components/ParamsForm";
+import { ResourceMapPanel } from "@/components/ResourceMap";
 import { Button, ErrorState, ListSkeleton, Notice } from "@/components/ui";
 import { ApiError, api, enc } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -122,6 +123,7 @@ export function ConnectionResourcesPanel({ id, onSaved }: { id: string; onSaved?
           <Button variant="primary" loading={save.pending} disabled={!put.changed || issues.length > 0} onClick={() => void submit()}>{t("params.conn.save")}</Button>
         </section>
       ) : <p className="text-xs text-muted">{t("params.conn.defaultsNone")}</p>}
+      <ResourceMapPanel data={data} />
     </div>
   );
 }
