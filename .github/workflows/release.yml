@@ -1,7 +1,8 @@
 name: Release
 
-# Bei jedem Lauf auf main: pruefen, GitHub-Release anlegen und Docker-Image
-# nach ghcr.io veroeffentlichen. Tag und Image-Version: <package.json>-<Laufnummer>.
+# Bei jedem Lauf auf main: pruefen, je Plattform nativ ein Image bauen (amd64 und arm64),
+# daraus ein Multi-Arch-Manifest nach ghcr.io legen und ein GitHub-Release anlegen.
+# Tag und Image-Version: <package.json>-<Laufnummer>.
 on:
   push:
     branches: [main]
@@ -28,13 +29,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
 
-  release:
+  version:
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      packages: write
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -44,7 +44,28 @@ jobs:
         run: |
           base=$(node -p "require('./package.json').version")
           echo "tag=v${base}-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -56,35 +77,79 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=${{ steps.version.outputs.tag }}
-            type=raw,value=latest
-            type=sha
+            type=raw,value=${{ needs.version.outputs.tag }}-${{ matrix.arch }}
+            type=raw,value=latest-${{ matrix.arch }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=secret-desk
             org.opencontainers.image.description=secret-desk: portal, CLI and MCP server for secret inventory and rotation
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.version.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
+          provenance: false
+          sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Multi-Arch-Manifest pruefen
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  manifest:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+      # Annotationen am Einzel-Manifest und am Index, damit GHCR sie auf der Paketseite zeigt.
+      DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+    steps:
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
+            type=sha
+          labels: |
+            org.opencontainers.image.title=secret-desk
+            org.opencontainers.image.description=secret-desk: portal, CLI and MCP server for secret inventory and rotation
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.version.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Multi-Arch-Manifest anlegen
         run: |
-          manifest=$(docker buildx imagetools inspect "$IMAGE")
-          echo "$manifest"
-          for platform in linux/amd64 linux/arm64; do
-            echo "$manifest" | grep -q "Platform: *${platform}$" || { echo "Plattform fehlt im Manifest: ${platform}" >&2; exit 1; }
+          args=()
+          while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '.annotations[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create "${args[@]}" "${IMAGE}:${TAG}-amd64" "${IMAGE}:${TAG}-arm64"
+      - name: Plattformen im Manifest pruefen
+        run: |
+          for ref in "${IMAGE}:${TAG}" "${IMAGE}:latest"; do
+            manifest=$(docker buildx imagetools inspect "$ref")
+            echo "$manifest"
+            for platform in linux/amd64 linux/arm64; do
+              echo "$manifest" | grep -q "Platform: *${platform}$" || { echo "Plattform fehlt in ${ref}: ${platform}" >&2; exit 1; }
+            done
           done
       - name: GitHub-Release anlegen
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
             --notes "Docker (linux/amd64, linux/arm64): \`docker pull ghcr.io/${GITHUB_REPOSITORY}:${TAG}\`"

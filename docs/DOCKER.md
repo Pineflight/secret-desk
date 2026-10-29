@@ -1,6 +1,13 @@
 # Docker on a Raspberry Pi
 
-This guide runs the portal as a container on a small always-on machine in your LAN, for example a Raspberry Pi 4B (arm64). The image `ghcr.io/pineflight/secret-desk` is built for `linux/amd64` and `linux/arm64`.
+This guide runs the portal as a container on a small always-on machine in your LAN, for example a Raspberry Pi 4B (arm64). The image `ghcr.io/pineflight/secret-desk` is built natively for `linux/amd64` and `linux/arm64` and published as a multi-arch manifest.
+
+| Platform | Example devices | Tag |
+| --- | --- | --- |
+| `linux/arm64` | Raspberry Pi 4/5, Apple Silicon | `:latest-arm64` |
+| `linux/amd64` | Intel/AMD PCs and servers | `:latest-amd64` |
+
+`:latest` and `:<tag>` (for example `:v0.1.0-12`) pick the matching platform automatically. Use the single-platform tags only if you need a fixed assignment. The packages are public, so no `docker login` is needed.
 
 The portal still has no user accounts. Access is protected by the launch secret, the session cookie and the host check, so publish it to your LAN only, never to the internet. Read [Security model](SECURITY-MODEL.md#access-to-the-portal) first.
 

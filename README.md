@@ -135,7 +135,16 @@ Housekeeping: `pnpm clean` removes build output, `pnpm clean --deps` also `node_
 
 ## Docker
 
-The image is built for `linux/amd64` and `linux/arm64` (for example a Raspberry Pi) and published at <https://github.com/Pineflight/secret-desk/pkgs/container/secret-desk>. Publish the port to the loopback address only:
+The image is built for `linux/amd64` and `linux/arm64` and published at <https://github.com/Pineflight/secret-desk/pkgs/container/secret-desk>.
+
+| Platform | Example devices | Tag |
+| --- | --- | --- |
+| `linux/arm64` | Raspberry Pi 4/5, Apple Silicon | `:latest-arm64` |
+| `linux/amd64` | Intel/AMD PCs and servers | `:latest-amd64` |
+
+`:latest` and `:<tag>` (for example `:v0.1.0-12`) pick the matching platform automatically. Use the single-platform tags only if you need a fixed assignment. The packages are public, so no `docker login` is needed.
+
+Publish the port to the loopback address only:
 
 ```bash
 docker pull ghcr.io/pineflight/secret-desk:latest
