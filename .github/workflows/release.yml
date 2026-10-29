@@ -82,6 +82,10 @@ jobs:
           labels: |
             org.opencontainers.image.title=secret-desk
             org.opencontainers.image.description=secret-desk: portal, CLI and MCP server for secret inventory and rotation
+            org.opencontainers.image.vendor=Pineflight
+            org.opencontainers.image.authors=Pineflight
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
@@ -93,6 +97,9 @@ jobs:
           push: true
           provenance: false
           sbom: false
+          build-args: |
+            SECRET_DESK_BUILD_TAG=${{ needs.version.outputs.tag }}
+            SECRET_DESK_COMMIT=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -130,6 +137,10 @@ jobs:
           labels: |
             org.opencontainers.image.title=secret-desk
             org.opencontainers.image.description=secret-desk: portal, CLI and MCP server for secret inventory and rotation
+            org.opencontainers.image.vendor=Pineflight
+            org.opencontainers.image.authors=Pineflight
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
@@ -154,4 +165,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
-            --notes "Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\`"
+            --notes "License: MIT. Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\`"

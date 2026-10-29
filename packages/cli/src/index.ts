@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   InventoryStore,
   StageSchema,
@@ -23,6 +25,7 @@ import {
   requestApplyVariable,
   requestIssuance,
   teamExport,
+  readAbout,
   applyTeamSync,
   checkTeamSync,
   planTeamPush,
@@ -70,12 +73,34 @@ Aufruf: secret-desk <befehl> [optionen]
   browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   vapid          Neues VAPID-Schluesselpaar ausgeben
+  about          Version, Lizenz und Herkunft ausgeben (auch --version)
 `;
+
+/** Angaben zu dieser Installation (Repository liegt zwei Ordner ueber dist/ von packages/cli). */
+function aboutInfo() {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  return readAbout({ rootDir: root, thirdPartyFile: join(root, "apps", "desk", "third-party.json") });
+}
 
 export async function main(argv: string[], io: Io = defaultIo): Promise<number> {
   const [command, ...rest] = argv;
   try {
     switch (command) {
+      case "--version":
+      case "-v":
+      case "version": {
+        io.out(aboutInfo().version);
+        return 0;
+      }
+      case "about": {
+        const a = aboutInfo();
+        io.out(`${a.name} ${a.version}${a.buildTag ? ` (${a.buildTag}${a.commit ? `, ${a.commit}` : ""})` : ""}`);
+        io.out(`Erstellt von ${a.createdBy}. Lizenz: ${a.license}.`);
+        io.out(`Quellcode: ${a.links.source}`);
+        io.out(`Drittlizenzen: ${a.thirdParty.length} Komponenten (THIRD-PARTY-NOTICES.md)`);
+        io.out("Keine Telemetrie, keine Verbindung zu Pineflight-Servern.");
+        return 0;
+      }
       case "doctor": {
         const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
         if (!values.config) throw new Error("doctor --config <datei>");

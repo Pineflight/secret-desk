@@ -10,10 +10,17 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm run build
 
 FROM node:24-slim
-ENV NODE_ENV=production PNPM_HOME=/pnpm HOME=/data
+# Herkunftsangaben fuer "Ueber secret-desk" (docker build --build-arg ...). Next.js-Telemetrie ist aus.
+ARG SECRET_DESK_VERSION=""
+ARG SECRET_DESK_BUILD_TAG=""
+ARG SECRET_DESK_COMMIT=""
+ENV NODE_ENV=production PNPM_HOME=/pnpm HOME=/data NEXT_TELEMETRY_DISABLED=1 \
+    SECRET_DESK_VERSION=$SECRET_DESK_VERSION SECRET_DESK_BUILD_TAG=$SECRET_DESK_BUILD_TAG SECRET_DESK_COMMIT=$SECRET_DESK_COMMIT
 WORKDIR /app
 RUN mkdir /data && chown node:node /data
 COPY --from=build --chown=node:node /app /app
+# Lizenz und Drittlizenzen auch an einem festen Ort.
+COPY --from=build /app/LICENSE /app/THIRD-PARTY-NOTICES.md /licenses/
 USER node
 # Start ohne pnpm/corepack, damit der Container ohne Internet hochkommt.
 WORKDIR /app/apps/desk

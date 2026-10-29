@@ -4,6 +4,7 @@
   "private": true,
   "description": "Local-first portal for tokens and secrets: see expiry, issue or renew tokens at providers and write them directly to the GitHub secret store. Values are never stored.",
   "license": "MIT",
+  "author": "Niklas Lurse (Pineflight)",
   "repository": "github:Pineflight/secret-desk",
   "homepage": "https://github.com/Pineflight/secret-desk#readme",
   "bugs": "https://github.com/Pineflight/secret-desk/issues",
@@ -20,6 +21,8 @@
     "clean": "node scripts/clean.mjs",
     "dev": "pnpm --filter @secret-desk/desk run dev",
     "demo": "node scripts/demo.mjs",
+    "licenses": "node scripts/licenses.mjs",
+    "licenses:check": "node scripts/licenses.mjs --check",
     "docs:screenshots": "node scripts/screenshots.mjs",
     "build:libs": "pnpm --filter @secret-desk/core --filter @secret-desk/providers --filter @secret-desk/automation --filter @secret-desk/runtime --filter @secret-desk/cli --filter @secret-desk/mcp run build"
   },

@@ -65,6 +65,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, []);
   const dq = useDebounced(q, 250);
   const overview = useQuery<Overview>("shell-overview", () => api<Overview>("GET", "overview"), { refreshMs: 15000 });
+  const about = useQuery<{ version: string }>("shell-about", () => api<{ version: string }>("GET", "about"));
   const reloadOverview = overview.reload;
   useEffect(() => subscribeRefresh(reloadOverview), [reloadOverview]);
 
@@ -162,10 +163,18 @@ export function Shell({ children }: { children: ReactNode }) {
               <button key={l} type="button" lang={l} aria-pressed={locale === l} title={LOCALE_NAMES[l]} onClick={() => setLocale(l)} className={`flex-1 rounded-lg px-2 py-1 text-xs font-medium ${locale === l ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}>{l.toUpperCase()}</button>
             ))}
           </div>
+          <p className="mt-3 text-center text-[11px] leading-snug text-muted">
+            {t("about.footer")}
+            <br />
+            <Link href="/about" className="underline hover:text-ink">{t("about.footerAbout")}</Link>
+            {about.data ? <span className="tabular"> · v{about.data.version}</span> : null}
+            {" · "}
+            <a href="https://github.com/Pineflight/secret-desk" target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">{t("about.footerSource")}</a>
+          </p>
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur sm:px-8">
+      <header className="sticky top-0 z-20 flex h-[var(--sd-topbar-h)] items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur sm:px-8">
         <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-xl p-2 hover:bg-card lg:hidden" aria-label={t("common.menuToggle")} aria-expanded={open} aria-controls="seitenleiste">
           <Icon name="menu" className="h-5 w-5" />
         </button>
