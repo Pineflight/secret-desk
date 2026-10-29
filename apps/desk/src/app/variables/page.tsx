@@ -257,11 +257,9 @@ export default function VariablesPage() {
                 <tr key={`${g.key}:${v.id}`} className={`${LIST_ROW_CLASS} cursor-pointer`} onClick={() => setDetail({ id: v.id })}>
                   <td className={LIST_CELL_CLASS}>
                     <button type="button" onClick={(e) => { e.stopPropagation(); setDetail({ id: v.id }); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
-                      {v.tags.length > 0 ? <div onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
-                    </div>
-                    {v.description ? <p className="max-w-[12rem] truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
+                    <p className="text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
+                    {v.description ? <p className="mt-1 max-w-[12rem] truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
+                    {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
                     {v.from ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: describeFrom(v.from, sources, locale) })}</Pill></div> : null}
                   </td>
                   <td className={LIST_CELL_CLASS}><StageBadge stage={v.stage} /></td>

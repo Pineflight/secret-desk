@@ -160,11 +160,9 @@ export default function SecretsPage() {
                   <tr key={s.id} className={LIST_ROW_CLASS}>
                     <td className={LIST_CELL_CLASS}>
                       <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <p className="text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
-                        {s.tags.length > 0 ? <TagPills tags={s.tags} onPick={setTag} active={tag} /> : null}
-                      </div>
-                      {s.description ? <p className="max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
+                      <p className="text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
+                      {s.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
+                      {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
                       {needsParams(s) ? (
                         <div className="mt-1" title={s.params.missing.join(", ")}>
                           <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
