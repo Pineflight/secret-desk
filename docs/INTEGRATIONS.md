@@ -79,6 +79,21 @@ A service account for secret-desk with role Admin (so it can manage tokens of ot
 
 The card links to `https://grafana.com/profile/org` (forwards signed-in users to their own organization; `grafana.com/orgs` needs an org slug and answers 404). As soon as a stack address is known (integration default `baseUrl` or any Grafana entry), the card's direct link is `<baseUrl>/org/serviceaccounts`. Steps: open the stack, Administration, Users and access, Service accounts.
 
+## Resources and defaults
+
+Besides the permissions above, each card has **Resources and defaults**. The portal uses the same token, read-only, to list the accounts, projects, zones, domains or service accounts it can see, so entries can pick a resource from a list instead of typing an id, and to store non-secret **defaults** per integration. How the lists, suggestions and the preflight work: [RESOURCES.md](RESOURCES.md).
+
+| Integration | What is listed | What the token must be allowed to read | Defaults |
+|---|---|---|---|
+| Cloudflare (`cloudflare`) | accounts, zones, permission groups | Accounts and zones need a read permission (for example *Account Settings Read* for accounts, a zone read permission for zones). The template *Create additional tokens* has none: enter the account id once by hand as the default (dashboard, account overview, copy the account id). Permission groups can always be listed. | `accountId` |
+| Cloudflare Turnstile (`cloudflare-turnstile`) | accounts, Turnstile widgets | *Account > Turnstile > Edit* lists the widgets of the account; the account list needs a read permission as well, otherwise enter `accountId` by hand. | `accountId` |
+| Supabase (`supabase`) | projects | The optional *Projects* Read (see above). Without it the list is empty or unreadable: enter the project ref by hand. | none |
+| Resend (`resend`) | domains and their verification status | Domains can only be listed with **Full access** (the same key type the connection needs anyway). | none |
+| Grafana (`grafana`) | service accounts of the stack | The Admin service account of the connection; needs the stack address first. | `baseUrl` |
+| GitHub, Stripe | nothing | | none |
+
+If a list cannot be read, the card says so and the pickers on the entries fall back to *Enter the value by hand*. Nothing breaks: only the convenience is missing. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#parameters-and-resources).
+
 ## Test connection
 
 A button on every connected card (`POST /api/ui/connections/<id>/check`, portal only, never available to agents). It makes **read-only** calls with the stored token:

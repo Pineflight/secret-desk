@@ -1,4 +1,6 @@
 import {
+  SUGGEST_MODES,
+  markSuggestions,
   InventoryError,
   ParamsInvalidError,
   discoverResources,
@@ -320,15 +322,22 @@ export async function suggestAllParams(rt: Runtime, actor: Actor): Promise<{ sug
     for (const key of missing) {
       const spec = provider.params.find((s) => s.key === key);
       if (!spec?.discover) continue;
+      // Ohne Vorschlagsregel (zum Beispiel Berechtigungen) gibt es nie einen Vorschlag: kein Anbieter-Aufruf noetig.
+      if (!SUGGEST_MODES[spec.discover]) {
+        suggestions[key] = null;
+        continue;
+      }
+      // Die Liste haengt nur vom Anbieter und vom Konto ab, nicht vom Eintrag: einmal laden, je Eintrag neu bewerten.
       // Zonen/Widgets haengen vom gewaehlten Konto ab: ohne es keine Entdeckung.
-      const cacheKey = `${provider.id}|${spec.discover}|${JSON.stringify(hint)}|${String(state.effective["accountId"] ?? "")}`;
+      const cacheKey = `${provider.id}|${spec.discover}|${String(state.effective["accountId"] ?? "")}`;
       let d = cache.get(cacheKey);
       if (!d) {
-        d = await discoverResources(provider, spec.discover, deps(rt), hint, state.effective);
+        d = await discoverResources(provider, spec.discover, deps(rt), { repos: [], stage: "" }, state.effective);
         cache.set(cacheKey, d);
       }
       if (d.status === "not-connected") notConnected = true;
-      const hit = d.options.find((o) => o.suggestedFor);
+      const marked = d.status === "ok" ? markSuggestions(spec.discover, d.options, hint) : { options: d.options, suggested: null };
+      const hit = marked.options.find((o) => o.suggestedFor);
       suggestions[key] = hit ? { value: hit.value, label: hit.label, reason: hit.suggestedFor!.reason } : null;
     }
     const found = Object.values(suggestions).filter(Boolean).length;

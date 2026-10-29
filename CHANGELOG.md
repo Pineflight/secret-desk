@@ -16,8 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Provider parameters:** every provider declares its parameters (`Provider.params`); entries are validated before any provider call (`400` / `params_invalid` with the missing keys instead of a misleading provider error), also when creating a secret. Read-only discovery of accounts, projects, zones and domains from the connected integration, at most one never-applied suggestion by repository and stage, a read-only preflight that names the chosen resource (`409` / `preflight_failed` on a sure mismatch), non-secret integration defaults, zone-bound Cloudflare permissions with presets, and `domainId` required for Resend `sending_access`. New portal routes are listed in `apps/desk/API.md`; agents only see `params: { status, missing }` per secret.
 - **Variables from sources:** `from: { connection, kind, resource, field }` on variables, a fixed allowlist of public fields, `POST variables/:id/load-from-source` (proposal, then `apply`), `POST variables/suggest-all`.
 
+- **Parameters in the portal:** a **Parameters** card on every secret (choose from the list or enter by hand, suggestion with a click, presets, status, preflight result); the same section in the create dialog; **Generate new value** is locked with a plain explanation while required parameters are missing; a *Parameters missing* badge and filter on the Secrets list; the dry run shows parameters and the chosen resource. Documented in [docs/RESOURCES.md](docs/RESOURCES.md).
+- **Complete parameters:** a dialog on the Secrets page that reads the connected integrations once and proposes unambiguous values for all entries with missing parameters, applied per entry or all at once, only on click.
+- **Resources and defaults:** per integration card, the accounts, projects, zones, domains and service accounts the token can read (with a hint and a way out when a list is not readable) and the non-secret defaults (Cloudflare `accountId`, Grafana `baseUrl`).
+- **Variables from a provider:** a **Load from provider** section in the variable dialog and **Suggest values from providers** on the Variables page, comparing stored sources with what the provider reports now; applying changes the inventory only.
+
 ### Fixed
 
+- Cloudflare permission groups with the same name for different scopes (for example account and zone) are listed once, with their scopes combined, instead of twice.
 - Grafana integration link: `https://grafana.com/profile/org` instead of `https://grafana.com/orgs` (404 without an org slug); with a known stack address the card links to `<baseUrl>/org/serviceaccounts`.
 
 - `SECRET_DESK_ALLOWED_HOSTS`: comma-separated extra `host:port` values accepted by the portal host and origin checks, so it can be reached over a LAN address. Default unchanged (loopback only).
