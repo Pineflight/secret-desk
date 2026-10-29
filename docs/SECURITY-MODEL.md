@@ -68,6 +68,9 @@ and so obtain the launch secret and open the portal itself. The launch secret pr
 browser tabs of other sites). It is not a barrier against an agent running with your privileges. Recommendation: run agents in a separate sandbox, container or operating-system user,
 and give them only the agent interface (token) and no access to your home folder.
 
+## Team sync
+Team sync talks to one private GitHub repository with its own token (connection `team-sync`, a fine-grained token for that repository only). The token needs *Contents* (read, to push also write) and, for pull requests, *Pull requests* write. It never goes into a file, log, API response or report, and the vault stores it encrypted like any other connection. The portal reads the team file with a read-only call and takes it over only after a preview and a human action; replacing needs `confirmReplace`. A push sends only the team file: structure, expected variable values and descriptions, never secret values, `externalId`, `rotatedAt` or a token (checked before every push). With the pull-request strategy the repository's review and branch protection decide what lands. Agents can read the sync status, never check, take over or push. The state file `.secret-desk-team-sync.json` holds only a blob SHA, a hash and timestamps.
+
 ## Provider access tokens
 Enter them per session in the portal (memory only), optionally keep them in the encrypted vault ([INTEGRATIONS.md](INTEGRATIONS.md#vault)), or read them from an environment variable or a 1Password reference (`op://`). Never in the configuration. Order of use: session, vault, configured source.
 Cloudflare needs a token with the *User > API Tokens > Edit* permission. That is powerful: keep it only for the session.

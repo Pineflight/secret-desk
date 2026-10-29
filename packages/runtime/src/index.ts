@@ -10,4 +10,5 @@ export * from "./settings.js";
 export * from "./i18n-en.js";
 export { tokenPrefixProblem } from "./connection-guides.js";
 export * from "./compare.js";
+export * from "./team-sync.js";
 export * from "./params.js";

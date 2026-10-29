@@ -51,6 +51,18 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         permissions: ["Secrets: Read and write", "Variables: Read and write", "Environments: Read and write (needed for environment secrets)", "Contents: Read (optional, to read workflow files)", "Metadata: Read"],
       };
     }
+    case "team-sync":
+      return {
+        label: "Team-Repository",
+        description: "Liest (und, wenn eingestellt, schreibt) die Team-Datei im privaten GitHub-Repository. Die Datei enthaelt nur Struktur, keine Werte.",
+        url: "https://github.com/settings/personal-access-tokens/new",
+        steps: [
+          "Fine-grained Token nur fuer das Team-Repository anlegen (Repository access: Only select repositories, genau dieses Repository).",
+          "Contents: Read-only reicht zum Abgleichen. Zum Schieben Contents: Read and write, bei Pull Requests zusaetzlich Pull requests: Read and write.",
+          "Token erzeugen, kopieren und unten einfuegen. Er wird nie in eine Datei geschrieben.",
+        ],
+        permissions: ["Contents: Read (Read and write zum Schieben)", "Pull requests: Read and write (nur bei push.strategy pull-request)", "Metadata: Read"],
+      };
     case "cloudflare":
       return {
         label: "Cloudflare",

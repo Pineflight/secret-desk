@@ -58,6 +58,7 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Encrypted vault for integration tokens:** optional, AES-256-GCM, key in the OS keychain (macOS Keychain, Linux `secret-tool`, Windows DPAPI) or a key file.
 - **Browser automation recipes:** for providers without an API, a visible Chrome walks through the form from a YAML recipe. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md).
 - **Dev `.env` export:** per-repository templates produce the file on demand (defaults, random values, personal dev tokens, variables) with mode 600, stored nowhere.
+- **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
 
 ### Supported integrations
 
@@ -76,7 +77,6 @@ The overview page shows which integrations are connected, what hangs on them and
 
 Only the Cloudflare API token provider is verified against the reference; the other automatic providers are **not verified** against the real API yet, see the table in [Providers](docs/PROVIDERS.md).
 
-- **Team file:** export the configuration without values so new team members import it and start. See [Team](docs/TEAM.md).
 - **MCP server, skill and agent HTTP API:** AI agents maintain metadata, query status and request renewals. They never see values and never confirm. See [Agents](docs/AGENTS.md) and the [Agent API](docs/AGENT-API.md).
 - **German and English UI**, runs on **macOS, Linux and Windows**.
 

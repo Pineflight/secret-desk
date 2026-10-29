@@ -15,6 +15,23 @@ custom providers. **No values**, and no provider-internal identifiers (`external
 
 The `.env` is created on your machine with mode 600. The portal does not store it.
 
+## Team sync with a private GitHub repository
+Instead of passing the team file around by hand, a team can keep it in a private GitHub repository (any `owner/name`, path and branch) and let the portal sync with it. Configure `teamSync` ([Configuration](CONFIGURATION.md#teamsync)) or use the first-start wizard. The file is the same team file as above: structure only, no values.
+
+**Roles.** Everyone reads. In `mode: pull-push` the people who may change the team structure also push. The repository decides who may merge: with `push.strategy: pull-request` (the default) a push only opens or updates a pull request, and your normal review and branch protection apply.
+
+**Token.** A fine-grained personal access token for **this one repository**: *Contents: Read* is enough to sync, *Contents: Read and write* to push, plus *Pull requests: Read and write* for the pull-request strategy. It is the connection `team-sync` (Integrations page): kept for the session, in the encrypted vault, or read from `SECRET_DESK_TEAM_TOKEN`, `connections.team-sync` (`env`/`op`). It is never written to a file, log, response or report.
+
+**Pull.** When the portal starts (`pullOnStart`) and on *Sync now* (Team page, or `secret-desk team pull`) the portal reads the file read-only and compares it with the local state. It tells you whether everything is equal, the repository is new or changed, only you changed something, or both sides changed. Before anything is taken over you see a preview: which secrets, variables, stages, providers and dev templates would be added, changed or are only local (names and ids, no values). Taking over uses the merge logic of `team import` (new entries are added, existing ones stay); *replace* needs an explicit confirmation. The blob SHA of the last synced file is kept locally in `.secret-desk-team-sync.json` next to the configuration file to recognize changes on both sides.
+
+**Conflicts.** If the repository and the local inventory both changed, nothing is overwritten silently. You see the difference and choose: take over the repository (merge or replace), keep local (the repository state is marked as seen, a later push will overwrite it), or cancel.
+
+**Push.** In `mode: pull-push` the Team page shows *Push to repo* (or `secret-desk team push`). The portal exports the team file, checks that it contains no values, `externalId` or `rotatedAt` (and not the access token), shows the difference to the repository and asks for one confirmation for all pending changes. Then it commits one file: with `pull-request` to `push.branch` and opens (or updates) a pull request against `branch`, with `direct` straight to `branch`. Pushes are rate-limited (at least 30 seconds apart) so clicking repeatedly does not create a commit each time. Errors (no network, expired token, 403, 404, conflict) are reported and nothing partial is written. Portal changes are not pushed automatically: they show up as *local changes*, and you push when you are ready.
+
+**Agents.** AI agents may read the status (`GET /api/agent/team-sync/status`). Checking, taking over and pushing are human actions in the portal or the CLI.
+
+**CLI.** `secret-desk team status|pull|push --config secret-desk.config.yaml`. `pull` shows the preview; `--apply merge|replace|keep-local` takes over (`--confirm-replace` for replace). `push` shows the difference; `--yes` confirms.
+
 ## Resource mapping in a team
 The `resourceMap` (repository to provider resource, see [RESOURCES.md](RESOURCES.md#mapping-repositories-to-resources)) is exported with the rest and contains only ids and display names, no secrets. On import (merge), an entry whose key (`kind`, `repo`, `stage`) already exists locally stays unchanged and new keys are added; `--replace` takes over the list from the file (and removes the local list if the file has none). Resource ids belong to a provider account: a teammate who connects a different account sees *The mapping points to a resource the provider does not know* until the mapping is adjusted.
 

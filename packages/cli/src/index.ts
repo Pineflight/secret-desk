@@ -23,6 +23,11 @@ import {
   requestApplyVariable,
   requestIssuance,
   teamExport,
+  applyTeamSync,
+  checkTeamSync,
+  planTeamPush,
+  pushTeamSync,
+  teamSyncStatus,
   updateVariable,
   type IssuanceView,
 } from "@secret-desk/runtime";
@@ -59,6 +64,9 @@ Aufruf: secret-desk <befehl> [optionen]
                    --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
+  team status    Stand des Team-Syncs (ohne Netzwerk)      --config <datei>
+  team pull      Team-Repository abfragen, Vorschau         --config <datei> [--apply merge|replace|keep-local] [--confirm-replace]
+  team push      Team-Datei ins Repository schieben         --config <datei> [--yes]
   browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   vapid          Neues VAPID-Schluesselpaar ausgeben
@@ -88,7 +96,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "env":
         return rest[0] === "export" ? await envExport(rest.slice(1), io) : usage(io);
       case "team":
-        return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : usage(io);
+        return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : rest[0] === "status" ? await teamStatusCmd(rest.slice(1), io) : rest[0] === "pull" ? await teamPullCmd(rest.slice(1), io) : rest[0] === "push" ? await teamPushCmd(rest.slice(1), io) : usage(io);
       case "browser":
         return await browserCmd(rest, io);
       case "vapid": {
@@ -307,6 +315,52 @@ async function teamImportCmd(args: string[], io: Io): Promise<number> {
   const r = mergeTeamBundle(store, bundle, values.replace ? "replace" : "merge");
   await store.save();
   io.out(`${r.added.length} hinzugefuegt, ${r.skipped.length} uebersprungen`);
+  return 0;
+}
+
+const diffLines = (diff: { sections: Record<string, { added: string[]; changed: string[]; removed: string[] }> }): string[] =>
+  Object.entries(diff.sections).flatMap(([name, d]) => [...d.added.map((id) => `  + ${name}: ${id}`), ...d.changed.map((id) => `  ~ ${name}: ${id}`), ...d.removed.map((id) => `  - ${name}: ${id}`)]);
+
+async function teamStatusCmd(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { config: { type: "string" } } });
+  if (!values.config) throw new Error("team status --config <datei>");
+  const s = await teamSyncStatus(await createRuntime(values.config));
+  io.out(s.configured ? `Repository: ${s.repo} (${s.path}, Zweig ${s.branch}), Modus ${s.mode}, verbunden: ${s.connected ? "ja" : "nein"}, letzter Abgleich: ${s.lastSyncAt ?? "nie"}` : "Team-Sync ist nicht eingerichtet.");
+  return 0;
+}
+
+async function teamPullCmd(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { config: { type: "string" }, apply: { type: "string" }, "confirm-replace": { type: "boolean" } } });
+  if (!values.config) throw new Error("team pull --config <datei> [--apply merge|replace|keep-local]");
+  const rt = await createRuntime(values.config);
+  const check = await checkTeamSync(rt);
+  io.out(`Stand: ${check.state}`);
+  if (check.diff) for (const l of diffLines(check.diff)) io.out(l);
+  if (!values.apply) return 0;
+  if (values.apply !== "merge" && values.apply !== "replace" && values.apply !== "keep-local") throw new Error("--apply: merge, replace oder keep-local");
+  if (!check.remoteSha) throw new Error("Im Repository gibt es keine Team-Datei.");
+  const r = await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: values.apply, confirmReplace: values["confirm-replace"] === true });
+  io.out(`uebernommen (${r.resolution}): ${r.added.length} hinzugefuegt, ${r.skipped.length} uebersprungen`);
+  return 0;
+}
+
+async function teamPushCmd(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { config: { type: "string" }, yes: { type: "boolean" } } });
+  if (!values.config) throw new Error("team push --config <datei> [--yes]");
+  const rt = await createRuntime(values.config);
+  const plan = await planTeamPush(rt);
+  io.out(`Ziel: ${plan.targetBranch} (${plan.strategy})`);
+  for (const l of diffLines(plan.diff)) io.out(l);
+  if (plan.diff.empty) {
+    io.out("Nichts zu schieben.");
+    return 0;
+  }
+  if (!values.yes) {
+    io.out("Mit --yes bestaetigen, um zu schieben.");
+    return 0;
+  }
+  const r = await pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha });
+  io.out(r.pushed ? `geschoben${"pullRequest" in r && r.pullRequest ? `: ${r.pullRequest.url}` : ""}` : "Nichts zu schieben.");
   return 0;
 }
 

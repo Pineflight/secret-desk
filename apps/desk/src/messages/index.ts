@@ -21,6 +21,8 @@ import connectionsDe from "./connections.de";
 import connectionsEn from "./connections.en";
 import teamDe from "./team.de";
 import teamEn from "./team.en";
+import teamSyncDe from "./teamsync.de";
+import teamSyncEn from "./teamsync.en";
 import reposDe from "./repos.de";
 import settingsDe from "./settings.de";
 import settingsEn from "./settings.en";
@@ -31,6 +33,6 @@ import paramsDe from "./params.de";
 import paramsEn from "./params.en";
 
 export const messages: Record<"de" | "en", Record<string, string>> = {
-  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe },
-  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn },
+  de: { ...commonDe, ...homeDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe },
+  en: { ...commonEn, ...homeEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn },
 };
