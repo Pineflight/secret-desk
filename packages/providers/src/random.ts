@@ -1,5 +1,5 @@
 import { createECDH, randomBytes, randomUUID } from "node:crypto";
-import { SecretValue, type Check, type Provider, type VerifyContext } from "@secret-desk/core";
+import { SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext } from "@secret-desk/core";
 import { check } from "./checks.js";
 import { ProviderError } from "./http.js";
 
@@ -31,11 +31,14 @@ function verifyLocal(shape: Shape) {
 
 const LOCAL_CHECKLIST = ["Der Wert wird in allen Zielen derselbe sein", "Alle Verbraucher (Worker, Funktionen) werden nach dem Schreiben neu deployt"];
 
+const BYTES: ParamSpec[] = [{ key: "bytes", label: "Laenge in Bytes", labelEn: "Length in bytes", type: "integer", required: false, min: 8, max: 128, help: "8 bis 128, Standard 32.", helpEn: "8 to 128, default 32." }];
+
 function local(id: string, label: string, shape: Shape, make: (params: Record<string, unknown>) => string): Provider {
   return {
     id,
     label,
     kind: "automatic",
+    ...(id === "random-uuid" ? {} : { params: BYTES }),
     verify: verifyLocal(shape),
     reviewChecklist: () => [...LOCAL_CHECKLIST],
     async issue(ctx) {

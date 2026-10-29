@@ -1,15 +1,82 @@
-import { SecretValue, type Check, type Provider } from "@secret-desk/core";
+import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider } from "@secret-desk/core";
+import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, isRecord, probeWithConnection, step } from "./checks.js";
 import { badResponse, callWithToken, JSON_HEADERS, optionalString, ProviderError, revokeIdempotent, seg } from "./http.js";
 
 const API = "https://api.resend.com/api-keys";
 const ID = "resend-api-key";
+const DOMAINS = "https://api.resend.com/domains";
+
+const specs: ParamSpec[] = [
+  {
+    key: "permission",
+    label: "Berechtigung",
+    labelEn: "Permission",
+    type: "enum",
+    required: false,
+    defaultValue: "sending_access",
+    help: "sending_access darf nur senden und gilt fuer genau eine Domain, full_access fuer das ganze Konto.",
+    helpEn: "sending_access may only send and applies to exactly one domain, full_access to the whole account.",
+    options: [
+      { value: "sending_access", label: "Nur senden (eine Domain)", labelEn: "Sending only (one domain)" },
+      { value: "full_access", label: "Voller Zugriff (ganzes Konto)", labelEn: "Full access (whole account)" },
+    ],
+  },
+  {
+    key: "domainId",
+    label: "Domain",
+    labelEn: "Domain",
+    type: "string",
+    required: false,
+    requiredWhen: { key: "permission", equals: "sending_access" },
+    help: "Domain, fuer die der Schluessel senden darf. Pflicht bei sending_access, entfaellt bei full_access.",
+    helpEn: "Domain the key may send for. Required for sending_access, not used for full_access.",
+    discover: "resend.domain",
+  },
+];
+
+async function listDomains(ctx: Pick<DiscoverContext, "connections" | "fetch">): Promise<(DiscoveredOption & { status?: string; name: string })[]> {
+  const r = await getJson<unknown>(ID, ctx, "resend", DOMAINS);
+  return asList(r, "data").flatMap((d) => {
+    const id = str(d["id"]);
+    const name = str(d["name"]);
+    return id && name ? [{ value: id, label: name, name, ...(str(d["status"]) ? { status: str(d["status"])! } : {}), detail: `${str(d["status"]) ?? "unbekannt"}, ${id}` }] : [];
+  });
+}
+
+async function preflightResend(ctx: PreflightContext): Promise<PreflightResult> {
+  const permission = ctx.params["permission"] ?? "sending_access";
+  if (permission === "full_access") return { resource: "Key mit vollem Zugriff (alle Domains)", findings: [{ id: "permission", level: "warn", label: "Voller Zugriff: der Schluessel gilt fuer das ganze Konto" }] };
+  const domainId = String(ctx.params["domainId"]);
+  const findings: PreflightFinding[] = [];
+  let resource: string | null = `Key nur fuer Domain ${domainId}`;
+  try {
+    const domains = await listDomains(ctx);
+    const hit = domains.find((d) => d.value === domainId);
+    if (hit) {
+      resource = `Key nur fuer Domain ${hit.name}`;
+      findings.push({ id: "domain", level: "ok", label: `Die Domain ${hit.name} existiert im verbundenen Konto` });
+      if (hit.status !== "verified") findings.push({ id: "verified", level: "warn", label: `Die Domain ${hit.name} ist nicht verifiziert (Status ${hit.status ?? "unbekannt"}): Senden schlaegt fehl, bis die DNS-Eintraege stimmen` });
+    } else if (domains.length > 0) findings.push({ id: "domain", level: "fail", label: `Die Domain ${domainId} existiert im verbundenen Konto nicht`, detail: `Verfuegbar: ${domains.map((d) => d.name).join(", ")}` });
+    else findings.push({ id: "domain", level: "warn", label: "Die Verbindung liefert keine Domains: Zuordnung nicht pruefbar" });
+  } catch (err) {
+    if (err instanceof Error && err.name === "NotConnectedError") throw err;
+    findings.push(readFailure(err, "Domains"));
+  }
+  return { resource, findings };
+}
 
 export const resendProvider: Provider = {
   id: ID,
   label: "Resend API-Key",
   kind: "automatic",
   connection: "resend",
+  params: specs,
+  async discover(kind: string, ctx: DiscoverContext) {
+    if (kind !== "resend.domain") return unknownKind(kind);
+    return listDomains(ctx);
+  },
+  preflight: preflightResend,
   async issue(ctx) {
     const permission = ctx.params["permission"] ?? "sending_access";
     if (permission !== "sending_access" && permission !== "full_access") {

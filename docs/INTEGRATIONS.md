@@ -77,6 +77,8 @@ Why: creates and revokes tokens of service accounts in a Grafana stack.
 
 A service account for secret-desk with role Admin (so it can manage tokens of other service accounts), and a short-lived token for it. The stack address and the target service account id are parameters of the inventory entry; allowed hosts are `*.grafana.net` plus `providers.grafana.allowedHosts`.
 
+The card links to `https://grafana.com/profile/org` (forwards signed-in users to their own organization; `grafana.com/orgs` needs an org slug and answers 404). As soon as a stack address is known (integration default `baseUrl` or any Grafana entry), the card's direct link is `<baseUrl>/org/serviceaccounts`. Steps: open the stack, Administration, Users and access, Service accounts.
+
 ## Test connection
 
 A button on every connected card (`POST /api/ui/connections/<id>/check`, portal only, never available to agents). It makes **read-only** calls with the stored token:

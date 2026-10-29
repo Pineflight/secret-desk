@@ -1,6 +1,7 @@
-import { SecretValue, type Check, type Provider, type ProviderConfig } from "@secret-desk/core";
+import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type ProviderConfig } from "@secret-desk/core";
+import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, daysApart, day, isRecord, probeWithConnection, step } from "./checks.js";
-import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, revokeIdempotent, seg } from "./http.js";
+import { TIMEOUT_MS, badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, revokeIdempotent, seg } from "./http.js";
 
 const ID = "grafana-service-account-token";
 
@@ -31,11 +32,77 @@ export function baseUrl(params: Record<string, unknown>, cfg?: ProviderConfig): 
   return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
 }
 
+const specs: ParamSpec[] = [
+  {
+    key: "baseUrl",
+    label: "Grafana-Adresse",
+    labelEn: "Grafana URL",
+    type: "url",
+    required: true,
+    help: "Adresse der Instanz, zum Beispiel https://<stack>.grafana.net. Andere Hosts muessen in der Konfiguration erlaubt sein.",
+    helpEn: "Address of the instance, for example https://<stack>.grafana.net. Other hosts must be allowed in the configuration.",
+    integrationDefault: true,
+  },
+  {
+    key: "serviceAccountId",
+    label: "Service-Account",
+    labelEn: "Service account",
+    type: "integer",
+    required: true,
+    help: "Service-Account, dem der Token gehoert. Wird aus der Instanz gelesen.",
+    helpEn: "Service account the token belongs to. Read from the instance.",
+    discover: "grafana.serviceAccount",
+  },
+];
+
+async function listServiceAccounts(ctx: Pick<DiscoverContext, "connections" | "fetch" | "providerConfig">, params: Record<string, unknown>): Promise<DiscoveredOption[]> {
+  const base = baseUrl(params, ctx.providerConfig);
+  const r = await getJson<unknown>(ID, ctx, "grafana", `${base}/api/serviceaccounts/search?perpage=100`);
+  return asList(r, "serviceAccounts").flatMap((a) => (typeof a["id"] === "number" ? [{ value: a["id"], label: str(a["name"]) ?? String(a["id"]), detail: [str(a["login"]), str(a["role"])].filter(Boolean).join(", ") }] : []));
+}
+
+async function preflightGrafana(ctx: PreflightContext): Promise<PreflightResult> {
+  const findings: PreflightFinding[] = [];
+  let base: string;
+  try {
+    base = baseUrl(ctx.params, ctx.providerConfig);
+  } catch (err) {
+    return { resource: null, findings: [{ id: "baseUrl", level: "fail", label: err instanceof ProviderError ? err.message : "Adresse ungueltig" }] };
+  }
+  let resource: string | null = `Grafana ${base}`;
+  try {
+    const res = await ctx.fetch(`${base}/api/health`, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    findings.push(res.ok ? { id: "reachable", level: "ok", label: `Die Instanz ${base} ist erreichbar` } : { id: "reachable", level: "warn", label: `Die Instanz ${base} antwortet mit HTTP ${res.status}` });
+  } catch {
+    findings.push({ id: "reachable", level: "fail", label: `Die Instanz ${base} ist nicht erreichbar` });
+    return { resource, findings };
+  }
+  try {
+    const accounts = await listServiceAccounts(ctx, ctx.params);
+    const hit = accounts.find((a) => String(a.value) === String(ctx.params["serviceAccountId"]));
+    if (hit) {
+      resource = `Grafana-Service-Account ${hit.label} (${base})`;
+      findings.push({ id: "serviceAccount", level: "ok", label: `Der Service-Account ${hit.label} existiert` });
+    } else if (accounts.length > 0) findings.push({ id: "serviceAccount", level: "fail", label: `Der Service-Account ${String(ctx.params["serviceAccountId"])} existiert in der Instanz nicht`, detail: `Verfuegbar: ${accounts.map((a) => a.label).join(", ")}` });
+    else findings.push({ id: "serviceAccount", level: "warn", label: "Die Instanz liefert keine Service-Accounts: Zuordnung nicht pruefbar" });
+  } catch (err) {
+    if (err instanceof Error && err.name === "NotConnectedError") throw err;
+    findings.push(readFailure(err, "Service-Accounts"));
+  }
+  return { resource, findings };
+}
+
 export const grafanaProvider: Provider = {
   id: ID,
   label: "Grafana Service-Account-Token",
   kind: "automatic",
   connection: "grafana",
+  params: specs,
+  async discover(kind: string, ctx: DiscoverContext) {
+    if (kind !== "grafana.serviceAccount") return unknownKind(kind);
+    return listServiceAccounts(ctx, ctx.params);
+  },
+  preflight: preflightGrafana,
   async issue(ctx) {
     const base = baseUrl(ctx.params, ctx.providerConfig);
     const accountId = requireInt(ID, ctx.params, "serviceAccountId");

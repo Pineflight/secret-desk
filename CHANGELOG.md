@@ -13,6 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Provider parameters:** every provider declares its parameters (`Provider.params`); entries are validated before any provider call (`400` / `params_invalid` with the missing keys instead of a misleading provider error), also when creating a secret. Read-only discovery of accounts, projects, zones and domains from the connected integration, at most one never-applied suggestion by repository and stage, a read-only preflight that names the chosen resource (`409` / `preflight_failed` on a sure mismatch), non-secret integration defaults, zone-bound Cloudflare permissions with presets, and `domainId` required for Resend `sending_access`. New portal routes are listed in `apps/desk/API.md`; agents only see `params: { status, missing }` per secret.
+- **Variables from sources:** `from: { connection, kind, resource, field }` on variables, a fixed allowlist of public fields, `POST variables/:id/load-from-source` (proposal, then `apply`), `POST variables/suggest-all`.
+
+### Fixed
+
+- Grafana integration link: `https://grafana.com/profile/org` instead of `https://grafana.com/orgs` (404 without an org slug); with a known stack address the card links to `<baseUrl>/org/serviceaccounts`.
+
 - `SECRET_DESK_ALLOWED_HOSTS`: comma-separated extra `host:port` values accepted by the portal host and origin checks, so it can be reached over a LAN address. Default unchanged (loopback only).
 - Release workflow checks that the image manifest lists both platforms and sets source, description and license labels; pull requests build the Dockerfile (amd64, no push).
 - Docker image for `linux/amd64` and `linux/arm64` built natively per platform (`ubuntu-latest`, `ubuntu-24.04-arm`), tagged `<tag>-amd64`, `<tag>-arm64`, `latest-amd64` and `latest-arm64`, and combined into a multi-arch manifest for `<tag>` and `latest` with OCI annotations.

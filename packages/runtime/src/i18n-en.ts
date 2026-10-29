@@ -9,7 +9,30 @@
  * (test/i18n-en.test.ts) schlaegt sonst fehl.
  */
 
+import { VARIABLE_SOURCES } from "@secret-desk/core";
+import { createDefaultRegistry } from "@secret-desk/providers";
+
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Parameter der Anbieter (core/params.ts, providers/*): Beschriftungen und Hilfetexte kommen aus den Spezifikationen selbst (siehe PARAM_ENTRIES).
+  ["Den Stack oeffnen (ueber den Link oder in grafana.com unter Ihrer Organisation, dann \"Launch\").", "Open the stack (via the link, or in grafana.com under your organization, then \"Launch\")."],
+  ["Im Stack unter Administration, Users and access, Service accounts einen Service-Account fuer secret-desk anlegen (Rolle Admin, damit er Tokens anderer Service-Accounts verwalten darf).", "In the stack under Administration, Users and access, Service accounts, create a service account for secret-desk (role Admin, so it can manage tokens of other service accounts)."],
+  ["Ressource beim Anbieter", "Resource at the provider"],
+  ["Name enthaelt das Repository", "Name contains the repository"],
+  ["Name enthaelt Repository und Stage", "Name contains repository and stage"],
+  ["einzige Option", "only option"],
+  ["Konten", "Accounts"],
+  ["Projekte", "Projects"],
+  ["Domains", "Domains"],
+  ["Berechtigungsgruppen", "Permission groups"],
+  ["Widgets", "Widgets"],
+  ["Service-Accounts", "Service accounts"],
+  ["Adresse ungueltig", "Address invalid"],
+  ["Die Verbindung liefert keine Konten: Zuordnung nicht pruefbar", "The connection returns no accounts: assignment cannot be checked"],
+  ["Die Verbindung liefert keine Projekte: Zuordnung nicht pruefbar", "The connection returns no projects: assignment cannot be checked"],
+  ["Die Verbindung liefert keine Domains: Zuordnung nicht pruefbar", "The connection returns no domains: assignment cannot be checked"],
+  ["Die Instanz liefert keine Service-Accounts: Zuordnung nicht pruefbar", "The instance returns no service accounts: assignment cannot be checked"],
+  ["Voller Zugriff: der Schluessel gilt fuer das ganze Konto", "Full access: the key applies to the whole account"],
+  ["Key mit vollem Zugriff (alle Domains)", "Key with full access (all domains)"],
   // Stage-Vergleich: alle Repositories, Workflows, Umbenennung
   ["GitHub leitet auf eine fremde Adresse um: nicht gefolgt", "GitHub redirects to a foreign address: not followed"],
   ["Der neue Repository-Name ist ungueltig.", "The new repository name is invalid."],
@@ -500,6 +523,49 @@ type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  [/^Unbekannte Quelle: (.+)$/, "Unknown source: $1"],
+  [/^Die Quelle (.+) gehoert zur Verbindung (.+)$/, "The source $1 belongs to the connection $2"],
+  [/^Die Ressource (.+) gibt es in der Verbindung (.+) nicht\.$/, "The resource $1 does not exist in the connection $2."],
+  [/^Die Variable hat keine Quelle: kind, resource und field angeben\.$/, "The variable has no source: provide kind, resource and field."],
+  [/^Kein oeffentlicher Schluessel im Projekt gefunden$/, "No public key found in the project"],
+  [/^Pflichtparameter fehlen: (.+)$/, "Required parameters missing: $1"],
+  [/^Vorabpruefung fehlgeschlagen: (.+)$/, "Preflight check failed: $1"],
+  [/^Unbekannte Entdeckungsart: (.+)$/, "Unknown discovery kind: $1"],
+  [/^Unbekanntes Preset: (.+)$/, "Unknown preset: $1"],
+  [/^Feld params muss ein Objekt sein\.$/, "Field params must be an object."],
+  [/^Parameter nicht vorgesehen: (.+)$/, "Parameter not provided for: $1"],
+  [/^Parameter (\S+) muss Text sein$/, "Parameter $1 must be text"],
+  [/^Parameter (\S+) muss eine nicht leere Liste von Texten sein$/, "Parameter $1 must be a non-empty list of texts"],
+  [/^Parameter (\S+) muss eine gueltige https-Adresse sein$/, "Parameter $1 must be a valid https address"],
+  [/^Parameter (\S+) muss eine ganze Zahl sein$/, "Parameter $1 must be a whole number"],
+  [/^Parameter (\S+): "(.*)" ist nicht erlaubt \(erlaubt: (.+)\)$/, "Parameter $1: \"$2\" is not allowed (allowed: $3)"],
+  [/^Parameter (\S+) ist fuer diesen Anbieter nicht vorgesehen$/, "Parameter $1 is not provided for this provider"],
+  [/^(.+) nicht lesbar: dem Token fehlt das Leserecht$/, "$1 not readable: the token lacks read permission"],
+  [/^(.+) nicht lesbar$/, "$1 not readable"],
+  [/^Cloudflare-Konto (.+)$/, "Cloudflare account $1"],
+  [/^Das Konto (.+) gehoert zum Token der Verbindung$/, "The account $1 belongs to the connection token"],
+  [/^Das Konto (.+) gehoert nicht zum Token der Verbindung$/, "The account $1 does not belong to the connection token"],
+  [/^zoneId fehlt: (.+) gilt nur fuer eine Zone$/, "zoneId missing: $1 only applies to one zone"],
+  [/^Die Zone (.+) existiert$/, "The zone $1 exists"],
+  [/^Die Zone (.+) gehoert nicht zum Konto (.+)$/, "The zone $1 does not belong to account $2"],
+  [/^Das Widget (.+) existiert$/, "The widget $1 exists"],
+  [/^Das Widget (.+) gehoert nicht zum Konto$/, "The widget $1 does not belong to the account"],
+  [/^Die Instanz (.+) ist erreichbar$/, "The instance $1 is reachable"],
+  [/^Die Instanz (.+) antwortet mit HTTP (\d+)$/, "The instance $1 answers with HTTP $2"],
+  [/^Die Instanz (.+) ist nicht erreichbar$/, "The instance $1 is not reachable"],
+  [/^Der Service-Account (.+) existiert$/, "The service account $1 exists"],
+  [/^Der Service-Account (.+) existiert in der Instanz nicht$/, "The service account $1 does not exist in the instance"],
+  [/^Key nur fuer Domain (.+)$/, "Key only for domain $1"],
+  [/^Die Domain (.+) existiert im verbundenen Konto$/, "The domain $1 exists in the connected account"],
+  [/^Die Domain (.+) existiert im verbundenen Konto nicht$/, "The domain $1 does not exist in the connected account"],
+  [/^Die Domain (.+) ist nicht verifiziert \(Status (.+)\): Senden schlaegt fehl, bis die DNS-Eintraege stimmen$/, "The domain $1 is not verified (status $2): sending fails until the DNS records are correct"],
+  [/^Das Projekt (.+) gehoert zur Verbindung$/, "The project $1 belongs to the connection"],
+  [/^Das Projekt (.+) steht nicht in der Projektliste der Verbindung$/, "The project $1 is not in the connection's project list"],
+  [/^Der Projektname (.+) deutet auf Staging, die Stage ist Produktion$/, "The project name $1 suggests staging, the stage is production"],
+  [/^Der Projektname (.+) deutet auf Produktion, die Stage ist Test$/, "The project name $1 suggests production, the stage is test"],
+  [/^Supabase-Projekt (.+)$/, "Supabase project $1"],
+  [/^Grafana-Service-Account (.+)$/, "Grafana service account $1"],
+  [/^Verfuegbar: (.+)$/, "Available: $1"],
   [/^GitHub GET (.+) -> (\d+) ohne Ziel$/, "GitHub GET $1 -> $2 without a target"],
   [/^Das Repository (.+) kommt im Inventar nicht vor\.$/, "The repository $1 does not appear in the inventory."],
   [/^Die Tresordatei (.+) ist nicht lesbar\. Sie wird nicht ueberschrieben\.$/, "The vault file $1 is not readable. It is not overwritten."],
@@ -678,9 +744,28 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Das Probe-Secret (.+?) wurde angelegt, konnte aber nicht geloescht werden: (.+)\. Bitte von Hand loeschen\.$/, "The probe secret $1 was created but could not be deleted: $2. Please delete it by hand."],
   [/^Die Probe-Variable (.+?) wurde angelegt, konnte aber nicht geloescht werden: (.+)\. Bitte von Hand loeschen\.$/, "The probe variable $1 was created but could not be deleted: $2. Please delete it by hand."],
   [/^Unbekannte Verbindung: (.+)$/, "Unknown connection: $1"],
+  // "schluessel (Beschriftung)": nur die Beschriftung wird uebersetzt (Parameterliste in Pflichtparameter-Meldungen).
+  [/^(\w+) \(([^()]+)\)$/, "$1 ($2)"],
 ];
 
-const exact = new Map<string, string>(EXACT_ENTRIES);
+/** Beschriftungen, Hilfetexte, Optionen und Presets der Parameter-Spezifikationen: Deutsch und Englisch stehen dort schon nebeneinander. */
+function paramEntries(): [string, string][] {
+  const out: [string, string][] = [];
+  for (const p of createDefaultRegistry().list()) {
+    for (const s of p.params ?? []) {
+      out.push([s.label, s.labelEn], [s.help, s.helpEn]);
+      for (const o of s.options ?? []) out.push([o.label, o.labelEn]);
+      for (const pr of s.presets ?? []) out.push([pr.label, pr.labelEn]);
+    }
+  }
+  for (const k of VARIABLE_SOURCES) {
+    out.push([k.label, k.labelEn]);
+    for (const f of k.fields) out.push([f.label, f.labelEn]);
+  }
+  return out;
+}
+
+const exact = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
 
 function applyTemplate(template: string, groups: string[], depth: number): string {
   return template.replace(/\$(\d)/g, (_m, d: string) => {
@@ -702,7 +787,7 @@ function translate(text: string, depth: number): string {
   }
 
   // Zusammengesetzte Texte: Listen und "Kopf: Rest".
-  for (const sep of ["\n", "   ", "; "]) {
+  for (const sep of ["\n", "   ", "; ", ", "]) {
     if (text.includes(sep)) {
       const parts = text.split(sep).map((p) => translate(p, depth + 1));
       const joined = parts.join(sep);

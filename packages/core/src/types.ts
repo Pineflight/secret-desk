@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VariableSourceSchema } from "./variable-sources.js";
 import { DEFAULT_STAGES, StageDefSchema, StageIdSchema, effectiveStages, findStage, resolvePlaces, stageDefIssues, stageKind } from "./stages.js";
 
 /** Id einer Stage (Slug). Ob sie existiert, prueft das Inventar gegen seine `stages`-Definitionen. */
@@ -121,6 +122,8 @@ export const VariableSchema = z.object({
   product: z.string().optional(),
   stage: StageSchema.default("shared"),
   value: z.string().max(1000).nullable().default(null),
+  /** Optional: woher der Sollwert gelesen wird (siehe variable-sources.ts). */
+  from: VariableSourceSchema.optional(),
   places: z.array(PlaceSchema).min(1, "mindestens ein Ziel"),
 });
 export type VariableEntry = z.infer<typeof VariableSchema>;
@@ -134,6 +137,8 @@ const InventoryObject = z.object({
   variables: z.array(VariableSchema).default([]),
   envTemplates: z.array(EnvTemplateSchema).default([]),
   providers: z.array(ProviderDefSchema).default([]),
+  /** Nicht geheime Standardwerte je Integration (Verbindungs-Id), zum Beispiel cloudflare: { accountId }. Fallback fuer Eintraege ohne den Parameter. */
+  integrationDefaults: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 });
 
 export const InventorySchema = InventoryObject.superRefine((inv, ctx) => {

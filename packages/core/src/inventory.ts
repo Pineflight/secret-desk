@@ -83,6 +83,29 @@ export class InventoryStore {
     }, () => this.getSecret(id)!);
   }
 
+  /**
+   * Setzt Parameter eines Eintrags: `set` ueberschreibt einzelne Schluessel, `remove` entfernt welche. Alle anderen
+   * Schluessel (auch unbekannte) bleiben unveraendert. Die Pruefung gegen die Spezifikation macht der Aufrufer.
+   */
+  setSecretParams(id: string, set: Record<string, unknown>, remove: string[] = []): SecretEntry {
+    const idx = this.#data.secrets.findIndex((s) => s.id === id);
+    if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+    return this.#mutate(() => {
+      for (const key of remove) this.#doc.deleteIn(["secrets", idx, "params", key]);
+      for (const [key, value] of Object.entries(set)) this.#doc.setIn(["secrets", idx, "params", key], this.#doc.createNode(clean(value)));
+    }, () => this.getSecret(id)!);
+  }
+
+  /** Ersetzt die Standardwerte einer Integration; leer entfernt sie. */
+  setIntegrationDefaults(connection: string, values: Record<string, unknown>): Record<string, unknown> {
+    return this.#mutate(() => {
+      if (Object.keys(values).length === 0) {
+        this.#doc.deleteIn(["integrationDefaults", connection]);
+        if (this.#doc.hasIn(["integrationDefaults"]) && Object.keys((this.#doc.getIn(["integrationDefaults"]) as { toJSON(): object }).toJSON()).length === 0) this.#doc.deleteIn(["integrationDefaults"]);
+      } else this.#doc.setIn(["integrationDefaults", connection], this.#doc.createNode(clean(values)));
+    }, () => this.#data.integrationDefaults?.[connection] ?? {});
+  }
+
   addSecret(entry: z.input<typeof SecretSchema>): SecretEntry {
     const parsed = SecretSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
@@ -124,12 +147,12 @@ export class InventoryStore {
     return this.#mutate(() => this.#addNode(["variables"], { ...entry, places }), () => this.getVariable(parsed.data.id)!);
   }
 
-  patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null }): VariableEntry {
+  patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null; from?: { connection: string; kind: string; resource: string; field: string } | null }): VariableEntry {
     const idx = this.#data.variables.findIndex((v) => v.id === id);
     if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
     return this.#mutate(() => {
       if ("value" in patch) this.#doc.setIn(["variables", idx, "value"], patch.value ?? null);
-      for (const key of ["description", "owner", "link", "tags"] as const) {
+      for (const key of ["description", "owner", "link", "tags", "from"] as const) {
         if (!(key in patch)) continue;
         const v = patch[key];
         if (v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "") this.#doc.deleteIn(["variables", idx, key]);
