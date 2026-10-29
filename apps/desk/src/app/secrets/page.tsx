@@ -11,7 +11,8 @@ import { Icon } from "@/components/Icons";
 import { MetaFields, TagPills, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
-import { filterBySearch } from "@/lib/page-search";
+import { filterBySearch, highlightTerms } from "@/lib/page-search";
+import { Marked } from "@/components/Marked";
 import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
@@ -88,6 +89,7 @@ export default function SecretsPage() {
   const secrets = useQuery<SecretView[]>(`secrets?${qs}`, () => api<SecretView[]>("GET", `secrets?${qs}`));
 
   const repos = useMemo(() => allRepos(secrets.data ?? []), [secrets.data]);
+  const terms = useMemo(() => highlightTerms(q), [q]);
   const searched = useMemo(() => filterBySearch(secrets.data ?? [], q), [secrets.data, q]);
   const rows = useMemo(
     () => sortItems(filterByParams(searched.filter((s) => (kind === "" || (kind === "auto" ? s.automatic : !s.automatic)) && (browse.repo === "" || repoNames(s.places).includes(browse.repo))), paramsFilter), browse.sort, stageOrder(defs)),
@@ -157,8 +159,8 @@ export default function SecretsPage() {
                 {g.items.map((s) => (
                   <tr key={s.id} className={LIST_ROW_CLASS}>
                     <td className={LIST_CELL_CLASS}>
-                      <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline">{s.name}</Link>
-                      <p className="text-xs text-muted">{s.id}</p>
+                      <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
+                      <p className="text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
                       {s.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
                       {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
                       {needsParams(s) ? (

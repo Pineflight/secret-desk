@@ -58,6 +58,7 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Encrypted vault for integration tokens:** optional, AES-256-GCM, key in the OS keychain (macOS Keychain, Linux `secret-tool`, Windows DPAPI) or a key file.
 - **Browser automation recipes:** for providers without an API, a visible Chrome walks through the form from a YAML recipe. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md).
 - **Dev `.env` export:** per-repository templates produce the file on demand (defaults, random values, personal dev tokens, variables) with mode 600, stored nowhere.
+- **Search and command palette:** ⌘K / Ctrl K opens a palette over secrets, variables, repositories, stages, integrations, providers, pages and actions (metadata only, never values) with typo-tolerant matching, filters such as `stage:staging`, suggestions and recent items. See [Search](docs/SEARCH.md).
 - **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
 
 ### Supported integrations
@@ -217,6 +218,7 @@ Known limits:
 | [Providers](docs/PROVIDERS.md) | Supported providers, parameters, how well each endpoint is verified |
 | [Browser recipes](docs/RECIPES.md) | Writing recipes; [Browser automation](docs/BROWSER-AUTOMATION.md) explains the design |
 | [Docker](docs/DOCKER.md) | Container on a Raspberry Pi in the LAN: compose file, allowed hosts, vault key, automatic updates |
+| [Search](docs/SEARCH.md) | Command palette (⌘K / Ctrl K), tolerant search, filter syntax, history |
 | [Team](docs/TEAM.md) | Sharing the configuration, onboarding |
 | [Architecture](docs/ARCHITECTURE.md) | Path of a value, data, packages |
 | [Security model](docs/SECURITY-MODEL.md) | What is protected and how, limits |
