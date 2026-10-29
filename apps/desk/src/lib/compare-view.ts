@@ -1,3 +1,4 @@
+import { search, type SearchDoc } from "./smart-search";
 import type { CellState, CompareCell, CompareRepo, CompareResult, CompareRow, Parity } from "@secret-desk/core";
 
 /**
@@ -72,6 +73,17 @@ export function viewRows(result: Pick<CompareResult, "rows" | "live">, compared:
   });
 }
 
+/** Gleiche tolerante Suche wie Befehlspalette und Listen (Tippfehler, Trennzeichen, Initialen, Filter stage:/repo:/tag:). */
+function rowMatchesQuery(r: ViewRow, query: string): boolean {
+  const doc: SearchDoc = {
+    id: r.name,
+    kind: r.kind,
+    fields: [{ key: "name", text: r.name }, ...(r.names ?? []).map((text) => ({ key: "name" as const, text })), ...r.ids.map((text) => ({ key: "id" as const, text })), ...r.tags.map((text) => ({ key: "tag" as const, text })), ...(r.product ? [{ key: "service" as const, text: r.product }] : []), { key: "repo", text: r.repo }],
+    attrs: { repo: [r.repo], tag: r.tags },
+  };
+  return search([doc], query).length > 0;
+}
+
 export function filterRows(rows: readonly ViewRow[], f: CompareFilters): ViewRow[] {
   const q = f.q.trim().toLowerCase();
   return rows.filter((r) => {
@@ -79,7 +91,7 @@ export function filterRows(rows: readonly ViewRow[], f: CompareFilters): ViewRow
     if (f.repo && r.repo !== f.repo) return false;
     if (f.onlyDeviations && !r.deviation) return false;
     if (f.onlyNeeded && !(r.neededMissing || (f.showLevelMismatch === true && r.levelMismatch))) return false;
-    if (q && ![r.name, ...(r.names ?? []), ...r.ids, ...r.tags, r.product ?? ""].some((x) => x.toLowerCase().includes(q))) return false;
+    if (q && !rowMatchesQuery(r, f.q)) return false;
     return true;
   });
 }
@@ -132,7 +144,7 @@ export function repoList(rows: readonly { repo: string }[], repos: readonly { na
 /** Repositories ohne Inventar-Eintrag und ohne einen einzigen Fund (weder in GitHub noch von Workflows gebraucht). */
 export function reposWithoutEntries(repos: readonly CompareRepo[], filters: Pick<CompareFilters, "repo" | "q"> = { repo: "", q: "" }): CompareRepo[] {
   const q = filters.q.trim().toLowerCase();
-  return repos.filter((r) => !r.inInventory && r.found.secrets + r.found.variables + r.needed === 0 && (!filters.repo || r.name === filters.repo) && (!q || r.name.toLowerCase().includes(q)));
+  return repos.filter((r) => !r.inInventory && r.found.secrets + r.found.variables + r.needed === 0 && (!filters.repo || r.name === filters.repo) && (!q || search([{ id: r.name, kind: "repo", fields: [{ key: "name", text: r.name }], attrs: { repo: [r.name] } }], filters.q).length > 0));
 }
 
 /** Inventar-Repositories, die GitHub unter dem Namen nicht mehr kennt (umbenannt, geloescht, nicht freigegeben). */

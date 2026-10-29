@@ -10,7 +10,8 @@ import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, RowIconButton, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
-import { filterBySearch } from "@/lib/page-search";
+import { filterBySearch, highlightTerms } from "@/lib/page-search";
+import { Marked } from "@/components/Marked";
 import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
@@ -111,6 +112,7 @@ export default function VariablesPage() {
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
   const known = anyCompared(drifts, (list.data ?? []).map((v) => v.id));
+  const terms = useMemo(() => highlightTerms(q), [q]);
   const searched = useMemo(() => filterBySearch(list.data ?? [], q), [list.data, q]);
   const rows = useMemo(
     () => sortItems(filterByDrift(searched.filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
@@ -246,7 +248,7 @@ export default function VariablesPage() {
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
-          <ListTable columns={[t("variables.colName"), t("variables.colStage"), t("variables.colExpected"), t("variables.colTargets"), t("variables.colCompare"), t("variables.colActions")]}>
+          <ListTable stickyLast columns={[t("variables.colName"), t("variables.colStage"), t("variables.colExpected"), t("variables.colTargets"), t("variables.colCompare"), t("variables.colActions")]}>
             {g.items.map((v) => {
               const d = drifts[v.id];
               const sum = summarizeDrift(d);
@@ -254,15 +256,15 @@ export default function VariablesPage() {
               return (
                 <tr key={`${g.key}:${v.id}`} className={`${LIST_ROW_CLASS} cursor-pointer`} onClick={() => setDetail({ id: v.id })}>
                   <td className={LIST_CELL_CLASS}>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setDetail({ id: v.id }); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline">{v.name}</button>
-                    <p className="text-xs text-muted">{v.id}</p>
-                    {v.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setDetail({ id: v.id }); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
+                    <p className="text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
+                    {v.description ? <p className="mt-1 max-w-[12rem] truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
                     {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
                     {v.from ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: describeFrom(v.from, sources, locale) })}</Pill></div> : null}
                   </td>
                   <td className={LIST_CELL_CLASS}><StageBadge stage={v.stage} /></td>
                   <td className={LIST_CELL_CLASS}>
-                    {v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[14rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>}
+                    {v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[8rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>}
                   </td>
                   <td className={LIST_CELL_CLASS}>
                     <div className="flex flex-wrap gap-1">{v.places.length ? v.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>
