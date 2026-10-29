@@ -106,11 +106,13 @@ jobs:
       contents: write
       packages: write
     env:
-      IMAGE: ghcr.io/${{ github.repository }}
       TAG: ${{ needs.version.outputs.tag }}
-      # Annotationen am Einzel-Manifest und am Index, damit GHCR sie auf der Paketseite zeigt.
-      DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+      # Annotationen am Index (docker buildx imagetools create unterstuetzt dort den Praefix "index:").
+      DOCKER_METADATA_ANNOTATIONS_LEVELS: index
     steps:
+      # Image-Referenzen muessen kleingeschrieben sein, der Repository-Name (Pineflight/...) nicht.
+      - name: Image-Name in Kleinbuchstaben
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -136,7 +138,7 @@ jobs:
         run: |
           args=()
           while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
-          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '.annotations[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${TAG}-amd64" "${IMAGE}:${TAG}-arm64"
       - name: Plattformen im Manifest pruefen
         run: |
@@ -152,4 +154,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
-            --notes "Docker (linux/amd64, linux/arm64): \`docker pull ghcr.io/${GITHUB_REPOSITORY}:${TAG}\`"
+            --notes "Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\`"
