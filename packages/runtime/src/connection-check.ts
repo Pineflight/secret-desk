@@ -342,7 +342,9 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
 // Einstieg
 // ---------------------------------------------------------------------------
 
-const KNOWN = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "grafana"]);
+/** Verbindungen, die das Portal selbst anbietet (auch ohne registrierten Anbieter, zum Beispiel bei ausgeschalteter Automatisierung). */
+export const KNOWN_CONNECTIONS: ReadonlySet<string> = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "grafana"]);
+const KNOWN = KNOWN_CONNECTIONS;
 
 /**
  * Prueft eine Verbindung mit rein lesenden Aufrufen. Nur GitHub schreibt, und nur mit `deep` und nur in die gewaehlten Ziele.

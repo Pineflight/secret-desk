@@ -25,6 +25,7 @@ import {
   type VariableSource,
 } from "@secret-desk/core";
 import { readVariableField } from "@secret-desk/providers";
+import { KNOWN_CONNECTIONS } from "./connection-check.js";
 import type { Actor } from "./agent-api.js";
 import { PolicyError } from "./agent-api.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
@@ -248,7 +249,8 @@ function kindsOf(providers: Provider[]): Map<string, Provider> {
 export async function getConnectionResources(rt: Runtime, actor: Actor, connection: string, options: { kind?: string; repo?: string; stage?: string; params?: Record<string, unknown> } = {}): Promise<ConnectionResources> {
   requireHuman(actor, "Ressourcen ansehen");
   const providers = providersOf(rt, connection);
-  if (providers.length === 0) throw new InventoryError(`Unbekannte Verbindung: ${connection}`);
+  // Bekannte Verbindungen ohne Anbieter (github, team-sync, ...) haben nichts zu entdecken: leere Ansicht statt Fehler.
+  if (providers.length === 0 && !KNOWN_CONNECTIONS.has(connection)) throw new InventoryError(`Unbekannte Verbindung: ${connection}`);
   const kinds = kindsOf(providers);
   const hint = draftHint(rt, options.repo, options.stage);
   const resources: Record<string, ResourceState> = {};
@@ -274,7 +276,7 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
 export async function putConnectionDefaults(rt: Runtime, actor: Actor, connection: string, body: { values?: unknown }): Promise<{ connection: string; defaults: Record<string, unknown>; defaultSpecs: ParamSpec[] }> {
   requireHuman(actor, "Standardwerte aendern");
   const providers = providersOf(rt, connection);
-  if (providers.length === 0) throw new InventoryError(`Unbekannte Verbindung: ${connection}`);
+  if (providers.length === 0 && !KNOWN_CONNECTIONS.has(connection)) throw new InventoryError(`Unbekannte Verbindung: ${connection}`);
   if (!isRecord(body.values)) throw new InventoryError("Feld fehlt: values");
   const specs = defaultSpecsOf(providers);
   const next = { ...(rt.inventory.data.integrationDefaults?.[connection] ?? {}) };
