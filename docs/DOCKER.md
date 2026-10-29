@@ -35,7 +35,7 @@ The portal does not know under which address you reach it, so it always prints `
 - Port published directly on the host: `http://192.168.1.20:4747/?launch=<secret>`
 - Behind a reverse proxy on port 80 (see below): `http://desk.local/?launch=<secret>`
 
-By default a new secret is created at every container start, so read the log again after every restart and after every automatic update. With `SECRET_DESK_LAUNCH_SECRET_FILE` set (the compose file below does that) the secret is created once and reused, so the address stays the same. The page removes the secret from the address bar after opening. Do not share the address and do not paste it into chats or tickets: whoever has it can open the portal.
+By default a new secret is created at every container start, so read the log again after every restart and after every automatic update. With `SECRET_DESK_LAUNCH_SECRET_FILE` set (the compose file below does that) the secret is created once and stored in that file (mode 600), so the address stays the same; the price is a permanent secret on disk. If you remove the variable, every start creates a new secret and you must read the log each time. The page removes the secret from the address bar after opening. Do not share the address and do not paste it into chats or tickets: whoever has it can open the portal.
 
 ## Prepare the host
 
@@ -84,6 +84,8 @@ services:
       SECRET_DESK_CONFIG: /data/config/secret-desk.config.yaml
       SECRET_DESK_ALLOWED_HOSTS: "192.168.1.20:4747,raspberrypi.local:4747"
       SECRET_DESK_VAULT_KEY: ${SECRET_DESK_VAULT_KEY}
+      # Keeps the launch secret across restarts (stored in this file, mode 600). Remove this line
+      # for a new secret at every start; then read the address from the log each time.
       SECRET_DESK_LAUNCH_SECRET_FILE: /data/launch-secret
     volumes:
       - /srv/tresor/secret-desk/data:/data
@@ -99,7 +101,7 @@ services:
 
 The health check only asks whether the portal answers (any status below 500, usually 401 without the launch secret); it sends no secret. The container starts without internet access, nothing is downloaded at start.
 
-`SECRET_DESK_ALLOWED_HOSTS` is a comma-separated list of additional `host:port` values the portal accepts in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Without it (or when empty) only `127.0.0.1`, `localhost` and `[::1]` with the port are accepted, and a call over the LAN address gets 403. Every entry must contain the port as the browser sends it. To use the mDNS name of the Pi, add `<hostname>.local:4747` as shown above (replace `raspberrypi` with the hostname of the Pi) and open the portal under that name. All other checks (DNS rebinding, `Origin`, `Sec-Fetch-Site`, launch secret, CSRF) stay in force.
+`SECRET_DESK_ALLOWED_HOSTS` is a comma-separated list of additional `host:port` values the portal accepts in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Without it (or when empty) only `127.0.0.1`, `localhost` and `[::1]` with the port are accepted, and a call over the LAN address gets 403. Every entry must equal the `Host` header the browser sends exactly: without a port for port 80 (HTTP) or 443 (HTTPS), otherwise with the port, as in the examples here. To use the mDNS name of the Pi, add `<hostname>.local:4747` as shown above (replace `raspberrypi` with the hostname of the Pi) and open the portal under that name. All other checks (DNS rebinding, `Origin`, `Sec-Fetch-Site`, launch secret, CSRF) stay in force.
 
 Start it, then read the launch address from the log:
 
@@ -222,4 +224,4 @@ Add this service to the same compose file. Two things to know:
 - Access to the Docker socket is root-equivalent on the Pi. Run Watchtower only on a machine you control, and do not add other containers to the label filter that you do not trust.
 - A push to `main` reaches the Pi after about five minutes (the poll interval plus the build time of the workflow). A broken release therefore reaches the Pi too. If you want to decide yourself when to update, pin a tag such as `ghcr.io/pineflight/secret-desk:v0.1.0-12` and drop the Watchtower service.
 
-After an update the container restarts and prints a new launch secret.
+After an update the container restarts and prints the launch address again. The secret in it is new unless `SECRET_DESK_LAUNCH_SECRET_FILE` is set, in which case it stays the same.
