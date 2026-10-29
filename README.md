@@ -176,6 +176,7 @@ Known limits:
 | [Integrations](docs/INTEGRATIONS.md) | Permissions per integration, test connection, write test, vault |
 | [Providers](docs/PROVIDERS.md) | Supported providers, parameters, how well each endpoint is verified |
 | [Browser recipes](docs/RECIPES.md) | Writing recipes; [Browser automation](docs/BROWSER-AUTOMATION.md) explains the design |
+| [Docker](docs/DOCKER.md) | Container on a Raspberry Pi in the LAN: compose file, allowed hosts, vault key, automatic updates |
 | [Team](docs/TEAM.md) | Sharing the configuration, onboarding |
 | [Architecture](docs/ARCHITECTURE.md) | Path of a value, data, packages |
 | [Security model](docs/SECURITY-MODEL.md) | What is protected and how, limits |

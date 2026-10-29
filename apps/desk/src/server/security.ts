@@ -15,6 +15,14 @@ export function allowedHosts(port: number, extra: string[] = []): Set<string> {
   return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...extra]);
 }
 
+/** Zusaetzliche Hosts aus SECRET_DESK_ALLOWED_HOSTS (kommagetrennt, mit Port). Leere Eintraege entfallen. */
+export function extraHostsFromEnv(env: Record<string, string | undefined> = process.env): string[] {
+  return (env["SECRET_DESK_ALLOWED_HOSTS"] ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter((h) => h !== "");
+}
+
 export function checkHost(req: Request, hosts: Set<string>): boolean {
   const host = req.headers.get("host") ?? new URL(req.url).host;
   return hosts.has(host);

@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `SECRET_DESK_ALLOWED_HOSTS`: comma-separated extra `host:port` values accepted by the portal host and origin checks, so it can be reached over a LAN address. Default unchanged (loopback only).
+- Docker image for `linux/amd64` and `linux/arm64` (QEMU in the release workflow).
+- [docs/DOCKER.md](docs/DOCKER.md): running the portal on a Raspberry Pi with compose and automatic updates.
 - Release workflow: every run on `main` verifies, publishes a GitHub release (`v<version>-<run number>`) and a Docker image to `ghcr.io/pineflight/secret-desk`.
 - `Dockerfile`. Publish the port to the host loopback only: `docker run --rm -p 127.0.0.1:4747:4747 -v secret-desk-data:/data ghcr.io/pineflight/secret-desk`.
 
