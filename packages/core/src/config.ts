@@ -10,6 +10,30 @@ export const SourceSpecSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session") }),
 ]);
 
+/** Team-Sync: Team-Datei (ohne Werte) mit einem privaten GitHub-Repository abgleichen. Der Zugangs-Token ist die Verbindung "team-sync". */
+export const TeamSyncSchema = z.object({
+  /** Ziel-Repository, "owner/name". */
+  repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'Format "owner/name"'),
+  /** Pfad der Team-Datei im Repository. */
+  path: z.string().min(1).default("secret-desk.team.yaml"),
+  /** Zweig, aus dem gelesen wird und (bei strategy pull-request) in den der Pull Request geht. */
+  branch: z.string().min(1).default("main"),
+  /** pull: nur lesen. pull-push: Aenderungen aus dem Portal zusaetzlich ins Repository schieben (nach Bestaetigung). */
+  mode: z.enum(["pull", "pull-push"]).default("pull"),
+  push: z
+    .object({
+      /** pull-request: Aenderung auf einem eigenen Zweig und Pull Request. direct: Commit direkt auf den Zweig. */
+      strategy: z.enum(["pull-request", "direct"]).default("pull-request"),
+      /** Zweig fuer Pull Requests. */
+      branch: z.string().min(1).default("secret-desk/team-sync"),
+    })
+    .default({ strategy: "pull-request", branch: "secret-desk/team-sync" }),
+  /** Beim Start des Portals den Stand im Repository abfragen (nur lesend, nichts wird ohne Vorschau uebernommen). */
+  pullOnStart: z.boolean().default(true),
+});
+export type TeamSyncConfig = z.infer<typeof TeamSyncSchema>;
+export const TEAM_SYNC_CONNECTION = "team-sync";
+
 export const ConfigSchema = z.object({
   /** Pfad zur Inventar-Datei, relativ zur Konfiguration. */
   inventory: z.string().min(1),
@@ -92,6 +116,8 @@ export const ConfigSchema = z.object({
       ignoreRepos: z.array(z.string().min(1)).default([".github", ".github-private"]),
     })
     .default({ ignoreRepos: [".github", ".github-private"] }),
+  /** Team-Sync mit einem privaten GitHub-Repository (siehe docs/TEAM.md). Ohne Angabe aus. */
+  teamSync: TeamSyncSchema.optional(),
   server: z.object({ port: z.number().int().min(1024).max(65535).default(4747) }).default({ port: 4747 }),
 });
 export type DeskConfig = z.infer<typeof ConfigSchema>;

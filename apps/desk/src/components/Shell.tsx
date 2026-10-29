@@ -53,6 +53,11 @@ export function Shell({ children }: { children: ReactNode }) {
     ensureSession().then(setSession).catch((err: unknown) => { setSession(null); setLaunchRequired(err instanceof ApiError && err.code === "launch-required"); });
   }, []);
   useEffect(() => setOpen(false), [path]);
+  // Erststart ohne Inventar: statt einer leeren Oberflaeche den Einrichtungsassistenten zeigen.
+  useEffect(() => {
+    if (!session || path === "/setup") return;
+    api<{ setupNeeded: boolean }>("GET", "team-sync/status").then((s) => { if (s.setupNeeded) router.replace("/setup"); }).catch(() => undefined);
+  }, [session, path, router]);
   useEffect(() => setQ(params.get("q") ?? ""), [params]);
   // Suche, Schlagwort und Repository-Filter pro Seite merken: Wer in einen Eintrag springt und per Seitenleiste
   // oder Zurueck-Knopf wiederkommt, findet die Liste so vor, wie er sie verlassen hat.

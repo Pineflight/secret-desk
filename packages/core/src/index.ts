@@ -21,3 +21,4 @@ export * from "./vault.js";
 export * from "./platform.js";
 export * from "./compare.js";
 export * from "./workflow-needs.js";
+export * from "./team-sync.js";

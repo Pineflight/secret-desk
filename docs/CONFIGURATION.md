@@ -42,7 +42,8 @@ Annotated examples: [`examples/secret-desk.config.example.yaml`](../examples/sec
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | boolean | `true` | `false` turns the vault off: tokens can then only live in memory for the session (or come from a configured source). |
-| `file` | string | `~/.secret-desk/vault.json` | Vault file (AES-256-GCM encrypted). |
+| `file` | string | `.secret-desk-team-sync.json` (next to the configuration file) | Team sync state: blob SHA and hash of the last sync, time of the last push, open pull request. No values, no token. | 600 |
+| `~/.secret-desk/vault.json` | Vault file (AES-256-GCM encrypted). |
 | `keyFile` | string | unset | Set only deliberately. Windows: location of the DPAPI-protected key blob (default `<vault file>.key`). Linux and macOS: a file with the key (Base64, 32 bytes, mode 600) **instead of** the keychain. Key and data then sit on the same disk; use it only when no keychain is available. |
 
 The key itself comes from, in this order: the environment variable `SECRET_DESK_VAULT_KEY`, then `keyFile` if set, then the system keychain (macOS Keychain, Linux `secret-tool`, Windows DPAPI). See [INTEGRATIONS.md](INTEGRATIONS.md#vault).
@@ -108,6 +109,31 @@ Browser automation, see [RECIPES.md](RECIPES.md) and [BROWSER-AUTOMATION.md](BRO
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `ignoreRepos` | string[] | `[".github", ".github-private"]` | Repositories that the comparison neither shows nor reads (no GitHub calls, no workflow files). They appear only as *Ignored repositories*. Add, for example, an Upptime `status` repository with foreign template workflows. Setting the field replaces the default list. |
+
+### `teamSync`
+
+Optional. Keeps the team file (structure without values, see [Team](TEAM.md#team-sync-with-a-private-github-repository)) in step with a file in a private GitHub repository. Without the section, team sync is off.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `repo` | string `owner/name` | required | The repository that holds the team file. |
+| `path` | string | `secret-desk.team.yaml` | Path of the team file in the repository. |
+| `branch` | string | `main` | Branch that is read, and the target of pull requests. |
+| `mode` | `pull`, `pull-push` | `pull` | `pull` only reads. `pull-push` can also push portal changes back (after a confirmation). |
+| `push.strategy` | `pull-request`, `direct` | `pull-request` | `pull-request` commits to `push.branch` and opens or updates a pull request. `direct` commits to `branch`. |
+| `push.branch` | string | `secret-desk/team-sync` | Branch for pull requests. |
+| `pullOnStart` | boolean | `true` | Ask the repository (read only) when the portal starts. Nothing is taken over without a preview. |
+
+The access token is the connection `team-sync` (a fine-grained token for this one repository), set like any other connection: session, vault, `connections.team-sync` (`env` or `op`) or `SECRET_DESK_TEAM_TOKEN`. It never goes into a file.
+
+```yaml
+teamSync:
+  repo: acme/team-config
+  path: secret-desk.team.yaml
+  branch: main
+  mode: pull-push
+  push: { strategy: pull-request, branch: secret-desk/team-sync }
+```
 
 ### `server`
 
@@ -306,11 +332,15 @@ providers:
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `SECRET_DESK_CONFIG` | portal | Absolute path of the configuration file (default: `secret-desk.config.yaml` in the repository root). |
+| `SECRET_DESK_CONFIG` | portal | Absolute path of the configuration file (default: `secret-desk.config.yaml` in the repository root). If it is set and the file is missing, the portal creates a minimal configuration and an empty `inventory.yaml` there (only if the folder is writable) and shows the first-start wizard. |
 | `SECRET_DESK_VAULT_KEY` | portal, CLI | Vault key: 32 bytes, Base64 (`openssl rand -base64 32`). Takes precedence over the keychain. |
 | `SECRET_DESK_USER` | portal | Name shown as the acting user (default: the operating-system user). |
 | `SECRET_DESK_ALLOWED_HOSTS` | portal | Comma-separated extra `host:port` values accepted in the `Host` and `Origin` headers, for example `192.168.1.20:4747,pi.local:4747`. Default: loopback only. See [Docker](DOCKER.md). |
 | `SECRET_DESK_LAUNCH_SECRET_FILE` | portal | Path of a file that keeps the launch secret across restarts. An existing file is used (mode 600 is enforced), otherwise a 256-bit secret is created there with mode 600. Unset: a new secret at every start. See [Docker](DOCKER.md#open-the-portal). |
+| `SECRET_DESK_TEAM_REPO` | portal | `owner/name` of the team repository. With the other `SECRET_DESK_TEAM_*` variables it sets up team sync at the first start without clicking (see [Docker](DOCKER.md#first-start-without-a-configuration)). Only used when `teamSync` is not configured yet. |
+| `SECRET_DESK_TEAM_PATH` | portal | Path of the team file (default `secret-desk.team.yaml`). |
+| `SECRET_DESK_TEAM_BRANCH` | portal | Branch (default `main`). |
+| `SECRET_DESK_TEAM_TOKEN` | portal, CLI | Access token for the team repository (connection `team-sync`, source `env`). Never shown. |
 | `SECRET_DESK_NO_LAUNCH_SECRET` | portal | `1` turns the launch secret off. For demos and development only. |
 | `SECRET_DESK_DEMO` | portal | `1` starts the demo mode with a simulated GitHub. |
 | `SECRET_DESK_AGENT_TOKEN` | MCP server | Agent token; otherwise `~/.secret-desk/agent-token` is read. |

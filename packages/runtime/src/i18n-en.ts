@@ -10,6 +10,34 @@
  */
 
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Team-Sync
+  ["Repository oder Zweig nicht gefunden", "Repository or branch not found"],
+  ["Team-Sync ist nicht eingerichtet (Abschnitt teamSync in der Konfiguration).", "Team sync is not set up (teamSync section in the configuration)."],
+  ["Team-Sync ist noch nicht eingerichtet (teamSync in der Konfiguration).", "Team sync is not set up yet (teamSync in the configuration)."],
+  ["Zugriff ok, die Team-Datei fehlt noch im Repository.", "Access ok, the team file is still missing in the repository."],
+  ["Zugriff ok, Team-Datei gelesen.", "Access ok, team file read."],
+  ["Liest (und, wenn eingestellt, schreibt) die Team-Datei im privaten GitHub-Repository. Die Datei enthaelt nur Struktur, keine Werte.", "Reads (and, if configured, writes) the team file in the private GitHub repository. The file contains structure only, no values."],
+  ["Fine-grained Token nur fuer das Team-Repository anlegen (Repository access: Only select repositories, genau dieses Repository).", "Create a fine-grained token for the team repository only (Repository access: Only select repositories, exactly this repository)."],
+  ["Contents: Read-only reicht zum Abgleichen. Zum Schieben Contents: Read and write, bei Pull Requests zusaetzlich Pull requests: Read and write.", "Contents: Read-only is enough for syncing. To push, Contents: Read and write, and for pull requests also Pull requests: Read and write."],
+  ["Token erzeugen, kopieren und unten einfuegen. Er wird nie in eine Datei geschrieben.", "Create the token, copy it and paste it below. It is never written to a file."],
+  ["Contents: Read (Read and write zum Schieben)", "Contents: Read (Read and write to push)"],
+  ["Pull requests: Read and write (nur bei push.strategy pull-request)", "Pull requests: Read and write (only for push.strategy pull-request)"],
+  ["GitHub hat den Token fuer das Team-Repository abgelehnt (abgelaufen oder ungueltig). Neuen Token unter Verbindungen eintragen.", "GitHub rejected the token for the team repository (expired or invalid). Enter a new token under Connections."],
+  ["Der Token hat nicht die noetigen Rechte fuer das Team-Repository (Contents lesen, zum Schieben auch schreiben, bei Pull Requests Pull requests schreiben).", "The token lacks the required rights for the team repository (Contents read, also write to push, Pull requests write for pull requests)."],
+  ["Repository, Zweig oder Datei nicht gefunden, oder der Token hat keinen Zugriff auf dieses Repository.", "Repository, branch or file not found, or the token has no access to this repository."],
+  ["Das Repository hat sich waehrenddessen geaendert oder lehnt die Aenderung ab. Bitte neu abgleichen.", "The repository changed in the meantime or rejects the change. Please sync again."],
+  ["Keine Verbindung zu GitHub. Netzwerk pruefen und erneut versuchen.", "No connection to GitHub. Check the network and try again."],
+  ["Die Team-Datei gibt es im Repository nicht (mehr).", "The team file does not (any longer) exist in the repository."],
+  ["Das Repository hat sich seit der Vorschau geaendert. Bitte neu abgleichen.", "The repository changed since the preview. Please sync again."],
+  ["Schieben ist ausgeschaltet (teamSync.mode ist \"pull\"). Auf \"pull-push\" stellen.", "Pushing is turned off (teamSync.mode is \"pull\"). Set it to \"pull-push\"."],
+  ["Das Repository hat Aenderungen, die lokal fehlen. Erst abgleichen (Uebernehmen oder Lokal behalten), dann schieben.", "The repository has changes that are missing locally. Sync first (take over or keep local), then push."],
+  ["Automatisch vom secret-desk Portal erstellt. Enthaelt nur Struktur, keine Werte. Bitte die Aenderungen pruefen.", "Created by the secret-desk portal. Contains structure only, no values. Please review the changes."],
+  ["Schieben braucht die ausdrueckliche Bestaetigung confirm: true.", "Pushing needs the explicit confirmation confirm: true."],
+  ["Der Stand hat sich seit der Vorschau geaendert. Bitte Vorschau neu laden.", "The state changed since the preview. Please reload the preview."],
+  ["Der letzte Push ist erst wenige Sekunden her. Bitte kurz warten.", "The last push was only a few seconds ago. Please wait briefly."],
+  ["Der Zielzweig existiert im Repository nicht.", "The target branch does not exist in the repository."],
+  ["Die Konfigurationsdatei laesst sich nicht schreiben (Rechte des Ordners pruefen).", "The configuration file cannot be written (check the folder permissions)."],
+  ["Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.", "The team file contains an access token: not uploaded."],
   // Stage-Vergleich: alle Repositories, Workflows, Umbenennung
   ["GitHub leitet auf eine fremde Adresse um: nicht gefolgt", "GitHub redirects to a foreign address: not followed"],
   ["Der neue Repository-Name ist ungueltig.", "The new repository name is invalid."],
@@ -500,6 +528,12 @@ type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  [/^GitHub: (.+) ist keine Datei$/s, "GitHub: $1 is not a file"],
+  [/^Team-Datei enthaelt (externalId|rotatedAt|.+): wird nicht hochgeladen\.$/s, "Team file contains $1: not uploaded."],
+  [/^Die Konfigurationsdatei (.+) fehlt und der Ordner ist nicht beschreibbar\. Datei anlegen oder SECRET_DESK_CONFIG auf einen beschreibbaren Pfad setzen\.$/s, "The configuration file $1 is missing and the folder is not writable. Create the file or set SECRET_DESK_CONFIG to a writable path."],
+  [/^Konfiguration waere ungueltig: (.+)$/s, "Configuration would be invalid: $1"],
+  [/^GitHub-Fehler \((.+)\) beim Team-Sync\.$/s, "GitHub error ($1) during team sync."],
+  [/^Team-Sync ungueltig: (.+)$/s, "Team sync invalid: $1"],
   [/^GitHub GET (.+) -> (\d+) ohne Ziel$/, "GitHub GET $1 -> $2 without a target"],
   [/^Das Repository (.+) kommt im Inventar nicht vor\.$/, "The repository $1 does not appear in the inventory."],
   [/^Die Tresordatei (.+) ist nicht lesbar\. Sie wird nicht ueberschrieben\.$/, "The vault file $1 is not readable. It is not overwritten."],

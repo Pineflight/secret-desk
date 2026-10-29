@@ -10,6 +10,7 @@ import {
   StageError,
   VaultUnavailableError,
   TeamBundleError,
+  TeamSyncError,
   VariableError,
   VariablePatchSchema,
   mergeTeamBundle,
@@ -69,6 +70,14 @@ import {
   setStages,
   submitManualValue,
   teamExport,
+  applyTeamSync,
+  checkTeamSync,
+  dismissTeamSetup,
+  planTeamPush,
+  previewTeamText,
+  pushTeamSync,
+  setupTeamSync,
+  teamSyncStatus,
   updateSecretMeta,
   updateVariable,
   type Actor,
@@ -140,6 +149,7 @@ export function sanitizeAgentName(raw: string | null): string {
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
+  ["GET", /^team-sync\/status$/, ({ rt }) => teamSyncStatus(rt)],
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.
   ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", allRepos: query.get("all") === "1", workflows: query.get("workflows") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
@@ -180,6 +190,18 @@ const common: [string, RegExp, Handler][] = [
 
 /** Nur im Portal (Mensch): Bestaetigen, Eingeben, Freigeben, Verbindungen, Anlagen, Browser-Laeufe ansehen und abbrechen. */
 const humanOnly: [string, RegExp, Handler][] = [
+  // Team-Sync: Status liest auch der Agent (common). Abfragen, Uebernehmen und Schieben macht nur ein Mensch.
+  ["POST", /^team-sync\/check$/, ({ rt }) => checkTeamSync(rt)],
+  ["POST", /^team-sync\/preview-text$/, ({ rt, body }) => previewTeamText(rt, str(body, "text"))],
+  ["POST", /^team-sync\/apply$/, ({ rt, body }) => {
+    const resolution = optStr(body, "resolution");
+    if (resolution !== "merge" && resolution !== "replace" && resolution !== "keep-local") throw new InventoryError("Feld resolution: merge, replace oder keep-local.");
+    return applyTeamSync(rt, { expectSha: str(body, "expectSha"), resolution, confirmReplace: body.confirmReplace === true });
+  }],
+  ["POST", /^team-sync\/push-plan$/, ({ rt }) => planTeamPush(rt)],
+  ["POST", /^team-sync\/push$/, ({ rt, req, body }) => pushTeamSync(rt, { confirm: body.confirm === true, expectLocalHash: str(body, "expectLocalHash"), expectRemoteSha: typeof body["expectRemoteSha"] === "string" ? (body["expectRemoteSha"] as string) : null, lang: req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de" })],
+  ["PUT", /^team-sync\/config$/, async ({ rt, body }) => ({ config: await setupTeamSync(rt, body.teamSync), status: await teamSyncStatus(rt) })],
+  ["POST", /^team-sync\/dismiss-setup$/, async ({ rt }) => { await dismissTeamSetup(rt); return teamSyncStatus(rt); }],
   // Stage-Definitionen aendert nur ein Mensch im Portal (Einstellungen); Agenten lesen sie.
   ["PUT", /^stages$/, ({ rt, body }) => setStages(rt, Array.isArray(body.stages) ? (body.stages as never[]) : (() => { throw new InventoryError("Feld fehlt: stages"); })())],
   // Gestartet wird ein Browser-Lauf ueber renewal-requests (oder die Freigabe); hier nur Zustand und Abbruch. Agenten sehen nichts davon.
@@ -320,6 +342,7 @@ function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof VariableError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, 400);
   if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);
   if (e instanceof VaultUnavailableError) return json({ error: e.message, code: "vault-unavailable" }, 409);
+  if (e instanceof TeamSyncError) return json({ error: e.message, code: e.code }, e.code === "conflict" || e.code === "changed" || e.code === "too-soon" ? 409 : e.code === "denied" || e.code === "not-found" || e.code === "network" ? 502 : 400);
   if (e instanceof IssuanceError || e instanceof RotationError || e instanceof AutomationError) return err(409, e.message);
   if (e instanceof GitHubError) {
     if (e.status === 429) return json({ error: "GitHub begrenzt die Anfragen. Bitte spaeter erneut versuchen.", detail: e.message, code: "rate-limit" }, 429);

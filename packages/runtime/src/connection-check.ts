@@ -342,7 +342,7 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
 // Einstieg
 // ---------------------------------------------------------------------------
 
-const KNOWN = new Set(["github", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "grafana"]);
+const KNOWN = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "grafana"]);
 
 /**
  * Prueft eine Verbindung mit rein lesenden Aufrufen. Nur GitHub schreibt, und nur mit `deep` und nur in die gewaehlten Ziele.
@@ -359,6 +359,18 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     const st = await rt.connections.status(id);
     if (!st.connected) return { id, ok: false, checks: [item("connected", "Verbunden", "fail", "Nicht verbunden")] };
     return { id, ok: true, checks: [item("token", "Schluessel", "info", "Der App-Schluessel wird beim ersten Zugriff geprueft: Test ueber die Verbindung GitHub.")] };
+  }
+  if (id === "team-sync") {
+    const st = await rt.connections.status(id);
+    if (!st.connected) return { id, ok: false, checks: [item("connected", "Verbunden", "fail", "Nicht verbunden")] };
+    if (!rt.config.teamSync) return { id, ok: true, checks: [item("token", "Token", "info", "Team-Sync ist noch nicht eingerichtet (teamSync in der Konfiguration).")] };
+    try {
+      const { checkTeamSync } = await import("./team-sync.js");
+      const r = await checkTeamSync(rt, now);
+      return { id, ok: true, checks: [item("repo", "Team-Repository", r.state === "missing-remote" ? "warn" : "pass", r.state === "missing-remote" ? "Zugriff ok, die Team-Datei fehlt noch im Repository." : "Zugriff ok, Team-Datei gelesen.")] };
+    } catch (err) {
+      return { id, ok: false, checks: [item("repo", "Team-Repository", "fail", (err as Error).message)] };
+    }
   }
   const connectedId = id === "github" ? "github" : id;
   const st = await rt.connections.status(connectedId);

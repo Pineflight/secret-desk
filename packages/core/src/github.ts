@@ -242,6 +242,67 @@ export class GitHubClient {
     return res.text();
   }
 
+  /** Datei samt Blob-SHA an einem Zweig. null = Datei (oder Zweig) existiert nicht. Nur lesend. */
+  async getContentFile(owner: string, repo: string, path: string, ref: string): Promise<{ sha: string; text: string } | null> {
+    const encoded = path.split("/").map(enc).join("/");
+    try {
+      const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/contents/${encoded}?ref=${encodeURIComponent(ref)}`);
+      const j = (await res.json()) as { type?: string; sha?: string; content?: string; encoding?: string };
+      if (j.type !== "file" || typeof j.sha !== "string" || typeof j.content !== "string") throw new GitHubError(422, `GitHub: ${path} ist keine Datei`);
+      return { sha: j.sha, text: Buffer.from(j.content, "base64").toString("utf8") };
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  /** Legt eine Datei an oder ersetzt sie (ein Commit). `sha` = Blob-SHA der ersetzten Datei, fehlt sie, wird neu angelegt. Gibt den neuen Blob-SHA zurueck. */
+  async putContentFile(owner: string, repo: string, path: string, branch: string, text: string, message: string, sha?: string): Promise<string> {
+    const encoded = path.split("/").map(enc).join("/");
+    const res = await this.#request("PUT", `/repos/${enc(owner)}/${enc(repo)}/contents/${encoded}`, {
+      message,
+      content: Buffer.from(text, "utf8").toString("base64"),
+      branch,
+      ...(sha ? { sha } : {}),
+    });
+    const j = (await res.json()) as { content?: { sha?: string } };
+    return j.content?.sha ?? "";
+  }
+
+  /** Commit-SHA der Spitze eines Zweigs; null = Zweig existiert nicht. */
+  async getBranchHead(owner: string, repo: string, branch: string): Promise<string | null> {
+    try {
+      const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${branch.split("/").map(enc).join("/")}`);
+      const j = (await res.json()) as { object?: { sha?: string } };
+      return j.object?.sha ?? null;
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async createBranch(owner: string, repo: string, branch: string, fromSha: string): Promise<void> {
+    await this.#request("POST", `/repos/${enc(owner)}/${enc(repo)}/git/refs`, { ref: `refs/heads/${branch}`, sha: fromSha });
+  }
+
+  /** Offener Pull Request von `head` nach `base` (gleiches Repository). */
+  async findOpenPull(owner: string, repo: string, head: string, base: string): Promise<{ number: number; url: string } | null> {
+    const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`);
+    const list = (await res.json()) as { number?: number; html_url?: string }[];
+    const first = list[0];
+    return first && typeof first.number === "number" ? { number: first.number, url: first.html_url ?? "" } : null;
+  }
+
+  async createPull(owner: string, repo: string, head: string, base: string, title: string, body: string): Promise<{ number: number; url: string }> {
+    const res = await this.#request("POST", `/repos/${enc(owner)}/${enc(repo)}/pulls`, { title, head, base, body });
+    const j = (await res.json()) as { number?: number; html_url?: string };
+    return { number: j.number ?? 0, url: j.html_url ?? "" };
+  }
+
+  async updatePull(owner: string, repo: string, number: number, title: string, body: string): Promise<void> {
+    await this.#request("PATCH", `/repos/${enc(owner)}/${enc(repo)}/pulls/${number}`, { title, body });
+  }
+
   /**
    * Aktueller Name eines Repositories. GitHub leitet alte Namen (nach einer Umbenennung) per 301 um; die Antwort nennt den
    * neuen Namen. Die Weiterleitung wird hier selbst verfolgt (nur innerhalb von GitHub, nie mit dem Token an eine fremde

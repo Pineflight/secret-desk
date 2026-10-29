@@ -220,7 +220,7 @@ export function listProviders(rt: Runtime) {
 }
 
 export async function listConnections(rt: Runtime) {
-  const ids = [...new Set(["github", "github-app-key", "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
+  const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
   const saved = new Map<string, string>();
   for (const s of statuses) {

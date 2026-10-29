@@ -37,6 +37,22 @@ The portal does not know under which address you reach it, so it always prints `
 
 By default a new secret is created at every container start, so read the log again after every restart and after every automatic update. With `SECRET_DESK_LAUNCH_SECRET_FILE` set (the compose file below does that) the secret is created once and stored in that file (mode 600), so the address stays the same; the price is a permanent secret on disk. If you remove the variable, every start creates a new secret and you must read the log each time. The page removes the secret from the address bar after opening. Do not share the address and do not paste it into chats or tickets: whoever has it can open the portal.
 
+## First start without a configuration
+
+If `SECRET_DESK_CONFIG` points to a file that does not exist yet and its folder is writable, the portal creates a minimal configuration and an empty inventory there and shows a first-start wizard instead of failing. There you can load the team configuration from a private GitHub repository, upload a team file, or start empty (see [Team sync](TEAM.md#team-sync-with-a-private-github-repository)). The configuration file you write by hand (below) is the alternative.
+
+To skip the wizard, pass the repository and a token as environment variables. At the first start, with an empty inventory, the portal then sets up `teamSync`, reads the file and takes it over once:
+
+```yaml
+    environment:
+      SECRET_DESK_TEAM_REPO: acme/team-config
+      SECRET_DESK_TEAM_PATH: secret-desk.team.yaml
+      SECRET_DESK_TEAM_BRANCH: main
+      SECRET_DESK_TEAM_TOKEN: ${SECRET_DESK_TEAM_TOKEN}   # from .env (mode 600), never shown
+```
+
+The token needs *Contents: Read* on that repository only (more to push, see [Team](TEAM.md)). The variables are only used while `teamSync` is not configured; afterwards the configuration file is the source.
+
 ## Prepare the host
 
 The container runs as the user `node` (UID 1000). The data directory must belong to that user, otherwise the portal cannot write inventory, vault and agent token.

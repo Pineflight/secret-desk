@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Team sync:** `teamSync` configuration, the connection `team-sync` and a Team page section keep the team file in a private GitHub repository (read with a preview before taking over, conflict handling, optional push as pull request or direct commit after a confirmation). First-start wizard (GitHub repository, file upload or start empty); a missing `SECRET_DESK_CONFIG` file is created instead of failing; headless setup with `SECRET_DESK_TEAM_REPO`, `SECRET_DESK_TEAM_PATH`, `SECRET_DESK_TEAM_BRANCH` and `SECRET_DESK_TEAM_TOKEN`. CLI: `team status|pull|push`. Agents can read the status only.
+
 - `SECRET_DESK_LAUNCH_SECRET_FILE`: optional path of a file (mode 600) that keeps the launch secret stable across restarts. Without it the secret is new at every start, as before.
 - Docker guide: where to find the launch address, `.local` name with a Caddy reverse proxy (HTTP).
 - The launch-required message now also names `docker compose logs secret-desk`.

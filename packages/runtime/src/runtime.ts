@@ -10,6 +10,7 @@ import {
   SessionVault,
   githubAppProvider,
   loadConfig,
+  TEAM_SYNC_CONNECTION,
   patProvider,
   type DeskConfig,
   type ExecFn,
@@ -38,6 +39,8 @@ export interface Runtime {
   automation: AutomationManager;
   owner: string;
   fetch: FetchLike;
+  /** Nur Arbeitsspeicher: Ergebnis der letzten Abfrage des Team-Repositories. */
+  teamSyncMemo: { lastCheck: unknown | null; lastError: string | null };
 }
 
 export interface RuntimeOptions {
@@ -66,6 +69,10 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   const specs: Record<string, SourceSpec> = { ...config.connections };
   if (config.github.auth.type === "pat") specs[GITHUB_CONNECTION] = config.github.auth.source;
   else specs[GITHUB_APP_KEY_CONNECTION] = config.github.auth.privateKey;
+
+  // Headless: Token fuer das Team-Repository nur aus der Umgebung (Wert wird nie angezeigt).
+  const env = options.env ?? process.env;
+  if (env["SECRET_DESK_TEAM_TOKEN"] && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
 
   const vault = options.vault === undefined ? (config.vault.enabled ? new SecretVault({ ...(config.vault.file ? { file: expandHome(config.vault.file) } : {}), ...(config.vault.keyFile ? { keyFile: expandHome(config.vault.keyFile) } : {}) }) : undefined) : (options.vault ?? undefined);
   const connections = new ConnectionStore({
@@ -129,6 +136,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     automation,
     owner: config.github.owner,
     fetch: f,
+    teamSyncMemo: { lastCheck: null, lastError: null },
   };
 }
 

@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icons";
 import { Dialog } from "@/components/Dialog";
+import { TeamSyncPanel } from "@/components/TeamSyncPanel";
 import { Button, Card, Checkbox, Notice, PageHeader, SectionLabel, TextAreaField } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation } from "@/lib/hooks";
@@ -43,6 +44,7 @@ export default function TeamPage() {
   return (
     <>
       <PageHeader title={t("team.title")} subtitle={t("team.subtitle")} />
+      <div className="mb-6"><TeamSyncPanel /></div>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionLabel>{t("team.exportTitle")}</SectionLabel>
