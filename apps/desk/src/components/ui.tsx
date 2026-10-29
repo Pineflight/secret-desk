@@ -12,7 +12,7 @@ import { providerInfo, stageInfo, statusInfo, toneClass, type Info } from "@/lib
 import { Icon } from "./Icons";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-2xl border border-line bg-card p-5 shadow-sm ${className}`}>{children}</section>;
+  return <section className={`rounded-2xl border border-line bg-card p-[var(--sd-pad-card)] shadow-sm ${className}`}>{children}</section>;
 }
 
 export function SectionLabel({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -33,7 +33,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 
 export function Badge({ info, className = "" }: { info: Info; className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${toneClass(info.tone)} ${className}`}>
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-4 ${toneClass(info.tone)} ${className}`}>
       <Icon name={info.icon} className="h-3 w-3" />
       {info.label}
     </span>
@@ -45,7 +45,7 @@ export const StageBadge = ({ stage }: { stage: string }) => <Badge info={stageIn
 export const ProviderChip = ({ automatic, browser = false }: { automatic: boolean; browser?: boolean }) => <Badge info={providerInfo(automatic, browser)} />;
 
 export function Pill({ children }: { children: ReactNode }) {
-  return <span className="inline-flex items-center rounded-full bg-page px-2.5 py-0.5 text-xs text-ink ring-1 ring-inset ring-line">{children}</span>;
+  return <span className="inline-flex items-center whitespace-nowrap rounded-full bg-page px-2 py-px text-[11px] text-ink ring-1 ring-inset ring-line">{children}</span>;
 }
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";

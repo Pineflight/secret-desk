@@ -50,9 +50,9 @@ export function TagPills({ tags, onPick, active }: { tags: string[]; onPick?: (t
     <span className="flex flex-wrap gap-1">
       {tags.map((t) =>
         onPick ? (
-          <button key={t} type="button" onClick={() => onPick(t)} aria-pressed={active === t} className={`rounded-full px-2 py-0.5 text-xs ring-1 ring-inset ${active === t ? "bg-primary-light text-primary ring-primary" : "bg-page text-muted-text ring-line hover:text-ink"}`}>#{t}</button>
+          <button key={t} type="button" onClick={() => onPick(t)} aria-pressed={active === t} className={`rounded-full px-2 py-px text-[11px] ring-1 ring-inset ${active === t ? "bg-primary-light text-primary ring-primary" : "bg-page text-muted-text ring-line hover:text-ink"}`}>#{t}</button>
         ) : (
-          <span key={t} className="rounded-full bg-page px-2 py-0.5 text-xs text-muted-text ring-1 ring-inset ring-line">#{t}</span>
+          <span key={t} className="rounded-full bg-page px-2 py-px text-[11px] text-muted-text ring-1 ring-inset ring-line">#{t}</span>
         ),
       )}
     </span>

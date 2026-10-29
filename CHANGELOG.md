@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Spacing system:** one scale (4/8/12/16/24/32 px) as CSS variables in `globals.css` with role tokens (section gap 32 px, 24 px below 640 px; head to card 12 px; card padding 16 px; list cells 8 x 12 px). Cards, list cells, chips and the Integrations section use them, so Secrets, Variables, Compare, Repositories, Team, Integrations and Overview share the same rhythm. Table rows and chips are more compact. Compare: the gap between repository groups was always 0 (`first:mt-0` on the head matched every group) and is now 32 px; the repository head sits 12 px above its table, has a rule and stays sticky under the top bar while scrolling.
 - **English naming:** the portal routes are now `/settings`, `/approvals`, `/reviews`, `/reviews/:id`, `/variables`, `/connections` and `/compare`; the new-entry query parameter is `new=1`. All test names are English, and `assets/logo-protokoll.json` became `assets/logo-log.json` with English keys.
 - **Migration:** the old German routes (`/einstellungen`, `/freigaben`, `/pruefen`, `/variablen`, `/verbindungen`, `/vergleich`) redirect permanently with the query string kept, and `?neu=1` is still accepted. Inventory, config and team files already used English keys, so nothing needs to be migrated there; bookmarks keep working through the redirects.
 

@@ -175,17 +175,17 @@ export default function ReposPage() {
             <table className="w-full min-w-[40rem] text-left text-sm">
               <thead className="border-b border-line text-xs text-muted">
                 <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">{t("repos.colName")}</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">{t("repos.colSecrets")}</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">{t("repos.colVariables")}</th>
-                  <th scope="col" className="px-3 py-3 font-medium">{t("repos.colFolder")}</th>
-                  <th scope="col" className="px-3 py-3 font-medium">{t("repos.colStatus")}</th>
+                  <th scope="col" className="px-3 py-2 font-medium">{t("repos.colName")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">{t("repos.colSecrets")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">{t("repos.colVariables")}</th>
+                  <th scope="col" className="px-3 py-2 font-medium">{t("repos.colFolder")}</th>
+                  <th scope="col" className="px-3 py-2 font-medium">{t("repos.colStatus")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {rows.map((r) => (
                   <tr key={r.name} className="align-top">
-                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                    <th scope="row" className="px-3 py-2 text-left font-medium">
                       <Link href={`/secrets?repo=${enc(r.name)}`} aria-label={t("repos.showSecretsAria", { name: r.name })} className="underline-offset-2 hover:underline">{r.name}</Link>
                       <div className="mt-1 flex flex-wrap gap-1 text-[11px] font-normal">
                         {r.github && !r.inInventory ? <span title={t("repos.onlyGithubHint")}><Pill>{t("repos.onlyGithub")}</Pill></span> : null}
@@ -199,9 +199,9 @@ export default function ReposPage() {
                         </div>
                       ) : null}
                     </th>
-                    <td className="tabular px-3 py-3 text-right"><Link href={`/secrets?repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
-                    <td className="tabular px-3 py-3 text-right"><Link href={`/variables?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
-                    <td className="px-3 py-3">
+                    <td className="tabular px-3 py-2 text-right"><Link href={`/secrets?repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
+                    <td className="tabular px-3 py-2 text-right"><Link href={`/variables?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
+                    <td className="px-3 py-2">
                       <div className="flex items-start justify-between gap-2">
                         {r.link ? <span className="break-all font-mono text-xs">{r.link.path}</span> : <span className="text-muted">{t("repos.notLinked")}</span>}
                         <Button aria-label={r.link ? t("repos.editAria", { name: r.name }) : t("repos.linkAria", { name: r.name })} onClick={() => setEditing(r)}>
@@ -209,7 +209,7 @@ export default function ReposPage() {
                         </Button>
                       </div>
                     </td>
-                    <td className="px-3 py-3"><StatusCell row={r} t={t} /></td>
+                    <td className="px-3 py-2"><StatusCell row={r} t={t} /></td>
                   </tr>
                 ))}
               </tbody>
