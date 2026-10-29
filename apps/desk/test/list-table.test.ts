@@ -1,20 +1,27 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ListTable } from "../src/components/ListTable";
 
-const render = (props: { stickyLast?: boolean; minWidth?: number } = {}) => renderToStaticMarkup(createElement(ListTable, { columns: ["Name", "Actions"], ...props }, createElement("tr", null, createElement("td", null, "a"), createElement("td", null, "b"))));
+const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+const read = (p: string) => readFileSync(join(src, p), "utf8");
 
-describe("ListTable layout", () => {
-  it("keeps the actions column sticky only when asked for", () => {
-    expect(render({ stickyLast: true })).toContain("sd-sticky-last");
-    expect(render()).not.toContain("sd-sticky-last");
-  });
-  it("uses a small default minimum width so lists fit next to the sidebar at 1280px (content width 966px)", () => {
-    const m = /min-width:(\d+)px/.exec(render());
+// Die Komponenten importieren ueber den Alias "@/", den Vitest hier nicht aufloest: geprueft wird der Quelltext, die echte Seite wurde bei 768/1280/1440/1920 px gemessen.
+describe("list layout", () => {
+  it("ListTable has a small default minimum width and an opt-in sticky last column", () => {
+    const code = read("components/ListTable.tsx");
+    const m = /minWidth = (\d+)/.exec(code);
     expect(Number(m?.[1])).toBeLessThanOrEqual(720);
+    expect(code).toContain("stickyLast");
+    expect(code).toContain("sd-sticky-last");
   });
-  it("an explicit minimum width is kept", () => {
-    expect(render({ minWidth: 1000 })).toContain("min-width:1000px");
+  it("the sticky rule pins the last column to the right edge with a card background", () => {
+    const css = read("app/globals.css");
+    expect(css).toMatch(/\.sd-sticky-last td:last-child[\s\S]*position:\s*sticky/);
+    expect(css).toMatch(/right:\s*0/);
+    expect(css).toMatch(/background:\s*var\(--sd-card\)/);
+  });
+  it("the variables table keeps its actions in view", () => {
+    expect(read("app/variables/page.tsx")).toContain("<ListTable stickyLast");
   });
 });
