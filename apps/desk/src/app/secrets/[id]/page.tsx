@@ -4,7 +4,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { VerificationReport } from "@secret-desk/core";
 import type { AutomationRunState, IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
+import type { EntryPreflight } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
+import { ParamsCard } from "@/components/ParamsCard";
 import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
 import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
 import { Icon } from "@/components/Icons";
@@ -15,6 +17,7 @@ import { useMutation, useQuery } from "@/lib/hooks";
 import { overallInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import { findingsFromError, findingsText, problemsFromError } from "@/lib/params-form";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -41,10 +44,21 @@ export default function SecretDetailPage() {
   useEffect(() => setRunActive(live), [live]);
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string } | null>(null);
+  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string; params?: { ok: boolean; missing: string[]; problems: { message: string }[] }; preflight?: EntryPreflight } | null>(null);
+  // Fehlende Parameter: Der Klick fuehrt zur Parameterkarte, die sich dann zum Bearbeiten oeffnet.
+  const [paramsFocus, setParamsFocus] = useState(0);
+  const [paramsNotice, setParamsNotice] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "warn" | "danger"; title: string; text: string; href?: string; link?: string } | null>(null);
 
+  const paramsBlocked = secret.data ? secret.data.params.status === "missing" || secret.data.params.status === "invalid" : false;
+  const blockedText = secret.data ? (secret.data.params.missing.length > 0 ? t("params.card.blocked", { keys: secret.data.params.missing.join(", ") }) : t("params.card.blockedPlain")) : "";
+  const goToParams = (text: string) => {
+    setParamsNotice(text);
+    setParamsFocus((n) => n + 1);
+  };
+
   const startRenewal = async (dryRun: boolean) => {
+    if (paramsBlocked) return goToParams(blockedText);
     setNotice(null);
     setPlan(null);
     const browserRun = !dryRun && isBrowser;
@@ -53,9 +67,13 @@ export default function SecretDetailPage() {
       const res = await api<IssuanceRequestResult>("POST", "renewal-requests", { secretId: id, ...(dryRun ? { dryRun: true } : {}) });
       if (res.status === "awaiting-review") router.push(`/reviews/${enc(res.issuance.id)}`);
       else if (res.status === "pending-approval") setNotice({ tone: "warn", title: t("secretDetail.approvalTitle"), text: t("secretDetail.approvalText"), href: "/approvals", link: t("secretDetail.toApprovals") });
-      else setPlan(res.plan as never);
+      else setPlan({ ...(res.plan as never as object), ...(res.preflight ? { preflight: res.preflight } : {}) } as never);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/connections", link: t("secretDetail.toConnections") });
+      const problems = problemsFromError(e);
+      const findings = findingsFromError(e);
+      if (problems.length > 0) goToParams(e instanceof Error ? e.message : t("params.card.blockedPlain"));
+      else if (findings.length > 0) setNotice({ tone: "danger", title: t("params.preflight.failedTitle"), text: findingsText(findings) });
+      else if (e instanceof ApiError && e.code === "not-connected") setNotice({ tone: "danger", title: t("secretDetail.connMissingTitle"), text: `${e.message}${e.hint ? ` (${e.hint})` : ""}`, href: "/connections", link: t("secretDetail.toConnections") });
       else toast.error(e instanceof Error ? e.message : t("secretDetail.unknownError"));
     } finally {
       if (browserRun) {
@@ -77,7 +95,7 @@ export default function SecretDetailPage() {
         subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /></span>}
         actions={
           <>
-            {s.automatic ? <Button variant="primary" disabled={starting || live} onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
+            {s.automatic ? <Button variant="primary" disabled={starting || live || paramsBlocked} title={paramsBlocked ? t("params.card.fixFirst") : undefined} onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
             <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />{t("secretDetail.pasteValue")}</Button>
             <Button variant="ghost" onClick={() => void startRenewal(true)}>{t("secretDetail.planOnly")}</Button>
           </>
@@ -88,6 +106,9 @@ export default function SecretDetailPage() {
           <Notice tone={notice.tone} title={notice.title}>{notice.text} {notice.href ? <Link href={notice.href} className="font-medium underline">{notice.link}</Link> : null}</Notice>
         </div>
       ) : null}
+      {paramsBlocked ? (
+        <div className="mb-6"><Notice tone="warn" title={t("params.card.title")}>{blockedText} <button type="button" className="font-medium underline" onClick={() => goToParams(blockedText)}>{t("params.card.goTo")}</button></Notice></div>
+      ) : null}
       {s.browser ? <BrowserRunPanel secretId={id} state={run.data} starting={starting} onChanged={run.reload} /> : null}
       {plan ? (
         <div className="mb-6">
@@ -97,6 +118,9 @@ export default function SecretDetailPage() {
               <li>{t("secretDetail.planTargets", { targets: plan.places?.length ? plan.places.join(", ") : t("secretDetail.planNoTargets") })}</li>
               <li>{plan.revokesOld ? t("secretDetail.planRevokes") : t("secretDetail.planKeeps")}</li>
               {plan.ttlDays ? <li>{t("secretDetail.planTtl", { days: plan.ttlDays })}</li> : null}
+              {plan.params ? <li>{plan.params.ok ? t("params.plan.paramsOk") : plan.params.missing.length > 0 ? t("params.plan.paramsMissing", { keys: plan.params.missing.join(", ") }) : t("params.plan.paramsInvalid", { text: plan.params.problems.map((p) => p.message).join("; ") })}</li> : null}
+              {plan.preflight?.resource ? <li>{t("params.plan.resource", { resource: plan.preflight.resource })}</li> : null}
+              {plan.preflight && plan.preflight.findings.length > 0 ? <li>{plan.preflight.findings.map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label)).join("; ")}</li> : null}
             </ul>
           </Notice>
         </div>
@@ -119,6 +143,8 @@ export default function SecretDetailPage() {
           <p className="mt-3 text-sm text-muted-text">{t("secretDetail.noDescription")}</p>
         )}
       </Card>
+
+      {s.params.status !== "none" ? <ParamsCard secret={s} focusSignal={paramsFocus} notice={paramsNotice} onChanged={() => { setParamsNotice(null); secret.reload(); }} /> : null}
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>

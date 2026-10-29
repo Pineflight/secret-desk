@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
+import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -130,6 +131,7 @@ function ConnectionCard({ c, onGuide, onDisconnect, disconnecting }: { c: Connec
         <Button onClick={onGuide}>{t("connections.guide")}</Button>
         {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
       </div>
+      <ConnectionDefaultsSummary id={c.id} />
       <ConnectionCheckPanel id={c.id} onResult={setChecked} />
     </Card>
   );
@@ -270,6 +272,8 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   const [preset, setPreset] = useState("90");
   const [custom, setCustom] = useState("");
   const [remember, setRemember] = useState(Boolean(c.canRemember));
+  // Nach dem Verbinden bleibt der Dialog offen: Test, entdeckte Ressourcen und Standardwerte.
+  const [connectedNow, setConnectedNow] = useState(false);
   const set = useMutation(async (body: unknown) => api<Connection>("POST", `connections/${enc(c.id)}/token`, body));
   const name = labelOf(c);
   const today = new Date().toISOString().slice(0, 10);
@@ -286,9 +290,19 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
     if (await set.run({ token: v, ...(remember ? { remember: true } : {}), ...(never ? { neverExpires: true } : { expires }) })) {
       toast.success(t(remember ? "connections.connectedVault" : "connections.connectedSession", { name }));
       onChanged();
-      onDone();
+      setConnectedNow(true);
     }
   };
+  if (connectedNow) {
+    return (
+      <div className="space-y-4 text-sm">
+        <Notice tone="success">{t("params.conn.afterConnect")}</Notice>
+        <ConnectionCheckPanel id={c.id} onResult={() => undefined} />
+        <ConnectionResourcesPanel id={c.id} />
+        <div className="flex justify-end"><Button variant="primary" onClick={onDone}>{t("params.conn.done")}</Button></div>
+      </div>
+    );
+  }
   return (
     <div className="text-sm">
       {c.description ? <p className="text-muted">{c.description}</p> : null}
