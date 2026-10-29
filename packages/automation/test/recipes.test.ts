@@ -7,12 +7,12 @@ import { loadRecipes, loadRecipesDetailed } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 
-describe("mitgelieferte Rezepte", () => {
-  it("laden und sind gueltig", async () => {
+describe("bundled recipes", () => {
+  it("load and are valid", async () => {
     const recipes = await loadRecipes([RECIPES]);
     expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "stripe-restricted-key", "supabase-access-token"]);
   });
-  it("tragen den Status-Kommentar (nur das Format: erste Zeile beginnt mit `# STATUS:`)", async () => {
+  it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) {
@@ -23,7 +23,7 @@ describe("mitgelieferte Rezepte", () => {
 });
 
 describe("loadRecipes", () => {
-  it("meldet Datei und Pfad im Dokument", async () => {
+  it("reports file and path in the document", async () => {
     const dir = await mkdtemp(join(tmpdir(), "recipes-"));
     await writeFile(join(dir, "kaputt.yaml"), "id: a\nlabel: A\nhost: example.test\nsteps:\n  - fill: { value: x }\ncapture: { token: { find: { css: '#t' } } }\n");
     await writeFile(join(dir, "yaml.yaml"), "id: [\n");
@@ -35,7 +35,7 @@ describe("loadRecipes", () => {
     expect(msg).toContain("yaml.yaml");
     await expect(loadRecipes([dir])).rejects.toThrow(/kaputt\.yaml/);
   });
-  it("spaeterer Ordner ueberstimmt gleiche Id", async () => {
+  it("later folder overrides the same id", async () => {
     const a = await mkdtemp(join(tmpdir(), "recipes-"));
     const b = await mkdtemp(join(tmpdir(), "recipes-"));
     const doc = (label: string) => `id: dup\nlabel: ${label}\nhost: example.test\nsteps:\n  - click: { role: button, name: Go, createsToken: true }\ncapture: { token: { find: { css: '#t' } } }\n`;
@@ -45,9 +45,9 @@ describe("loadRecipes", () => {
   });
 });
 
-describe("Schutz mitgelieferter Rezepte", () => {
+describe("protection of bundled recipes", () => {
   const yaml = (id: string, host = "example.test") => `id: ${id}\nlabel: X\nhost: ${host}\nallowHosts: [cdn.example.test]\nsteps:\n  - goto: "https://${host}/t"\n  - click: { role: button, name: Create, createsToken: true }\ncapture: { token: { find: { css: '#t' } } }\n`;
-  it("externe Rezepte duerfen mitgelieferte nicht ueberschreiben", async () => {
+  it("external recipes may not override bundled ones", async () => {
     const bundled = await mkdtemp(join(tmpdir(), "rb-"));
     const ext = await mkdtemp(join(tmpdir(), "re-"));
     await writeFile(join(bundled, "a.yaml"), yaml("a"));
@@ -58,7 +58,7 @@ describe("Schutz mitgelieferter Rezepte", () => {
     expect(recipes.map((r) => r.recipe.id).sort()).toEqual(["a", "b"]);
     expect(errors.map((e) => e.message).join()).toContain("mitgelieferten");
   });
-  it("externe Ordner werden ohne allowExternal nicht geladen", async () => {
+  it("external folders are not loaded without allowExternal", async () => {
     const bundled = await mkdtemp(join(tmpdir(), "rb-"));
     const ext = await mkdtemp(join(tmpdir(), "re-"));
     await writeFile(join(bundled, "a.yaml"), yaml("a"));
@@ -67,7 +67,7 @@ describe("Schutz mitgelieferter Rezepte", () => {
     expect(recipes.map((r) => r.recipe.id)).toEqual(["a"]);
     expect(skippedDirs).toEqual([ext]);
   });
-  it("liefert SHA-256, Host und allowHosts", async () => {
+  it("returns SHA-256, host and allowHosts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rb-"));
     const text = yaml("a");
     await writeFile(join(dir, "a.yaml"), text);

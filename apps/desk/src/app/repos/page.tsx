@@ -200,7 +200,7 @@ export default function ReposPage() {
                       ) : null}
                     </th>
                     <td className="tabular px-3 py-3 text-right"><Link href={`/secrets?repo=${enc(r.name)}`} className="hover:underline">{r.secrets}</Link></td>
-                    <td className="tabular px-3 py-3 text-right"><Link href={`/variablen?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
+                    <td className="tabular px-3 py-3 text-right"><Link href={`/variables?repo=${enc(r.name)}`} className="hover:underline">{r.variables}</Link></td>
                     <td className="px-3 py-3">
                       <div className="flex items-start justify-between gap-2">
                         {r.link ? <span className="break-all font-mono text-xs">{r.link.path}</span> : <span className="text-muted">{t("repos.notLinked")}</span>}

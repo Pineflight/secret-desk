@@ -61,8 +61,8 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown): 
   new Request(`${base}/api/agent/${path}`, { method, headers: { host: HOST, authorization: `Bearer ${deps.agentToken}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 const jsonOf = async <T = Record<string, unknown>>(r: Response): Promise<T> => (await r.json()) as T;
 
-describe("L3: Team-Datei", () => {
-  it("Export liefert YAML ohne Werte und mit Dateiname; der Agent darf lesen", async () => {
+describe("L3: team file", () => {
+  it("export returns YAML without values and with file name; the agent may read", async () => {
     const { deps } = await setup();
     const r = await route(ui(deps, "GET", "team-export"), deps);
     expect(r.status).toBe(200);
@@ -73,7 +73,7 @@ describe("L3: Team-Datei", () => {
     expect(text).not.toContain("ghp_x");
     expect((await route(agent(deps, "GET", "team-export"), deps)).status).toBe(200);
   });
-  it("Import merge fuegt Neues hinzu, replace mit confirmReplace ersetzt, kaputtes YAML -> 400 ohne Aenderung", async () => {
+  it("import merge adds new entries, replace with confirmReplace replaces, broken YAML -> 400 without change", async () => {
     const { deps } = await setup();
     const extra = "version: 1\nsecrets:\n  - { id: neu-secret, name: NEU_SECRET, service: x, stage: dev, expiry: none, provider: manual }\n";
     const merged = await route(ui(deps, "POST", "team-import", { text: extra }), deps);
@@ -88,14 +88,14 @@ describe("L3: Team-Datei", () => {
     expect(replaced.status).toBe(200);
     expect(deps.rt.inventory.data.secrets.map((s) => s.id)).toEqual(["neu-secret"]);
   });
-  it("Import ohne text -> 400", async () => {
+  it("import without text -> 400", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "team-import", {}), deps)).status).toBe(400);
   });
 });
 
-describe("L3: manuelle Eingabe, Pruefung ablehnen", () => {
-  it("manual-value erzeugt eine Pruefung ohne den Wert zu zeigen; reject schreibt nichts", async () => {
+describe("L3: manual input, rejecting a review", () => {
+  it("manual-value creates a review without showing the value; reject writes nothing", async () => {
     const { deps, calls } = await setup();
     const r = await route(ui(deps, "POST", "secrets/manual-one/manual-value", { value: "mein-handwert-123456789" }), deps);
     expect(r.status).toBe(200);
@@ -107,21 +107,21 @@ describe("L3: manuelle Eingabe, Pruefung ablehnen", () => {
     expect(calls.some((c) => c.startsWith("PUT"))).toBe(false);
     expect(await jsonOf<unknown[]>(await route(ui(deps, "GET", "reviews"), deps))).toHaveLength(0);
   });
-  it("manual-value: ohne Wert 400, der Agent hat die Route nicht, unbekanntes Secret -> 400", async () => {
+  it("manual-value: without value 400, the agent has no route, unknown secret -> 400", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "secrets/manual-one/manual-value", {}), deps)).status).toBe(400);
     expect((await route(agent(deps, "POST", "secrets/manual-one/manual-value", { value: "x" }), deps)).status).toBe(404);
     expect((await route(ui(deps, "POST", "secrets/gibt-es-nicht/manual-value", { value: "x".repeat(20) }), deps)).status).toBe(409);
   });
-  it("reject einer unbekannten Pruefung -> Fehler, nicht 500", async () => {
+  it("reject of an unknown review -> error, not 500", async () => {
     const { deps } = await setup();
     const r = await route(ui(deps, "POST", "reviews/unbekannt/reject", {}), deps);
     expect(r.status).toBeLessThan(500);
   });
 });
 
-describe("L3: Variablen uebernehmen und entfernen", () => {
-  it("adopt uebernimmt den Wert aus GitHub (nur Mensch)", async () => {
+describe("L3: adopting and removing variables", () => {
+  it("adopt takes the value from GitHub (human only)", async () => {
     const { deps } = await setup();
     expect((await route(agent(deps, "POST", "variables/proj-id/adopt", {}), deps)).status).toBe(404);
     const r = await route(ui(deps, "POST", "variables/proj-id/adopt"), deps);
@@ -129,11 +129,11 @@ describe("L3: Variablen uebernehmen und entfernen", () => {
     expect(await jsonOf(r)).toMatchObject({ id: "proj-id", value: "proj_live_1" });
     expect(deps.rt.inventory.getVariable("proj-id")!.value).toBe("proj_live_1");
   });
-  it("adopt einer unbekannten Variable -> 400", async () => {
+  it("adopt of an unknown variable -> 400", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "variables/nope/adopt"), deps)).status).toBe(400);
   });
-  it("DELETE entfernt die Variable; zweites DELETE -> 400; der Agent darf nicht", async () => {
+  it("DELETE removes the variable; second DELETE -> 400; the agent may not", async () => {
     const { deps } = await setup();
     expect((await route(agent(deps, "DELETE", "variables/site-url"), deps)).status).toBe(404);
     const r = await route(ui(deps, "DELETE", "variables/site-url"), deps);
@@ -144,7 +144,7 @@ describe("L3: Variablen uebernehmen und entfernen", () => {
   });
 });
 
-describe("L3: Anhaenge", () => {
+describe("L3: attachments", () => {
   async function withReport() {
     const ctx = await setup();
     const view = await jsonOf<{ id: string }>(await route(ui(ctx.deps, "POST", "secrets/manual-one/manual-value", { value: "mein-handwert-123456789" }), ctx.deps));
@@ -156,7 +156,7 @@ describe("L3: Anhaenge", () => {
     form.set("file", file, name);
     return route(new Request(`${base}/api/ui/evidence/${secret}/${report}/attachments`, { method: "POST", headers: headers(deps, false), body: form }), deps);
   };
-  it("PNG wird angenommen (201), ist lesbar mit sicheren Kopfzeilen", async () => {
+  it("PNG is accepted (201), readable with safe headers", async () => {
     const { deps, reportId } = await withReport();
     const r = await upload(deps, "manual-one", reportId, new Blob([PNG], { type: "image/png" }));
     expect(r.status).toBe(201);
@@ -167,18 +167,18 @@ describe("L3: Anhaenge", () => {
     expect(get.headers.get("x-content-type-options")).toBe("nosniff");
     expect(get.headers.get("content-security-policy")).toContain("sandbox");
   });
-  it("falscher MIME-Typ -> 400", async () => {
+  it("wrong MIME type -> 400", async () => {
     const { deps, reportId } = await withReport();
     for (const type of ["text/html", "image/svg+xml", "application/pdf"]) {
       expect((await upload(deps, "manual-one", reportId, new Blob(["<script>"], { type }), "x.html")).status, type).toBe(400);
     }
   });
-  it("groesser als 5 MB oder leer -> 400", async () => {
+  it("larger than 5 MB or empty -> 400", async () => {
     const { deps, reportId } = await withReport();
     expect((await upload(deps, "manual-one", reportId, new Blob([new Uint8Array(5 * 1024 * 1024 + 1)], { type: "image/png" }))).status).toBe(400);
     expect((await upload(deps, "manual-one", reportId, new Blob([], { type: "image/png" }))).status).toBe(400);
   });
-  it("kein Feld file -> 400; unbekannter Bericht -> 400", async () => {
+  it("no file field -> 400; unknown report -> 400", async () => {
     const { deps, reportId } = await withReport();
     const form = new FormData();
     form.set("note", "x");
@@ -186,7 +186,7 @@ describe("L3: Anhaenge", () => {
     expect(none.status).toBe(400);
     expect((await upload(deps, "manual-one", "gibt-es-nicht", new Blob([PNG], { type: "image/png" }))).status).toBe(400);
   });
-  it("Pfad-Traversal in Secret-, Bericht- und Dateiname: nie 200, nie 500", async () => {
+  it("path traversal in secret, report and file name: never 200, never 500", async () => {
     const { deps, reportId } = await withReport();
     const cookieOnly = { host: HOST, cookie: `sd_session=${deps.session.cookie}` };
     for (const path of [
@@ -201,21 +201,21 @@ describe("L3: Anhaenge", () => {
     const up = await upload(deps, "..%2F..%2Fetc", reportId, new Blob([PNG], { type: "image/png" }));
     expect([400, 404]).toContain(up.status);
   });
-  it("der Agent hat keinen Zugriff auf Anhaenge", async () => {
+  it("the agent has no access to attachments", async () => {
     const { deps, reportId } = await withReport();
     expect((await route(agent(deps, "GET", `evidence/manual-one/${reportId}/attachments/anlage-1.png`), deps)).status).toBe(404);
   });
 });
 
-describe("L3: Verbindungen", () => {
-  it("remember bei ausgeschaltetem Tresor -> 400, nichts gespeichert", async () => {
+describe("L3: connections", () => {
+  it("remember with vault disabled -> 400, nothing stored", async () => {
     const { deps } = await setup();
     const r = await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_token_geheim", expires: "2999-01-01", remember: true }), deps);
     expect(r.status).toBe(400);
     expect(JSON.stringify(await jsonOf(r))).not.toContain("cf_token_geheim");
     expect(deps.rt.connections.session.has("cloudflare")).toBe(false);
   });
-  it("DELETE entfernt den Sitzungs-Token und liefert den neuen Status ohne Wert", async () => {
+  it("DELETE removes the session token and returns the new status without value", async () => {
     const { deps } = await setup();
     await route(ui(deps, "POST", "connections/cloudflare/token", { token: "cf_token_geheim", neverExpires: true }), deps);
     expect(deps.rt.connections.session.has("cloudflare")).toBe(true);
@@ -226,12 +226,12 @@ describe("L3: Verbindungen", () => {
     expect(JSON.stringify(body)).not.toContain("cf_token_geheim");
     expect(deps.rt.connections.session.has("cloudflare")).toBe(false);
   });
-  it("DELETE ohne vorhandenen Token ist harmlos; der Agent darf nicht", async () => {
+  it("DELETE without an existing token is harmless; the agent may not", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "DELETE", "connections/github/token"), deps)).status).toBe(200);
     expect((await route(agent(deps, "DELETE", "connections/github/token"), deps)).status).toBe(404);
   });
-  it("Token ohne Wert -> 400", async () => {
+  it("token without value -> 400", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "connections/github/token", { neverExpires: true }), deps)).status).toBe(400);
   });

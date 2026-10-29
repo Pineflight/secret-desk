@@ -19,15 +19,15 @@ afterEach(async () => {
 });
 const fixedKey = (k = randomBytes(32)): KeySource => ({ label: "test", key: async () => k });
 
-describe("H5: defekter Tresor verhindert den Rueckfall nicht", () => {
-  it("Schluesselwechsel + Env-Spec: Token kommt aus der Umgebung", async () => {
+describe("H5: broken vault does not prevent the fallback", () => {
+  it("key change + env spec: token comes from the environment", async () => {
     const file = join(await tmp(), "v.json");
     await new SecretVault({ file, keySource: fixedKey() }).set("github", "aus-dem-tresor");
     const store = new ConnectionStore({ vault: new SecretVault({ file, keySource: fixedKey() }), specs: { github: { type: "env", name: "GH" } }, env: { GH: "aus-der-umgebung" } });
     expect((await store.token("github")).reveal()).toBe("aus-der-umgebung");
     expect(await store.status("github")).toMatchObject({ connected: true, source: "env" });
   });
-  it("Schluesselwechsel ohne Rueckfall: NotConnectedError mit klarer Meldung, status nennt den Grund", async () => {
+  it("key change without fallback: NotConnectedError with clear message, status names the reason", async () => {
     const file = join(await tmp(), "v.json");
     await new SecretVault({ file, keySource: fixedKey() }).set("github", "x");
     const store = new ConnectionStore({ vault: new SecretVault({ file, keySource: fixedKey() }) });
@@ -38,9 +38,9 @@ describe("H5: defekter Tresor verhindert den Rueckfall nicht", () => {
   });
 });
 
-describe("M7: abgelaufene Tokens", () => {
+describe("M7: expired tokens", () => {
   const now = () => new Date("2026-10-27T12:00:00Z");
-  it("Session-Token mit vergangenem Datum: NotConnectedError, heute gilt noch", async () => {
+  it("session token with past date: NotConnectedError, today still valid", async () => {
     const store = new ConnectionStore({ now });
     store.session.set("a", "wert", "2026-10-26");
     const err = await store.token("a").catch((e: unknown) => e);
@@ -52,7 +52,7 @@ describe("M7: abgelaufene Tokens", () => {
     store.session.set("c", "wert", null);
     expect((await store.token("c")).reveal()).toBe("wert");
   });
-  it("Tresor-Token abgelaufen: nicht verwendet; konfigurierte Quelle springt ein", async () => {
+  it("vault token expired: not used; configured source steps in", async () => {
     const vault = new SecretVault({ file: join(await tmp(), "v.json"), keySource: fixedKey() });
     await vault.set("a", "alt", "2026-01-01");
     const only = new ConnectionStore({ vault, now });
@@ -62,8 +62,8 @@ describe("M7: abgelaufene Tokens", () => {
   });
 });
 
-describe("H4: parallele save()", () => {
-  it("Promise.all([save, save]) scheitert nicht und hinterlaesst keine tmp-Dateien", async () => {
+describe("H4: parallel save()", () => {
+  it("Promise.all([save, save]) does not fail and leaves no tmp files", async () => {
     const dir = await tmp();
     const path = join(dir, "inventory.yaml");
     const s = InventoryStore.fromText(INVENTORY_YAML, path);

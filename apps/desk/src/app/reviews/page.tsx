@@ -26,7 +26,7 @@ export default function ReviewsPage() {
               const left = Date.parse(r.expiresAt) - now;
               return (
                 <li key={r.id}>
-                  <Link href={`/pruefen/${enc(r.id)}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-3 py-3 hover:bg-page">
+                  <Link href={`/reviews/${enc(r.id)}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-3 py-3 hover:bg-page">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{r.secretName}</span>
                       <span className="block text-xs text-muted">{t("reviews.list.created", { date: formatDateTime(r.createdAt) })}</span>

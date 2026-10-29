@@ -11,8 +11,8 @@ const client = (fetchImpl: (url: string) => Response | Promise<Response>, extra:
   new GitHubClient({ auth: patProvider(new SecretValue("t")), fetch: (async (url: string | URL | Request) => fetchImpl(String(url))) as unknown as typeof fetch, sleep: async () => undefined, ...extra });
 const repoTarget = (repo: string) => ({ owner: "acme", repo, scope: "repository" as const });
 
-describe("M8: snapshot mit Teilergebnis", () => {
-  it("403/5xx an einem Ziel kippt nicht alle: Teilergebnis plus Fehlerliste, 404 ist kein Fehler", async () => {
+describe("M8: snapshot with partial result", () => {
+  it("403/5xx at one target does not topple all: partial result plus error list, 404 is no error", async () => {
     const gh = client((url) => {
       if (url.includes("/ok/")) return json({ secrets: [{ name: "A_B", created_at: "c", updated_at: "u" }] });
       if (url.includes("/denied/")) return json({ message: "Forbidden" }, 403);
@@ -24,19 +24,19 @@ describe("M8: snapshot mit Teilergebnis", () => {
     expect(r.snapshot.size).toBe(1);
     expect(r.errors.map((e) => [e.repo, e.status])).toEqual([["denied", 403], ["broken", 502]]);
   });
-  it("snapshot() wirft bei 403 nicht mehr", async () => {
+  it("snapshot() no longer throws on 403", async () => {
     const gh = client(() => json({ message: "Forbidden" }, 403));
     await expect(gh.snapshot("acme", [{ repo: "x", scope: "repository" }])).resolves.toBeInstanceOf(Map);
   });
-  it("computeStatus wertet unlesbare Ziele nicht als missing", () => {
+  it("computeStatus does not count unreadable targets as missing", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML).getSecret("cf-deploy-acme-app")!;
     const r = computeStatus(s, new Date("2026-10-23T00:00:00Z"), { live: new Map(), owner: "acme", unreadable: (p) => p.repo === "acme-app" });
     expect(r.missingPlaces.map((p) => p.repo)).toEqual(["acme-app-landing"]);
   });
 });
 
-describe("M8: 429 mit Retry-After", () => {
-  it("wird einmal wiederholt", async () => {
+describe("M8: 429 with Retry-After", () => {
+  it("is retried once", async () => {
     const sleep = vi.fn(async () => undefined);
     let n = 0;
     const gh = client(() => (++n === 1 ? json({ message: "slow" }, 429, { "retry-after": "2" }) : json(secrets(1))), { sleep });
@@ -44,7 +44,7 @@ describe("M8: 429 mit Retry-After", () => {
     expect(n).toBe(2);
     expect(sleep).toHaveBeenCalledWith(2000);
   });
-  it("zweites 429 oder zu lange Wartezeit: GitHubError, keine Endlosschleife", async () => {
+  it("second 429 or too long wait: GitHubError, no endless loop", async () => {
     let n = 0;
     const gh = client(() => (n++, json({ message: "slow" }, 429, { "retry-after": "1" })));
     await expect(gh.listSecrets(repoTarget("r"))).rejects.toMatchObject({ status: 429 });
@@ -54,7 +54,7 @@ describe("M8: 429 mit Retry-After", () => {
     await expect(long.listSecrets(repoTarget("r"))).rejects.toBeInstanceOf(GitHubError);
     expect(m).toBe(1);
   });
-  it("ohne Retry-After keine Wiederholung", async () => {
+  it("no retry without Retry-After", async () => {
     let n = 0;
     const gh = client(() => (n++, json({ message: "slow" }, 429)));
     await expect(gh.listSecrets(repoTarget("r"))).rejects.toBeInstanceOf(GitHubError);
@@ -62,12 +62,12 @@ describe("M8: 429 mit Retry-After", () => {
   });
 });
 
-describe("M8: Paginierung", () => {
-  it("mehr als 100 Eintraege: alle Seiten", async () => {
+describe("M8: pagination", () => {
+  it("more than 100 entries: all pages", async () => {
     const gh = client((url) => (/&page=1$/.test(url) ? json(secrets(100)) : /&page=2$/.test(url) ? json(secrets(30, 100)) : json(secrets(0))));
     expect(await gh.listSecrets(repoTarget("r"))).toHaveLength(130);
   });
-  it("Seitengrenze 20 erreicht: Fehler statt stillem Abschneiden, im Abgleich als Fehler je Ziel", async () => {
+  it("page limit 20 reached: error instead of silent truncation, in the comparison as error per target", async () => {
     const gh = client(() => json(secrets(100)));
     await expect(gh.listSecrets(repoTarget("r"))).rejects.toBeInstanceOf(GitHubTruncatedError);
     const r = await gh.snapshotDetailed("acme", [{ repo: "r", scope: "repository" }]);

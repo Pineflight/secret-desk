@@ -57,13 +57,13 @@ async function failWith(error: unknown, lang?: "en") {
 afterEach(() => vi.restoreAllMocks());
 
 describe("H6: mapError", () => {
-  it("ProviderError 403 -> 502 mit Hinweis auf Token-Rechte", async () => {
+  it("ProviderError 403 -> 502 with hint on token permissions", async () => {
     const { res, body } = await failWith(new ProviderError("cloudflare", 403, "forbidden"));
     expect(res.status).toBe(502);
     expect(body["error"]).toMatch(/Zugriff abgelehnt/);
     expect(body["detail"]).toContain("HTTP 403");
   });
-  it("ProviderError 429 -> 429 mit Hinweis", async () => {
+  it("ProviderError 429 -> 429 with hint", async () => {
     const { res, body } = await failWith(new ProviderError("resend", 429, "too many"));
     expect(res.status).toBe(429);
     expect(body["code"]).toBe("rate-limit");
@@ -72,7 +72,7 @@ describe("H6: mapError", () => {
     const { res } = await failWith(new ProviderError("stripe", 500, "kaputt"));
     expect(res.status).toBe(502);
   });
-  it("GitHubError 403 -> 502 mit Hinweis, 429 -> 429, 404 -> 502 mit Originalmeldung", async () => {
+  it("GitHubError 403 -> 502 with hint, 429 -> 429, 404 -> 502 with original message", async () => {
     const a = await failWith(new GitHubError(403, "Forbidden"));
     expect(a.res.status).toBe(502);
     expect(a.body["error"]).toMatch(/Rechte/);
@@ -92,25 +92,25 @@ describe("H6: mapError", () => {
     expect(v.body["code"]).toBe("vault-unavailable");
     expect((await failWith(new StageError("falsche Stage"))).res.status).toBe(400);
   });
-  it("unbekannter Fehler -> 500 'Interner Fehler', aber protokolliert", async () => {
+  it("unknown error -> 500 Internal error, but logged", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { res, body } = await failWith(new Error("unerwartet"));
     expect(res.status).toBe(500);
     expect(body["error"]).toBe("Interner Fehler");
     expect(spy).toHaveBeenCalledOnce();
   });
-  it("neue Meldungen werden ins Englische uebersetzt", async () => {
+  it("new messages are translated to English", async () => {
     const { body } = await failWith(new GitHubError(403, "Forbidden"), "en");
     expect(body["error"]).toMatch(/GitHub denied access/);
   });
 });
 
 describe("JSON-Body", () => {
-  it("kaputtes JSON -> 400", async () => {
+  it("broken JSON -> 400", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "renewal-requests", "{kaputt"), deps)).status).toBe(400);
   });
-  it("Primitiv, Array und null -> 400 bzw. leerer Body statt 500", async () => {
+  it("primitive, array and null -> 400 or empty body instead of 500", async () => {
     const { deps } = await setup();
     for (const raw of ["5", '"text"', "[1]", "true"]) {
       const res = await route(ui(deps, "POST", "renewal-requests", raw), deps);
@@ -122,7 +122,7 @@ describe("JSON-Body", () => {
   });
 });
 
-describe("M5: Code statt Text bei verdaechtigen Variablenwerten", () => {
+describe("M5: code instead of text for suspicious variable values", () => {
   async function patch(value: string, lang?: "en") {
     const dir = await mkdtemp(join(tmpdir(), "sd-var-"));
     await writeFile(join(dir, "inventory.yaml"), `version: 1\nvariables:\n  - id: site-url\n    name: NEXT_PUBLIC_SITE_URL\n    stage: dev\n    places:\n      - { repo: acme-web, scope: repository }\n`);
@@ -134,7 +134,7 @@ describe("M5: Code statt Text bei verdaechtigen Variablenwerten", () => {
     const res = await route(req, deps);
     return { status: res.status, body: (await res.json()) as { code?: string; error: string } };
   }
-  it("block -> secret-blocked, warn -> secret-ack, in beiden Sprachen", async () => {
+  it("block -> secret-blocked, warn -> secret-ack, in both languages", async () => {
     for (const lang of [undefined, "en" as const]) {
       const blocked = await patch("sk_live_" + "a".repeat(24), lang);
       expect(blocked.status).toBe(400);

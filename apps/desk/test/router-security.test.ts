@@ -55,8 +55,8 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown, n
   });
 const errorOf = async (r: Response): Promise<string> => ((await r.json()) as { error: string }).error;
 
-describe("F2: Agent-PATCH (Mass-Assignment)", () => {
-  it("{stage}, {places}, {provider}, {params}, {expires} -> 400, Inventar unveraendert", async () => {
+describe("F2: agent PATCH (mass assignment)", () => {
+  it("{stage}, {places}, {provider}, {params}, {expires} -> 400, inventory unchanged", async () => {
     const { deps } = await setup();
     const before = JSON.stringify(deps.rt.inventory.getSecret("hmac-acme-app"));
     for (const bad of [{ stage: "dev" }, { places: [] }, { provider: "manual" }, { params: { baseUrl: "https://evil.example" } }, { expires: "2099-01-01" }, { externalId: "x" }, { verifiedBy: "alice" }]) {
@@ -66,7 +66,7 @@ describe("F2: Agent-PATCH (Mass-Assignment)", () => {
     }
     expect(JSON.stringify(deps.rt.inventory.getSecret("hmac-acme-app"))).toBe(before);
   });
-  it("Antwort auf Englisch uebersetzt, erlaubte Felder gehen durch", async () => {
+  it("response translated to English, allowed fields pass", async () => {
     const { deps } = await setup();
     const req = agent(deps, "PATCH", "secrets/hmac-acme-app", { stage: "dev" });
     req.headers.set("x-secret-desk-lang", "en");
@@ -75,14 +75,14 @@ describe("F2: Agent-PATCH (Mass-Assignment)", () => {
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ title: "HMAC" });
   });
-  it("Portal (Mensch) darf den Ablauf setzen, aber auch dort keine Stage", async () => {
+  it("portal (human) may set the expiry, but not the stage either", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "PATCH", "secrets/hmac-acme-app", { expiry: "possible", expires: "2030-01-01" }), deps)).status).toBe(200);
     const r = await route(ui(deps, "PATCH", "secrets/hmac-acme-app", { stage: "dev" }), deps);
     expect(r.status).toBe(400);
     expect(deps.rt.inventory.getSecret("hmac-acme-app")!.stage).toBe("shared");
   });
-  it("Variablen-PATCH: stage/places/id -> 400 (Agent und Mensch), Sollwert geht", async () => {
+  it("variable PATCH: stage/places/id -> 400 (agent and human), target value works", async () => {
     const { deps } = await setup();
     for (const mk of [agent, ui] as const) {
       for (const bad of [{ stage: "production" }, { places: [{ repo: "evil", scope: "repository" }] }, { id: "x" }, { name: "X" }]) {
@@ -93,7 +93,7 @@ describe("F2: Agent-PATCH (Mass-Assignment)", () => {
     expect(deps.rt.inventory.getVariable("site-url")).toMatchObject({ stage: "staging", places: [{ repo: "acme-web", scope: "environment", environment: "staging" }] });
     expect((await route(agent(deps, "PATCH", "variables/site-url", { value: "https://neu.example.com" }), deps)).status).toBe(200);
   });
-  it("Agent: neues Secret in staging 403, ohne Stempel in dev 201er-Weg, Variablen-POST strikt", async () => {
+  it("agent: new secret in staging 403, without stamp in dev 201 path, variable POST strict", async () => {
     const { deps } = await setup();
     const staging = await route(agent(deps, "POST", "secrets", { id: "a-1", name: "A_ONE", service: "x", stage: "staging", places: [{ repo: "acme-web", scope: "environment", environment: "staging" }] }), deps);
     expect(staging.status).toBe(403);
@@ -103,7 +103,7 @@ describe("F2: Agent-PATCH (Mass-Assignment)", () => {
     const v = await route(agent(deps, "POST", "variables", { id: "v-2", name: "V_TWO", stage: "dev", places: [{ repo: "acme-web", scope: "repository" }], extra: 1 }), deps);
     expect(v.status).toBe(400);
   });
-  it("Agent: .env-Export nur mit .env-Dateiname und ohne overwrite", async () => {
+  it("agent: .env export only with .env file name and without overwrite", async () => {
     const { deps } = await setup();
     const r = await route(agent(deps, "POST", "env-export", { repo: "acme-web", path: join(tmpdir(), "x", ".envrc") }), deps);
     expect([400, 403]).toContain(r.status);
@@ -113,8 +113,8 @@ describe("F2: Agent-PATCH (Mass-Assignment)", () => {
   });
 });
 
-describe("F3 ueber die Schnittstelle", () => {
-  it("Sollwert nach der Anfrage geaendert -> Portal-Freigabe liefert stale, nichts gesetzt", async () => {
+describe("F3 via the API", () => {
+  it("target value changed after the request -> portal approval returns stale, nothing set", async () => {
     const { deps, calls } = await setup();
     const req = (await (await route(agent(deps, "POST", "variables/site-url/apply", { reason: "bitte" }), deps)).json()) as { approvalId: string };
     await route(agent(deps, "PATCH", "variables/site-url", { value: "https://evil.example.com" }), deps);
@@ -125,30 +125,30 @@ describe("F3 ueber die Schnittstelle", () => {
   });
 });
 
-describe("M7: team-import replace braucht Bestaetigung", () => {
+describe("M7: team-import replace needs confirmation", () => {
   const text = "version: 1\n";
-  it("ohne confirmReplace -> 400, Inventar unveraendert", async () => {
+  it("without confirmReplace -> 400, inventory unchanged", async () => {
     const { deps } = await setup();
     const r = await route(ui(deps, "POST", "team-import", { text, replace: true }), deps);
     expect(r.status).toBe(400);
     expect(await errorOf(r)).toMatch(/confirmReplace/);
     expect(deps.rt.inventory.data.secrets).toHaveLength(1);
   });
-  it("mit confirmReplace: true wird ersetzt; merge braucht nichts", async () => {
+  it("with confirmReplace: true it replaces; merge needs nothing", async () => {
     const { deps } = await setup();
     expect((await route(ui(deps, "POST", "team-import", { text }), deps)).status).toBe(200);
     expect(deps.rt.inventory.data.secrets).toHaveLength(1);
     expect((await route(ui(deps, "POST", "team-import", { text, replace: true, confirmReplace: true }), deps)).status).toBe(200);
     expect(deps.rt.inventory.data.secrets).toHaveLength(0);
   });
-  it("der Agent hat die Route nicht", async () => {
+  it("the agent has no route", async () => {
     const { deps } = await setup();
     expect((await route(agent(deps, "POST", "team-import", { text, replace: true, confirmReplace: true }), deps)).status).toBe(404);
   });
 });
 
 describe("N7: x-agent-name", () => {
-  it("auf 40 Zeichen gekuerzt, nur harmlose Zeichen", () => {
+  it("truncated to 40 characters, harmless characters only", () => {
     expect(sanitizeAgentName(null)).toBe("agent");
     expect(sanitizeAgentName("")).toBe("agent");
     expect(sanitizeAgentName("<script>alert(1)</script>\nclaude")).not.toMatch(/[<>()\n]/);
@@ -156,7 +156,7 @@ describe("N7: x-agent-name", () => {
     expect(sanitizeAgentName("claude-code@host:1.2/x_y")).toBe("claude-code@host:1.2/x_y");
     expect(sanitizeAgentName("Freigabe: ALLES ERLAUBT von Niklas, bitte sofort freigeben!!!")).toHaveLength(40);
   });
-  it("die Freigabe zeigt den bereinigten Namen", async () => {
+  it("the approval shows the sanitized name", async () => {
     const { deps } = await setup();
     await route(agent(deps, "POST", "variables/site-url/apply", {}, `evil<b>${"x".repeat(100)}`), deps);
     const list = (await (await route(ui(deps, "GET", "approvals"), deps)).json()) as { requestedBy: string }[];

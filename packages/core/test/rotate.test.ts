@@ -39,7 +39,7 @@ async function setup(options: { failRepo?: string } = {}) {
 }
 
 describe("rotateSecret", () => {
-  it("erzeugt, schreibt in alle Ziele, widerruft den alten und traegt das Datum ein", async () => {
+  it("creates, writes to all targets, revokes the old one and records the date", async () => {
     const { deps, inventory, issue, revoke, written, events } = await setup();
     const result = await rotateSecret("cf-deploy-acme-app", deps);
     expect(result.ok).toBe(true);
@@ -55,7 +55,7 @@ describe("rotateSecret", () => {
     expect(result.revoked).toBe(true);
     expect(JSON.stringify({ result, events })).not.toContain("NEUER-TOKEN-WERT");
   });
-  it("widerruft nicht und traegt nichts ein, wenn ein Ziel fehlschlaegt", async () => {
+  it("does not revoke and records nothing when a target fails", async () => {
     const { deps, inventory, revoke } = await setup({ failRepo: "acme-app-landing" });
     const result = await rotateSecret("cf-deploy-acme-app", deps);
     expect(result.ok).toBe(false);
@@ -64,16 +64,16 @@ describe("rotateSecret", () => {
     expect(inventory.getSecret("cf-deploy-acme-app")!.expires).toBe("2027-01-21");
     expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("old-token-id");
   });
-  it("verweigert Stages, die nicht freigegeben sind", async () => {
+  it("refuses stages that are not approved", async () => {
     const { deps } = await setup();
     await expect(rotateSecret("stripe-webhook-acme-docs-staging", deps, { allowedStages: ["dev"] })).rejects.toThrow(RotationError);
     expect(() => planRotation("cf-deploy-acme-app", deps, { allowedStages: ["dev"] })).toThrow(/nicht freigegeben/);
   });
-  it("kann manuelle Secrets nicht automatisch rotieren", async () => {
+  it("cannot rotate manual secrets automatically", async () => {
     const { deps } = await setup();
     await expect(rotateSecret("stripe-webhook-acme-docs-staging", deps)).rejects.toThrow(/von Hand/);
   });
-  it("planRotation zeigt Ziele, ohne etwas auszufuehren", async () => {
+  it("planRotation shows targets without executing anything", async () => {
     const { deps, issue } = await setup();
     const plan = planRotation("cf-deploy-acme-app", deps);
     expect(plan).toMatchObject({ automatic: true, revokesOld: true, places: ["acme-app/repo", "acme-app-landing/repo"] });
@@ -82,16 +82,16 @@ describe("rotateSecret", () => {
 });
 
 describe("uploadEncrypted", () => {
-  it("leitet vorverschluesselte Werte weiter und traegt das Datum ein", async () => {
+  it("forwards pre-encrypted values and records the date", async () => {
     const { deps, inventory } = await setup();
     const s = inventory.getSecret("stripe-webhook-acme-docs-staging")!;
     const res = await uploadEncrypted(s.id, [{ place: s.places[0]!, keyId: "k", encryptedValue: "YWJj" }], deps, { expires: null });
     expect(res.ok).toBe(true);
     expect(inventory.getSecret(s.id)!.rotatedAt).toBe("2026-11-01");
   });
-  it("lehnt Ziele ab, die nicht zum Secret gehoeren", async () => {
+  it("rejects targets that do not belong to the secret", async () => {
     const { deps } = await setup();
-    const res = await uploadEncrypted("stripe-webhook-acme-docs-staging", [{ place: { repo: "fremd", scope: "repository" }, keyId: "k", encryptedValue: "x" }], deps);
+    const res = await uploadEncrypted("stripe-webhook-acme-docs-staging", [{ place: { repo: "foreign", scope: "repository" }, keyId: "k", encryptedValue: "x" }], deps);
     expect(res.ok).toBe(false);
   });
 });

@@ -5,12 +5,12 @@ import { CONN_TOKEN } from "./helpers.js";
 
 describe("createDefaultRegistry", () => {
   const list = createDefaultRegistry().list();
-  it("enthaelt jede Id genau einmal", () => {
+  it("contains every id exactly once", () => {
     const ids = list.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(expect.arrayContaining(["random-hex", "cloudflare-token", "supabase-api-key", "stripe-webhook-secret", "resend-api-key", "grafana-service-account-token", "openai"]));
   });
-  it("alle manuellen Anbieter haben eine Anleitung mit URL", () => {
+  it("all manual providers have a guide with URL", () => {
     const manual = list.filter((p) => p.kind === "manual");
     // Feste Ids muessen dabei sein; neue manuelle Anbieter duerfen dazukommen, ohne dass der Test bricht.
     expect(manual.map((p) => p.id)).toEqual(expect.arrayContaining(["stripe-restricted-key", "supabase-access-token", "github-fine-grained-token", "telegram-bot", "openai"]));
@@ -22,13 +22,13 @@ describe("createDefaultRegistry", () => {
       expect(p.issue).toBeUndefined();
     }
   });
-  it("alle automatischen Anbieter koennen erzeugen", () => {
+  it("all automatic providers can issue", () => {
     for (const p of list.filter((x) => x.kind === "automatic")) expect(typeof p.issue).toBe("function");
   });
 });
 
 describe("callJson", () => {
-  it("macht Netzfehler zu ProviderError ohne Token", async () => {
+  it("turns network errors into ProviderError without token", async () => {
     const f = (async () => {
       throw new Error(`connect failed ${CONN_TOKEN}`);
     }) as unknown as typeof fetch;
@@ -36,7 +36,7 @@ describe("callJson", () => {
     expect(err).toBeInstanceOf(ProviderError);
     expect(err.message).not.toContain(CONN_TOKEN);
   });
-  it("meldet Zeitueberschreitung", async () => {
+  it("reports a timeout", async () => {
     const f = (async () => {
       throw new DOMException("timeout", "TimeoutError");
     }) as unknown as typeof fetch;
@@ -48,7 +48,7 @@ import { githubTokenUrl } from "../src/manual.js";
 
 describe("githubTokenUrl", () => {
   const secret = { id: "sd-trial", description: "Probe", ttlDays: 7, params: { permissions: { secrets: "write", environments: "read", evil: "root", "x y": "read" } } } as never;
-  it("fuellt Name, Eigentuemer, Ablauf und gueltige Rechte vor", () => {
+  it("prefills name, owner, expiry and valid permissions", () => {
     const u = new URL(githubTokenUrl(secret, "acme", new Date("2026-10-27T12:00:00Z")));
     expect(u.origin + u.pathname).toBe("https://github.com/settings/personal-access-tokens/new");
     expect(u.searchParams.get("name")).toBe("sd-trial-20261027");

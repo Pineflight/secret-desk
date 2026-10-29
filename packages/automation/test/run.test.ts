@@ -20,7 +20,7 @@ function formDriver(extra: Partial<ConstructorParameters<typeof FakeDriver>[0]> 
 }
 
 describe("runRecipe", () => {
-  it("liefert Wert, Kennung, Ablauf, Belege und createdName", async () => {
+  it("returns value, identifier, expiry, receipts and createdName", async () => {
     const d = formDriver();
     const progress: string[] = [];
     const r = await runRecipe(sampleRecipe(), VARS, d, { onProgress: (p) => progress.push(p.label) });
@@ -35,7 +35,7 @@ describe("runRecipe", () => {
     expect(progress.length).toBeGreaterThan(3);
   });
 
-  it("Wert steht nirgends ausser im value-Feld", async () => {
+  it("the value appears nowhere except in the value field", async () => {
     const d = formDriver();
     const hooks: unknown[] = [];
     const r = await runRecipe(sampleRecipe(), VARS, d, { onProgress: (p) => hooks.push(p) });
@@ -46,14 +46,14 @@ describe("runRecipe", () => {
     expect(d.calls.join("\n")).not.toContain(TOKEN);
   });
 
-  it("verdeckt den Token in allen Screenshots", async () => {
+  it("masks the token in all screenshots", async () => {
     const d = formDriver();
     await runRecipe(sampleRecipe(), VARS, d);
     expect(d.shots.length).toBe(2);
     for (const s of d.shots) expect(s.masks).toContain("css #tok");
   });
 
-  it("wartet auf die Anmeldung und macht danach weiter", async () => {
+  it("waits for the sign-in and continues afterwards", async () => {
     const waits: HumanWait[] = [];
     let gotos = 0;
     const d = formDriver({
@@ -75,7 +75,7 @@ describe("runRecipe", () => {
     expect(gotos).toBe(2); // Zielseite nach der Anmeldung erneut geladen
   });
 
-  it("bricht nach dem Zeitlimit der Anmeldung ab", async () => {
+  it("aborts after the sign-in timeout", async () => {
     const d = formDriver({ on: (_e, dd) => void (dd.url = "https://example.test/login") });
     const err = await runRecipe(sampleRecipe(), VARS, d, {}, { loginTimeoutMinutes: 0.0005, pollMs: 5 }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RecipeRunError);
@@ -84,14 +84,14 @@ describe("runRecipe", () => {
     expect(d.closed).toBe(true);
   });
 
-  it("respektiert das Abbruchsignal beim Warten", async () => {
+  it("respects the abort signal while waiting", async () => {
     const d = formDriver({ on: (_e, dd) => void (dd.url = "https://example.test/login") });
     const ac = new AbortController();
     const err = await runRecipe(sampleRecipe(), VARS, d, { onWaitingForHuman: () => ac.abort() }, { signal: ac.signal, pollMs: 5 }).catch((e: unknown) => e);
     expect((err as RecipeRunError).kind).toBe("abort");
   });
 
-  it("nennt nach createsToken den angelegten Namen im Fehler", async () => {
+  it("names the created name in the error after createsToken", async () => {
     const d = new FakeDriver({ visible: FORM_VISIBLE, on: (e, dd) => void (e.action === "goto" && (dd.url = TOKENS_URL)) });
     // Klick klappt, aber das Token-Feld erscheint nie
     const err = (await runRecipe(sampleRecipe(), VARS, d).catch((e: unknown) => e)) as RecipeRunError;
@@ -100,7 +100,7 @@ describe("runRecipe", () => {
     expect(err.message).toContain("demo-20261027");
   });
 
-  it("zeigt bei falschem Format nie den gelesenen Wert", async () => {
+  it("never shows the read value on a wrong format", async () => {
     const d = formDriver({
       on: (e, dd) => {
         if (e.action === "click") {
@@ -115,7 +115,7 @@ describe("runRecipe", () => {
     expect(err.createdName).toBe("demo-20261027");
   });
 
-  it("Fehler vor createsToken hat keinen createdName", async () => {
+  it("error before createsToken has no createdName", async () => {
     const d = new FakeDriver({ visible: [], on: (e, dd) => void (e.action === "goto" && (dd.url = TOKENS_URL)) });
     const err = (await runRecipe(sampleRecipe(), VARS, d).catch((e: unknown) => e)) as RecipeRunError;
     expect(err.kind).toBe("step");
@@ -123,7 +123,7 @@ describe("runRecipe", () => {
     expect(err.message).toContain('fill Feld "Name"');
   });
 
-  it("bricht ab, wenn die Seite den erlaubten Host verlaesst", async () => {
+  it("aborts when the page leaves the allowed host", async () => {
     const d = formDriver({ on: (e, dd) => void (e.action === "goto" && (dd.url = "https://evil.test/x")) });
     const err = (await runRecipe(sampleRecipe({ login: undefined }), VARS, d).catch((e: unknown) => e)) as RecipeRunError;
     expect(err.kind).toBe("host");
@@ -132,7 +132,7 @@ describe("runRecipe", () => {
 });
 
 describe("dryRunRecipe", () => {
-  it("endet vor dem Erzeugen", async () => {
+  it("ends before creating", async () => {
     const d = formDriver({ on: (e, dd) => void (e.action === "goto" && (dd.url = TOKENS_URL)) });
     const r = await dryRunRecipe(sampleRecipe(), VARS, d);
     expect(r.screenshots.map((s) => s.name)).toEqual(["vorher"]);
@@ -141,8 +141,8 @@ describe("dryRunRecipe", () => {
   });
 });
 
-describe("capture auf fremdem Host", () => {
-  it("liest den Token nicht, wenn der Browser nach dem Klick auf einer fremden Seite steht", async () => {
+describe("capture on a foreign host", () => {
+  it("does not read the token when the browser stands on a foreign page after the click", async () => {
     let reads = 0;
     const d = formDriver({
       on: (e, dd) => {
@@ -166,8 +166,8 @@ describe("capture auf fremdem Host", () => {
   });
 });
 
-describe("M10: each mit leerer Liste", () => {
-  it("scheitert vor dem ersten Schritt, es wird nichts geoeffnet oder geklickt", async () => {
+describe("M10: each with empty list", () => {
+  it("fails before the first step, nothing is opened or clicked", async () => {
     const d = formDriver();
     const err = await runRecipe(sampleRecipe(), { ...VARS, repos: "" }, d).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RecipeRunError);
@@ -176,13 +176,13 @@ describe("M10: each mit leerer Liste", () => {
     expect(d.calls.filter((c) => c.startsWith("click") || c.startsWith("goto"))).toEqual([]);
     expect(d.closed).toBe(true);
   });
-  it("auch Kommas und Leerzeichen allein zaehlen als leer; im Probelauf ebenso", async () => {
+  it("commas and spaces alone also count as empty; in the dry run too", async () => {
     const d = formDriver();
     await expect(dryRunRecipe(sampleRecipe(), { ...VARS, repos: " , " }, d)).rejects.toThrow(/leer/);
   });
 });
 
-describe("M10: weitere Schritte mit FakeDriver", () => {
+describe("M10: further steps with FakeDriver", () => {
   const base = (steps: unknown[], extra: Record<string, unknown> = {}) =>
     sampleRecipe({
       login: undefined,
@@ -202,7 +202,7 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
       ...extra,
     });
 
-  it("select, check und press laufen gegen den Treiber", async () => {
+  it("select, check and press run against the driver", async () => {
     const d = driver();
     await runRecipe(base([{ select: { css: "#field", value: "30" } }, { check: { css: "#agree", checked: true } }, { press: { css: "#field", key: "Enter" } }, { press: { key: "Tab" } }]), VARS, d);
     expect(d.calls).toContain("select css #field");
@@ -210,7 +210,7 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
     expect(d.calls).toContain("press Enter css #field");
     expect(d.calls).toContain("press Tab");
   });
-  it("waitFor wartet auf ein Element, das ein Schritt vorher erscheint; Zeitlimit -> step-Fehler", async () => {
+  it("waitFor waits for an element that appears a step earlier; timeout -> step error", async () => {
     const ok = driver({ visible: ["css #ready", "css #field", ...FORM_VISIBLE] });
     await expect(runRecipe(base([{ waitFor: { visible: { css: "#ready" }, timeoutSeconds: 1 } }]), VARS, ok)).resolves.toBeDefined();
     const never = driver();
@@ -219,7 +219,7 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
     expect((err as RecipeRunError).kind).toBe("step");
     expect((err as RecipeRunError).message).toMatch(/Zeitueberschreitung/);
   });
-  it("pause: ist die Bedingung schon erfuellt, wird nicht auf den Menschen gewartet; sonst Hook und Fortsetzung", async () => {
+  it("pause: if the condition is already met, nobody waits for the human; otherwise hook and continuation", async () => {
     const waits: HumanWait[] = [];
     let resumed = 0;
     const met = driver({ pageText: ["Bestaetigt"] });
@@ -243,14 +243,14 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
     expect(waits[0]!.reason).toBe("Bitte bestaetigen");
     expect(resumed).toBe(1);
   });
-  it("pause: Abbruchsignal waehrend des Wartens -> kind abort", async () => {
+  it("pause: abort signal while waiting -> kind abort", async () => {
     const ac = new AbortController();
     const d = driver();
     const run = runRecipe(base([{ pause: { human: "warten", until: { text: "nie" } } }]), VARS, d, { onWaitingForHuman: () => ac.abort() }, { signal: ac.signal, pollMs: 2 });
     const err = await run.catch((e: unknown) => e);
     expect((err as RecipeRunError).kind).toBe("abort");
   });
-  it("Abbruch zwischen zwei Schritten: spaetere Schritte laufen nicht", async () => {
+  it("abort between two steps: later steps do not run", async () => {
     const ac = new AbortController();
     const d = driver({ on: (e) => void (e.action === "fill" && ac.abort()) });
     const err = await runRecipe(base([{ fill: { css: "#field", value: "a" } }, { fill: { css: "#field", value: "b" } }]), VARS, d, {}, { signal: ac.signal }).catch((e: unknown) => e);
@@ -259,7 +259,7 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
     expect(d.calls.filter((c) => c === "fill css #field")).toHaveLength(1);
     expect(d.closed).toBe(true);
   });
-  it("capture.externalId mit find und Muster liest die Kennung aus der Seite; der Wert wird nie Kennung", async () => {
+  it("capture.externalId with find and pattern reads the identifier from the page; the value never becomes the identifier", async () => {
     const recipe = base([], { capture: { token: { find: { css: "#tok" }, pattern: "^(tok_[a-z0-9]+)$", timeoutSeconds: 0.05 }, externalId: { find: { css: "#id" }, pattern: "id=(\\w+)" } } });
     const d = driver({ on: (e, dd) => { if (e.action === "click" && e.key === 'button "Create"') { dd.visible.add("css #tok"); dd.texts.set("css #tok", TOKEN); dd.texts.set("css #id", "id=abc123"); } } });
     const r = await runRecipe(recipe, VARS, d);
@@ -268,7 +268,7 @@ describe("M10: weitere Schritte mit FakeDriver", () => {
     const r2 = await runRecipe(base([], { capture: { token: { find: { css: "#tok" }, pattern: "^(tok_[a-z0-9]+)$", timeoutSeconds: 0.05 }, externalId: { find: { css: "#id" } } } }), VARS, leak);
     expect(r2.externalId).toBeUndefined();
   });
-  it("revokeRecipe: fuehrt revoke.steps mit externalId aus; ohne revoke ein klarer Fehler", async () => {
+  it("revokeRecipe: runs revoke.steps with externalId; without revoke a clear error", async () => {
     const withRevoke = sampleRecipe({ login: undefined, revoke: { steps: [{ goto: "https://example.test/tokens/{{externalId}}/delete" }, { click: { role: "button", name: "Delete" } }] } });
     const d = new FakeDriver({ url: "https://example.test/", visible: ['button "Delete"'] });
     await revokeRecipe(withRevoke, { ...VARS, externalId: "x1" }, d);

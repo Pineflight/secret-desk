@@ -193,12 +193,12 @@ try {
   await shot("secrets", "/secrets");
   await shot("secret-detail", "/secrets/cloudflare-deploy-acme-app");
   if (reviewId) {
-    await shot("reviews", "/pruefen");
-    await shot("review-detail", `/pruefen/${encodeURIComponent(reviewId)}`);
+    await shot("reviews", "/reviews");
+    await shot("review-detail", `/reviews/${encodeURIComponent(reviewId)}`);
   } else console.warn("  no pending review could be created: skipping reviews.png and review-detail.png");
-  await shot("variables", "/variablen");
-  await shot("compare", "/vergleich");
-  await shot("compare-live", "/vergleich", async () => {
+  await shot("variables", "/variables");
+  await shot("compare", "/compare");
+  await shot("compare-live", "/compare", async () => {
     await page.getByText("Check live against GitHub", { exact: false }).first().click();
     await page.waitForTimeout(1500);
     await settle();
@@ -219,8 +219,8 @@ try {
       });
     }
   }, validUntil);
-  await shot("integrations", "/verbindungen");
-  await shot("settings", "/einstellungen");
+  await shot("integrations", "/connections");
+  await shot("settings", "/settings");
 
   const bad = taken.filter((f) => statSync(f).size < 10_000);
   if (bad.length > 0) throw new Error(`suspiciously small screenshots (blank page?): ${bad.join(", ")}`);

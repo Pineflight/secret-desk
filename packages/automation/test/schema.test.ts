@@ -16,50 +16,50 @@ function errors(doc: unknown): string {
 }
 
 describe("RecipeSchema", () => {
-  it("nimmt ein gueltiges Rezept an", () => {
+  it("accepts a valid recipe", () => {
     expect(RecipeSchema.safeParse(base()).success).toBe(true);
     expect(sampleRecipe().steps).toHaveLength(5);
   });
-  it("verlangt genau eine Suchart im Selektor", () => {
+  it("requires exactly one lookup kind in the selector", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a" }, { click: { role: "button", css: "#a", createsToken: true } } as never];
     expect(errors(d)).toMatch(/steps\.1\.click.*Genau eines/);
   });
-  it("name gehoert nur zu role", () => {
+  it("name belongs to role only", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a" }, { fill: { label: "A", name: "B", value: "x" } } as never, d.steps[1] as never];
     expect(errors(d)).toMatch(/name gehoert nur zu role/);
   });
-  it("verlangt createsToken", () => {
+  it("requires createsToken", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a" }];
     expect(errors(d)).toMatch(/createsToken/);
   });
-  it("lehnt unbekannte Variablen ab", () => {
+  it("rejects unknown variables", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a?x={{nope}}" }, d.steps[1] as never];
     expect(errors(d)).toMatch(/Unbekannte Variable \{\{nope\}\}/);
   });
-  it("lehnt fremde Hosts und Variablen im Host ab", () => {
+  it("rejects foreign hosts and variables in the host", () => {
     const d = base();
     d.steps = [{ goto: "https://evil.test/a" }, d.steps[1] as never];
     expect(errors(d)).toMatch(/evil\.test/);
     d.steps = [{ goto: "https://{{name}}.example.test/" }, d.steps[1] as never];
     expect(errors(d)).toMatch(/festem Host/);
   });
-  it("erlaubt allowHosts und http nur lokal", () => {
+  it("allows allowHosts and http locally only", () => {
     const d = { ...base(), allowHosts: ["auth.example.test"] };
     d.steps = [{ goto: "https://auth.example.test/a" }, d.steps[1] as never];
     expect(errors(d)).toBe("");
     d.steps = [{ goto: "http://example.test/a" }, d.steps[1] as never];
     expect(errors(d)).toMatch(/http nur fuer localhost/);
   });
-  it("meldet unbekannte Schrittarten verstaendlich", () => {
+  it("reports unknown step kinds clearly", () => {
     const d = base();
     d.steps = [{ hover: "x" } as never, d.steps[1] as never];
     expect(errors(d)).toMatch(/Schritt braucht genau eine Art/);
   });
-  it("pruefte ungueltige Regex und fehlendes until", () => {
+  it("rejected invalid regex and missing until", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a" }, { waitFor: { url: "(" } } as never, { pause: { human: "x" } } as never, d.steps[1] as never];
     const e = errors(d);
@@ -69,7 +69,7 @@ describe("RecipeSchema", () => {
 });
 
 describe("hostAllowed", () => {
-  it("vergleicht exakt, Platzhalter nur per *.", () => {
+  it("compares exactly, wildcard only via *.", () => {
     const r = { host: "github.com", allowHosts: ["*.githubusercontent.com"] };
     expect(hostAllowed("github.com", r)).toBe(true);
     expect(hostAllowed("evil-github.com", r)).toBe(false);

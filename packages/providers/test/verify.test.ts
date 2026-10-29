@@ -15,7 +15,7 @@ describe("cloudflare-token verify", () => {
   const verifyOk = { body: { result: { status: "active", expires_on: "2026-12-01T10:00:00Z" } } };
   const opts = { conns: ["cloudflare"], externalId: "tok1", ttlDays: 30, expiresAt: "2026-12-01T10:00:00Z" };
 
-  it("Erfolg: alles pass, richtige Aufrufe", async () => {
+  it("success: all pass, correct calls", async () => {
     const m = mockFetch(verifyOk, { body: tokenInfo(["Account Settings Read", "Workers Scripts Write"]) });
     const checks = await run("cloudflare-token", m.fetch, params, opts);
     expect(byId(checks)).toEqual({ active: "pass", expires: "pass", permissions: "pass", "account-scope": "pass" });
@@ -26,7 +26,7 @@ describe("cloudflare-token verify", () => {
     expect(m.calls.find((c) => c.url.endsWith("/tok1"))!.headers).toMatchObject({ Authorization: `Bearer ${CONN_TOKEN}` });
     expectNoLeak(checks);
   });
-  it("zusaetzliche Rechte und fremdes Konto sind fail und nennen die Namen", async () => {
+  it("additional permissions and foreign account are fail and name the names", async () => {
     const m = mockFetch(verifyOk, { body: tokenInfo(["Workers Scripts Write", "Account Settings Read", "DNS Write"], { "com.cloudflare.api.account.acc1": "*", "com.cloudflare.api.account.zzz": "*" }) });
     const checks = await run("cloudflare-token", m.fetch, params, opts);
     const perm = checks.find((c) => c.id === "permissions")!;
@@ -37,23 +37,23 @@ describe("cloudflare-token verify", () => {
     expect(scope.detail).toContain("com.cloudflare.api.account.zzz");
     expectNoLeak(checks);
   });
-  it("fehlende Rechte sind fail", async () => {
+  it("missing permissions are fail", async () => {
     const m = mockFetch(verifyOk, { body: tokenInfo(["Workers Scripts Write"]) });
     const perm = (await run("cloudflare-token", m.fetch, params, opts)).find((c) => c.id === "permissions")!;
     expect(perm.status).toBe("fail");
     expect(perm.detail).toContain("Account Settings Read");
   });
-  it("inaktiver Token ist fail, Ablaufabweichung warn", async () => {
+  it("inactive token is fail, expiry deviation warn", async () => {
     const m = mockFetch({ body: { result: { status: "expired", expires_on: "2026-12-10T10:00:00Z" } } }, { body: tokenInfo(params.permissions) });
     const s = byId(await run("cloudflare-token", m.fetch, params, opts));
     expect(s["active"]).toBe("fail");
     expect(s["expires"]).toBe("warn");
   });
-  it("kein Ablauf trotz ttlDays ist warn", async () => {
+  it("no expiry despite ttlDays is warn", async () => {
     const m = mockFetch({ body: { result: { status: "active" } } }, { body: tokenInfo(params.permissions) });
     expect(byId(await run("cloudflare-token", m.fetch, params, { ...opts, expiresAt: null }))["expires"]).toBe("warn");
   });
-  it("Fehler wird zu warn ohne Wert und Token", async () => {
+  it("error becomes warn without value and token", async () => {
     const m = mockFetch({ status: 403, body: LEAK }, { status: 403, body: LEAK });
     const checks = await run("cloudflare-token", m.fetch, params, opts);
     expect(byId(checks)["permissions"]).toBe("warn");
@@ -66,13 +66,13 @@ describe("cloudflare-token verify", () => {
     expect(c2.every((c) => c.status === "warn")).toBe(true);
     expectNoLeak(c2);
   });
-  it("ohne Verbindung: warn", async () => {
+  it("without connection: warn", async () => {
     const m = mockFetch(verifyOk);
     const checks = await run("cloudflare-token", m.fetch, params, { externalId: "tok1" });
     expect(byId(checks)["permissions"]).toBe("warn");
     expectNoLeak(checks);
   });
-  it("Pruefpunkte nennen Parameter", () => {
+  it("check items name parameters", () => {
     const items = get("cloudflare-token").reviewChecklist!(secretEntry({ params, ttlDays: 30 }));
     expect(items.join("\n")).toContain("test-secret");
     expect(items.join("\n")).toContain("Workers Scripts Write, Account Settings Read");
@@ -83,7 +83,7 @@ describe("cloudflare-token verify", () => {
 });
 
 describe("cloudflare-turnstile verify", () => {
-  it("liefert nur info", async () => {
+  it("returns info only", async () => {
     const m = mockFetch();
     const checks = await run("cloudflare-turnstile", m.fetch, {});
     expect(checks).toHaveLength(1);
@@ -95,7 +95,7 @@ describe("cloudflare-turnstile verify", () => {
 
 describe("supabase-api-key verify", () => {
   const KEY = "sb_secret_ABCDEFGHIJKLMNOP";
-  it("Erfolg: Form info, REST pass, kein Wert", async () => {
+  it("success: shape info, REST pass, no value", async () => {
     const m = mockFetch({ status: 200, body: {} });
     const checks = await run("supabase-api-key", m.fetch, { type: "secret", url: "https://abc.supabase.co" }, { value: KEY });
     expect(byId(checks)).toEqual({ shape: "info", rest: "pass" });
@@ -104,14 +104,14 @@ describe("supabase-api-key verify", () => {
     expect(m.calls[0]!.headers).toMatchObject({ apikey: KEY });
     expectNoLeak(checks, [KEY, "ABCDEFGH"]);
   });
-  it("ohne url nur Form; Typ passt nicht = fail", async () => {
+  it("without url shape only; type mismatch = fail", async () => {
     const m = mockFetch();
     expect(byId(await run("supabase-api-key", m.fetch, { type: "secret" }, { value: KEY }))).toEqual({ shape: "info" });
     expect(byId(await run("supabase-api-key", m.fetch, { type: "publishable" }, { value: KEY }))["shape"]).toBe("fail");
     expect(byId(await run("supabase-api-key", m.fetch, {}, { value: "irgendwas" }))["shape"]).toBe("warn");
     expect(m.calls).toHaveLength(0);
   });
-  it("401 = fail, 500 = warn, fremde Url = warn ohne Aufruf, Netzfehler = warn", async () => {
+  it("401 = fail, 500 = warn, foreign url = warn without call, network error = warn", async () => {
     const p = { url: "https://abc.supabase.co" };
     expect(byId(await run("supabase-api-key", mockFetch({ status: 401, body: LEAK }).fetch, p, { value: KEY }))["rest"]).toBe("fail");
     expect(byId(await run("supabase-api-key", mockFetch({ status: 500 }).fetch, p, { value: KEY }))["rest"]).toBe("warn");
@@ -125,7 +125,7 @@ describe("supabase-api-key verify", () => {
     expect(byId(c)["rest"]).toBe("warn");
     expectNoLeak(c, [KEY]);
   });
-  it("Pruefpunkte nennen Ref und Staging", () => {
+  it("check items name ref and staging", () => {
     const items = get("supabase-api-key").reviewChecklist!(secretEntry({ stage: "staging", params: { projectRef: "abc", type: "secret" }, places: [{ repo: "x", scope: "repository" }] }));
     expect(items.join(" ")).toContain("abc");
     expect(items.join(" ")).toContain("Staging");
@@ -136,7 +136,7 @@ describe("stripe-webhook-secret verify", () => {
   const params = { url: "https://x.example/hook", events: ["checkout.session.completed", "invoice.paid"] };
   const endpoint = (extra: Record<string, unknown> = {}) => ({ id: "we_1", status: "enabled", url: params.url, enabled_events: ["invoice.paid", "checkout.session.completed"], livemode: false, ...extra });
   const opts = { conns: ["stripe"], externalId: "we_1" };
-  it("Erfolg in der Sandbox (Reihenfolge egal)", async () => {
+  it("success in the sandbox (order irrelevant)", async () => {
     const m = mockFetch({ body: endpoint() });
     const checks = await run("stripe-webhook-secret", m.fetch, params, { ...opts, stage: "staging" });
     expect(byId(checks)).toEqual({ status: "pass", url: "pass", events: "pass", mode: "pass" });
@@ -166,17 +166,17 @@ describe("stripe-webhook-secret verify", () => {
     const m = mockFetch({ body: endpoint({ livemode: live }) });
     expect(byId(await run("stripe-webhook-secret", m.fetch, params, { ...opts, stage, stageKind }))["mode"]).toBe(expected);
   });
-  it("Pruefliste folgt der Art der Stage", () => {
+  it("checklist follows the stage kind", () => {
     const secret = secretEntry({ stage: "eu-prod", places: [{ repo: "x", scope: "repository" }] });
     expect(get("stripe-webhook-secret").reviewChecklist!(secret, { stageKind: "live" }).join(" ")).toContain("Live-Modus");
     expect(get("stripe-webhook-secret").reviewChecklist!(secret, { stageKind: "test" }).join(" ")).toContain("Sandbox");
   });
-  it("deaktiviert, andere Url, andere Ereignisse = fail", async () => {
+  it("disabled, other url, other events = fail", async () => {
     const m = mockFetch({ body: endpoint({ status: "disabled", url: "https://other.example/h", enabled_events: ["invoice.paid", "charge.failed"] }) });
     const s = byId(await run("stripe-webhook-secret", m.fetch, params, opts));
     expect(s).toMatchObject({ status: "fail", url: "fail", events: "fail" });
   });
-  it("404 = fail, 500 = warn, kein Wert im Befund", async () => {
+  it("404 = fail, 500 = warn, no value in the finding", async () => {
     expect(byId(await run("stripe-webhook-secret", mockFetch({ status: 404, body: LEAK }).fetch, params, opts))["status"]).toBe("fail");
     const c = await run("stripe-webhook-secret", mockFetch({ status: 500, body: LEAK }).fetch, params, opts);
     expect(byId(c)["status"]).toBe("warn");
@@ -186,18 +186,18 @@ describe("stripe-webhook-secret verify", () => {
 
 describe("resend-api-key verify", () => {
   const opts = { conns: ["resend"], externalId: "k1" };
-  it("Erfolg", async () => {
+  it("success", async () => {
     const m = mockFetch({ body: { data: [{ id: "k0", name: "a" }, { id: "k1", name: "b", permission: "sending_access" }] } });
     const checks = await run("resend-api-key", m.fetch, {}, opts);
     expect(byId(checks)).toEqual({ exists: "pass", permission: "pass" });
     expect(m.calls[0]!.url).toBe("https://api.resend.com/api-keys?limit=100");
     expectNoLeak(checks);
   });
-  it("fehlender Eintrag und falsche Berechtigung = fail", async () => {
+  it("missing entry and wrong permission = fail", async () => {
     expect(byId(await run("resend-api-key", mockFetch({ body: { data: [{ id: "k0" }] } }).fetch, {}, opts))["exists"]).toBe("fail");
     expect(byId(await run("resend-api-key", mockFetch({ body: { data: [{ id: "k1", permission: "full_access" }] } }).fetch, {}, opts))["permission"]).toBe("fail");
   });
-  it("Berechtigung nicht ausgewiesen = info; Fehler = warn ohne Werte", async () => {
+  it("permission not reported = info; error = warn without values", async () => {
     expect(byId(await run("resend-api-key", mockFetch({ body: { data: [{ id: "k1" }] } }).fetch, { permission: "full_access" }, opts))["permission"]).toBe("info");
     const c = await run("resend-api-key", mockFetch({ status: 401, body: LEAK }).fetch, {}, opts);
     expect(byId(c)["exists"]).toBe("warn");
@@ -208,19 +208,19 @@ describe("resend-api-key verify", () => {
 describe("grafana verify", () => {
   const params = { baseUrl: "https://g.grafana.net/", serviceAccountId: 7 };
   const opts = { conns: ["grafana"], externalId: "42", expiresAt: "2026-12-01T10:00:00Z" };
-  it("Erfolg", async () => {
+  it("success", async () => {
     const m = mockFetch({ body: [{ id: 41, hasExpired: true }, { id: 42, hasExpired: false, expiration: "2026-12-01T10:00:00Z" }] });
     const checks = await run("grafana-service-account-token", m.fetch, params, opts);
     expect(byId(checks)).toEqual({ exists: "pass", valid: "pass", expires: "pass" });
     expect(m.calls[0]!.url).toBe("https://g.grafana.net/api/serviceaccounts/7/tokens");
     expectNoLeak(checks);
   });
-  it("abgelaufen = fail, fehlend = fail, Ablauf weicht ab = warn", async () => {
+  it("expired = fail, missing = fail, expiry differs = warn", async () => {
     expect(byId(await run("grafana-service-account-token", mockFetch({ body: [{ id: 42, hasExpired: true }] }).fetch, params, opts))["valid"]).toBe("fail");
     expect(byId(await run("grafana-service-account-token", mockFetch({ body: [] }).fetch, params, opts))["exists"]).toBe("fail");
     expect(byId(await run("grafana-service-account-token", mockFetch({ body: [{ id: 42, hasExpired: false, expiration: "2027-03-01T00:00:00Z" }] }).fetch, params, opts))["expires"]).toBe("warn");
   });
-  it("Fehler = warn ohne Werte, ungueltige Parameter = warn", async () => {
+  it("error = warn without values, invalid parameters = warn", async () => {
     const c = await run("grafana-service-account-token", mockFetch({ status: 500, body: LEAK }).fetch, params, opts);
     expect(byId(c)["exists"]).toBe("warn");
     expectNoLeak(c);
@@ -244,7 +244,7 @@ describe("random verify", () => {
     expect(byId(await ok("random-uuid", "123e4567-e89b-12d3-a456-426614174000"))["shape"]).toBe("pass");
     expect(byId(await ok("random-uuid", "nope"))["shape"]).toBe("fail");
   });
-  it("Befund enthaelt den Wert nicht; Pruefpunkte vorhanden", async () => {
+  it("finding does not contain the value; check items present", async () => {
     const v = "ab".repeat(32);
     expectNoLeak(await ok("random-hex", v), [v]);
     expect(get("random-uuid").reviewChecklist!(secretEntry())).toHaveLength(2);
@@ -261,7 +261,7 @@ describe("manual: stripe-restricted-key", () => {
   };
   for (const stage of Object.keys(EXPECT) as Stage[]) {
     for (const [name, value] of Object.entries(KEYS)) {
-      it(`Modus: ${stage} x ${name} -> ${EXPECT[stage][name]}`, async () => {
+      it(`mode: ${stage} x ${name} -> ${EXPECT[stage][name]}`, async () => {
         const m = mockFetch({ status: 200, body: {} });
         const checks = await run("stripe-restricted-key", m.fetch, {}, { stage, value });
         const s = byId(checks);
@@ -272,10 +272,10 @@ describe("manual: stripe-restricted-key", () => {
       });
     }
   }
-  it("unbekannter Praefix = warn", async () => {
+  it("unknown prefix = warn", async () => {
     expect(byId(await run("stripe-restricted-key", mockFetch({ status: 200 }).fetch, {}, { value: "pk_test_xxx" }))["mode"]).toBe("warn");
   });
-  it("Guthaben: 200 pass, 401 fail, 403 info, 500 warn; Bearer wird gesendet", async () => {
+  it("credit: 200 pass, 401 fail, 403 info, 500 warn; bearer is sent", async () => {
     const v = KEYS["rk_test"]!;
     const m = mockFetch({ status: 200 });
     await run("stripe-restricted-key", m.fetch, {}, { value: v });
@@ -290,7 +290,7 @@ describe("manual: stripe-restricted-key", () => {
     expect(await t(403)).toBe("info");
     expect(await t(500)).toBe("warn");
   });
-  it("Netzfehler = warn ohne Wert", async () => {
+  it("network error = warn without value", async () => {
     const v = KEYS["rk_test"]!;
     const net = (async () => {
       throw new Error(`down ${v}`);
@@ -306,26 +306,26 @@ describe("manual: github-fine-grained-token", () => {
     const f = (async () => new Response(JSON.stringify(body), { status: 200, headers: header ? { "github-authentication-token-expiration": header } : {} })) as unknown as typeof fetch;
     return f;
   };
-  it("Erfolg mit Ablauf", async () => {
+  it("success with expiry", async () => {
     const c = await run("github-fine-grained-token", withHeader("2026-12-01 10:00:00 UTC"), {});
     expect(byId(c)).toEqual({ works: "pass", expires: "pass" });
     expect(c[0]!.actual).toBe("octo");
     expect(c[1]!.actual).toBe("2026-12-01");
     expectNoLeak(c);
   });
-  it("kein Ablauf und zu langer Ablauf = warn", async () => {
+  it("no expiry and too long expiry = warn", async () => {
     expect(byId(await run("github-fine-grained-token", withHeader(null), {}))["expires"]).toBe("warn");
     expect(byId(await run("github-fine-grained-token", withHeader("2028-01-01 00:00:00 UTC"), {}))["expires"]).toBe("warn");
   });
-  it("401 = fail, kein Wert", async () => {
+  it("401 = fail, no value", async () => {
     const c = await run("github-fine-grained-token", mockFetch({ status: 401, body: LEAK }).fetch, {});
     expect(byId(c)).toEqual({ works: "fail" });
     expectNoLeak(c);
   });
 });
 
-describe("manual: supabase-access-token und openai", () => {
-  it("supabase: 200 pass mit Anzahl, 401 fail", async () => {
+describe("manual: supabase-access-token and openai", () => {
+  it("supabase: 200 pass with count, 401 fail", async () => {
     const m = mockFetch({ body: [{ id: "a" }, { id: "b" }] });
     const c = await run("supabase-access-token", m.fetch, {});
     expect(byId(c)).toEqual({ works: "pass", organizations: "info" });
@@ -348,9 +348,9 @@ describe("manual: supabase-access-token und openai", () => {
   });
 });
 
-describe("Pruefpunkte aller Anbieter", () => {
+describe("check items of all providers", () => {
   const list = reg.list();
-  it("jeder Anbieter hat eine nicht leere Liste", () => {
+  it("every provider has a non-empty list", () => {
     expect(list.length).toBeGreaterThanOrEqual(15);
     for (const p of list.filter((x) => x.kind === "manual" || x.kind === "automatic")) {
       const items = p.reviewChecklist?.(secretEntry());
@@ -360,7 +360,7 @@ describe("Pruefpunkte aller Anbieter", () => {
       for (const i of items!) expect(i.trim().length).toBeGreaterThan(5);
     }
   });
-  it("manuelle ohne API-Pruefung haben kein verify, mit API schon", () => {
+  it("manual ones without API check have no verify, with API they do", () => {
     for (const id of ["telegram-bot"]) expect(get(id).verify).toBeUndefined();
     for (const id of ["stripe-restricted-key", "github-fine-grained-token", "supabase-access-token", "openai"]) expect(typeof get(id).verify).toBe("function");
   });

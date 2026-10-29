@@ -20,12 +20,12 @@ stages:
   - { id: gemeinsam, kind: shared }
 `;
 
-describe("Stage-Definitionen", () => {
-  it("fehlender oder leerer Abschnitt ergibt die Standard-Stages", () => {
+describe("stage definitions", () => {
+  it("missing or empty section yields the default stages", () => {
     expect(InventoryStore.fromText(INVENTORY_YAML).stages).toEqual(DEFAULT_STAGES);
     expect(effectiveStages([])).toEqual(DEFAULT_STAGES);
   });
-  it("Art, Environment, Anzeigename und Farbe kommen aus der Definition", () => {
+  it("kind, environment, display name and color come from the definition", () => {
     const defs = InventoryStore.fromText(MINI).stages;
     expect(stageKind(defs, "prod")).toBe("live");
     expect(stageKind(defs, "unbekannt")).toBe("live");
@@ -40,27 +40,27 @@ describe("Stage-Definitionen", () => {
     expect(contextKind({ stage: "production" })).toBe("live");
     expect(contextKind({ stage: "x", stageKind: "test" })).toBe("test");
   });
-  it("prueft Eindeutigkeit, Hoechstzahl und Id-Form", () => {
+  it("checks uniqueness, maximum count and id form", () => {
     expect(() => InventoryStore.fromText("version: 1\nstages:\n  - { id: a, kind: dev }\n  - { id: a, kind: test }\n")).toThrow(/doppelt/);
     const many = Array.from({ length: 13 }, (_, i) => `  - { id: s${i}, kind: test }`).join("\n");
     expect(() => InventoryStore.fromText(`version: 1\nstages:\n${many}\n`)).toThrow(InventoryError);
     expect(() => InventoryStore.fromText("version: 1\nstages:\n  - { id: Gross, kind: test }\n")).toThrow(InventoryError);
     expect(() => InventoryStore.fromText("version: 1\nstages:\n  - { id: a, kind: komisch }\n")).toThrow(InventoryError);
   });
-  it("unbekannte Stage in Secrets wird abgelehnt", () => {
+  it("unknown stage in secrets is rejected", () => {
     expect(() => InventoryStore.fromText(`${MINI}secrets:\n  - { id: x, name: A_B, service: s, stage: staging, places: [{ repo: r, scope: repository }] }\n`)).toThrow(/Unbekannte Stage: staging/);
     const s = InventoryStore.fromText(MINI);
     expect(() => s.addSecret({ id: "y", name: "A_B", service: "s", stage: "nope", places: [{ repo: "r", scope: "repository" }] })).toThrow(/Unbekannte Stage/);
   });
-  it("nur Stages der Art dev duerfen ohne Ziel sein", () => {
+  it("only stages of kind dev may be without target", () => {
     const s = InventoryStore.fromText(MINI);
     s.addSecret({ id: "lokal", name: "A_B", service: "s", stage: "dev" });
     expect(() => s.addSecret({ id: "ohne", name: "A_B", service: "s", stage: "qa", places: [] })).toThrow(/places/);
   });
 });
 
-describe("Environment aus der Stage", () => {
-  it("setzt den Namen beim Anlegen von Secret und Variable", () => {
+describe("environment from the stage", () => {
+  it("sets the name when creating secret and variable", () => {
     const s = InventoryStore.fromText(MINI);
     const sec = s.addSecret({ id: "a", name: "A_B", service: "s", stage: "prod", places: [{ repo: "r", scope: "environment" }] });
     expect(sec.places[0]!.environment).toBe("production-eu");
@@ -68,25 +68,25 @@ describe("Environment aus der Stage", () => {
     const v = s.addVariable({ id: "v", name: "V_B", stage: "qa", places: [{ repo: "r", scope: "environment" }] });
     expect(v.places[0]!.environment).toBe("qa");
   });
-  it("ausdrueckliche Abweichung bleibt", () => {
+  it("explicit deviation stays", () => {
     const s = InventoryStore.fromText(MINI);
     const sec = s.addSecret({ id: "a", name: "A_B", service: "s", stage: "qa", places: [{ repo: "r", scope: "environment", environment: "qa-eu" }] });
     expect(sec.places[0]!.environment).toBe("qa-eu");
   });
-  it("Stage ohne Environment: Bereich Umgebung ist ein Fehler", () => {
+  it("stage without environment: environment scope is an error", () => {
     const s = InventoryStore.fromText(MINI);
     expect(() => s.addSecret({ id: "a", name: "A_B", service: "s", stage: "gemeinsam", places: [{ repo: "r", scope: "environment" }] })).toThrow(/keine GitHub-Environment/);
     expect(() => resolvePlaces(DEFAULT_STAGES, "dev", [{ scope: "environment" as const }])).toThrow(StageError);
     expect(() => resolvePlaces(DEFAULT_STAGES, "x", [])).toThrow(/Unbekannte Stage/);
   });
-  it("ergaenzt beim Laden fehlende Namen in handgeschriebenem YAML", () => {
+  it("fills in missing names on load in hand-written YAML", () => {
     const s = InventoryStore.fromText(`${MINI}secrets:\n  - { id: x, name: A_B, service: s, stage: qa, places: [{ repo: r, scope: environment }] }\n`);
     expect(s.getSecret("x")!.places[0]!.environment).toBe("qa");
   });
 });
 
 describe("setStages", () => {
-  it("schreibt kommentarerhaltend und lehnt das Entfernen genutzter Stages ab", () => {
+  it("preserves comments and refuses removing used stages", () => {
     const s = InventoryStore.fromText(INVENTORY_YAML);
     s.setStages([...DEFAULT_STAGES, { id: "qa", kind: "test" }]);
     expect(s.stages.map((d) => d.id)).toContain("qa");
@@ -96,13 +96,13 @@ describe("setStages", () => {
   });
 });
 
-describe("Richtlinie und Team", () => {
-  it("agentStages: ohne Angabe alle Stages der Art dev", () => {
+describe("policy and team", () => {
+  it("agentStages: without input all stages of kind dev", () => {
     const c = ConfigSchema.parse({ inventory: "i", github: { owner: "o", auth: { type: "pat" } } });
     expect(agentStageIds(c, InventoryStore.fromText(MINI).stages)).toEqual(["dev"]);
     expect(agentStageIds({ policy: { agentStages: ["qa"], envRoots: [] } }, [])).toEqual(["qa"]);
   });
-  it("Export enthaelt die Stages, Import uebernimmt neue und laesst vorhandene", () => {
+  it("export contains the stages, import adopts new ones and keeps existing ones", () => {
     const src = InventoryStore.fromText(WITH_STAGES);
     const text = exportTeamBundle(src.data);
     expect(text).toContain("stages:");
@@ -113,7 +113,7 @@ describe("Richtlinie und Team", () => {
     expect(r.addedStages).toEqual(["staging", "prod", "shared"]);
     expect(target.stages.find((d) => d.id === "qa")).toMatchObject({ label: "Eigenes", kind: "live" });
   });
-  it("replace uebernimmt die Stages komplett", () => {
+  it("replace adopts the stages completely", () => {
     const src = InventoryStore.fromText(MINI);
     const target = InventoryStore.fromText(INVENTORY_YAML);
     target.replaceData(parseTeamBundle(exportTeamBundle(src.data)).secrets.length === 0 ? parseTeamBundle(exportTeamBundle(src.data)) : src.data);

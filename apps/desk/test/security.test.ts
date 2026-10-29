@@ -7,14 +7,14 @@ import { PortalSession, checkFetchSite, loadOrCreateAgentToken } from "../src/se
 const base = "http://127.0.0.1:4747";
 const req = (path: string, headers: Record<string, string> = {}) => new Request(`${base}${path}`, { headers: { host: "127.0.0.1:4747", ...headers } });
 
-describe("Startgeheimnis", () => {
-  it("erzeugt ein 256-Bit-Geheimnis und die Startadresse", () => {
+describe("launch secret", () => {
+  it("creates a 256-bit secret and the launch URL", () => {
     const s = new PortalSession({ env: {} });
     expect(Buffer.from(s.launchSecret!, "base64url")).toHaveLength(32);
     expect(s.launchUrl(4747)).toBe(`${base}/?launch=${s.launchSecret}`);
   });
 
-  it("ohne Geheimnis und mit falschem: abgelehnt", () => {
+  it("rejected without secret and with a wrong one", () => {
     const s = new PortalSession({ env: {} });
     expect(s.mayIssue(req("/api/session"))).toBe(false);
     expect(s.mayIssue(req("/api/session", { "x-secret-desk-launch": "falsch" }))).toBe(false);
@@ -22,7 +22,7 @@ describe("Startgeheimnis", () => {
     expect(s.mayIssue(req("/api/session", { "x-secret-desk-launch": `${s.launchSecret}x` }))).toBe(false);
   });
 
-  it("mit richtigem Geheimnis (Header oder Query) erlaubt, danach genuegt das Cookie", () => {
+  it("allowed with the correct secret (header or query), afterwards the cookie suffices", () => {
     const s = new PortalSession({ env: {} });
     expect(s.mayIssue(req("/api/session", { "x-secret-desk-launch": s.launchSecret! }))).toBe(true);
     expect(s.mayIssue(req(`/api/session?launch=${s.launchSecret}`))).toBe(true);
@@ -30,20 +30,20 @@ describe("Startgeheimnis", () => {
     expect(s.mayIssue(req("/api/session", { cookie: "sd_session=anderes" }))).toBe(false);
   });
 
-  it("SECRET_DESK_NO_LAUNCH_SECRET=1 schaltet ab", () => {
+  it("SECRET_DESK_NO_LAUNCH_SECRET=1 turns it off", () => {
     const s = new PortalSession({ env: { SECRET_DESK_NO_LAUNCH_SECRET: "1" } });
     expect(s.launchSecret).toBeNull();
     expect(s.launchUrl(4747)).toBeNull();
     expect(s.mayIssue(req("/api/session"))).toBe(true);
   });
 
-  it("zwei Sitzungen haben verschiedene Geheimnisse", () => {
+  it("two sessions have different secrets", () => {
     expect(new PortalSession({ env: {} }).launchSecret).not.toBe(new PortalSession({ env: {} }).launchSecret);
   });
 });
 
 describe("Sec-Fetch-Site", () => {
-  it("lehnt cross-site und same-site ab, erlaubt same-origin, none und fehlend", () => {
+  it("rejects cross-site and same-site, allows same-origin, none and missing", () => {
     const r = (v?: string) => req("/api/ui/overview", v ? { "sec-fetch-site": v } : {});
     expect(checkFetchSite(r())).toBe(true);
     expect(checkFetchSite(r("same-origin"))).toBe(true);
@@ -53,8 +53,8 @@ describe("Sec-Fetch-Site", () => {
   });
 });
 
-describe("Agenten-Token-Datei", () => {
-  it("setzt eine zu offene Datei auf 600 und warnt", async () => {
+describe("agent token file", () => {
+  it("sets a too open file to 600 and warns", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "agent-token");
     await writeFile(file, `${"a".repeat(43)}\n`, { mode: 0o644 });
@@ -66,7 +66,7 @@ describe("Agenten-Token-Datei", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("warnt unter Windows nur", async () => {
+  it("warns on Windows only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "agent-token");
     await writeFile(file, `${"b".repeat(43)}\n`, { mode: 0o644 });
@@ -75,7 +75,7 @@ describe("Agenten-Token-Datei", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("legt neu mit 600 an", async () => {
+  it("creates new with 600", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "x", "agent-token");
     await loadOrCreateAgentToken(file);

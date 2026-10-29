@@ -67,7 +67,7 @@ const agent = (deps: RouterDeps, method: string, path: string, body?: unknown): 
   });
 
 describe("Repositories", () => {
-  it("Liste enthaelt Inventar-Repos aus Secrets und Vorlagen", async () => {
+  it("list contains inventory repos from secrets and templates", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "GET", "repos"), deps);
     expect(res.status).toBe(200);
@@ -76,14 +76,14 @@ describe("Repositories", () => {
     expect(body.github).toBe("off");
   });
 
-  it("live=1 ohne erreichbares GitHub blockiert nicht", async () => {
+  it("live=1 without reachable GitHub does not block", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "GET", "repos?live=1"), deps);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { github: string }).github).toBe("unavailable");
   });
 
-  it("UI setzt und entfernt Verknuepfungen", async () => {
+  it("UI sets and removes links", async () => {
     const { deps, repo } = await setup();
     const put = await route(ui(deps, "PUT", "repos/acme-app/link", { path: repo }), deps);
     expect(put.status).toBe(200);
@@ -96,14 +96,14 @@ describe("Repositories", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("UI kann lokal suchen", async () => {
+  it("UI can search locally", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "POST", "repos/scan"), deps);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
 
-  it("Agenten lesen die Liste ohne Pfade, setzen aber nichts", async () => {
+  it("agents read the list without paths but set nothing", async () => {
     const { deps, repo } = await setup();
     await route(ui(deps, "PUT", "repos/acme-app/link", { path: repo }), deps);
     const list = await route(agent(deps, "GET", "repos"), deps);
@@ -116,7 +116,7 @@ describe("Repositories", () => {
     expect((await route(agent(deps, "POST", "repos/scan", {}), deps)).status).toBe(404);
   });
 
-  it("Umbenennen im Inventar: nur im Portal, Agenten bekommen 404", async () => {
+  it("rename in inventory: portal only, agents get 404", async () => {
     const { deps } = await setup();
     expect((await route(agent(deps, "POST", "repos/acme-app/rename", { to: "acme-app2" }), deps)).status).toBe(404);
     const res = await route(ui(deps, "POST", "repos/acme-app/rename", { to: "acme-app2" }), deps);
@@ -131,7 +131,7 @@ describe("Repositories", () => {
     expect((await route(ui(deps, "POST", "repos/acme-web/rename", { to: "a/b" }), deps)).status).toBe(400);
   });
 
-  it("compare nimmt all und workflows an; ohne live kein Netz", async () => {
+  it("compare accepts all and workflows; without live no network", async () => {
     const { deps } = await setup();
     const res = await route(ui(deps, "GET", "compare?all=1&workflows=1"), deps);
     expect(res.status).toBe(200);

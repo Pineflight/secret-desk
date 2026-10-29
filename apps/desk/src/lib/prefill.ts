@@ -23,6 +23,7 @@ export function readPrefill(params: URLSearchParams): Prefill | null {
 /** Entfernt Neu-Marke und Vorbelegung aus der Adresse. */
 export function withoutPrefill(params: URLSearchParams): URLSearchParams {
   const next = new URLSearchParams(params.toString());
+  next.delete("new");
   next.delete("neu");
   for (const k of PREFILL_KEYS) next.delete(k);
   return next;

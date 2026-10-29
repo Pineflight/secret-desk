@@ -486,7 +486,7 @@ function DetailDialog({ row, stage, stages, live, onClose, t, label }: { row: Vi
             <ul className="mt-1 space-y-1">
               {row.ids.map((id) => (
                 <li key={id}>
-                  <Link href={row.kind === "secret" ? `/secrets/${enc(id)}` : `/variablen?q=${enc(id)}`} className="font-medium text-primary hover:underline">
+                  <Link href={row.kind === "secret" ? `/secrets/${enc(id)}` : `/variables?q=${enc(id)}`} className="font-medium text-primary hover:underline">
                     {t(row.kind === "secret" ? "compare.openSecret" : "compare.openVariable", { id })}
                   </Link>
                 </li>

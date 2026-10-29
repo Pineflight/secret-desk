@@ -45,7 +45,7 @@ async function setup(env: Record<string, string>, goneStatus = 404) {
 }
 
 describe("doctor", () => {
-  it("meldet Probleme, ohne etwas zu schreiben, und nie einen Wert", async () => {
+  it("reports problems without writing anything, and never a value", async () => {
     const rt = await setup({ GH_X: "ghp_geheim_1", CF_X: "cf_geheim_2" });
     const f = await runDoctor(rt);
     const byId = (id: string) => f.find((x) => x.id === id)!;
@@ -57,13 +57,13 @@ describe("doctor", () => {
     expect(doctorExitCode(f)).toBe(1);
     expect(JSON.stringify(f)).not.toMatch(/geheim/);
   });
-  it("ohne GitHub-Verbindung ist das ein Fehler, ohne Cloudflare nur ein Hinweis", async () => {
+  it("without a GitHub connection this is an error, without Cloudflare only a hint", async () => {
     const f = await runDoctor(await setup({}));
     expect(f.find((x) => x.id === "connection:github")!.status).toBe("fail");
     expect(f.find((x) => x.id === "connection:cloudflare")!.status).toBe("warn");
     expect(f.find((x) => x.id === "targets")!.status).toBe("warn");
   });
-  it("403 bekommt den Hinweis auf das fehlende Recht", async () => {
+  it("403 gets the hint about the missing permission", async () => {
     const f = await runDoctor(await setup({ GH_X: "ghp_x" }, 403));
     expect(f.find((x) => x.id === "target:gone/repo")!.detail).toContain("Secrets: Read and write");
   });

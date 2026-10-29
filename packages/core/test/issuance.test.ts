@@ -51,8 +51,8 @@ async function setup(options: { failVerify?: boolean } = {}) {
   return { deps, inventory, evidence, revoke, writes };
 }
 
-describe("Stufe 1: prepareIssuance", () => {
-  it("erzeugt und prueft, schreibt aber nichts und widerruft nichts", async () => {
+describe("stage 1: prepareIssuance", () => {
+  it("creates and checks, but writes nothing and revokes nothing", async () => {
     const { deps, writes, revoke, evidence } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
@@ -63,7 +63,7 @@ describe("Stufe 1: prepareIssuance", () => {
     expect(JSON.stringify(p.report)).not.toContain("NEUER-TOKEN-WERT");
     expect(JSON.stringify(await evidence.list("cf-deploy-acme-app"))).not.toContain("NEUER-TOKEN-WERT");
   });
-  it("laesst manuelle Werte pruefen, ohne sie im Bericht zu zeigen", async () => {
+  it("has manual values reviewed without showing them in the report", async () => {
     const { deps } = await setup();
     const p = await prepareIssuance("stripe-webhook-acme-docs-staging", deps, { manualValue: new SecretValue("whsec_handeingabe_123456") });
     expect(p.report.kind).toBe("manual");
@@ -71,8 +71,8 @@ describe("Stufe 1: prepareIssuance", () => {
   });
 });
 
-describe("Stufe 2: commitIssuance", () => {
-  it("braucht alle Haken, schreibt, widerruft den alten Wert und traegt Bestaetigung ein", async () => {
+describe("stage 2: commitIssuance", () => {
+  it("needs all checkmarks, writes, revokes the old value and records the confirmation", async () => {
     const { deps, inventory, revoke, writes, evidence } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     await expect(commitIssuance(p, deps, { by: "alice", ticks: ["c1"] })).rejects.toThrow(/Pruefpunkte/);
@@ -86,7 +86,7 @@ describe("Stufe 2: commitIssuance", () => {
     expect(saved.confirmation).toMatchObject({ decision: "confirmed", by: "alice" });
     expect(saved.checks.some((c) => c.id.startsWith("written:") && c.status === "pass")).toBe(true);
   });
-  it("verweigert bei fehlgeschlagener Pruefung und nach Ablauf", async () => {
+  it("refuses on failed check and after expiry", async () => {
     const { deps } = await setup({ failVerify: true });
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     await expect(commitIssuance(p, deps, { by: "n", ticks: ["c1", "c2"] })).rejects.toThrow(IssuanceError);
@@ -96,7 +96,7 @@ describe("Stufe 2: commitIssuance", () => {
 });
 
 describe("discardIssuance", () => {
-  it("loescht den neuen Wert beim Anbieter und schreibt nichts", async () => {
+  it("deletes the new value at the provider and writes nothing", async () => {
     const { deps, revoke, writes, evidence } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const r = await discardIssuance(p, deps, { by: "alice", why: "rejected", note: "falsche Rechte" });
@@ -107,8 +107,8 @@ describe("discardIssuance", () => {
   });
 });
 
-describe("Beleg und Anlagen", () => {
-  it("rendert ein SVG ohne Wert und maskiert Sonderzeichen", async () => {
+describe("receipt and attachments", () => {
+  it("renders an SVG without the value and escapes special characters", async () => {
     const { deps } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     p.report.label = '<script>alert("x")</script>';
@@ -118,7 +118,7 @@ describe("Beleg und Anlagen", () => {
     expect(svg).not.toContain("NEUER-TOKEN-WERT");
     expect(svg).toContain(p.report.fingerprint);
   });
-  it("nimmt nur Bilder bis 5 MB an", async () => {
+  it("accepts images up to 5 MB only", async () => {
     const { deps, evidence } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     const att = await evidence.attach("cf-deploy-acme-app", p.report.id, new Uint8Array([137, 80, 78, 71]), "image/png", "Dashboard");
@@ -131,9 +131,9 @@ describe("Beleg und Anlagen", () => {
   });
 });
 
-describe("Bindung an den Stand der Pruefung (Befund F2b)", () => {
+describe("binding to the state of the review (finding F2b)", () => {
   const ticks = ["c1", "c2"];
-  it("umgebogene Ziele nach der Pruefung: nichts wird geschrieben, der neue Wert wird widerrufen", async () => {
+  it("retargeted targets after the review: nothing is written, the new value is revoked", async () => {
     const { deps, inventory, revoke, writes } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     // Angriff: zwischen Pruefung und Bestaetigung zeigt das Secret auf ein fremdes Repository.
@@ -145,7 +145,7 @@ describe("Bindung an den Stand der Pruefung (Befund F2b)", () => {
     expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
     expect(revoke).not.toHaveBeenCalledWith(expect.objectContaining({ externalId: "old-token-id" }));
   });
-  it("geaenderte Parameter oder Anbieter: ebenfalls verworfen; Widerruf nutzt die Parameter von damals", async () => {
+  it("changed parameters or provider: also discarded; revoke uses the parameters of back then", async () => {
     const { deps, inventory, revoke, writes } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     inventory.data.secrets.find((s) => s.id === "cf-deploy-acme-app")!.params = { baseUrl: "https://evil.example" };
@@ -154,7 +154,7 @@ describe("Bindung an den Stand der Pruefung (Befund F2b)", () => {
     const call = revoke.mock.calls[0] as unknown as [{ params: Record<string, unknown> }];
     expect(call[0].params).toEqual({});
   });
-  it("geaenderte Stage und alte Kennung zaehlen auch", async () => {
+  it("changed stage and old identifier count too", async () => {
     for (const change of [(s: { stage: string }) => (s.stage = "production"), (s: { externalId?: string }) => (s.externalId = "anderer")]) {
       const { deps, inventory, writes } = await setup();
       const p = await prepareIssuance("cf-deploy-acme-app", deps);
@@ -163,7 +163,7 @@ describe("Bindung an den Stand der Pruefung (Befund F2b)", () => {
       expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
     }
   });
-  it("unveraendert: wie bisher", async () => {
+  it("unchanged: as before", async () => {
     const { deps } = await setup();
     const p = await prepareIssuance("cf-deploy-acme-app", deps);
     expect((await commitIssuance(p, deps, { by: "alice", ticks })).ok).toBe(true);

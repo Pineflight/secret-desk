@@ -5,7 +5,7 @@ import { DRIFT_FILTERS, anyCompared, countDrift, filterByDrift, progressText, sh
 const d = (...states: string[]) => states.map((state) => ({ state }));
 
 describe("variable-list", () => {
-  it("fasst den Abgleich zusammen, schlechtester Zustand gewinnt", () => {
+  it("summarizes the comparison, worst state wins", () => {
     expect(summarizeDrift(undefined)).toBe("not-compared");
     expect(summarizeDrift(null)).toBe("not-compared");
     expect(summarizeDrift([])).toBe("not-compared");
@@ -15,11 +15,11 @@ describe("variable-list", () => {
     expect(summarizeDrift(d("missing", "unreachable", "in-sync"))).toBe("unreachable");
     expect(summarizeDrift(d("in-sync", "unknown-expected"))).toBe("unknown-expected");
   });
-  it("zaehlt Zustaende", () => {
+  it("counts states", () => {
     expect(countDrift(d("in-sync", "different", "different"))).toEqual({ "in-sync": 1, different: 2 });
     expect(countDrift(undefined)).toEqual({});
   });
-  it("filtert nach Abgleichstatus", () => {
+  it("filters by comparison status", () => {
     const items = [{ id: "a" }, { id: "b" }, { id: "c" }];
     const drifts = { a: d("in-sync"), b: d("different") };
     expect(filterByDrift(items, drifts, "").map((i) => i.id)).toEqual(["a", "b", "c"]);
@@ -28,24 +28,24 @@ describe("variable-list", () => {
     expect(filterByDrift(items, drifts, "not-compared").map((i) => i.id)).toEqual(["c"]);
     expect(DRIFT_FILTERS).toContain("unreachable");
   });
-  it("erkennt, ob schon verglichen wurde", () => {
+  it("detects whether a comparison already happened", () => {
     expect(anyCompared({})).toBe(false);
     expect(anyCompared({ a: [] })).toBe(false);
     expect(anyCompared({ a: d("in-sync") })).toBe(true);
     expect(anyCompared({ a: d("in-sync") }, ["b"])).toBe(false);
   });
-  it("kuerzt den Sollwert", () => {
+  it("shortens the target value", () => {
     expect(shortValue(null)).toBe("");
     expect(shortValue("https://acme.example")).toBe("https://acme.example");
     expect(shortValue("a\n  b")).toBe("a b");
     expect(shortValue("x".repeat(50), 10)).toBe(`${"x".repeat(9)}…`);
   });
-  it("Badge-Info der Zusammenfassung", () => {
+  it("badge info of the summary", () => {
     expect(summaryInfo("not-compared").label).toBe("Nicht verglichen");
     expect(summaryInfo("in-sync").tone).toBe("success");
     expect(summaryInfo("unreachable").tone).toBe("danger");
   });
-  it("Fortschritt", () => {
+  it("progress", () => {
     expect(progressText(3, 25)).toBe("3/25");
   });
 });

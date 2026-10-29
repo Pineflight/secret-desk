@@ -15,40 +15,40 @@ import { INVENTORY_YAML } from "./fixtures.js";
 
 const posix = process.platform !== "win32";
 
-describe("F2: strikte Patch-Schemas (Mass-Assignment)", () => {
-  it("Agent darf nur Metadaten: stage, places, provider, params, Pruefstempel, Kennung -> Fehler mit Feldname", () => {
+describe("F2: strict patch schemas (mass assignment)", () => {
+  it("agent may only change metadata: stage, places, provider, params, check stamp, identifier -> error with field name", () => {
     for (const bad of [{ stage: "dev" }, { places: [] }, { provider: "manual" }, { params: { baseUrl: "https://evil.example" } }, { expires: null }, { rotatedAt: "2026-01-01" }, { verifiedAt: "2026-01-01" }, { verifiedBy: "alice" }, { externalId: "x" }, { ttlDays: 1 }, { expiry: "none" }, { id: "x" }, { name: "X" }]) {
       expect(() => parseInput(SecretAgentPatchSchema, bad), JSON.stringify(bad)).toThrow(/Feld nicht erlaubt/);
     }
     expect(parseInput(SecretAgentPatchSchema, { title: "t", description: "d", owner: "o", link: "https://example.com", tags: ["a"], notes: "n", product: "p" })).toMatchObject({ title: "t", product: "p" });
   });
-  it("Mensch darf Stempel und Ablauf aendern, aber auch er nicht stage/places/provider/params", () => {
+  it("human may change stamp and expiry, but not stage/places/provider/params either", () => {
     expect(parseInput(SecretHumanPatchSchema, { expires: "2027-01-01", verifiedBy: "alice", externalId: "x" })).toMatchObject({ expires: "2027-01-01" });
     for (const bad of [{ stage: "dev" }, { places: [] }, { provider: "manual" }, { params: {} }]) expect(() => parseInput(SecretHumanPatchSchema, bad)).toThrow(/Feld nicht erlaubt/);
   });
-  it("patchSecret lehnt unbekannte Schluessel selbst ab (Verteidigung in der Tiefe) und hat dieselbe Liste wie das Schema", () => {
+  it("patchSecret rejects unknown keys itself (defense in depth) and has the same list as the schema", () => {
     const inv = InventoryStore.fromText(INVENTORY_YAML);
     expect(() => inv.patchSecret("cf-deploy-acme-app", { stage: "dev" } as never)).toThrow(InventoryError);
     expect(() => inv.patchSecret("cf-deploy-acme-app", { places: [] } as never)).toThrow(/Feld nicht erlaubt: places/);
     expect(inv.getSecret("cf-deploy-acme-app")!.stage).toBe("shared");
     expect([...PATCHABLE_SECRET_KEYS].sort()).toEqual([...SECRET_PATCH_KEYS].sort());
   });
-  it("Agent-Neuanlage: keine Pruefstempel, keine Kennung", () => {
+  it("agent creation: no check stamps, no identifier", () => {
     const base = { id: "x-y", name: "X_Y", service: "s", stage: "dev" };
     expect(() => parseInput(SecretAgentCreateSchema, base)).not.toThrow();
     for (const extra of [{ expires: "2027-01-01" }, { rotatedAt: "2026-01-01" }, { verifiedAt: "2026-01-01" }, { verifiedBy: "alice" }, { externalId: "x" }]) {
       expect(() => parseInput(SecretAgentCreateSchema, { ...base, ...extra })).toThrow(/Feld nicht erlaubt/);
     }
   });
-  it("Variablen-Patch: nur Sollwert und Beschreibung, nie Stage oder Ziele", () => {
+  it("variable patch: target value and description only, never stage or targets", () => {
     expect(parseInput(VariablePatchSchema, { value: "x", acknowledgedPublic: true })).toMatchObject({ value: "x" });
     for (const bad of [{ stage: "production" }, { places: [] }, { id: "a" }, { name: "A" }]) expect(() => parseInput(VariablePatchSchema, bad)).toThrow(/Feld nicht erlaubt/);
   });
 });
 
-describe("F3: Snapshot-Hash fuer Freigaben", () => {
+describe("F3: snapshot hash for approvals", () => {
   const inv = InventoryStore.fromText(INVENTORY_YAML);
-  it("aendert sich bei Ziel, Anbieter, Parameter, Stage und Sollwert", () => {
+  it("changes on target, provider, parameters, stage and target value", () => {
     const s = inv.getSecret("cf-deploy-acme-app")!;
     const h = secretApprovalSnapshot(s).hash;
     expect(secretApprovalSnapshot({ ...s }).hash).toBe(h);
@@ -58,7 +58,7 @@ describe("F3: Snapshot-Hash fuer Freigaben", () => {
     expect(secretApprovalSnapshot({ ...s, stage: "production" }).hash).not.toBe(h);
     expect(secretApprovalSnapshot({ ...s, ttlDays: 1 }).hash).not.toBe(h);
   });
-  it("Variable: Sollwert und Ziele", () => {
+  it("variable: target value and targets", () => {
     const v = { id: "v", name: "V", stage: "staging", value: "a", tags: [], places: [{ repo: "r", scope: "repository" as const }] };
     const h = variableApprovalSnapshot(v).hash;
     expect(variableApprovalSnapshot({ ...v, value: "b" }).hash).not.toBe(h);
@@ -67,8 +67,8 @@ describe("F3: Snapshot-Hash fuer Freigaben", () => {
   });
 });
 
-describe("F5: .env-Dateien", () => {
-  it("description, hint, repo, file mit Zeilenumbruch werden vom Schema abgelehnt", () => {
+describe("F5: .env files", () => {
+  it("description, hint, repo, file with line break are rejected by the schema", () => {
     for (const nl of ["\n", "\r\n", "\r", "\u2028"]) {
       expect(EnvEntrySchema.safeParse({ key: "A", from: { type: "default", value: "x" }, description: `ok${nl}EVIL=1` }).success, JSON.stringify(nl)).toBe(false);
       expect(EnvEntrySchema.safeParse({ key: "A", from: { type: "prompt", hint: `h${nl}x` } }).success).toBe(false);
@@ -76,7 +76,7 @@ describe("F5: .env-Dateien", () => {
     }
     expect(EnvEntrySchema.safeParse({ key: "A\nB=1", from: { type: "default", value: "x" } }).success).toBe(false);
   });
-  it("Kommentar kann keine Zuweisung einschleusen, auch wenn das Schema umgangen wurde", async () => {
+  it("comment cannot smuggle in an assignment, even if the schema was bypassed", async () => {
     const inv = InventoryStore.fromText(INVENTORY_YAML);
     const tpl = { ...inv.data.envTemplates[0]!, repo: "r\nPWNED=1", entries: [{ key: "A", from: { type: "default" as const, value: "x" }, description: "hallo\r\nEVIL=1\u2028X=2" }] };
     const r = await buildEnvFile(tpl, { inventory: inv, providers: new ProviderRegistry(), connections: new ConnectionStore() });
@@ -84,7 +84,7 @@ describe("F5: .env-Dateien", () => {
     expect(lines.filter((l) => /^(PWNED|EVIL|X)=/.test(l))).toEqual([]);
     expect(lines.filter((l) => l.startsWith("A="))).toEqual(["A=x"]);
   });
-  it("Maskierung: $(...), Backtick, $VAR, CRLF, Anfuehrungszeichen", () => {
+  it("masking: $(...), backtick, $VAR, CRLF, quotes", () => {
     expect(formatEnvValue("$(touch /tmp/pwned)")).toBe("'$(touch /tmp/pwned)'");
     expect(formatEnvValue("`id`")).toBe("'`id`'");
     expect(formatEnvValue("a\r\nB=1")).toBe("'a\r\nB=1'");
@@ -107,14 +107,14 @@ describe("F5: .env-Dateien", () => {
   }, 30_000);
 });
 
-describe("Providerdefinition: nur http(s)", () => {
-  it("javascript:- und data:-Adressen werden abgelehnt", () => {
+describe("provider definition: http(s) only", () => {
+  it("javascript: and data: addresses are rejected", () => {
     for (const url of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd"]) expect(ProviderDefSchema.safeParse({ id: "a", label: "A", url }).success, url).toBe(false);
     expect(ProviderDefSchema.safeParse({ id: "a", label: "A", url: "https://example.com" }).success).toBe(true);
   });
 });
 
-describe("N5/N6: private Dateirechte", () => {
+describe("N5/N6: private file permissions", () => {
   it.runIf(posix)("Inventar und Berichts-JSON mit Modus 600", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-modes-"));
     const path = join(dir, "inventory.yaml");

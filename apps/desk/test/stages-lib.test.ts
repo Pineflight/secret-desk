@@ -16,12 +16,12 @@ const DEFS: StageDefLite[] = [
   { id: "qa", kind: "test" },
 ];
 
-describe("Stage-Definitionen im UI", () => {
-  it("Reihenfolge: live, test, dev, shared; innerhalb einer Art wie definiert", () => {
+describe("stage definitions in the UI", () => {
+  it("order: live, test, dev, shared; within a kind as defined", () => {
     expect(stageOrder(DEFS)).toEqual(["eu-prod", "abnahme", "qa", "lokal", "alle"]);
     expect(stageOrder(FALLBACK_STAGES)).toEqual(["production", "staging", "dev", "shared"]);
   });
-  it("Anzeigename, Art, Farbe und Environment kommen aus den Definitionen", () => {
+  it("display name, kind, color and environment come from the definitions", () => {
     expect(labelOf(DEFS, "abnahme")).toBe("Abnahme");
     expect(labelOf(DEFS, "qa")).toBe("qa");
     expect(kindOf(DEFS, "eu-prod")).toBe("live");
@@ -38,12 +38,12 @@ describe("Stage-Definitionen im UI", () => {
     expect(stageInfo("abnahme", DEFS)).toEqual({ label: "Abnahme", tone: "warn", icon: "dot" });
     expect(stageInfo("production")).toMatchObject({ tone: "stage-prod" });
   });
-  it("Standard-Stage fuer neue Eintraege nach Art", () => {
+  it("default stage for new entries by kind", () => {
     expect(defaultStageId(DEFS, "test")).toBe("abnahme");
     expect(defaultStageId(DEFS, "dev")).toBe("lokal");
     expect(slugifyStage("Abnahme Süd 2")).toBe("abnahme-sued-2");
   });
-  it("sortieren und gruppieren nach Stage folgen den Definitionen", () => {
+  it("sorting and grouping by stage follow the definitions", () => {
     const item = (id: string, stage: string): Browsable => ({ id, name: id, stage, places: [] });
     const items = [item("a", "lokal"), item("b", "qa"), item("c", "eu-prod"), item("d", "abnahme")];
     expect(sortItems(items, "stage", stageOrder(DEFS)).map((i) => i.id)).toEqual(["c", "d", "b", "a"]);
@@ -52,8 +52,8 @@ describe("Stage-Definitionen im UI", () => {
   });
 });
 
-describe("Ziele mit Stage", () => {
-  it("leerer Umgebungsname = Environment der Stage, der Server setzt sie ein", () => {
+describe("targets with stage", () => {
+  it("empty environment name = the stage's environment, the server fills it in", () => {
     const rows = [{ repo: "r", scope: "environment" as const, environment: "" }];
     expect(rowsToPlaces(rows, { stage: "qa", environment: "qa" }).places).toEqual([{ repo: "r", scope: "environment" }]);
     expect(rowsToPlaces(rows, { stage: "lokal", environment: null }).error).toMatch(/lokal/);
@@ -61,14 +61,14 @@ describe("Ziele mit Stage", () => {
   });
 });
 
-describe("Einstellungen: Entwurf", () => {
+describe("settings: draft", () => {
   const view = (extra: Partial<StageView> & Pick<StageView, "id" | "kind">): StageView => ({ environmentName: null, usage: { secrets: 0, variables: 0, templates: 0, policy: false }, ...extra });
-  it("Roundtrip zwischen Anzeige und Nutzlast", () => {
+  it("round trip between display and payload", () => {
     const drafts = toDrafts([view({ id: "dev", kind: "dev", environment: null }), view({ id: "qa", kind: "test", label: "QA", tone: "warn", environment: "qa-eu" }), view({ id: "x", kind: "live" })]);
     expect(drafts.map((d) => [d.noEnvironment, d.environment])).toEqual([[true, ""], [false, "qa-eu"], [false, ""]]);
     expect(toPayload(drafts)).toEqual([{ id: "dev", kind: "dev", environment: null }, { id: "qa", kind: "test", label: "QA", environment: "qa-eu", tone: "warn" }, { id: "x", kind: "live" }]);
   });
-  it("Pruefung vor dem Speichern", () => {
+  it("validation before saving", () => {
     const ok = { ...newDraft(), id: "a" };
     expect(validateDrafts([])).toEqual({ code: "empty" });
     expect(validateDrafts([ok])).toBeNull();
@@ -76,7 +76,7 @@ describe("Einstellungen: Entwurf", () => {
     expect(validateDrafts([{ ...ok, id: "Gross" }])).toEqual({ code: "id", row: 0 });
     expect(validateDrafts(Array.from({ length: 13 }, (_, i) => ({ ...ok, id: `s${i}` })))).toEqual({ code: "max" });
   });
-  it("Standard-Environment und Nutzung", () => {
+  it("default environment and usage", () => {
     expect(defaultEnvironment({ id: "qa", kind: "test" })).toBe("qa");
     expect(defaultEnvironment({ id: "qa", kind: "shared" })).toBeNull();
     expect(usageTotal({ secrets: 1, variables: 0, templates: 0, policy: false })).toBe(1);
@@ -84,8 +84,8 @@ describe("Einstellungen: Entwurf", () => {
   });
 });
 
-describe("Einstellungen: Reihenfolge, Entwurf, Verwendung", () => {
-  it("moveItem verschiebt um eine Stelle und laesst Raender in Ruhe", () => {
+describe("settings: order, draft, usage", () => {
+  it("moveItem moves by one position and leaves the edges alone", () => {
     expect(moveItem(["a", "b", "c"], 1, -1)).toEqual(["b", "a", "c"]);
     expect(moveItem(["a", "b", "c"], 1, 1)).toEqual(["a", "c", "b"]);
     expect(moveItem(["a", "b", "c"], 0, -1)).toEqual(["a", "b", "c"]);
@@ -94,31 +94,31 @@ describe("Einstellungen: Reihenfolge, Entwurf, Verwendung", () => {
     moveItem(src, 0, 1);
     expect(src).toEqual(["a", "b"]);
   });
-  it("applyDraft ersetzt oder haengt an", () => {
+  it("applyDraft replaces or appends", () => {
     const a = { ...newDraft(), id: "a" };
     const b = { ...newDraft(), id: "b" };
     expect(applyDraft([a], null, b).map((d) => d.id)).toEqual(["a", "b"]);
     expect(applyDraft([a, b], 0, { ...a, label: "X" }).map((d) => d.label)).toEqual(["X", ""]);
   });
-  it("validateDraft: Id-Form und Duplikate", () => {
+  it("validateDraft: id form and duplicates", () => {
     expect(validateDraft({ id: "" }, [])).toEqual({ code: "id" });
     expect(validateDraft({ id: "Gross" }, [])).toEqual({ code: "id" });
     expect(validateDraft({ id: "qa" }, [{ id: "dev" }])).toBeNull();
     expect(validateDraft({ id: "qa " }, [{ id: "qa" }])).toEqual({ code: "duplicate", id: "qa" });
   });
-  it("removeBlock unterscheidet Richtlinie, Nutzung und frei", () => {
+  it("removeBlock distinguishes policy, usage and free", () => {
     expect(removeBlock({ secrets: 0, variables: 0, templates: 0, policy: true })).toBe("policy");
     expect(removeBlock({ secrets: 0, variables: 1, templates: 0, policy: false })).toBe("used");
     expect(removeBlock({ secrets: 0, variables: 0, templates: 0, policy: false })).toBeNull();
   });
-  it("usageText laesst Nullen weg und nutzt Einzahl/Mehrzahl", () => {
+  it("usageText omits zeros and uses singular/plural", () => {
     const t = (key: string, vars?: Record<string, string | number>) => translate(key, vars, "en");
     expect(usageText({ secrets: 3, variables: 2, templates: 1, policy: false }, t)).toBe("3 secrets, 2 variables, 1 template");
     expect(usageText({ secrets: 0, variables: 0, templates: 0, policy: false }, t)).toBe("Unused");
     expect(usageText({ secrets: 1, variables: 0, templates: 0, policy: true }, t)).toBe("1 secret \u00b7 In the agent policy");
     expect(usageText({ secrets: 0, variables: 2, templates: 0, policy: false }, (k, v) => translate(k, v, "de"))).toBe("2 Variablen");
   });
-  it("Tabs: Wert aus der Adresse und Pfeiltasten im Ring", () => {
+  it("tabs: value from the address and arrow keys in a ring", () => {
     const ids = ["stages", "policy", "storage", "language"] as const;
     expect(parseTab(ids, "storage")).toBe("storage");
     expect(parseTab(ids, "kaputt")).toBe("stages");

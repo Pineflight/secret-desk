@@ -30,9 +30,9 @@ const CASES: Case[] = [
 ];
 
 for (const c of CASES) {
-  describe(`${c.name}: Fehlerantworten (Routing statt Reihenfolge)`, () => {
+  describe(`${c.name}: error responses (routing instead of order)`, () => {
     for (const status of [401, 404, 429, 500]) {
-      it(`issue bei HTTP ${status}: ProviderError mit Status, ohne Verbindungs-Token`, async () => {
+      it(`issue on HTTP ${status}: ProviderError with status, without connection token`, async () => {
         const m = routeFetch(...(c.pre ?? []).map((r) => ({ ...r, reply: r.reply })), { method: c.issueMethod, url: c.issueUrl, reply: { status, body: `denied ${CONN_TOKEN}` } });
         const err = await c.provider.issue!(issueCtx(m.fetch, c.params, { conns: [c.conn] }) as never).catch((e: unknown) => e as Error);
         expect(err).toBeInstanceOf(ProviderError);
@@ -42,14 +42,14 @@ for (const c of CASES) {
       });
     }
     for (const status of [401, 429, 500]) {
-      it(`revoke bei HTTP ${status}: Fehler geht durch`, async () => {
+      it(`revoke on HTTP ${status}: error passes through`, async () => {
         const m = routeFetch({ method: "DELETE", url: c.revokeUrl, reply: { status, body: "x" } });
         const err = await c.provider.revoke!(revokeCtx(m.fetch, c.params, c.extId, [c.conn]) as never).catch((e: unknown) => e as Error);
         expect(err).toBeInstanceOf(ProviderError);
         expect((err as ProviderError).status).toBe(status);
       });
     }
-    it("revoke bei 404 ist idempotent (Token war schon weg)", async () => {
+    it("revoke on 404 is idempotent (token was already gone)", async () => {
       const m = routeFetch({ method: "DELETE", url: c.revokeUrl, reply: { status: 404, body: "not found" } });
       await expect(c.provider.revoke!(revokeCtx(m.fetch, c.params, c.extId, [c.conn]) as never)).resolves.toBeUndefined();
       expect(m.calls).toHaveLength(1);
@@ -57,8 +57,8 @@ for (const c of CASES) {
   });
 }
 
-describe("cloudflare: Teilantwort", () => {
-  it("2xx mit result.id aber ohne value: Fehler nennt die Kennung des moeglicherweise verwaisten Tokens", async () => {
+describe("cloudflare: partial response", () => {
+  it("2xx with result.id but without value: error names the identifier of the possibly orphaned token", async () => {
     const m = routeFetch(
       { url: "permission_groups", reply: { body: { result: [{ id: "g1", name: "Workers Scripts Write" }] } } },
       { method: "POST", url: "/user/tokens", reply: { body: { result: { id: "tok-verwaist" } } } },
@@ -68,14 +68,14 @@ describe("cloudflare: Teilantwort", () => {
     expect(err.message).toContain("tok-verwaist");
     expect(err.message).toMatch(/verwaist/);
   });
-  it("Antwort ganz ohne result bleibt eine unerwartete Antwort", async () => {
+  it("response without any result stays an unexpected response", async () => {
     const m = routeFetch({ url: "permission_groups", reply: { body: { result: [{ id: "g1", name: "Workers Scripts Write" }] } } }, { method: "POST", url: "/user/tokens", reply: { body: {} } });
     await expect(cf.issue!(issueCtx(m.fetch, { accountId: "a", permissions: ["Workers Scripts Write"] }, { conns: ["cloudflare"] }))).rejects.toThrow(/Unerwartete Antwort/);
   });
 });
 
-describe("resend: Paginierung der Schluesselliste", () => {
-  it("findet einen Schluessel auf Seite 2", async () => {
+describe("resend: pagination of the key list", () => {
+  it("finds a key on page 2", async () => {
     const m = routeFetch({
       url: "/api-keys",
       reply: (call) =>
@@ -87,7 +87,7 @@ describe("resend: Paginierung der Schluesselliste", () => {
     expect(checks.find((c) => c.id === "exists")!.status).toBe("pass");
     expect(m.calls).toHaveLength(2);
   });
-  it("hoert auf, wenn die Seitenanzahl erschoepft ist und has_more false", async () => {
+  it("stops when the page count is exhausted and has_more is false", async () => {
     const m = routeFetch({ url: "/api-keys", reply: { body: { data: [{ id: "k1" }], has_more: false } } });
     const checks = await resendProvider.verify!(verifyCtx(m.fetch, {}, { conns: ["resend"], externalId: "fehlt" }));
     expect(checks.find((c) => c.id === "exists")!.status).toBe("fail");
@@ -95,20 +95,20 @@ describe("resend: Paginierung der Schluesselliste", () => {
   });
 });
 
-describe("supabase: Form des Schluessels (JWT-Rolle)", () => {
+describe("supabase: shape of the key (JWT role)", () => {
   const jwt = (role: string) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.sig`;
   const shape = async (value: string, type: "secret" | "publishable") => {
     const m = routeFetch();
     const checks = await sbKey.verify!(verifyCtx(m.fetch, { type }, { value, conns: ["supabase"] }));
     return checks.find((c) => c.id === "shape")!.status;
   };
-  it("expected secret: anon-JWT = fail, service_role-JWT und sb_secret_ = ok", async () => {
+  it("expected secret: anon JWT = fail, service_role JWT and sb_secret_ = ok", async () => {
     expect(await shape(jwt("anon"), "secret")).toBe("fail");
     expect(await shape(jwt("service_role"), "secret")).toBe("info");
     expect(await shape("sb_secret_abcdefghijklmnop", "secret")).toBe("info");
     expect(await shape("sb_publishable_abcdefghijklmnop", "secret")).toBe("fail");
   });
-  it("expected publishable: service_role-JWT = fail, anon-JWT = ok", async () => {
+  it("expected publishable: service_role JWT = fail, anon JWT = ok", async () => {
     expect(await shape(jwt("service_role"), "publishable")).toBe("fail");
     expect(await shape(jwt("anon"), "publishable")).toBe("info");
   });

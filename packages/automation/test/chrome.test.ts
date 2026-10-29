@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { chromeCandidates, chromeInstallHint } from "../src/chrome.js";
 
 describe("chromeCandidates", () => {
-  it("Windows: Program Files, Program Files (x86), LocalAppData; Chrome, Chromium, Edge; ohne Doppelte", () => {
+  it("Windows: Program Files, Program Files (x86), LocalAppData; Chrome, Chromium, Edge; without duplicates", () => {
     const env = {
       PROGRAMFILES: "C:\\Program Files",
       "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
@@ -18,19 +18,19 @@ describe("chromeCandidates", () => {
     expect(new Set(list.map((p) => p.toLowerCase())).size).toBe(list.length);
     for (const p of list) expect(path.win32.isAbsolute(p)).toBe(true);
   });
-  it("Windows ohne Umgebungsvariablen: leere Liste statt Absturz", () => {
+  it("Windows without environment variables: empty list instead of crash", () => {
     expect(chromeCandidates("win32", {} as NodeJS.ProcessEnv)).toEqual([]);
   });
-  it("Linux: google-chrome, chromium, chromium-browser, Edge, Snap und Flatpak", () => {
+  it("Linux: google-chrome, chromium, chromium-browser, Edge, Snap and Flatpak", () => {
     const list = chromeCandidates("linux", {} as NodeJS.ProcessEnv);
     for (const p of ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium", "/usr/bin/microsoft-edge"]) expect(list).toContain(p);
     expect(list.some((p) => p.includes("flatpak"))).toBe(true);
   });
-  it("macOS: Chrome vor Chromium", () => {
+  it("macOS: Chrome before Chromium", () => {
     const list = chromeCandidates("darwin", {} as NodeJS.ProcessEnv);
     expect(list[0]).toContain("Google Chrome.app");
   });
-  it("Hinweise je System", () => {
+  it("hints per system", () => {
     expect(chromeInstallHint("win32")).toMatch(/Edge/);
     expect(chromeInstallHint("linux")).toMatch(/Snap|Flatpak/);
   });

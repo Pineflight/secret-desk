@@ -61,7 +61,7 @@ export default function SecretsPage() {
   const [prefill, setPrefill] = useState<Prefill | null>(null);
 
   useEffect(() => {
-    if (params.get("neu") === "1") {
+    if (params.get("new") === "1" || params.get("neu") === "1") {
       setPrefill(readPrefill(params));
       setCreating(true);
       const next = withoutPrefill(params);

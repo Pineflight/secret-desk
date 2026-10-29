@@ -29,7 +29,7 @@ beforeAll(async () => {
 afterAll(() => new Promise<void>((ok) => (server ? server.close(() => ok()) : ok())));
 
 describe.skipIf(!chrome)("PlaywrightDriver gegen lokales Formular", () => {
-  it("fuellt aus, erzeugt, liest den Token und verdeckt ihn im Beleg", async () => {
+  it("fills in, creates, reads the token and masks it in the receipt", async () => {
     const recipe = RecipeSchema.parse({
       id: "local-form",
       label: "Lokal",

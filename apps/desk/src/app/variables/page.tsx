@@ -34,7 +34,7 @@ function SecretGuard({ error, ack, setAck }: { error: Error | null; ack: boolean
   if (kind === "secret") {
     return (
       <Notice tone="danger" title={t("variables.blockedTitle")}>
-        {t("variables.blockedText")} <Link href="/secrets?neu=1" className="font-medium underline">{t("variables.toSecrets")}</Link>
+        {t("variables.blockedText")} <Link href="/secrets?new=1" className="font-medium underline">{t("variables.toSecrets")}</Link>
       </Notice>
     );
   }
@@ -64,13 +64,13 @@ export default function VariablesPage() {
     const next = new URLSearchParams(params.toString());
     if (v) next.set("tag", v);
     else next.delete("tag");
-    router.replace(next.toString() ? `/variablen?${next}` : "/variablen");
+    router.replace(next.toString() ? `/variables?${next}` : "/variables");
   };
   // Filter bleiben beim Wechsel in einen Eintrag und zurueck erhalten (Browser-Sitzung).
   const [stage, setStage] = usePersistedState("variables.stage", "");
   const [status, setStatus] = usePersistedState("variables.status", "");
   const [browse, setBrowse] = usePersistedState<BrowseState>("variables.browse", BROWSE_DEFAULT);
-  // Link von der Repositories-Seite: /variablen?repo=<name> setzt den Repository-Filter.
+  // Link von der Repositories-Seite: /variables?repo=<name> setzt den Repository-Filter.
   const repoParam = params.get("repo") ?? "";
   useEffect(() => {
     if (repoParam) setBrowse((b) => (b.repo === repoParam ? b : { ...b, repo: repoParam }));
@@ -89,11 +89,11 @@ export default function VariablesPage() {
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (params.get("neu") === "1") {
+    if (params.get("new") === "1" || params.get("neu") === "1") {
       setPrefill(readPrefill(params));
       setCreating(true);
       const next = withoutPrefill(params);
-      router.replace(next.toString() ? `/variablen?${next}` : "/variablen");
+      router.replace(next.toString() ? `/variables?${next}` : "/variables");
     }
   }, [params, router]);
 

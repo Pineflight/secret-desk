@@ -21,19 +21,19 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/", label: "common.nav.overview", icon: "grid" },
   { href: "/secrets", label: "common.nav.secrets", icon: "key" },
-  { href: "/variablen", label: "common.nav.variables", icon: "sliders" },
-  { href: "/vergleich", label: "common.nav.compare", icon: "compare" },
+  { href: "/variables", label: "common.nav.variables", icon: "sliders" },
+  { href: "/compare", label: "common.nav.compare", icon: "compare" },
   { href: "/repos", label: "common.nav.repos", icon: "folder" },
-  { href: "/pruefen", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
-  { href: "/freigaben", label: "common.nav.approvals", icon: "inbox", badge: "approvals" },
+  { href: "/reviews", label: "common.nav.reviews", icon: "shield", badge: "reviews" },
+  { href: "/approvals", label: "common.nav.approvals", icon: "inbox", badge: "approvals" },
   { href: "/dev", label: "common.nav.dev", icon: "terminal", divider: true },
-  { href: "/verbindungen", label: "common.nav.integrations", icon: "plug" },
+  { href: "/connections", label: "common.nav.integrations", icon: "plug" },
   { href: "/team", label: "common.nav.team", icon: "users" },
-  { href: "/einstellungen", label: "common.nav.settings", icon: "wrench" },
+  { href: "/settings", label: "common.nav.settings", icon: "wrench" },
 ];
 
 const isActive = (path: string, href: string): boolean => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
-const SEARCHABLE = ["/secrets", "/variablen", "/freigaben"];
+const SEARCHABLE = ["/secrets", "/variables", "/approvals"];
 
 export function Shell({ children }: { children: ReactNode }) {
   const { t, locale, setLocale } = useI18n();
@@ -75,7 +75,7 @@ export function Shell({ children }: { children: ReactNode }) {
         const saved = window.sessionStorage.getItem(key);
         if (saved) {
           const next = new URLSearchParams(saved);
-          if (params.get("neu") === "1") next.set("neu", "1");
+          if (params.get("new") === "1" || params.get("neu") === "1") next.set("new", "1");
           router.replace(`${path}?${next}`);
           return;
         }
@@ -100,7 +100,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const counts = { reviews: overview.data?.pendingReviews ?? 0, approvals: overview.data?.pendingApprovals ?? 0 };
   const alerts = counts.reviews + counts.approvals;
-  const newHref = path.startsWith("/variablen") ? "/variablen?neu=1" : "/secrets?neu=1";
+  const newHref = path.startsWith("/variables") ? "/variables?new=1" : "/secrets?new=1";
 
   return (
     <div className="min-h-screen lg:pl-[248px]">
@@ -159,7 +159,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link href={newHref} className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-white hover:brightness-95">
           <Icon name="plus" /><span className="hidden sm:inline">{t("common.newEntry")}</span><span className="sr-only sm:hidden">{t("common.newEntry")}</span>
         </Link>
-        <Link href={counts.reviews > 0 || counts.approvals === 0 ? "/pruefen" : "/freigaben"} className="relative rounded-xl p-2 hover:bg-card" aria-label={alerts > 0 ? t("common.alertsSome", { count: alerts }) : t("common.alertsNone")}>
+        <Link href={counts.reviews > 0 || counts.approvals === 0 ? "/reviews" : "/approvals"} className="relative rounded-xl p-2 hover:bg-card" aria-label={alerts > 0 ? t("common.alertsSome", { count: alerts }) : t("common.alertsNone")}>
           <Icon name="bell" className="h-5 w-5" />
           {alerts > 0 ? <span className="tabular absolute -right-0.5 -top-0.5 rounded-full bg-danger-fill px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">{alerts}</span> : null}
         </Link>
