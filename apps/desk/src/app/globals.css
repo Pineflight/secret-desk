@@ -27,6 +27,27 @@
   --sd-ki-text: #6544e8;
   --sd-muted-text: #6a685f;
   --sd-danger-fill: #d04343;
+
+  /* Abstandsskala (4/8/12/16/24/32 px = Tailwind-Stufen 1/2/3/4/6/8). Rollen unten nutzen nur diese Stufen. */
+  --sd-space-1: 0.25rem;
+  --sd-space-2: 0.5rem;
+  --sd-space-3: 0.75rem;
+  --sd-space-4: 1rem;
+  --sd-space-6: 1.5rem;
+  --sd-space-8: 2rem;
+  --sd-gap-section: var(--sd-space-8);
+  --sd-gap-head: var(--sd-space-3);
+  --sd-gap-block: var(--sd-space-4);
+  --sd-pad-card: var(--sd-space-4);
+  --sd-pad-cell-y: var(--sd-space-2);
+  --sd-pad-cell-x: var(--sd-space-3);
+  --sd-topbar-h: 4rem;
+}
+/* Schmale Fenster: Sektionen rutschen eine Stufe naeher, damit kein Platz verschwendet wird. */
+@media (max-width: 639px) {
+  :root {
+    --sd-gap-section: var(--sd-space-6);
+  }
 }
 
 @theme inline {
@@ -149,4 +170,25 @@ textarea:focus-visible {
 }
 .sd-sticky-last tbody tr:hover td:last-child {
   background: var(--sd-bg);
+}
+
+/*
+ * Abstandsrollen: Sektion (32 px, mobil 24) trennt Gruppen und Bloecke einer Seite, der Kopf einer Sektion sitzt 12 px ueber seinem Inhalt.
+ * Nur diese Klassen und die Skala oben verwenden, keine eigenen Werte pro Element.
+ */
+.sd-section {
+  margin-top: var(--sd-gap-section);
+}
+.sd-section-head {
+  margin-bottom: var(--sd-gap-head);
+}
+/* Kopf einer Gruppe (z. B. Repository): bleibt beim Scrollen unter der Topbar stehen, damit klar ist, in welcher Gruppe man ist. */
+.sd-group-head {
+  position: sticky;
+  top: var(--sd-topbar-h);
+  z-index: 10;
+  background: var(--sd-bg);
+  padding-block: var(--sd-space-2);
+  margin-bottom: var(--sd-space-1);
+  border-bottom: 1px solid var(--sd-border);
 }

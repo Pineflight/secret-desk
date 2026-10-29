@@ -174,7 +174,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur sm:px-8">
+      <header className="sticky top-0 z-20 flex h-[var(--sd-topbar-h)] items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur sm:px-8">
         <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-xl p-2 hover:bg-card lg:hidden" aria-label={t("common.menuToggle")} aria-expanded={open} aria-controls="seitenleiste">
           <Icon name="menu" className="h-5 w-5" />
         </button>
