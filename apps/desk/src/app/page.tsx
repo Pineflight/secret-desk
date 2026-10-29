@@ -7,6 +7,7 @@ import { daysLabel, placeText } from "@/lib/format";
 import { useQuery } from "@/lib/hooks";
 import { Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, Skeleton, Stat, StageBadge, StatusBadge, Tabs } from "@/components/ui";
 import { Icon } from "@/components/Icons";
+import { IntegrationsOverview } from "@/components/IntegrationsOverview";
 import { useT } from "@/lib/i18n";
 import { useStageDefs } from "@/lib/use-stages";
 import { labelOf } from "@/lib/stages";
@@ -59,6 +60,8 @@ export default function OverviewPage() {
           ))
         )}
       </div>
+
+      <IntegrationsOverview />
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

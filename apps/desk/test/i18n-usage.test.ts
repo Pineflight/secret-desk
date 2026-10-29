@@ -16,6 +16,8 @@ const FILES = [
   "app/secrets/[id]/page.tsx",
   "app/connections/page.tsx",
   "app/variables/page.tsx",
+  "app/page.tsx",
+  "components/IntegrationsOverview.tsx",
 ];
 
 describe("i18n keys used by the parameter screens", () => {
