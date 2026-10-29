@@ -102,7 +102,8 @@ export class InventoryStore {
   setIntegrationDefaults(connection: string, values: Record<string, unknown>): Record<string, unknown> {
     return this.#mutate(() => {
       if (Object.keys(values).length === 0) {
-        this.#doc.deleteIn(["integrationDefaults", connection]);
+        // Ohne vorhandenen Abschnitt gibt es nichts zu entfernen (deleteIn wirft sonst).
+        if (this.#doc.hasIn(["integrationDefaults", connection])) this.#doc.deleteIn(["integrationDefaults", connection]);
         if (this.#doc.hasIn(["integrationDefaults"]) && Object.keys((this.#doc.getIn(["integrationDefaults"]) as { toJSON(): object }).toJSON()).length === 0) this.#doc.deleteIn(["integrationDefaults"]);
       } else this.#doc.setIn(["integrationDefaults", connection], this.#doc.createNode(clean(values)));
     }, () => this.#data.integrationDefaults?.[connection] ?? {});

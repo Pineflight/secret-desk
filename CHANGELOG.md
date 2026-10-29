@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Lists: the actions column of the variables table is no longer cut off. Cells are narrower and the actions stay at the right edge (sticky) when a narrow window still has to scroll horizontally. Checked on the real pages at 1280, 1440 and 1920 px (no horizontal scroll in Variables, Secrets, Compare, Repositories) and 768 px (usable, actions visible).
+
+- Integrations: connecting GitHub (and `team-sync`, `github-app-key`) no longer fails with "Unknown connection" when browser automation is off. Connections the portal offers itself return empty resources and defaults instead of an error; really unknown names still fail. Clearing the defaults of a connection that has none no longer throws.
+
 - Container starts without internet access: `CMD` runs `next start` directly instead of `pnpm` (corepack no longer downloads pnpm at start).
 - The launch address is printed when the server starts (`instrumentation.ts`), not at the first API call.
 - Release workflow: image references in the manifest job are lowercased (`Pineflight/...` made `imagetools create` fail); annotations are set on the index only and the step also works with none.

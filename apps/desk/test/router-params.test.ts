@@ -255,7 +255,10 @@ describe("integration defaults and resources", () => {
     expect(Object.keys(one.json.resources)).toEqual(["supabase.project"]);
     expect(one.json.resources["supabase.project"].suggested).toBe("abc");
     expect((await call(deps, ui(deps, "GET", "connections/supabase/resources?kind=bogus"))).json.resources.bogus.status).toBe("unsupported");
-    expect((await call(deps, ui(deps, "GET", "connections/github/resources"))).status).toBe(400);
+    const gh = await call(deps, ui(deps, "GET", "connections/github/resources"));
+    expect(gh.status).toBe(200);
+    expect(gh.json).toMatchObject({ connection: "github", defaultSpecs: [], resources: {} });
+    expect((await call(deps, ui(deps, "GET", "connections/does-not-exist/resources"))).status).toBe(400);
   });
   it("PUT connections/:id/defaults stores non-secret defaults that fill missing parameters", async () => {
     const { deps, dir } = await setup();

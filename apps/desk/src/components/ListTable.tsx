@@ -23,15 +23,19 @@ export function TagFilterChip({ tag, label, removeLabel, onClear }: { tag: strin
 }
 
 export const LIST_ROW_CLASS = "align-top hover:bg-page";
-export const LIST_CELL_CLASS = "px-4 py-3";
+export const LIST_CELL_CLASS = "px-3 py-3";
 
-export function ListTable({ columns, minWidth = 860, children }: { columns: ReactNode[]; minWidth?: number; children: ReactNode }) {
+/**
+ * minWidth gilt nur, wenn der Platz wirklich nicht reicht (schmale Fenster scrollen weiter). stickyLast haelt die letzte Spalte
+ * (Zeilenaktionen) am rechten Rand, damit sie auch dann sichtbar bleibt.
+ */
+export function ListTable({ columns, minWidth = 720, stickyLast = false, children }: { columns: ReactNode[]; minWidth?: number; stickyLast?: boolean; children: ReactNode }) {
   return (
     <Card className="overflow-x-auto !p-0">
-      <table className="w-full text-left text-sm" style={{ minWidth }}>
+      <table className={`w-full text-left text-sm ${stickyLast ? "sd-sticky-last" : ""}`} style={{ minWidth }}>
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-            {columns.map((c, i) => <th key={i} className="px-4 py-3 font-semibold">{c}</th>)}
+            {columns.map((c, i) => <th key={i} className="px-3 py-3 font-semibold">{c}</th>)}
           </tr>
         </thead>
         <tbody className="divide-y divide-line">{children}</tbody>
