@@ -22,8 +22,26 @@ export function optionsFromChildren(children: ReactNode): SelectOption[] {
   return out;
 }
 
-/** Ab so vielen Optionen erscheint ein Suchfeld. */
+/** Ab so vielen Optionen ist das Suchfeld von Anfang an vorgesehen (kuerzere Listen zeigen es nur im Aufklappen). */
 export const SEARCH_FROM = 6;
+
+/**
+ * Ob die aufgeklappte Liste ein Suchfeld zeigt. Ausdruecklich gesetztes `searchable` gewinnt;
+ * sonst bei jeder Liste mit mehr als einer Option, damit Tippen immer sichtbar filtert.
+ */
+export function showSearchField(optionCount: number, searchable?: boolean): boolean {
+  return searchable ?? optionCount > 1;
+}
+
+/**
+ * Type-ahead: das Zeichen, das eine Taste auf dem Ausloeser als Suchanfrage liefert, sonst null.
+ * Leerzeichen zaehlt nicht (es oeffnet die Liste), ebenso Tasten mit Strg/Cmd/Alt und Sondertasten.
+ */
+export function typeaheadChar(e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; isComposing?: boolean }): string | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return null;
+  if ([...e.key].length !== 1 || e.key.trim() === "") return null;
+  return e.key;
+}
 
 export function filterOptions(options: SelectOption[], query: string): SelectOption[] {
   const q = query.trim().toLowerCase();

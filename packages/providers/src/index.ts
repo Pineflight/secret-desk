@@ -31,3 +31,4 @@ export function createDefaultRegistry(): ProviderRegistry {
   }
   return registry;
 }
+export * from "./variable-sources.js";

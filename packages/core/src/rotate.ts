@@ -1,3 +1,4 @@
+import { assertEntryParams, effectiveParams, integrationDefaultsOf, validateEntryParams, type ParamProblem } from "./params.js";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
@@ -48,6 +49,8 @@ export interface RotationPlan {
   places: string[];
   revokesOld: boolean;
   ttlDays: number | null;
+  /** Parameter-Pruefung gegen die Spezifikation des Anbieters (ohne Netzaufruf). */
+  params: { ok: boolean; missing: string[]; problems: ParamProblem[] };
 }
 
 export interface PlaceOutcome {
@@ -85,6 +88,7 @@ export function planRotation(secretId: string, deps: Pick<RotateDeps, "inventory
   if (!secret) throw new RotationError(`Secret nicht gefunden: ${secretId}`);
   guard(secret, options);
   const provider = deps.providers.get(secret.provider);
+  const problems: ParamProblem[] = provider ? validateEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider)) : [];
   return {
     secretId,
     stage: secret.stage,
@@ -93,6 +97,7 @@ export function planRotation(secretId: string, deps: Pick<RotateDeps, "inventory
     places: secret.places.map(describePlace),
     revokesOld: Boolean(secret.externalId && provider?.revoke && options.revokeOld !== false),
     ttlDays: secret.ttlDays ?? null,
+    params: { ok: problems.length === 0, missing: problems.filter((p) => p.code === "missing").map((p) => p.key), problems },
   };
 }
 
@@ -119,11 +124,12 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   }
   if (secret.places.length === 0) throw new RotationError("Das Secret hat kein Ziel (places).");
 
+  assertEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider));
   const now = (deps.now ?? (() => new Date()))();
   const f = deps.fetch ?? fetch;
   const issued = await provider.issue({
     secret,
-    params: secret.params,
+    params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
     stage: secret.stage,
     stageKind: stageKind(deps.inventory.stages, secret.stage),
     connections: deps.connections,
@@ -156,7 +162,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
       // Kein Ziel hat den neuen Wert: er ist nirgends im Einsatz und darf beim Anbieter nicht verwaist bleiben.
       if (issued.externalId && provider.revoke) {
         try {
-          await provider.revoke({ externalId: issued.externalId, secret, params: secret.params, connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+          await provider.revoke({ externalId: issued.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
           result.newTokenRevoked = true;
           warnings.push("Der neue Token wurde beim Anbieter wieder widerrufen, weil kein Ziel geschrieben wurde. Der alte bleibt gueltig.");
         } catch {
@@ -185,7 +191,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   let revoked = false;
   if (options.revokeOld !== false && secret.externalId && provider.revoke) {
     try {
-      await provider.revoke({ externalId: secret.externalId, secret, params: secret.params, connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+      await provider.revoke({ externalId: secret.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: f, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revoked = true;
       deps.onEvent?.({ type: "revoked", secretId });
     } catch (err) {

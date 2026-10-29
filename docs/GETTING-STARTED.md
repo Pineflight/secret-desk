@@ -140,6 +140,10 @@ You can run the same pre-check from the command line (only works for tokens from
 node packages/cli/dist/bin.js doctor --config secret-desk.config.yaml
 ```
 
+## Choose the resource for each token
+
+Providers with an API need to know which account, project or domain a token is for. On **Integrations**, open **Resources and defaults** on the card (save the Cloudflare account id there once), then check the **Parameters** card of each entry: choose from the list, take a suggestion if there is one, or type the value. **Generate new value** stays locked until the required parameters are set. With several entries, **Complete parameters** on **Secrets** fills the unambiguous ones in one go. Details: [RESOURCES.md](RESOURCES.md). Entries with the provider `random-hex` need none of this.
+
 ## 7. Your first renewal with review
 
 Use a harmless secret first (provider `random-hex`, stage `staging` or `dev`).

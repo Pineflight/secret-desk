@@ -261,7 +261,7 @@ describe("dev env and metadata", () => {
   });
   it("maintains metadata and team file", async () => {
     const { rt } = await setup();
-    await addSecret(rt, human, { id: "resend-acme-docs-staging", name: "RESEND_API_KEY", service: "resend", stage: "staging", provider: "resend-api-key", places: [{ repo: "acme-docs", scope: "environment", environment: "staging" }] });
+    await addSecret(rt, human, { id: "resend-acme-docs-staging", name: "RESEND_API_KEY", service: "resend", stage: "staging", provider: "resend-api-key", params: { permission: "full_access" }, places: [{ repo: "acme-docs", scope: "environment", environment: "staging" }] });
     await addManualProvider(rt, human, { id: "acme-api", label: "Acme API", url: "https://acme.example.com", steps: ["Dashboard oeffnen"] });
     expect(rt.providers.get("acme-api")?.kind).toBe("manual");
     expect(teamExport(rt)).toContain("resend-acme-docs-staging");

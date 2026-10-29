@@ -6,6 +6,8 @@ import {
   InventoryError,
   IssuanceError,
   NotConnectedError,
+  ParamsInvalidError,
+  PreflightError,
   RotationError,
   StageError,
   VaultUnavailableError,
@@ -22,6 +24,21 @@ import {
   AutomationError,
   PolicyError,
   checkConnection,
+  getConnectionResources,
+  getProviderParams,
+  getProviderResources,
+  getSecretParams,
+  listVariableSources,
+  loadVariableFromSource,
+  preflightSecret,
+  previewVariableSource,
+  putConnectionDefaults,
+  getResourceMap,
+  putResourceMap,
+  deleteResourceMap,
+  putSecretParams,
+  suggestAllParams,
+  suggestAllVariables,
   listWriteTargets,
   tokenPrefixProblem,
   cancelAutomationRun,
@@ -117,6 +134,13 @@ function tokenExpiry(b: Body): string | null {
   if (d < new Date().toISOString().slice(0, 10)) throw new InventoryError("Das Datum liegt in der Vergangenheit: Der Token waere schon abgelaufen.");
   return d;
 }
+/** Bereits gewaehlte Parameter fuer abhaengige Entdeckungen: Query `param.<schluessel>=<wert>` (zum Beispiel param.accountId). */
+function paramsFromQuery(q: URLSearchParams): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of q) if (k.startsWith("param.") && k.length > 6) out[k.slice(6)] = v;
+  return out;
+}
+const optQ = (q: URLSearchParams, k: string): string | undefined => q.get(k) || undefined;
 /** Kommagetrennte Liste aus dem Query, ohne Leereintraege. */
 const csv = (q: URLSearchParams, k: string): string[] => (q.get(k) ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 /** Art-Liste des Stage-Vergleichs: secret(s) und variable(s), alles andere wird ignoriert. */
@@ -143,7 +167,11 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.
   ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", allRepos: query.get("all") === "1", workflows: query.get("workflows") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
-  ["POST", /^secrets$/, ({ rt, actor, body }) => addSecret(rt, actor, body)],
+  // ?preflight=1 (nur Mensch): zusaetzlich der lesende Vorabcheck beim Anbieter in der Antwort. Angelegt wird auch bei Warnungen und Fehlbefunden.
+  ["POST", /^secrets$/, async ({ rt, actor, body, query }) => {
+    const created = await addSecret(rt, actor, body);
+    return query.get("preflight") === "1" && actor.kind === "human" ? { ...created, preflight: await preflightSecret(rt, created.id) } : created;
+  }],
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
   // Der Akteur bestimmt die erlaubten Felder (strikt, unbekannte Felder -> 400): Agenten nur Metadaten, Menschen alle bearbeitbaren.
   ["PATCH", /^secrets\/([^/]+)$/, ({ rt, actor, params, body }) => updateSecretMeta(rt, actor, params[0]!, body)],
@@ -209,6 +237,21 @@ const humanOnly: [string, RegExp, Handler][] = [
     return rt.connections.status(id);
   }],
   ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => { rt.connections.session.delete(params[0]!); await rt.connections.vault?.delete(params[0]!); return rt.connections.status(params[0]!); }],
+  // Parameter der Anbieter: Spezifikation, Entdeckung beim verbundenen Konto, Vorschlaege (nur Vorschlaege), Vorabcheck. Siehe API.md.
+  ["GET", /^secrets\/([^/]+)\/params$/, ({ rt, actor, params, query }) => getSecretParams(rt, actor, params[0]!, { live: query.get("live") !== "0" })],
+  ["PUT", /^secrets\/([^/]+)\/params$/, ({ rt, actor, params, body }) => putSecretParams(rt, actor, params[0]!, body)],
+  ["GET", /^providers\/([^/]+)\/params$/, ({ rt, actor, params, query }) => getProviderParams(rt, actor, decodeURIComponent(params[0]!), { ...(optQ(query, "repo") ? { repo: optQ(query, "repo")! } : {}), ...(optQ(query, "stage") ? { stage: optQ(query, "stage")! } : {}), live: query.get("live") !== "0", params: paramsFromQuery(query) })],
+  ["GET", /^providers\/([^/]+)\/resources$/, ({ rt, actor, params, query }) => getProviderResources(rt, actor, decodeURIComponent(params[0]!), str({ kind: query.get("kind") ?? "" }, "kind"), { ...(optQ(query, "repo") ? { repo: optQ(query, "repo")! } : {}), ...(optQ(query, "stage") ? { stage: optQ(query, "stage")! } : {}), params: paramsFromQuery(query) })],
+  ["GET", /^connections\/([^/]+)\/resources$/, ({ rt, actor, params, query }) => getConnectionResources(rt, actor, decodeURIComponent(params[0]!), { ...(optQ(query, "kind") ? { kind: optQ(query, "kind")! } : {}), ...(optQ(query, "repo") ? { repo: optQ(query, "repo")! } : {}), ...(optQ(query, "stage") ? { stage: optQ(query, "stage")! } : {}), params: paramsFromQuery(query) })],
+  ["PUT", /^connections\/([^/]+)\/defaults$/, ({ rt, actor, params, body }) => putConnectionDefaults(rt, actor, decodeURIComponent(params[0]!), body)],
+  ["GET", /^resource-map$/, ({ rt, actor }) => getResourceMap(rt, actor)],
+  ["PUT", /^resource-map$/, ({ rt, actor, body }) => putResourceMap(rt, actor, body)],
+  ["DELETE", /^resource-map$/, ({ rt, actor, body }) => deleteResourceMap(rt, actor, body)],
+  ["POST", /^params\/suggest-all$/, ({ rt, actor }) => suggestAllParams(rt, actor)],
+  ["GET", /^variable-sources$/, ({ rt, actor }) => listVariableSources(rt, actor)],
+  ["POST", /^variable-sources\/value$/, ({ rt, actor, body }) => previewVariableSource(rt, actor, body)],
+  ["POST", /^variables\/suggest-all$/, ({ rt, actor }) => suggestAllVariables(rt, actor)],
+  ["POST", /^variables\/([^/]+)\/load-from-source$/, ({ rt, actor, params, body }) => loadVariableFromSource(rt, actor, params[0]!, body)],
   ["GET", /^connections\/github\/write-targets$/, ({ rt }) => listWriteTargets(rt)],
   ["POST", /^connections\/([^/]+)\/check$/, ({ rt, params, body }) =>
     checkConnection(rt, params[0]!, {
@@ -316,6 +359,9 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
 
 function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PolicyError) return err(403, e.message);
+  // Parameter fehlen oder sind ungueltig: vor jedem Netzaufruf, mit Klartext und den betroffenen Schluesseln.
+  if (e instanceof ParamsInvalidError) return json({ error: e.message, code: e.code, problems: e.problems }, 400);
+  if (e instanceof PreflightError) return json({ error: e.message, code: e.code, findings: e.findings }, 409);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
   if (e instanceof VariableError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, 400);
   if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);

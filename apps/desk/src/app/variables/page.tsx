@@ -5,9 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { VariableDrift } from "@secret-desk/core";
 import type { VariableApplyResult, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
+import { SourceSection, SuggestSourcesDialog, useVariableSources } from "@/components/VariableSource";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, TagPills, metaBody, metaFrom, validateMeta, type MetaValues } from "@/components/Meta";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, RowIconButton, TagFilterChip } from "@/components/ListTable";
+import { PageSearch } from "@/components/PageSearch";
+import { filterBySearch } from "@/lib/page-search";
+import { usePageSearch } from "@/lib/use-page-search";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
 import { allRepos, groupItems, repoNames, sortItems } from "@/lib/browse";
@@ -20,7 +24,8 @@ import { classifyVariableError, driftInfo, summaryInfo, type DriftState } from "
 import { DRIFT_FILTERS, anyCompared, countDrift, filterByDrift, progressText, shortValue, summarizeDrift } from "@/lib/variable-list";
 import { truncate } from "@/lib/tags";
 import { useToast } from "@/lib/toast";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { EMPTY_SOURCE, describeFrom, draftOf, fromBody, type SourceDef, type SourceDraft } from "@/lib/variable-source";
 import { usePersistedState } from "@/lib/persisted-state";
 import { useStageDefs } from "@/lib/use-stages";
 import { prefillRow, readPrefill, withoutPrefill, type Prefill } from "@/lib/prefill";
@@ -58,7 +63,7 @@ export default function VariablesPage() {
   const defs = useStageDefs();
   const params = useSearchParams();
   const router = useRouter();
-  const q = params.get("q") ?? "";
+  const { text: q, setText: setQ } = usePageSearch("/variables");
   const tag = params.get("tag") ?? "";
   const setTag = (v: string) => {
     const next = new URLSearchParams(params.toString());
@@ -76,6 +81,9 @@ export default function VariablesPage() {
     if (repoParam) setBrowse((b) => (b.repo === repoParam ? b : { ...b, repo: repoParam }));
   }, [repoParam]);
   const [creating, setCreating] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const { sources } = useVariableSources();
+  const { locale } = useI18n();
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [removing, setRemoving] = useState<VariableView | null>(null);
   const [editing, setEditing] = useState<VariableView | null>(null);
@@ -99,14 +107,14 @@ export default function VariablesPage() {
 
   const qs = new URLSearchParams();
   if (stage) qs.set("stage", stage);
-  if (q.trim()) qs.set("q", q.trim());
   if (tag) qs.set("tag", tag);
   const list = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
   const repos = useMemo(() => allRepos(list.data ?? []), [list.data]);
   const known = anyCompared(drifts, (list.data ?? []).map((v) => v.id));
+  const searched = useMemo(() => filterBySearch(list.data ?? [], q), [list.data, q]);
   const rows = useMemo(
-    () => sortItems(filterByDrift((list.data ?? []).filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
-    [list.data, browse.repo, browse.sort, defs, drifts, status],
+    () => sortItems(filterByDrift(searched.filter((v) => browse.repo === "" || repoNames(v.places).includes(browse.repo)), drifts, status), browse.sort, stageOrder(defs)),
+    [searched, browse.repo, browse.sort, defs, drifts, status],
   );
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
 
@@ -205,12 +213,14 @@ export default function VariablesPage() {
               <>
                 <Button variant="secondary" disabled={rows.length === 0} onClick={() => void compareAll()}><Icon name="refresh" />{t("variables.compareAll")}</Button>
                 <Button variant="secondary" disabled={rows.length === 0} onClick={() => setConfirmAdoptAll(true)}><Icon name="download" />{t("variables.adoptAll")}</Button>
+                <Button variant="secondary" disabled={!(list.data ?? []).some((v) => v.from)} onClick={() => setSuggesting(true)}><Icon name="link" />{t("variables.src.suggestAll")}</Button>
               </>
             )}
             <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("variables.newVariable")}</Button>
           </>
         }
       />
+      <PageSearch value={q} onChange={setQ} count={list.data ? rows.length : null} total={list.data ? list.data.length : null} />
       <FilterRow>
         <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
         <div className="w-40">
@@ -232,7 +242,7 @@ export default function VariablesPage() {
       <TagFilterChip tag={tag} label={t("variables.filteredByTag")} removeLabel={t("variables.removeFilter", { tag })} onClear={() => setTag("")} />
       {list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : null}
       {list.loading && !list.data ? <ListSkeleton rows={6} /> : null}
-      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q || tag || stage || status || browse.repo ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
+      {list.data && rows.length === 0 ? <EmptyState title={t("variables.emptyTitle")} icon="sliders">{q.trim() || tag || stage || status || browse.repo ? t("variables.emptyFiltered") : t("variables.emptyFirst")}</EmptyState> : null}
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
@@ -248,6 +258,7 @@ export default function VariablesPage() {
                     <p className="text-xs text-muted">{v.id}</p>
                     {v.description ? <p className="mt-1 max-w-xs truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
                     {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
+                    {v.from ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: describeFrom(v.from, sources, locale) })}</Pill></div> : null}
                   </td>
                   <td className={LIST_CELL_CLASS}><StageBadge stage={v.stage} /></td>
                   <td className={LIST_CELL_CLASS}>
@@ -281,6 +292,7 @@ export default function VariablesPage() {
         <VariableDetail
           key={detail.id + (detail.auto ?? "")}
           v={detailVar}
+          sources={sources}
           drift={drifts[detailVar.id]}
           comparing={comparing.has(detailVar.id)}
           compareError={errors[detailVar.id]}
@@ -300,16 +312,18 @@ export default function VariablesPage() {
           </div>
         </Dialog>
       ) : null}
+      {suggesting ? <SuggestSourcesDialog names={Object.fromEntries((list.data ?? []).map((v) => [v.id, v.name]))} onClose={() => setSuggesting(false)} onChanged={list.reload} /> : null}
       {editing ? <EditMetaDialog path={`variables/${enc(editing.id)}`} initial={metaFrom(editing)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); list.reload(); }} /> : null}
-      {creating ? <CreateVariableDialog initial={prefill} onClose={() => { setCreating(false); setPrefill(null); }} onCreated={() => { setCreating(false); setPrefill(null); list.reload(); }} /> : null}
+      {creating ? <CreateVariableDialog sources={sources} initial={prefill} onClose={() => { setCreating(false); setPrefill(null); }} onCreated={() => { setCreating(false); setPrefill(null); list.reload(); }} /> : null}
       {removing ? <RemoveDialog v={removing} onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); list.reload(); }} /> : null}
     </>
   );
 }
 
 /** Detail einer Variable: Sollwert, Abgleich je Ziel, Setzen und Uebernehmen samt Geheimnis-Pruefung. */
-function VariableDetail({ v, drift, comparing, compareError, auto, onCompare, onChanged, onEdit, onRemove, onClose }: {
+function VariableDetail({ v, sources, drift, comparing, compareError, auto, onCompare, onChanged, onEdit, onRemove, onClose }: {
   v: VariableView;
+  sources: SourceDef[];
   drift: VariableDrift[] | undefined;
   comparing: boolean;
   compareError: string | undefined;
@@ -325,6 +339,7 @@ function VariableDetail({ v, drift, comparing, compareError, auto, onCompare, on
   const [value, setValue] = useState(v.value ?? "");
   const [ack, setAck] = useState(false);
   const [outcomes, setOutcomes] = useState<{ place: string; outcome: string; error?: string }[] | null>(null);
+  const [src, setSrc] = useState<SourceDraft>(draftOf(v.from));
   useEffect(() => setValue(v.value ?? ""), [v.value]);
 
   const save = useMutation(async () => api<VariableView>("PATCH", `variables/${enc(v.id)}`, { value, ...(ack ? { acknowledgedPublic: true } : {}) }));
@@ -412,6 +427,7 @@ function VariableDetail({ v, drift, comparing, compareError, auto, onCompare, on
             ))}
           </ul>
         ) : <p className="text-xs text-muted">{t("variables.notComparedYet")}</p>}
+        <SourceSection mode="edit" sources={sources} variableId={v.id} stored={v.from} value={src} onChange={setSrc} onChanged={onChanged} />
         {outcomes ? (
           <ul className="space-y-1 text-sm">
             {outcomes.map((o, i) => <li key={i} className={o.outcome === "failed" ? "text-danger-text" : "text-success-text"}>{o.place}: {o.outcome === "failed" ? `${t("variables.outcomeFailed")}${o.error ? ` (${o.error})` : ""}` : o.outcome === "created" ? t("variables.outcomeCreated") : t("variables.outcomeUpdated")}</li>)}
@@ -422,13 +438,14 @@ function VariableDetail({ v, drift, comparing, compareError, auto, onCompare, on
   );
 }
 
-function CreateVariableDialog({ initial = null, onClose, onCreated }: { initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
+function CreateVariableDialog({ sources, initial = null, onClose, onCreated }: { sources: SourceDef[]; initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
   const t = useT();
   const defs = useStageDefs();
   const toast = useToast();
   const [f, setF] = useState({ id: initial?.id ?? "", name: initial?.name ?? "", stage: initial?.stage ?? "", description: "", product: "", value: "" });
   const [rows, setRows] = useState<PlaceRow[]>([initial ? prefillRow(defs, initial) : emptyPlaceRow()]);
   const [ack, setAck] = useState(false);
+  const [src, setSrc] = useState<SourceDraft>(EMPTY_SOURCE);
   const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
   const stageId = f.stage || defaultStageId(defs, "test");
@@ -450,6 +467,7 @@ function CreateVariableDialog({ initial = null, onClose, onCreated }: { initial?
       ...(f.product.trim() ? { product: f.product.trim() } : {}),
       ...(f.value !== "" ? { value: f.value } : {}),
       ...(ack ? { acknowledgedPublic: true } : {}),
+      ...(fromBody(sources, src) ? { from: fromBody(sources, src) } : {}),
     });
     if (res) {
       toast.success(t("variables.created", { name: res.name }));
@@ -470,6 +488,7 @@ function CreateVariableDialog({ initial = null, onClose, onCreated }: { initial?
           <TextField label={t("variables.fieldValue")} value={f.value} onChange={(e) => set("value", e.target.value)} autoComplete="off" spellCheck={false} />
         </div>
         <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
+        <SourceSection mode="create" sources={sources} value={src} onChange={setSrc} repo={rows.map((r) => r.repo.trim()).find(Boolean) ?? ""} stage={stageId} onUseValue={(val) => set("value", val)} />
         {localError ? <Notice tone="danger">{localError}</Notice> : null}
         <SecretGuard error={create.error} ack={ack} setAck={setAck} />
         <div className="flex justify-end gap-2">

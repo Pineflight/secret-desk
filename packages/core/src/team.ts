@@ -88,5 +88,7 @@ function applyBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "
   for (const v of bundle.variables) if (!store.getVariable(v.id)) store.addVariable(v);
   for (const p of bundle.providers) if (!store.data.providers.some((x) => x.id === p.id)) store.addProvider(p);
   for (const t of bundle.envTemplates) if (!store.data.envTemplates.some((x) => x.id === t.id)) store.addEnvTemplate(t);
+  // Zuordnungen: ein vorhandener Eintrag mit gleichem Schluessel (kind, repo, stage) bleibt wie er ist.
+  for (const m of bundle.resourceMap ?? []) if (!(store.data.resourceMap ?? []).some((x) => x.kind === m.kind && x.repo === m.repo && (x.stage ?? "") === (m.stage ?? ""))) store.setResourceMap(m);
   return { added, skipped, addedStages: newStages.map((d) => d.id) };
 }

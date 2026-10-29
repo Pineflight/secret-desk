@@ -151,6 +151,8 @@ Top level:
 | `variables` | [variable](#variables)[] | `[]` | Managed GitHub Actions variables. |
 | `envTemplates` | [template](#env-templates)[] | `[]` | Dev `.env` templates. |
 | `providers` | [provider](#custom-providers)[] | `[]` | Custom providers without an API. |
+| `integrationDefaults` | map of connection id to map | unset | Non-secret default parameters per integration, for example `cloudflare: { accountId: ... }`. See [RESOURCES.md](RESOURCES.md). |
+| `resourceMap` | list of `{ kind, repo, stage?, value, label? }` | unset | Explicit mapping from repository (and optionally stage) to a provider resource, for example a Resend domain or a Supabase project. Takes precedence over the name rules of the suggestions. Not a secret. See [RESOURCES.md](RESOURCES.md#mapping-repositories-to-resources). |
 
 Validation across the file: ids are unique across secrets and variables; every `stage` exists; a secret outside stages of kind `dev` needs at least one `places` entry; `issue` and `variable` sources in templates must reference existing entries; stages and places are resolved (see [STAGES.md](STAGES.md)).
 
@@ -202,6 +204,7 @@ GitHub Actions variables (`vars.*`) are configuration, not secrets. The expected
 | `id`, `name`, `description`, `owner`, `link`, `tags`, `product` | as for secrets | | |
 | `stage` | stage id | `shared` | |
 | `value` | string, max 1000 \| `null` | `null` | The expected value. `null` means unknown: adopt it from GitHub. Values that look like secrets are rejected (hard) or need an explicit acknowledgement (soft). |
+| `from` | `{ connection, kind, resource, field }` | unset | Optional source of the expected value in an integration (public fields only). See [RESOURCES.md](RESOURCES.md#5-variables-from-a-provider). |
 | `places` | [place](#places)[] | required, at least one | |
 
 ### Places

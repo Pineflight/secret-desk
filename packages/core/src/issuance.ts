@@ -1,3 +1,5 @@
+import { ParamsInvalidError, effectiveParams, integrationDefaultsOf } from "./params.js";
+import { assertPreflight, entryParamsState, preflightEntry } from "./preflight.js";
 import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
@@ -97,6 +99,8 @@ export async function prepareIssuance(
   let externalId: string | undefined;
   let expiresAt: string | null | undefined;
   let kind: VerificationReport["kind"];
+  let params = secret.params;
+  const preChecks: Check[] = [];
   if (options.manualValue) {
     value = options.manualValue;
     kind = "manual";
@@ -104,14 +108,22 @@ export async function prepareIssuance(
     if (!provider || provider.kind !== "automatic" || !provider.issue) {
       throw new IssuanceError(`Anbieter "${secret.provider}" kann nicht automatisch erzeugen. Wert von Hand eingeben.`);
     }
-    const issued = await provider.issue({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
+    // Erst pruefen, dann ausstellen: fehlende Parameter melden sich mit Klartext, bevor ein Netzaufruf passiert.
+    const state = entryParamsState(deps.inventory, provider, secret);
+    if (state.problems.length > 0) throw new ParamsInvalidError(state.problems);
+    params = state.effective;
+    const pre = await preflightEntry(secret, deps, { rethrowNotConnected: true });
+    assertPreflight(pre);
+    if (pre.resource) preChecks.push({ id: "preflight-resource", label: "Ressource beim Anbieter", status: "pass", actual: pre.resource });
+    for (const f of pre.findings) if (f.level !== "ok") preChecks.push({ id: `preflight:${f.id}`, label: f.label, status: "warn", ...(f.detail ? { detail: f.detail } : {}) });
+    const issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
     kind = "issued";
   }
 
-  const checks: Check[] = [];
+  const checks: Check[] = [...preChecks];
   checks.push(
     value.length >= 16
       ? { id: "value-shape", label: "Wert hat eine plausible Laenge", status: "pass", actual: `${value.length} Zeichen` }
@@ -127,7 +139,7 @@ export async function prepareIssuance(
   }
   if (provider?.verify) {
     try {
-      checks.push(...(await provider.verify({ secret, params: secret.params, stage: secret.stage, stageKind: kind0, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now, ...pc })));
+      checks.push(...(await provider.verify({ secret, params, stage: secret.stage, stageKind: kind0, value, ...(externalId ? { externalId } : {}), expiresAt: expiresAt ?? null, connections: deps.connections, fetch: f, now, ...pc })));
     } catch (err) {
       checks.push({ id: "provider-verify", label: "Pruefung beim Anbieter nicht durchfuehrbar", status: "warn", detail: (err as Error).message });
     }
@@ -270,7 +282,7 @@ async function commitIssuanceOnce(
   let revokedOld = false;
   if (pending.oldExternalId && provider?.revoke) {
     try {
-      await provider.revoke({ externalId: pending.oldExternalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+      await provider.revoke({ externalId: pending.oldExternalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedOld = true;
       pending.report.checks.push({ id: "revoke-old", label: "Alter Wert beim Anbieter widerrufen", status: "pass" });
     } catch (err) {
@@ -328,7 +340,7 @@ async function discardIssuanceNow(
   let revokedNew = false;
   if (secret && pending.report.externalId && provider?.revoke) {
     try {
-      await provider.revoke({ externalId: pending.report.externalId, secret, params: secret.params, connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+      await provider.revoke({ externalId: pending.report.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedNew = true;
     } catch {
       /* bleibt gueltig, steht im Bericht */
