@@ -22,6 +22,13 @@ const kindName = (t: (k: string) => string, kind: string): string => {
   return text === key ? kind : text;
 };
 
+/** Hinweis bei leerer Liste: eigener Text je Art (z. B. Cloudflare-Konten ohne Leserecht), sonst der allgemeine. */
+const emptyHint = (t: (k: string, v?: Record<string, string | number>) => string, kind: string): string => {
+  const key = `params.conn.empty.${kind}`;
+  const text = t(key);
+  return text === key ? t("params.conn.empty", { kind: kindName(t, kind) }) : text;
+};
+
 /** Entdeckungen je Standardwert-Parameter (Schluessel = Parameter, nicht Art). */
 const byParam = (data: ConnectionResources): Record<string, ResourceState> =>
   Object.fromEntries(data.defaultSpecs.filter((s) => s.discover && data.resources[s.discover]).map((s) => [s.key, data.resources[s.discover!]!]));
@@ -106,6 +113,7 @@ export function ConnectionResourcesPanel({ id, onSaved }: { id: string; onSaved?
                   <ul className="mt-1 max-h-40 overflow-y-auto text-xs text-muted-text">{r.options.map((o) => <li key={String(o.value)} className="break-words">{optionText(o)}</li>)}</ul>
                 </details>
               ) : null}
+              {r.status === "ok" && r.options.length === 0 ? <div className="mt-1"><Notice tone="info">{emptyHint(t, kind)}</Notice></div> : null}
               {r.status === "error" ? <div className="mt-1"><Notice tone="warn">{r.error ? t("params.conn.readErrorDetail", { kind: kindName(t, kind), error: r.error }) : t("params.conn.readError", { kind: kindName(t, kind) })} {t("params.conn.manualWay")}</Notice></div> : null}
               {r.status === "not-connected" ? <p className="mt-1 text-xs text-muted">{t("params.conn.notConnected")}</p> : null}
             </li>
