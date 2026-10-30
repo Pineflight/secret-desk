@@ -14,13 +14,13 @@ Other filters in the URL: `stage`, `status`, `repo`, `tag`, `q`. Example: `/entr
 
 ## Columns
 
-Name (id, description, tags), Kind, Stage, Target value / expiry, Targets, Status / comparison, Actions. The actions column stays at the right edge when a narrow window has to scroll. The header counts the visible rows: for example "117 secrets, 93 variables".
+Name (id, description, tags), Kind, Stage, Target value / expiry, Targets, Status / comparison, Actions. The table fits the window without horizontal scrolling: below 1280 px kind, stage, value and targets move into the name cell, below 640 px status and actions do too. Every row has the same actions cell, vertically centered. The header counts the visible rows: for example "117 secrets, 93 variables".
 
 | | Secret | Variable |
 | --- | --- | --- |
 | Target value / expiry | expiry date and days left | the target value |
 | Status / comparison | expiry state, provider, last confirmation | comparison with GitHub (after *Compare*) |
-| Actions | open details | compare, set in GitHub, adopt, edit, remove |
+| Actions | edit, open details | compare, set in GitHub, adopt, edit, remove |
 
 Secret values are never shown or searched. The list receives metadata only.
 

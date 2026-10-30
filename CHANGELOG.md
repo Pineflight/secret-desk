@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Secrets and variables list: the actions column no longer detaches from the table. The table fits its card at 1440, 1024, 768, 375 and 320 px instead of scrolling: below 1280 px kind, stage, value and targets fold into the name cell, below 640 px status and actions do too. Secret and variable rows now share one actions cell with one icon group of the same width, vertically centered (secrets: edit and open, variables: compare, set, adopt, edit, remove). Long descriptions wrap to two lines instead of widening the table.
 - Lists: the actions column of the variables table is no longer cut off. Cells are narrower and the actions stay at the right edge (sticky) when a narrow window still has to scroll horizontally. Checked on the real pages at 1280, 1440 and 1920 px (no horizontal scroll in Variables, Secrets, Compare, Repositories) and 768 px (usable, actions visible).
 
 - Integrations: connecting GitHub (and `team-sync`, `github-app-key`) no longer fails with "Unknown connection" when browser automation is off. Connections the portal offers itself return empty resources and defaults instead of an error; really unknown names still fail. Clearing the defaults of a connection that has none no longer throws.

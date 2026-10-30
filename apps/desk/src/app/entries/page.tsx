@@ -8,7 +8,7 @@ import { CompleteParamsDialog } from "@/components/CompleteParamsDialog";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, TagPills, metaFrom } from "@/components/Meta";
-import { ActionMenu, FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
+import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, FilterRow, LIST_CELL_CLASS, WIDE_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
 import { Marked } from "@/components/Marked";
 import { NewEntryDialog } from "@/components/NewEntryDialog";
@@ -77,6 +77,7 @@ export default function EntriesPage() {
   const { sources } = useVariableSources();
   const [removing, setRemoving] = useState<VariableView | null>(null);
   const [editing, setEditing] = useState<VariableView | null>(null);
+  const [editingSecret, setEditingSecret] = useState<SecretView | null>(null);
   const [detail, setDetail] = useState<{ id: string; auto?: Auto } | null>(null);
   const [drifts, setDrifts] = useState<Drifts>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -245,6 +246,7 @@ export default function EntriesPage() {
   ];
   const loadingFirst = (secrets.loading && !secrets.data) || (variables.loading && !variables.data);
   const loaded = secrets.data && variables.data;
+  const TABLE_COLUMN_CLASSES = ["", "max-xl:hidden", "max-xl:hidden", "max-xl:hidden", "max-xl:hidden", "max-sm:hidden", "w-px max-sm:hidden"];
   const tableColumns = [t("entries.colName"), t("entries.colKind"), t("entries.colStage"), t("entries.colValue"), t("entries.colTargets"), t("entries.colStatus"), t("entries.colActions")];
 
   return (
@@ -334,9 +336,9 @@ export default function EntriesPage() {
       {groups.map((g) => (
         <div key={g.key}>
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
-          <ListTable stickyLast minWidth={820} columns={tableColumns}>
+          <ListTable minWidth={0} columns={tableColumns} columnClasses={TABLE_COLUMN_CLASSES}>
             {g.items.map((e) => (e.entryKind === "secret" ? (
-              <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} terms={terms} tag={tag} setTag={setTag} />
+              <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} terms={terms} tag={tag} setTag={setTag} onEdit={() => setEditingSecret(e)} />
             ) : (
               <VariableRowView
                 key={`${g.key}:variable:${e.id}`}
@@ -386,6 +388,7 @@ export default function EntriesPage() {
       ) : null}
       {suggesting ? <SuggestSourcesDialog names={Object.fromEntries((variables.data ?? []).map((v) => [v.id, v.name]))} onClose={() => setSuggesting(false)} onChanged={variables.reload} /> : null}
       {editing ? <EditMetaDialog path={`variables/${enc(editing.id)}`} initial={metaFrom(editing)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); variables.reload(); }} /> : null}
+      {editingSecret ? <EditMetaDialog path={`secrets/${enc(editingSecret.id)}`} initial={metaFrom(editingSecret)} notes={editingSecret.notes} onClose={() => setEditingSecret(null)} onSaved={() => { setEditingSecret(null); secrets.reload(); }} /> : null}
       {removing ? <RemoveDialog v={removing} onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); variables.reload(); }} /> : null}
       {completing ? <CompleteParamsDialog secrets={secrets.data ?? []} onClose={() => setCompleting(false)} onChanged={secrets.reload} /> : null}
       {creating ? <NewEntryDialog initialKind={creating} sources={sources} prefill={prefill} onClose={() => { setCreating(null); setPrefill(null); }} onCreated={() => { setCreating(null); setPrefill(null); reloadAll(); }} /> : null}
@@ -399,41 +402,50 @@ function KindBadge({ kind }: { kind: EntryKind }) {
 }
 
 function Targets({ places }: { places: SecretView["places"] }) {
-  return <div className="flex flex-wrap gap-1">{places.length ? places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>;
+  return <div className="flex min-w-0 flex-wrap gap-1 [&>span]:max-w-full [&>span]:break-words [&>span]:whitespace-normal">{places.length ? places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>;
 }
 
-function SecretRowView({ s, terms, tag, setTag }: { s: SecretRow; terms: string[]; tag: string; setTag: (v: string) => void }) {
+function SecretRowView({ s, terms, tag, setTag, onEdit }: { s: SecretRow; terms: string[]; tag: string; setTag: (v: string) => void; onEdit: () => void }) {
   const t = useT();
   const router = useRouter();
+  const actions = (
+    <div className={ACTIONS_GROUP_CLASS}>
+      <RowIconButton label={t("variables.edit")} icon="wrench" onClick={onEdit} />
+      <RowIconButton label={t("entries.openSecret", { name: s.name })} icon="chevron" onClick={() => router.push(`/secrets/${enc(s.id)}`)} />
+    </div>
+  );
+  const status = (
+    <>
+      <div className="flex flex-wrap items-center gap-1.5"><StatusBadge level={s.status} /><ProviderChip automatic={s.automatic} browser={s.browser} /></div>
+      <p className="mt-1 text-xs text-muted-text">{s.verifiedAt ? <>{t("entries.confirmed")} <span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` · ${s.verifiedBy}` : ""}</> : `${t("entries.confirmed")}: ${t("secrets.never")}`}</p>
+    </>
+  );
   return (
     <tr className={LIST_ROW_CLASS} data-kind="secret">
       <td className={LIST_CELL_CLASS}>
-        <Link href={`/secrets/${enc(s.id)}`} className="font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
-        <p className="text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
-        {s.description ? <p className="mt-1 max-w-[14rem] truncate text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
+        <Link href={`/secrets/${enc(s.id)}`} className="break-words font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
+        <p className="break-all text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 xl:hidden"><KindBadge kind="secret" /><StageBadge stage={s.stage} /><span className="tabular text-xs text-muted-text">{formatDate(s.expires)} · {daysLabel(s.daysLeft)}</span></div>
+        {s.description ? <p className="mt-1 line-clamp-2 max-w-[16rem] break-words text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
         {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
         {needsParams(s) ? (
           <div className="mt-1" title={s.params.missing.join(", ")}>
             <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
           </div>
         ) : null}
+        <div className="mt-1 xl:hidden"><Targets places={s.places} /></div>
+        <div className="mt-2 sm:hidden">{status}</div>
+        <div className="mt-2 sm:hidden">{actions}</div>
       </td>
-      <td className={LIST_CELL_CLASS}><KindBadge kind="secret" /></td>
-      <td className={LIST_CELL_CLASS}><StageBadge stage={s.stage} /></td>
-      <td className={LIST_CELL_CLASS}>
+      <td className={WIDE_CELL_CLASS}><KindBadge kind="secret" /></td>
+      <td className={WIDE_CELL_CLASS}><StageBadge stage={s.stage} /></td>
+      <td className={WIDE_CELL_CLASS}>
         <div className="tabular">{formatDate(s.expires)}</div>
         <div className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</div>
       </td>
-      <td className={LIST_CELL_CLASS}><Targets places={s.places} /></td>
-      <td className={LIST_CELL_CLASS}>
-        <div className="flex flex-wrap items-center gap-1.5"><StatusBadge level={s.status} /><ProviderChip automatic={s.automatic} browser={s.browser} /></div>
-        <p className="mt-1 text-xs text-muted-text">{s.verifiedAt ? <>{t("entries.confirmed")} <span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` · ${s.verifiedBy}` : ""}</> : `${t("entries.confirmed")}: ${t("secrets.never")}`}</p>
-      </td>
-      <td className={LIST_CELL_CLASS}>
-        <div className="flex items-center gap-0.5">
-          <RowIconButton label={t("entries.openSecret", { name: s.name })} icon="chevron" onClick={() => router.push(`/secrets/${enc(s.id)}`)} />
-        </div>
-      </td>
+      <td className={WIDE_CELL_CLASS}><Targets places={s.places} /></td>
+      <td className={`${LIST_CELL_CLASS} max-sm:hidden`}>{status}</td>
+      <td className={ACTIONS_CELL_CLASS}>{actions}</td>
     </tr>
   );
 }
@@ -457,36 +469,41 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
   const t = useT();
   const sum = summarizeDrift(drift);
   const c = countDrift(drift);
+  const actions = (
+    <div className={ACTIONS_GROUP_CLASS} onClick={(e) => e.stopPropagation()}>
+      <RowIconButton label={t("variables.compare")} icon="refresh" loading={comparing} onClick={onCompare} />
+      <RowIconButton label={t("variables.apply")} icon="upload" disabled={v.value === null} loading={busy} onClick={() => onQuick("apply")} />
+      <RowIconButton label={t("variables.adopt")} icon="download" loading={busy} onClick={() => onQuick("adopt")} />
+      <RowIconButton label={t("variables.edit")} icon="wrench" onClick={onEdit} />
+      <RowIconButton label={t("variables.remove")} icon="trash" danger onClick={onRemove} />
+    </div>
+  );
+  const status = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span title={drift ? t("variables.summaryCount", { ok: c["in-sync"] ?? 0, total: drift.length }) : undefined}><Badge info={summaryInfo(sum)} /></span>
+      {error ? <span className="text-xs text-danger-text" title={error}>{t("variables.compareError")}</span> : null}
+    </div>
+  );
+  const value = v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[8rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>;
   return (
     <tr className={`${LIST_ROW_CLASS} cursor-pointer`} data-kind="variable" onClick={onOpen}>
       <td className={LIST_CELL_CLASS}>
-        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} className="rounded font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
-        <p className="text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
-        {v.description ? <p className="mt-1 max-w-[14rem] truncate text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
+        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} className="break-words rounded text-left font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
+        <p className="break-all text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 xl:hidden"><KindBadge kind="variable" /><StageBadge stage={v.stage} />{value}</div>
+        {v.description ? <p className="mt-1 line-clamp-2 max-w-[16rem] break-words text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
         {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
         {sourceText ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: sourceText })}</Pill></div> : null}
+        <div className="mt-1 xl:hidden"><Targets places={v.places} /></div>
+        <div className="mt-2 sm:hidden">{status}</div>
+        <div className="mt-2 sm:hidden" onClick={(e) => e.stopPropagation()}>{actions}</div>
       </td>
-      <td className={LIST_CELL_CLASS}><KindBadge kind="variable" /></td>
-      <td className={LIST_CELL_CLASS}><StageBadge stage={v.stage} /></td>
-      <td className={LIST_CELL_CLASS}>
-        {v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[8rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>}
-      </td>
-      <td className={LIST_CELL_CLASS}><Targets places={v.places} /></td>
-      <td className={LIST_CELL_CLASS}>
-        <div className="flex flex-wrap items-center gap-2">
-          <span title={drift ? t("variables.summaryCount", { ok: c["in-sync"] ?? 0, total: drift.length }) : undefined}><Badge info={summaryInfo(sum)} /></span>
-          {error ? <span className="text-xs text-danger-text" title={error}>{t("variables.compareError")}</span> : null}
-        </div>
-      </td>
-      <td className={LIST_CELL_CLASS} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-0.5">
-          <RowIconButton label={t("variables.compare")} icon="refresh" loading={comparing} onClick={onCompare} />
-          <RowIconButton label={t("variables.apply")} icon="upload" disabled={v.value === null} loading={busy} onClick={() => onQuick("apply")} />
-          <RowIconButton label={t("variables.adopt")} icon="download" loading={busy} onClick={() => onQuick("adopt")} />
-          <RowIconButton label={t("variables.edit")} icon="wrench" onClick={onEdit} />
-          <RowIconButton label={t("variables.remove")} icon="trash" danger onClick={onRemove} />
-        </div>
-      </td>
+      <td className={WIDE_CELL_CLASS}><KindBadge kind="variable" /></td>
+      <td className={WIDE_CELL_CLASS}><StageBadge stage={v.stage} /></td>
+      <td className={WIDE_CELL_CLASS}>{value}</td>
+      <td className={WIDE_CELL_CLASS}><Targets places={v.places} /></td>
+      <td className={`${LIST_CELL_CLASS} max-sm:hidden`}>{status}</td>
+      <td className={ACTIONS_CELL_CLASS} onClick={(e) => e.stopPropagation()}>{actions}</td>
     </tr>
   );
 }
