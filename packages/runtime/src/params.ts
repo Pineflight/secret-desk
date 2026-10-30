@@ -254,6 +254,8 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
   const kinds = kindsOf(providers);
   const hint = draftHint(rt, options.repo, options.stage);
   const resources: Record<string, ResourceState> = {};
+  // Gespeicherte Standardwerte der Integration (z. B. grafana baseUrl) sind der Fallback; Query-Parameter gehen vor.
+  const params = { ...(rt.inventory.data.integrationDefaults?.[connection] ?? {}), ...(options.params ?? {}) };
   const wanted = options.kind ? [options.kind] : [...kinds.keys()];
   for (const kind of wanted) {
     const p = kinds.get(kind);
@@ -261,7 +263,7 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
       resources[kind] = { status: "unsupported", options: [], suggested: null, error: `Unbekannte Entdeckungsart: ${kind}` };
       continue;
     }
-    resources[kind] = resourceOf(await discoverResources(p, kind, deps(rt), hint, options.params ?? {}));
+    resources[kind] = resourceOf(await discoverResources(p, kind, deps(rt), hint, params));
   }
   return {
     connection,
