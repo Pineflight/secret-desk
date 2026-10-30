@@ -21,8 +21,27 @@ describe("list layout", () => {
     expect(css).toMatch(/right:\s*0/);
     expect(css).toMatch(/background:\s*var\(--sd-card\)/);
   });
-  it("the entries table keeps its actions in view", () => {
-    expect(read("app/entries/page.tsx")).toContain("<ListTable stickyLast");
+  it("the entries table fits its card instead of scrolling: no forced minimum width, wide columns fold into the name cell", () => {
+    const page = read("app/entries/page.tsx");
+    expect(page).toContain("<ListTable minWidth={0}");
+    expect(page).not.toContain("<ListTable stickyLast");
+    // Kind, stage, value and targets fold into the name cell below 1280 px, status and actions below 640 px.
+    expect(page).toContain("max-xl:hidden");
+    expect(page).toContain("max-sm:hidden");
+    expect(read("components/ListTable.tsx")).toContain("minWidth: minWidth || undefined");
+  });
+  it("secret and variable rows share one actions cell: centered, same width, same group class", () => {
+    const page = read("app/entries/page.tsx");
+    const list = read("components/ListTable.tsx");
+    expect(list).toMatch(/ACTIONS_CELL_CLASS = "[^"]*align-middle/);
+    expect(list).toMatch(/ACTIONS_GROUP_CLASS = "[^"]*w-\[10\.5rem\][^"]*justify-end/);
+    const secretRow = page.slice(page.indexOf("function SecretRowView"), page.indexOf("function VariableRowView"));
+    const variableRow = page.slice(page.indexOf("function VariableRowView"));
+    for (const row of [secretRow, variableRow]) {
+      expect(row).toContain("ACTIONS_GROUP_CLASS");
+      expect(row).toContain("ACTIONS_CELL_CLASS");
+      expect(row).toContain("variables.edit");
+    }
   });
 });
 

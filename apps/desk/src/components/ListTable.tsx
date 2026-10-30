@@ -24,18 +24,24 @@ export function TagFilterChip({ tag, label, removeLabel, onClear }: { tag: strin
 
 export const LIST_ROW_CLASS = "align-top hover:bg-page";
 export const LIST_CELL_CLASS = "px-3 py-2";
+/** Columns that only fit from 1280 px up; below that the row shows their content inside the name cell. */
+export const WIDE_CELL_CLASS = `${LIST_CELL_CLASS} max-xl:hidden`;
+/** Actions cell: vertically centered, as narrow as its content, hidden below 640 px (the name cell repeats the group there). */
+export const ACTIONS_CELL_CLASS = "w-px whitespace-nowrap px-3 py-2 align-middle max-sm:hidden";
+/** One compact icon group of the same width in every row, whatever the kind. */
+export const ACTIONS_GROUP_CLASS = "flex w-[10.5rem] items-center justify-end gap-0.5";
 
 /**
  * minWidth gilt nur, wenn der Platz wirklich nicht reicht (schmale Fenster scrollen weiter). stickyLast haelt die letzte Spalte
  * (Zeilenaktionen) am rechten Rand, damit sie auch dann sichtbar bleibt.
  */
-export function ListTable({ columns, minWidth = 720, stickyLast = false, children }: { columns: ReactNode[]; minWidth?: number; stickyLast?: boolean; children: ReactNode }) {
+export function ListTable({ columns, columnClasses = [], minWidth = 720, stickyLast = false, children }: { columns: ReactNode[]; columnClasses?: string[]; minWidth?: number; stickyLast?: boolean; children: ReactNode }) {
   return (
     <Card className="overflow-x-auto !p-0">
-      <table className={`w-full text-left text-sm ${stickyLast ? "sd-sticky-last" : ""}`} style={{ minWidth }}>
+      <table className={`w-full text-left text-sm ${stickyLast ? "sd-sticky-last" : ""}`} style={{ minWidth: minWidth || undefined }}>
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-            {columns.map((c, i) => <th key={i} className="px-3 py-2 font-semibold">{c}</th>)}
+            {columns.map((c, i) => <th key={i} className={`px-3 py-2 font-semibold ${columnClasses[i] ?? ""}`}>{c}</th>)}
           </tr>
         </thead>
         <tbody className="divide-y divide-line">{children}</tbody>
