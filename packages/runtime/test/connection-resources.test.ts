@@ -58,3 +58,26 @@ describe("connection resources without discoverable resources", () => {
     await expect(getConnectionResources(rt, { kind: "agent", name: "bot" }, "github")).rejects.toThrow();
   });
 });
+
+describe("connection resources use saved integration defaults", () => {
+  async function grafanaRuntime(inventory: string) {
+    const dir = await mkdtemp(join(tmpdir(), "sd-connres-grafana-"));
+    await writeFile(join(dir, "inventory.yaml"), inventory);
+    await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nautomation:\n  enabled: true\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
+    return createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: TOKEN } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  }
+
+  it("grafana service accounts get baseUrl from the integration defaults", async () => {
+    const rt = await grafanaRuntime("version: 1\nsecrets: []\nvariables: []\nintegrationDefaults:\n  grafana:\n    baseUrl: https://acme.grafana.net\n");
+    const r = await getConnectionResources(rt, human, "grafana");
+    const state = r.resources["grafana.serviceAccount"];
+    expect(state).toBeDefined();
+    expect(state?.error ?? "").not.toMatch(/baseUrl/);
+  });
+
+  it("without a saved default the missing baseUrl is still reported", async () => {
+    const rt = await grafanaRuntime("version: 1\nsecrets: []\nvariables: []\n");
+    const r = await getConnectionResources(rt, human, "grafana");
+    expect(r.resources["grafana.serviceAccount"]?.error ?? "").toMatch(/baseUrl/);
+  });
+});

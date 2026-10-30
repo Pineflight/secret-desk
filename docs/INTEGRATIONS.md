@@ -87,7 +87,7 @@ Besides the permissions above, each card has **Resources and defaults**. The por
 
 | Integration | What is listed | What the token must be allowed to read | Defaults |
 |---|---|---|---|
-| Cloudflare (`cloudflare`) | accounts, zones, permission groups | Accounts and zones need a read permission (for example *Account Settings Read* for accounts, a zone read permission for zones). The template *Create additional tokens* has none: enter the account id once by hand as the default (dashboard, account overview, copy the account id). Permission groups can always be listed. | `accountId` |
+| Cloudflare (`cloudflare`) | accounts, zones, permission groups | Accounts and zones need a read permission (for example *Account Settings Read* for accounts, a zone read permission for zones). The template *Create additional tokens* has none: enter the account id once by hand as the default (dashboard, account overview, copy the account id). Permission groups can always be listed. The connection page then shows "0 found" for accounts and zones with a hint saying exactly this. | `accountId` |
 | Cloudflare Turnstile (`cloudflare-turnstile`) | accounts, Turnstile widgets | *Account > Turnstile > Edit* lists the widgets of the account; the account list needs a read permission as well, otherwise enter `accountId` by hand. | `accountId` |
 | Supabase (`supabase`) | projects | The optional *Projects* Read (see above). Without it the list is empty or unreadable: enter the project ref by hand. | none |
 | Resend (`resend`) | domains and their verification status | Domains can only be listed with **Full access** (the same key type the connection needs anyway). | none |

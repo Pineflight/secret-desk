@@ -53,7 +53,7 @@ New read endpoints (all `GET`, with the stored token of the integration). **Not 
 | Endpoint | Used for | Verified |
 |---|---|---|
 | `GET api.cloudflare.com/client/v4/user/tokens/permission_groups` | permission groups, scopes | in use before; `scopes` field not verified |
-| `GET .../client/v4/accounts?per_page=50` | Cloudflare accounts (needs a read permission such as *Account Settings Read*; otherwise a warning) | not verified |
+| `GET .../client/v4/accounts?per_page=50` | Cloudflare accounts (needs a read permission such as *Account Settings Read*; without it Cloudflare answers with an empty list and the portal shows a hint to enter the account ID by hand) | not verified |
 | `GET .../client/v4/zones?per_page=50[&account.id=]` | zones | not verified |
 | `GET .../client/v4/accounts/<id>/challenges/widgets` | Turnstile widgets | not verified |
 | `GET api.supabase.com/v1/projects` | projects (`ref` or `id`, `name`) | not verified |
