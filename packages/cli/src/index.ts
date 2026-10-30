@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   InventoryStore,
   StageSchema,
+  type NormalizationChange,
   findings,
   mergeTeamBundle,
   parseTeamBundle,
@@ -15,9 +16,11 @@ import { generateVapidKeys } from "@secret-desk/providers";
 import {
   adoptVariableFromGitHub,
   addVariable,
+  applyNormalizationChanges,
   confirmIssuance,
   createRuntime,
   exportEnv,
+  getNormalizationPlan,
   inspectVariableLive,
   listSecrets,
   listVariables,
@@ -72,6 +75,8 @@ Aufruf: secret-desk <befehl> [optionen]
   team push      Team-Datei ins Repository schieben         --config <datei> [--yes]
   browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
+  inventory normalize  Namen vereinheitlichen und Werte automatisch beziehen: Plan anzeigen (nur Namen, keine Werte)
+                   --config <datei>   [--apply all|<id>,<id>...]   [--yes]   (aendert nur das Inventar, nie GitHub)
   vapid          Neues VAPID-Schluesselpaar ausgeben
   about          Version, Lizenz und Herkunft ausgeben (auch --version)
 `;
@@ -122,6 +127,8 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return rest[0] === "export" ? await envExport(rest.slice(1), io) : usage(io);
       case "team":
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : rest[0] === "status" ? await teamStatusCmd(rest.slice(1), io) : rest[0] === "pull" ? await teamPullCmd(rest.slice(1), io) : rest[0] === "push" ? await teamPushCmd(rest.slice(1), io) : usage(io);
+      case "inventory":
+        return rest[0] === "normalize" ? await normalizeCmd(rest.slice(1), io) : usage(io);
       case "browser":
         return await browserCmd(rest, io);
       case "vapid": {
@@ -142,6 +149,76 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
     io.err(`Fehler: ${(err as Error).message}`);
     return 2;
   }
+}
+
+const NORMALIZE_GROUPS: { kind: NormalizationChange["kind"]; title: string }[] = [
+  { kind: "rename", title: "Umbenennen" },
+  { kind: "provider", title: "Automatisch erzeugen (Anbieter)" },
+  { kind: "source", title: "Automatisch beziehen (Variablen)" },
+  { kind: "stage", title: "Stage" },
+  { kind: "merge", title: "Zusammenfuehren (von Hand)" },
+  { kind: "manual-only", title: "Bleibt von Hand" },
+];
+
+/** Eine Zeile je Aenderung, nur Namen, Stages, Anbieter und Quellen, nie Werte. */
+function describeChange(c: NormalizationChange): string {
+  const b = c.before[0]!;
+  const a = c.after[0];
+  let what = b.name;
+  if (c.kind === "rename" && a) what = `${b.name} -> ${a.name}`;
+  else if (c.kind === "stage" && a) what = `${b.name}: ${b.stage} -> ${a.stage}`;
+  else if (c.kind === "provider" && a) what = `${b.name}: ${b.provider} -> ${a.provider}`;
+  else if (c.kind === "source" && a?.source) what = `${b.name}: ${a.source.kind}.${a.source.field}${a.source.resource ? "" : " (Ressource waehlen)"}`;
+  else if (c.kind === "merge") what = c.before.map((x) => `${x.name} (${x.id})`).join(" + ");
+  const flags = [c.autoApplicable ? "" : "nicht automatisch", c.needsWorkflowChange ? "Workflow anpassen" : "", c.missingParams.length > 0 ? `Parameter: ${c.missingParams.join(", ")}` : ""].filter(Boolean);
+  return `  ${c.id}\n      ${what}\n      ${c.reasons.map((r) => r.text).join("; ")}${flags.length > 0 ? `  [${flags.join("; ")}]` : ""}`;
+}
+
+async function normalizeCmd(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { config: { type: "string" }, apply: { type: "string" }, yes: { type: "boolean" } } });
+  if (!values.config) throw new Error("inventory normalize --config <datei> [--apply all|<id>,<id>...] [--yes]");
+  const rt = await createRuntime(values.config);
+  const plan = getNormalizationPlan(rt);
+  if (plan.changes.length === 0) {
+    io.out("Nichts zu vereinheitlichen.");
+    return 0;
+  }
+  if (!values.apply) {
+    for (const g of NORMALIZE_GROUPS) {
+      const list = plan.changes.filter((c) => c.kind === g.kind);
+      if (list.length === 0) continue;
+      io.out(`${g.title} (${list.length})`);
+      for (const c of list) io.out(describeChange(c));
+    }
+    const open = plan.changes.filter((c) => c.autoApplicable).length;
+    io.out(`${open} Aenderung(en) sind eindeutig. Anwenden mit --apply all oder --apply <id>,<id>. Umbenannte Namen erscheinen in GitHub erst nach angepassten Workflows; danach Parameter vervollstaendigen (Portal: Secrets und Variablen).`);
+    return 0;
+  }
+  const ids = values.apply === "all" ? plan.changes.filter((c) => c.autoApplicable).map((c) => c.id) : values.apply.split(",").map((x) => x.trim()).filter(Boolean);
+  if (ids.length === 0) {
+    io.out("Nichts Eindeutiges anzuwenden.");
+    return 0;
+  }
+  if (!values.yes) {
+    io.out(`${ids.length} Aenderung(en) am Inventar:`);
+    for (const id of ids) {
+      const c = plan.changes.find((x) => x.id === id);
+      if (c) io.out(describeChange(c));
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      if ((await rl.question("Anwenden? Nur das Inventar aendert sich, GitHub bleibt unberuehrt. [j/N] ")).trim().toLowerCase() !== "j") {
+        io.out("Abgebrochen. Nichts geaendert.");
+        return 1;
+      }
+    } finally {
+      rl.close();
+    }
+  }
+  const result = await applyNormalizationChanges(rt, { kind: "human", name: "cli" }, { changeIds: ids });
+  io.out(`${result.applied.length} Aenderung(en) angewendet. GitHub wurde nicht angefasst.`);
+  for (const n of result.needsParams) io.out(`Parameter fehlen noch: ${n.secretId} (${n.missing.join(", ")}). Im Portal: Parameter vervollstaendigen.`);
+  return 0;
 }
 
 function usage(io: Io): number {

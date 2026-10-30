@@ -53,6 +53,8 @@ import {
   addSecret,
   addVariable,
   adoptVariableFromGitHub,
+  applyNormalizationChanges,
+  getNormalizationPlan,
   attachEvidence,
   compareStages,
   confirmIssuance,
@@ -175,6 +177,8 @@ export function sanitizeAgentName(raw: string | null): string {
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
+  // Vereinheitlichung: der Plan zeigt nur Namen, Stages, Anbieter und Parameter-Schluessel, nie Werte. Anwenden nur im Portal.
+  ["GET", /^normalization$/, ({ rt }) => getNormalizationPlan(rt)],
   // Ueber secret-desk: Version, Lizenz, Drittlizenzen. Nur lokale Dateien, keine Werte.
   ["GET", /^about$/, () => readAbout({ rootDir: resolve(process.cwd(), "../.."), thirdPartyFile: resolve(process.cwd(), "third-party.json") })],
   ["GET", /^team-sync\/status$/, ({ rt }) => teamSyncStatus(rt)],
@@ -234,6 +238,8 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^team-sync\/push$/, ({ rt, req, body }) => pushTeamSync(rt, { confirm: body.confirm === true, expectLocalHash: str(body, "expectLocalHash"), expectRemoteSha: typeof body["expectRemoteSha"] === "string" ? (body["expectRemoteSha"] as string) : null, lang: req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de" })],
   ["PUT", /^team-sync\/config$/, async ({ rt, body }) => ({ config: await setupTeamSync(rt, body.teamSync), status: await teamSyncStatus(rt) })],
   ["POST", /^team-sync\/dismiss-setup$/, async ({ rt }) => { await dismissTeamSetup(rt); return teamSyncStatus(rt); }],
+  // Wendet gewaehlte Aenderungen des Plans auf das Inventar an (nie nach GitHub). Agenten bekommen 404.
+  ["POST", /^normalization\/apply$/, ({ rt, actor, body }) => applyNormalizationChanges(rt, actor, body)],
   // Stage-Definitionen aendert nur ein Mensch im Portal (Einstellungen); Agenten lesen sie.
   ["PUT", /^stages$/, ({ rt, body }) => setStages(rt, Array.isArray(body.stages) ? (body.stages as never[]) : (() => { throw new InventoryError("Feld fehlt: stages"); })())],
   // Gestartet wird ein Browser-Lauf ueber renewal-requests (oder die Freigabe); hier nur Zustand und Abbruch. Agenten sehen nichts davon.

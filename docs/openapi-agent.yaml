@@ -42,6 +42,14 @@ paths:
       responses:
         "200": { description: Stages, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/StageView" } } } } }
         default: { $ref: "#/components/responses/Error" }
+  /normalization:
+    get:
+      tags: [Inventory]
+      summary: Read-only plan to normalize names and automatic sources (no values; applying is humans only)
+      operationId: getNormalizationPlan
+      responses:
+        "200": { description: The plan, content: { application/json: { schema: { type: object, required: [changes], properties: { changes: { type: array, items: { type: object } } } } } } }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       tags: [Inventory]

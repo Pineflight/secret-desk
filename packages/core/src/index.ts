@@ -25,3 +25,5 @@ export * from "./compare.js";
 export * from "./workflow-needs.js";
 export * from "./team-sync.js";
 export * from "./variable-sources.js";
+export * from "./naming.js";
+export * from "./normalize.js";

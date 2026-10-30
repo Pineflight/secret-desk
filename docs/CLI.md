@@ -137,6 +137,14 @@ secret-desk team import <file> --inventory <file> [--replace]
 
 `export` writes the configuration without values (stages, secrets, variables, templates, custom providers) to `--out` or to the terminal. `import` merges it into the inventory (created if missing): existing ids stay unchanged, new ones are added, unknown stage ids are added. `--replace` takes the file over completely (local fields `externalId`, `rotatedAt`, `verifiedAt` and `verifiedBy` of secrets with the same id are kept). See [TEAM.md](TEAM.md).
 
+## inventory
+
+```bash
+secret-desk inventory normalize --config <file> [--apply all|<id>,<id>...] [--yes]
+```
+
+Without `--apply` the command prints the normalization plan grouped by kind (rename, provider, source, stage, merge, manual-only): names, stages, providers and parameter keys, never values. With `--apply all` it applies every unambiguous change; with a list of change ids (as printed) only those. It asks for confirmation unless `--yes` is given. Only the inventory file changes: nothing is written to GitHub, issued or revoked. A merge, a manual-only entry or a source without a clear resource cannot be applied and is an error. After a provider switch, complete the parameters in the portal. See [NAMING.md](NAMING.md).
+
 ## browser
 
 ```bash

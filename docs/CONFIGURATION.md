@@ -35,6 +35,7 @@ Annotated examples: [`examples/secret-desk.config.example.yaml`](../examples/sec
 | `providers` | object | `{ grafana: { allowedHosts: [] } }` | Provider-specific settings, see [below](#providers). |
 | `automation` | object | see below | Browser automation for providers without an API. |
 | `compare` | object | `{ ignoreRepos: [".github", ".github-private"] }` | Stage comparison settings. |
+| `naming` | object | `{ renames: {}, keep: [] }` | Exceptions and fixed renames for the naming convention, see [`naming`](#naming). |
 | `server` | object | `{ port: 4747 }` | Portal port. |
 
 ### `vault`
@@ -109,6 +110,15 @@ Browser automation, see [RECIPES.md](RECIPES.md) and [BROWSER-AUTOMATION.md](BRO
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `ignoreRepos` | string[] | `[".github", ".github-private"]` | Repositories that the comparison neither shows nor reads (no GitHub calls, no workflow files). They appear only as *Ignored repositories*. Add, for example, an Upptime `status` repository with foreign template workflows. Setting the field replaces the default list. |
+
+### `naming`
+
+Used by **Normalize** ([NAMING.md](NAMING.md)). Both fields are optional.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `renames` | map name to name | `{}` | Old name to new name. Wins over the generic rules, for cases they cannot know (`MAIL_API_KEY: RESEND_API_KEY`). The new name must be `UPPER_SNAKE_CASE`. |
+| `keep` | string[] | `[]` | Names that are never changed. Wins over `renames`. |
 
 ### `teamSync`
 

@@ -87,6 +87,7 @@ Summary:
 |---|---|
 | `GET overview` | Totals by stage and status, items needing attention |
 | `GET stages` | Stage definitions with usage |
+| `GET normalization` | Read-only plan to normalize names and sources (names, stages, providers, parameter keys; no values). Applying is humans only, see [NAMING.md](NAMING.md) |
 | `GET secrets` | List secrets (metadata) |
 | `GET secrets/:id` | One secret |
 | `POST secrets` | Add a secret entry |

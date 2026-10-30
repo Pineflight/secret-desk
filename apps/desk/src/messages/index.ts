@@ -37,8 +37,10 @@ import compareDe from "./compare.de";
 import compareEn from "./compare.en";
 import paramsDe from "./params.de";
 import paramsEn from "./params.en";
+import normalizeDe from "./normalize.de";
+import normalizeEn from "./normalize.en";
 
 export const messages: Record<"de" | "en", Record<string, string>> = {
-  de: { ...commonDe, ...homeDe, ...entriesDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...aboutDe, ...paletteDe },
-  en: { ...commonEn, ...homeEn, ...entriesEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...aboutEn, ...paletteEn },
+  de: { ...commonDe, ...homeDe, ...entriesDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...normalizeDe, ...aboutDe, ...paletteDe },
+  en: { ...commonEn, ...homeEn, ...entriesEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...normalizeEn, ...aboutEn, ...paletteEn },
 };

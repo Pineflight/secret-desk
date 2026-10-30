@@ -8,6 +8,7 @@ const FILES = [
   "components/ParamsForm.tsx",
   "components/ParamsCard.tsx",
   "components/CompleteParamsDialog.tsx",
+  "components/NormalizeDialog.tsx",
   "components/ConnectionResources.tsx",
   "components/ResourceMap.tsx",
   "components/VariableSource.tsx",

@@ -40,3 +40,13 @@ describe("configuration: compare", () => {
     expect(ConfigSchema.safeParse({ ...BASE, compare: { ignoreRepos: [""] } }).success).toBe(false);
   });
 });
+
+describe("configuration: naming", () => {
+  it("is empty by default", () => {
+    expect(ConfigSchema.parse(BASE).naming).toEqual({ renames: {}, keep: [] });
+  });
+  it("accepts renames and keep, and rejects a new name that is not upper snake case", () => {
+    expect(ConfigSchema.parse({ ...BASE, naming: { renames: { MAIL_API_KEY: "RESEND_API_KEY" }, keep: ["LEGACY_KEY"] } }).naming).toEqual({ renames: { MAIL_API_KEY: "RESEND_API_KEY" }, keep: ["LEGACY_KEY"] });
+    expect(ConfigSchema.safeParse({ ...BASE, naming: { renames: { MAIL_API_KEY: "resend-key" } } }).success).toBe(false);
+  });
+});
