@@ -8,6 +8,7 @@ import { SourceSection, useVariableSources } from "@/components/VariableSource";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
+import { NameHint } from "@/components/NormalizeDialog";
 import { Badge, Button, Checkbox, Notice, Pill, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { placeText } from "@/lib/format";
@@ -118,7 +119,7 @@ export function VariableDetail({ v, sources, drift, comparing, compareError, aut
   return (
     <Dialog title={v.name} description={`${v.id}${v.product ? ` · ${v.product}` : ""}`} onClose={onClose} wide>
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2"><StageBadge stage={v.stage} /></div>
+        <div className="flex flex-wrap items-center gap-2"><StageBadge stage={v.stage} /><NameHint entryId={v.id} /></div>
         {v.description ? <p className="text-sm text-muted-text">{v.description}</p> : <p className="text-xs text-muted">{t("variables.noDescription")}</p>}
         {v.owner || v.link ? <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-text">{v.owner ? <span>{t("variables.owner", { name: v.owner })}</span> : null}{v.link ? <ExternalLink href={v.link} /> : null}</p> : null}
         <div className="flex flex-wrap gap-1">{v.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>)}</div>

@@ -18,6 +18,7 @@ import {
   type SecretEntry,
 } from "./types.js";
 import { StageDefSchema, StageError, resolvePlaces, type StageDef } from "./stages.js";
+import type { VariableSource } from "./variable-sources.js";
 import type { z } from "zod";
 
 export class InventoryError extends Error {
@@ -25,6 +26,20 @@ export class InventoryError extends Error {
     super(message);
     this.name = "InventoryError";
   }
+}
+
+/** Eine Aenderung an einem Eintrag fuer applyEdits: nur diese Felder, alles andere bleibt unveraendert. */
+export interface EntryEdit {
+  kind: "secret" | "variable";
+  id: string;
+  name?: string;
+  stage?: string;
+  /** Nur Secrets. */
+  provider?: string;
+  /** Nur Secrets: setzt diese Parameter-Schluessel, andere Parameter bleiben. */
+  params?: Record<string, unknown>;
+  /** Nur Variablen. */
+  from?: VariableSource;
 }
 
 type Patchable = Pick<SecretEntry, "expires" | "rotatedAt" | "verifiedAt" | "verifiedBy" | "externalId" | "notes" | "ttlDays" | "expiry" | "title" | "description" | "owner" | "link" | "tags" | "product">;
@@ -96,6 +111,29 @@ export class InventoryStore {
       for (const key of remove) this.#doc.deleteIn(["secrets", idx, "params", key]);
       for (const [key, value] of Object.entries(set)) this.#doc.setIn(["secrets", idx, "params", key], this.#doc.createNode(clean(value)));
     }, () => this.getSecret(id)!);
+  }
+
+  /**
+   * Wendet mehrere Aenderungen an Eintraegen auf einmal an (Namen, Stage, Anbieter, Parameter, Quelle). Alles oder nichts:
+   * schlaegt die Validierung oder `verify` fehl, bleibt das Inventar unveraendert. Speichern ist Sache des Aufrufers.
+   * Die Ids der Eintraege bleiben, sie werden hier nie geaendert.
+   */
+  applyEdits(edits: EntryEdit[], verify?: (next: Inventory) => void): void {
+    const index = (kind: "secret" | "variable", id: string): number => {
+      const idx = (kind === "secret" ? this.#data.secrets : this.#data.variables).findIndex((e) => e.id === id);
+      if (idx < 0) throw new InventoryError(kind === "secret" ? `Secret nicht gefunden: ${id}` : `Variable nicht gefunden: ${id}`);
+      return idx;
+    };
+    const targets = edits.map((e) => ({ edit: e, path: [e.kind === "secret" ? "secrets" : "variables", index(e.kind, e.id)] as (string | number)[] }));
+    this.#mutate(() => {
+      for (const { edit, path } of targets) {
+        if (edit.name !== undefined) this.#doc.setIn([...path, "name"], edit.name);
+        if (edit.stage !== undefined) this.#doc.setIn([...path, "stage"], edit.stage);
+        if (edit.provider !== undefined) this.#doc.setIn([...path, "provider"], edit.provider);
+        for (const [key, value] of Object.entries(edit.params ?? {})) this.#doc.setIn([...path, "params", key], this.#doc.createNode(clean(value)));
+        if (edit.from !== undefined) this.#doc.setIn([...path, "from"], this.#doc.createNode(clean(edit.from)));
+      }
+    }, () => verify?.(this.#data));
   }
 
   /** Ersetzt die Standardwerte einer Integration; leer entfernt sie. */

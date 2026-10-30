@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { z } from "zod";
-import { StageSchema } from "./types.js";
+import { SecretName, StageSchema } from "./types.js";
 import type { StageDef } from "./stages.js";
 
 export const SourceSpecSchema = z.discriminatedUnion("type", [
@@ -116,6 +116,15 @@ export const ConfigSchema = z.object({
       ignoreRepos: z.array(z.string().min(1)).default([".github", ".github-private"]),
     })
     .default({ ignoreRepos: [".github", ".github-private"] }),
+  /** Namenskonvention (siehe docs/NAMING.md): Ausnahmen und feste Umbenennungen fuer die Vereinheitlichung des Inventars. */
+  naming: z
+    .object({
+      /** Alter Name -> neuer Name. Geht den allgemeinen Regeln vor, zum Beispiel MAIL_API_KEY -> RESEND_API_KEY. */
+      renames: z.record(z.string().min(1), SecretName).default({}),
+      /** Namen, die nie geaendert werden. */
+      keep: z.array(z.string().min(1)).default([]),
+    })
+    .default({ renames: {}, keep: [] }),
   /** Team-Sync mit einem privaten GitHub-Repository (siehe docs/TEAM.md). Ohne Angabe aus. */
   teamSync: TeamSyncSchema.optional(),
   server: z.object({ port: z.number().int().min(1024).max(65535).default(4747) }).default({ port: 4747 }),

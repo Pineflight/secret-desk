@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Normalize the inventory:** a naming convention for secrets and variables (`UPPER_SNAKE_CASE`, no stage, provider spelled out, no framework prefix, canonical Supabase names, English words; `naming.renames` and `naming.keep` in the configuration) and a **Normalize** action on *Secrets and variables* that previews the changes (rename, stage, switch to a provider, variable sources, collisions, entries that stay manual) and applies the selected or all unambiguous ones. Also `secret-desk inventory normalize` and `GET normalization` / `POST normalization/apply`. Inventory only: nothing is written to GitHub. Entry ids stay. See [docs/NAMING.md](docs/NAMING.md).
+
 ### Changed
 
 - **Secrets and variables in one list:** the pages `/secrets` and `/variables` are now one page, `/entries` ("Secrets and variables"), with one table, a *Kind* column and a *Kind: All | Secrets | Variables* switch (`?kind=secret|variable`). The existing filters apply to both kinds; filters that exist for one kind only (provider, parameters, expiry or comparison states) are marked and never applied silently to the other. The header shows the counts ("117 secrets, 93 variables"), and one **New** action asks for the kind. `/secrets` and `/variables` redirect permanently with the query string kept; `/secrets/:id` is unchanged. Navigation, command palette, Compare, Overview and Repositories link to the new page with filters set. See [docs/ENTRIES.md](docs/ENTRIES.md).

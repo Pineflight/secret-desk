@@ -10,7 +10,7 @@ import { subscribeRefresh } from "@/lib/refresh";
 import { CommandPalette } from "./CommandPalette";
 import { Icon } from "./Icons";
 import { detectPlatform, isPaletteShortcut, isTouchDevice, shortcutLabel, type KeyPlatform } from "@/lib/platform-keys";
-import { Notice } from "./ui";
+import { LaunchForm } from "./LaunchForm";
 
 interface NavItem {
   href: string;
@@ -207,7 +207,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
 
       {paletteOpen ? <CommandPalette shortcut={touch ? "" : shortcutLabel(platform, locale)} onClose={() => setPaletteOpen(false)} /> : null}
-      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{launchRequired ? <div className="mb-6"><Notice tone="warn" title={t("common.err.launchTitle")}>{t("common.err.launch")}</Notice></div> : null}{children}</main>
+      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{launchRequired ? <div className="mx-auto max-w-2xl py-8 sm:py-16"><LaunchForm onSession={() => window.location.reload()} /></div> : children}</main>
     </div>
   );
 }

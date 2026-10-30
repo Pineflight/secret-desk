@@ -13,3 +13,4 @@ export * from "./compare.js";
 export * from "./team-sync.js";
 export * from "./params.js";
 export * from "./about.js";
+export * from "./normalize.js";

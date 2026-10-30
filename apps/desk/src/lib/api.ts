@@ -55,7 +55,8 @@ function takeLaunchSecret(): string | null {
   }
 }
 
-export async function ensureSession(force = false): Promise<SessionInfo> {
+/** launch: Startgeheimnis aus dem Eingabefeld der Startseite; sonst wird ?launch= aus der Adresse gelesen. */
+export async function ensureSession(force = false, launchInput?: string): Promise<SessionInfo> {
   if (force) {
     session = null;
     pending = null;
@@ -63,7 +64,7 @@ export async function ensureSession(force = false): Promise<SessionInfo> {
   if (session) return session;
   if (!pending) {
     pending = (async () => {
-      const launch = takeLaunchSecret();
+      const launch = launchInput ?? takeLaunchSecret();
       const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store", ...(launch ? { headers: { "x-secret-desk-launch": launch } } : {}) });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string; code?: string } | null;

@@ -6,6 +6,7 @@ import type { VerificationReport } from "@secret-desk/core";
 import type { AutomationRunState, IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
 import type { EntryPreflight } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
+import { NameHint } from "@/components/NormalizeDialog";
 import { ParamsCard } from "@/components/ParamsCard";
 import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
 import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
@@ -92,7 +93,7 @@ export default function SecretDetailPage() {
       <p className="mb-2 text-sm"><Link href="/entries?kind=secret" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
       <PageHeader
         title={s.title ?? s.name}
-        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /></span>}
+        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /><NameHint entryId={s.id} /></span>}
         actions={
           <>
             {s.automatic ? <Button variant="primary" disabled={starting || live || paramsBlocked} title={paramsBlocked ? t("params.card.fixFirst") : undefined} onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}

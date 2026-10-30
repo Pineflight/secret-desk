@@ -12,6 +12,7 @@ import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, FilterRow, LIST_CE
 import { PageSearch } from "@/components/PageSearch";
 import { Marked } from "@/components/Marked";
 import { NewEntryDialog } from "@/components/NewEntryDialog";
+import { NormalizeDialog, countApplicable, useNormalizationPlan } from "@/components/NormalizeDialog";
 import { RemoveDialog, VariableDetail, type Auto } from "@/components/VariableDialogs";
 import { SuggestSourcesDialog, useVariableSources } from "@/components/VariableSource";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
@@ -72,6 +73,9 @@ export default function EntriesPage() {
   const [live, setLive] = useState(false);
   const [creating, setCreating] = useState<EntryKind | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [normalizing, setNormalizing] = useState(false);
+  const normalization = useNormalizationPlan();
+  const normalizeCount = countApplicable(normalization.data?.changes ?? []);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const { sources } = useVariableSources();
@@ -271,6 +275,7 @@ export default function EntriesPage() {
                 ) : null}
               </ActionMenu>
             )}
+            <Button onClick={() => setNormalizing(true)} data-testid="normalize-open"><Icon name="wrench" />{t("normalize.button")}{normalizeCount > 0 ? <Pill>{normalizeCount}</Pill> : null}</Button>
             <Button variant="primary" onClick={() => setCreating(initialNewKind(null, kind))}><Icon name="plus" />{t("entries.new")}</Button>
           </>
         }
@@ -390,6 +395,7 @@ export default function EntriesPage() {
       {editing ? <EditMetaDialog path={`variables/${enc(editing.id)}`} initial={metaFrom(editing)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); variables.reload(); }} /> : null}
       {editingSecret ? <EditMetaDialog path={`secrets/${enc(editingSecret.id)}`} initial={metaFrom(editingSecret)} notes={editingSecret.notes} onClose={() => setEditingSecret(null)} onSaved={() => { setEditingSecret(null); secrets.reload(); }} /> : null}
       {removing ? <RemoveDialog v={removing} onClose={() => setRemoving(null)} onDone={() => { setRemoving(null); variables.reload(); }} /> : null}
+      {normalizing ? <NormalizeDialog onClose={() => setNormalizing(false)} onChanged={() => { secrets.reload(); variables.reload(); normalization.reload(); }} onCompleteParams={() => { setNormalizing(false); setCompleting(true); }} /> : null}
       {completing ? <CompleteParamsDialog secrets={secrets.data ?? []} onClose={() => setCompleting(false)} onChanged={secrets.reload} /> : null}
       {creating ? <NewEntryDialog initialKind={creating} sources={sources} prefill={prefill} onClose={() => { setCreating(null); setPrefill(null); }} onCreated={() => { setCreating(null); setPrefill(null); reloadAll(); }} /> : null}
     </>
