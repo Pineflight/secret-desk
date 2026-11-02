@@ -129,6 +129,8 @@ const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
 export function viewerUrlFrom(configured: string | undefined, env: NodeJS.ProcessEnv = process.env): string | null {
   const raw = env[VIEWER_ENV]?.trim() || configured?.trim();
   if (!raw) return null;
+  // A path on the portal's own host ("/browser/vnc.html?..."): the link then follows whichever address the portal was opened with.
+  if (raw.startsWith("/") && !raw.startsWith("//")) return /^\/[^\s\\]*$/.test(raw) ? raw : null;
   try {
     const u = new URL(raw);
     if ((u.protocol !== "http:" && u.protocol !== "https:") || u.username || u.password) return null;

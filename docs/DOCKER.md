@@ -229,7 +229,7 @@ services:
     environment:
       SECRET_DESK_BROWSER_CDP: http://browser:9222
       # Link "Open browser" on the Connections page (the noVNC address from the Caddy route below):
-      SECRET_DESK_BROWSER_VIEWER_URL: http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1&resize=scale
+      SECRET_DESK_BROWSER_VIEWER_URL: /browser/vnc.html?path=browser/websockify&autoconnect=1&resize=scale
     depends_on:
       - browser
 
@@ -299,7 +299,47 @@ http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1&resize=
 
 The browser asks for the Caddy user and password, noVNC then for the VNC password. Over plain HTTP in the LAN both cross the network in clear text, see [Security and HTTPS](#security-and-https): use it only in networks you trust.
 
-Port 6080 on the sidecar is not published; without a reverse proxy in front it must stay that way. If the sidecar stays up unattended, sign in to each provider once per profile: run a recipe, complete the login in the noVNC window, and later runs reuse it.
+Port 6080 on the sidecar is not published; without a reverse proxy in front it must stay that way.
+
+### Credentials: which, from where
+
+Opening the browser takes two passwords. Neither is a provider password, and secret-desk stores neither.
+
+| Prompt | User | Password | Where it comes from |
+|---|---|---|---|
+| Browser dialog *Sign in to desk.local* (HTTP Basic Auth from Caddy) | the user in the `basic_auth` block, e.g. `admin` | the plain password you hashed with `caddy hash-password` | You choose it when you set up the route. Keep it in a file on the host that only you can read, for example `browser-login` next to the compose file (mode `600`). The Caddyfile holds only the hash. |
+| noVNC *Password* | none | the first line of the VNC password file | The file mounted as the compose secret `vnc-password` (`openssl rand -base64 12 > vnc-password`). |
+
+A simple way to create and keep both on the host:
+
+```bash
+cd /srv/secret-desk                       # the folder with docker-compose.yml
+umask 077
+openssl rand -base64 12 > vnc-password && chmod 644 vnc-password
+pw=$(openssl rand -base64 18)
+printf 'user: admin\ncaddy-password: %s\nvnc-password: %s\n' "$pw" "$(cat vnc-password)" > browser-login
+docker compose run --rm caddy caddy hash-password --plaintext "$pw"   # paste the hash into the Caddyfile
+unset pw
+```
+
+Read them later with `cat browser-login` on the host. Never put them into the inventory, a repository or a chat.
+
+### First sign-in to a provider
+
+1. Open the portal, go to *Connections*, section *Browser automation*. *Remote browser* should say *Answers*.
+2. Click *Open browser*. The link follows the address you opened the portal with when `SECRET_DESK_BROWSER_VIEWER_URL` is a
+   path such as `/browser/vnc.html?...`.
+3. Enter the Caddy user and password, then the VNC password (table above). You now see the Chromium of the sidecar.
+4. Close the notices Chromium shows after a restart (*Restore pages?*: close it, do not restore). The banner about
+   `--no-sandbox` is expected, see below.
+5. In the address bar open the provider's sign-in page and sign in as you normally do, including 2FA. Do not let the
+   browser save the password; the session cookie is what later runs need. Choose only necessary cookies in consent banners.
+6. Repeat for every provider that uses a recipe. Close the tabs afterwards if you like; the sign-ins stay in the profile
+   volume and survive restarts and updates.
+7. Runs from the portal now open their own tab in this browser. When a provider asks again (session expired, *Confirm
+   access*, 2FA), the run shows *waiting for you in the browser window*: open the browser again and complete it there.
+
+Sign-ins end when the provider ends the session (days to weeks, depending on the provider). Then repeat step 5 for that provider.
 
 ### What is inside and what it costs
 
