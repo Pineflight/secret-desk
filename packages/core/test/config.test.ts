@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigSchema, loadConfig } from "../src/config.js";
+import { ConfigSchema, loadConfig, parseCdpEndpoint, redactCdpEndpoint } from "../src/config.js";
 
 const BASE = { inventory: "./inventory.yaml", github: { owner: "acme", auth: { type: "pat" } } };
 
@@ -22,6 +22,26 @@ describe("configuration: automation", () => {
     expect(ConfigSchema.safeParse({ ...BASE, automation: { slowMoMs: -1 } }).success).toBe(false);
     expect(ConfigSchema.safeParse({ ...BASE, automation: { chromePath: "" } }).success).toBe(false);
     expect(ConfigSchema.safeParse({ ...BASE, automation: { recipesDirs: [""] } }).success).toBe(false);
+  });
+
+  it("accepts a remote browser endpoint (http, https, ws, wss) and rejects everything else", () => {
+    for (const ok of ["http://browser:9222", "https://b.example/path", "ws://127.0.0.1:9222/devtools/browser/x", "wss://b:1"]) {
+      expect(ConfigSchema.parse({ ...BASE, automation: { cdpEndpoint: ok } }).automation.cdpEndpoint).toBe(ok);
+    }
+    for (const bad of ["", "browser:9222x y", "file:///etc/passwd", "ftp://b", "javascript:alert(1)", "not a url"]) {
+      expect(ConfigSchema.safeParse({ ...BASE, automation: { cdpEndpoint: bad } }).success, bad).toBe(false);
+    }
+  });
+
+  it("parses and redacts endpoints without echoing credentials", () => {
+    expect(redactCdpEndpoint("http://u:p@browser:9222/?token=x#y")).toBe("http://browser:9222");
+    expect(redactCdpEndpoint("ws://b:9222/devtools/browser/abc")).toBe("ws://b:9222/devtools/browser/abc");
+    expect(() => parseCdpEndpoint("ftp://u:hunter2@b")).toThrow(/only http/);
+    try {
+      parseCdpEndpoint("ftp://u:hunter2@b");
+    } catch (e) {
+      expect((e as Error).message).not.toContain("hunter2");
+    }
   });
 
   it("is read from the file", async () => {

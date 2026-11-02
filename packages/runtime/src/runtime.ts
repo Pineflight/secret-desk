@@ -118,6 +118,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     inventoryDir: dirname(resolve(dirname(path), config.inventory)),
     providers,
     evidence,
+    env,
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
   });

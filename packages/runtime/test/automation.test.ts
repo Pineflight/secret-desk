@@ -1,10 +1,12 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { FakeDriver } from "@secret-desk/automation";
 import { IssuanceError } from "@secret-desk/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { AutomationError } from "../src/automation.js";
 import { requestIssuance, resolveApproval, listProviders, listSecrets, getAutomation, getAutomationRun, cancelAutomationRun, PolicyError } from "../src/agent-api.js";
 import { createRuntime } from "../src/runtime.js";
@@ -56,6 +58,7 @@ interface Opts {
   /** Treiberverhalten: true = Token erscheint nach dem Klick, "login" = Anmeldung noetig, "fail" = kein Token. */
   mode?: "ok" | "login" | "fail";
   automation?: string;
+  env?: Record<string, string>;
 }
 
 async function setup(opts: Opts = {}) {
@@ -81,7 +84,7 @@ async function setup(opts: Opts = {}) {
   const mode = opts.mode ?? "ok";
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
-    env: { GH_TEST: "ghp_x" },
+    env: { GH_TEST: "ghp_x", ...(opts.env ?? {}) },
     fetch: fetchMock,
     bundledRecipes: null,
     automationDriver: () => {
@@ -141,9 +144,66 @@ describe("recipes and providers", () => {
 
   it("reports a missing Chrome in the state without failing", async () => {
     const { rt } = await setup({ automation: "automation: { chromePath: /gibt/es/nicht }\n" });
-    const info = getAutomation(rt, human);
+    const info = await getAutomation(rt, human);
     expect(info.chrome).toMatchObject({ found: false, path: null });
     expect(info.chrome.hint).toMatch(/Chrome nicht gefunden/);
+  });
+});
+
+describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
+  let server: Server | undefined;
+  afterEach(() => new Promise<void>((ok) => (server ? server.close(() => ok()) : ok())));
+
+  async function devtools(): Promise<string> {
+    server = createServer((req, res) => {
+      if (req.url === "/json/version") res.end(JSON.stringify({ Browser: "Chrome/140.0.0.0" }));
+      else res.writeHead(404).end();
+    });
+    await new Promise<void>((ok) => server!.listen(0, "127.0.0.1", ok));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  it("is local by default", async () => {
+    const { rt } = await setup();
+    expect((await getAutomation(rt, human)).browser).toEqual({ mode: "local", endpoint: null, reachable: null, browser: null, detail: null });
+  });
+
+  it("reports the mode and that the endpoint answers; no credentials in the output", async () => {
+    const url = await devtools();
+    const withAuth = url.replace("http://", "http://user:s3cret@");
+    const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: withAuth } });
+    const info = await getAutomation(rt, human);
+    expect(info.browser).toEqual({ mode: "remote", endpoint: url, reachable: true, browser: "Chrome/140.0.0.0", detail: null });
+    expect(info.chrome).toMatchObject({ found: false, path: null });
+    expect(JSON.stringify(info)).not.toContain("s3cret");
+  });
+
+  it("takes the endpoint from the configuration; the environment variable wins", async () => {
+    const url = await devtools();
+    const fromConfig = await setup({ automation: `automation: { cdpEndpoint: "${url}" }\n` });
+    expect((await getAutomation(fromConfig.rt, human)).browser).toMatchObject({ mode: "remote", endpoint: url, reachable: true });
+    const overridden = await setup({ automation: `automation: { cdpEndpoint: "${url}" }\n`, env: { SECRET_DESK_BROWSER_CDP: "http://127.0.0.1:9" } });
+    expect((await getAutomation(overridden.rt, human)).browser).toMatchObject({ mode: "remote", endpoint: "http://127.0.0.1:9", reachable: false });
+  });
+
+  it("reports an endpoint that does not answer without failing", async () => {
+    const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: "http://127.0.0.1:9" } });
+    expect((await getAutomation(rt, human)).browser).toMatchObject({ mode: "remote", reachable: false, detail: "The browser endpoint is not reachable." });
+  });
+
+  it("an invalid endpoint is reported, never falls back to a local Chrome, and a run fails", async () => {
+    await sodium.ready;
+    const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: "ftp://u:hunter2@host" } });
+    const info = await getAutomation(rt, human);
+    expect(info.browser).toMatchObject({ mode: "remote", endpoint: null, reachable: false });
+    expect(JSON.stringify(info)).not.toContain("hunter2");
+    const real = await createRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x", SECRET_DESK_BROWSER_CDP: "ftp://u:hunter2@host" }, bundledRecipes: null });
+    const err = await requestIssuance(real, human, "sample-a").then(
+      () => null,
+      (e: Error) => e,
+    );
+    expect(err?.message).toMatch(/only http, https, ws and wss/);
+    expect(err?.message).not.toContain("hunter2");
   });
 });
 
@@ -157,7 +217,7 @@ describe("run", () => {
     expect(st).toMatchObject({ status: "done", issuanceId: r.issuance.id, providerId: "sample-token-browser" });
     const report = await rt.evidence.get("sample-a", r.issuance.id);
     expect(report.attachments.map((a) => a.note)).toEqual(["Browser: vorher", "Browser: nach-erzeugen"]);
-    for (const text of [JSON.stringify(st), JSON.stringify(r), JSON.stringify(getAutomation(rt, human)), JSON.stringify(report)]) expect(text).not.toContain(TOKEN);
+    for (const text of [JSON.stringify(st), JSON.stringify(r), JSON.stringify(await getAutomation(rt, human)), JSON.stringify(report)]) expect(text).not.toContain(TOKEN);
     expect(rt.issuances.get(r.issuance.id)?.value.reveal()).toBe(TOKEN);
   });
 
@@ -242,7 +302,7 @@ describe("agents", () => {
 
   it("may not call state and cancel", async () => {
     const { rt } = await setup();
-    expect(() => getAutomation(rt, agent)).toThrow(PolicyError);
+    await expect(getAutomation(rt, agent)).rejects.toThrow(PolicyError);
     expect(() => getAutomationRun(rt, agent, "sample-a")).toThrow(PolicyError);
     expect(() => cancelAutomationRun(rt, agent, "sample-a")).toThrow(PolicyError);
   });

@@ -16,8 +16,9 @@ generate the value, review it, report with evidence, **a human confirms**, and o
    If a token was already created at the provider, its name appears in the error and in the report so it can be deleted there.
 4. **Recipes are data, not code.** A web interface changes; the fix is then a YAML change via pull request.
    Others on the team can add providers without writing TypeScript.
-5. **Local only, system browser only.** `playwright-core` with the installed Chrome/Chromium (`channel: "chrome"` or
-   `automation.chromePath`); no browser download.
+5. **Your own browser only.** `playwright-core` with the installed Chrome/Chromium (`channel: "chrome"` or
+   `automation.chromePath`), or with a browser you run yourself and reach over the DevTools protocol (`automation.cdpEndpoint`,
+   see [Remote browser](#remote-browser-headless-host)); no browser download.
 6. **No circumvention.** No stealth plugins, no CAPTCHA services, no credentials from files. If a page demands a bot check,
    the human completes it in the window.
 
@@ -63,7 +64,21 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
 - Bundled recipes: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` as a scaffold (marked unverified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
-- Configuration: `automation: { enabled?, chromePath?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
+- Configuration: `automation: { enabled?, chromePath?, cdpEndpoint?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
+
+## Remote browser (headless host)
+
+On a host without a display, such as a Raspberry Pi with Raspberry Pi OS Lite, the browser runs in a sidecar container and secret-desk connects to it:
+
+- `automation.cdpEndpoint` (or the environment variable `SECRET_DESK_BROWSER_CDP`, which wins), for example `http://browser:9222`. Only `http`, `https`, `ws` and `wss` are accepted. The address is never logged or shown with credentials, query or fragment.
+- The driver uses `chromium.connectOverCDP` and the browser's **default context**, so the persistent profile (cookies) lives in the sidecar, not in secret-desk. `chromePath`, `profileDir` and `headless` are ignored.
+- Every run opens **its own tab** (and closes it, with popups it opened, at the end) and then only **disconnects**. The remote browser, its profile and the tabs you keep open are never closed. Cancelling a run behaves the same.
+- A host name is resolved to an IP address before connecting, because Chromium answers DevTools requests only for IP or `localhost` in the `Host` header.
+- Principles stay: you sign in yourself, in the sidecar's browser window through noVNC; when a provider asks again, the run pauses ("waiting for you in the browser window") and you complete it there.
+- `secret-desk browser doctor` and the portal (*Connections*) report the mode and whether the endpoint answers (`/json/version`; no page content).
+- **Port 9222 gives full control over a signed-in browser.** It belongs on a private network between the two containers and must never be published or proxied.
+
+Setup, compose file and Caddy route: [DOCKER.md](DOCKER.md#browser-on-the-pi).
 
 ## Platforms
 Chrome is searched for in the usual locations: macOS (`/Applications`), Linux (`google-chrome`, `chromium`, `chromium-browser`, Edge under `/usr/bin`, Snap, Flatpak),

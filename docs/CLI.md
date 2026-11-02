@@ -148,14 +148,16 @@ Without `--apply` the command prints the normalization plan grouped by kind (ren
 ## browser
 
 ```bash
-secret-desk browser doctor [--recipes <dir>]... [--chrome-path <path>] [--profile-dir <dir>]
-secret-desk browser run <recipe-id> --dry [--recipes <dir>]... [--chrome-path <path>] [--profile-dir <dir>]
+secret-desk browser doctor [--recipes <dir>]... [--chrome-path <path>] [--profile-dir <dir>] [--cdp <url>]
+secret-desk browser run <recipe-id> --dry [--recipes <dir>]... [--chrome-path <path>] [--profile-dir <dir>] [--cdp <url>]
                         [--name <n>] [--owner <o>] [--days <n>] [--date <YYYY-MM-DD>] [--description <text>]
                         [--repos a,b] [--permissions k=v,k=v] [--stage <id>] [--secret-id <id>]
                         [--login-timeout <minutes>] [--out <dir>]
 ```
 
 `browser doctor` checks that `playwright-core` is installed, finds Chrome, shows the profile folder, and loads and validates all recipes (the bundled ones plus `--recipes` folders), printing each recipe's `# STATUS` comment. Exit `1` if anything fails.
+
+`--cdp <url>` (or the environment variable `SECRET_DESK_BROWSER_CDP`) selects a remote browser, for example the sidecar from [DOCKER.md](DOCKER.md#browser-on-the-pi). Then `browser doctor` prints the mode and asks the endpoint for its version instead of looking for a local Chrome and the profile folder, and `browser run` uses that browser. The address is shown without credentials.
 
 `browser run <id> --dry` opens a visible browser and runs the recipe **up to, but not including,** the step that creates the token (the step marked `createsToken: true`). You sign in in the window yourself. Nothing is created. Real runs are started from the portal. Variables for the recipe come from the options (`--name`, `--owner`, `--days`, ...); defaults: name `<recipe>-probe-<date>`, `days` 30, stage `dev`, secret id `probelauf`. `--out <dir>` saves the evidence screenshots as PNG files. Press Ctrl+C to abort. See [RECIPES.md](RECIPES.md).
 
