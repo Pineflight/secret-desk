@@ -1,6 +1,7 @@
 import type { DiscoveredOption, DiscoverContext } from "@secret-desk/core";
 import { asList, getJson, str } from "./discover.js";
 import { ProviderError } from "./http.js";
+import { readRevenueCatField } from "./revenuecat.js";
 
 const SUPABASE = "https://api.supabase.com";
 
@@ -9,7 +10,8 @@ const SUPABASE = "https://api.supabase.com";
  * Felder. Der oeffentliche Supabase-Schluessel kommt aus der Schluesselliste OHNE reveal und nur aus Eintraegen vom Typ
  * publishable bzw. anon; service_role und secret werden nie ausgewaehlt.
  */
-export async function readVariableField(kind: string, field: string, option: DiscoveredOption, ctx: Pick<DiscoverContext, "connections" | "fetch">): Promise<string> {
+export async function readVariableField(kind: string, field: string, option: DiscoveredOption, ctx: Pick<DiscoverContext, "connections" | "fetch"> & { params?: Record<string, unknown> }): Promise<string> {
+  if (kind.startsWith("revenuecat.")) return readRevenueCatField(kind, field, option, ctx);
   const id = String(option.value);
   switch (`${kind}:${field}`) {
     case "supabase.project:ref":

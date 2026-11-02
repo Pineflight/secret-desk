@@ -389,3 +389,40 @@ variables:
     for (const v of [VALUE_URL, VALUE_ACCOUNT, SECRET_LIKE]) expect(text).not.toContain(v);
   });
 });
+
+describe("RevenueCat source suggestions", () => {
+  const YML = `version: 1
+variables:
+  - id: rc-project
+    name: REVENUECAT_PROJECT_ID
+    stage: production
+    value: proj1ab2c3d4
+    places: [{ repo: web, scope: repository }]
+  - id: rc-web-app
+    name: REVENUECAT_WEB_APP_ID
+    stage: production
+    value: app1ab2c3d4
+    places: [{ repo: web, scope: repository }]
+  - id: rc-ios
+    name: REVENUECAT_IOS_SDK_KEY
+    stage: production
+    value: null
+    places: [{ repo: web, scope: repository }]
+  - id: rc-sandbox
+    name: REVENUECAT_SANDBOX_SDK_KEY
+    stage: production
+    value: null
+    places: [{ repo: web, scope: repository }]
+`;
+  const src = (id: string) => find(planOf(YML).changes, `source:variable:${id}`)!;
+  it("suggests the project and app id sources and resolves the resource from the value", () => {
+    expect(src("rc-project").after[0]!.source).toEqual({ connection: "revenuecat", kind: "revenuecat.project", field: "id", resource: "proj1ab2c3d4" });
+    expect(src("rc-project").autoApplicable).toBe(true);
+    expect(src("rc-web-app").after[0]!.source).toMatchObject({ kind: "revenuecat.app", field: "id", resource: "app1ab2c3d4" });
+  });
+  it("suggests the SDK key sources but leaves the app to choose", () => {
+    expect(src("rc-ios").after[0]!.source).toEqual({ connection: "revenuecat", kind: "revenuecat.publicApiKey", field: "production", resource: null });
+    expect(src("rc-ios").autoApplicable).toBe(false);
+    expect(src("rc-sandbox").after[0]!.source).toMatchObject({ field: "sandbox", resource: null });
+  });
+});

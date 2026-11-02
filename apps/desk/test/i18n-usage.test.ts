@@ -41,7 +41,7 @@ describe("i18n keys used by the parameter screens", () => {
       expect(messages.de[`params.problem.${code}`]).toBeTruthy();
       expect(messages.en[`params.problem.${code}`]).toBeTruthy();
     }
-    for (const kind of ["cloudflare.account", "cloudflare.zone", "cloudflare.permissionGroups", "cloudflare.turnstileWidget", "supabase.project", "resend.domain", "grafana.serviceAccount"]) {
+    for (const kind of ["cloudflare.account", "cloudflare.zone", "cloudflare.permissionGroups", "cloudflare.turnstileWidget", "supabase.project", "resend.domain", "revenuecat.project", "revenuecat.app", "revenuecat.publicApiKey", "grafana.serviceAccount"]) {
       expect(messages.de[`params.kind.${kind}`]).toBeTruthy();
     }
     for (const key of ["params.conn.empty.cloudflare.account", "params.conn.empty.cloudflare.zone"]) {

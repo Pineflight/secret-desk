@@ -73,6 +73,12 @@ Why: creates, lists and revokes Resend API keys.
 
 An API key with **Full access** (only this type can manage API keys). The keys secret-desk creates are narrow: *Sending access*, optionally limited to a domain.
 
+### RevenueCat (`revenuecat`)
+
+Why: reads projects, apps and **public** SDK keys so variables such as the project id, the app ids and the SDK keys do not have to be typed. Read only.
+
+A **v2 secret API key** (starts with `sk_`; v1 keys do not work with API v2) with **Project configuration: Read only** and every other area on `None`. Create it under Project settings, API keys, "+ New secret API key" (`https://app.revenuecat.com/projects/<project id>/api-keys/new`). The key is never written anywhere by secret-desk; only public values and identifiers are read from it.
+
 ### Grafana Cloud (`grafana`)
 
 Why: creates and revokes tokens of service accounts in a Grafana stack.
@@ -91,6 +97,7 @@ Besides the permissions above, each card has **Resources and defaults**. The por
 | Cloudflare Turnstile (`cloudflare-turnstile`) | accounts, Turnstile widgets | *Account > Turnstile > Edit* lists the widgets of the account; the account list needs a read permission as well, otherwise enter `accountId` by hand. | `accountId` |
 | Supabase (`supabase`) | projects | The optional *Projects* Read (see above). Without it the list is empty or unreadable: enter the project ref by hand. | none |
 | Resend (`resend`) | domains and their verification status | Domains can only be listed with **Full access** (the same key type the connection needs anyway). | none |
+| RevenueCat (`revenuecat`) | projects, apps (with type) and, for variables, the public SDK keys of an app | *Project configuration: Read only* (`project_configuration:projects:read` and `project_configuration:apps:read`). | `projectId` |
 | Grafana (`grafana`) | service accounts of the stack | The Admin service account of the connection; needs the stack address first. | `baseUrl` |
 | GitHub, Stripe | nothing | | none |
 
@@ -107,6 +114,7 @@ A button on every connected card (`POST /api/ui/connections/<id>/check`, portal 
 | Supabase | `GET /v1/organizations` | token valid |
 | Stripe | `GET /v1/balance` | key valid and mode; a 403 on a restricted key is normal (information) |
 | Resend | `GET /api-keys` | 401 or 403 means the key lacks Full access |
+| RevenueCat | `GET /v2/projects?limit=1` | 401 invalid key, 403 lacks *Project configuration: Read only*, 429 rate limit (60 requests per minute), a key not starting with `sk_` is flagged |
 | Grafana | none | Cannot be tested without a stack address; checked when issuing |
 | GitHub App key | none | Checked on first access: test through the GitHub connection |
 

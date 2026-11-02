@@ -239,6 +239,7 @@ function defaultSpecsOf(providers: Provider[]): ParamSpec[] {
 function kindsOf(providers: Provider[]): Map<string, Provider> {
   const out = new Map<string, Provider>();
   for (const p of providers) for (const s of p.params ?? []) if (s.discover && p.discover && !out.has(s.discover)) out.set(s.discover, p);
+  for (const p of providers) for (const k of p.discoverKinds ?? []) if (p.discover && !out.has(k)) out.set(k, p);
   return out;
 }
 
@@ -420,10 +421,12 @@ export async function listVariableSources(rt: Runtime, actor: Actor) {
 async function readSource(rt: Runtime, src: VariableSource, hint: DiscoverHint, params: Record<string, unknown> = {}): Promise<{ value: string; label: string }> {
   const provider = kindsOf(providersOf(rt, src.connection)).get(src.kind);
   if (!provider?.discover) throw new InventoryError(`Unbekannte Quelle: ${src.kind}`);
-  const options = await provider.discover(src.kind, { connections: rt.connections, fetch: rt.fetch, params, hint, providerConfig: rt.config.providers });
+  // Integration defaults (for example the RevenueCat project) fill what the call does not name.
+  const effective = { ...(rt.inventory.data.integrationDefaults?.[src.connection] ?? {}), ...params };
+  const options = await provider.discover(src.kind, { connections: rt.connections, fetch: rt.fetch, params: effective, hint, providerConfig: rt.config.providers });
   const option = options.find((o) => String(o.value) === src.resource);
   if (!option) throw new InventoryError(`Die Ressource ${src.resource} gibt es in der Verbindung ${src.connection} nicht.`);
-  const value = await readVariableField(src.kind, src.field, option, { connections: rt.connections, fetch: rt.fetch });
+  const value = await readVariableField(src.kind, src.field, option, { connections: rt.connections, fetch: rt.fetch, params: effective });
   return { value, label: option.label };
 }
 

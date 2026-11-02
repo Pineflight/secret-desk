@@ -12,6 +12,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `stripe-webhook-secret` | automatic | `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified** |
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
+| `revenuecat-secret-key` | manual (carries the discovery for variable sources) | `revenuecat` | API reference read (list endpoints, field names, permissions); public key prefixes **not verified** |
 | `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `openai`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
 
 **Before the first real use**, test every `automatic` provider with a throwaway entry in dev or staging.
@@ -32,6 +33,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
 | `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `connection` (optional, forces `stripe-test`, `stripe-live` or `stripe`) |
 | `resend-api-key` | `permission`: `sending_access` (default) or `full_access`; `domainId` (required for `sending_access`: the key is limited to this domain; not used for `full_access`) |
+| `revenuecat-secret-key` (manual) | `projectId` (optional, integration default allowed): project that apps and public SDK keys are read from; without it the apps of every project of the connection are listed |
 | `grafana-service-account-token` | `baseUrl` (required, https, no port; host must be `*.grafana.net` or in `providers.grafana.allowedHosts`), `serviceAccountId` (integer, required) |
 | `github-fine-grained-token` (manual) | optional `params.permissions`, a map such as `{ contents: read, metadata: read }`, prefills the GitHub token form (together with `ttlDays`, the description and the configured owner) |
 | other manual providers | none |
@@ -59,9 +61,12 @@ New read endpoints (all `GET`, with the stored token of the integration). **Not 
 | `GET api.supabase.com/v1/projects` | projects (`ref` or `id`, `name`) | not verified |
 | `GET api.supabase.com/v1/projects/<ref>/api-keys` (without `reveal`) | public key for variables | not verified |
 | `GET api.resend.com/domains` | domains with status | not verified |
+| `GET api.revenuecat.com/v2/projects` | projects (`items[].id`, `name`), forward pagination (`limit` 1-100, `starting_after`) | API reference read |
+| `GET api.revenuecat.com/v2/projects/<id>/apps` | apps (`items[].id`, `name`, `type`) | API reference read; values of `type` seen in the reference: `app_store`, `mac_app_store`, `play_store`, `amazon`, `stripe`, `rc_billing`, `paddle`, `roku`, `galaxy`, `test_store`, `external` |
+| `GET api.revenuecat.com/v2/projects/<id>/apps/<app>/public_api_keys` | public SDK keys (`items[].key`, `environment` = `production` or `sandbox`, `created_at`) | API reference read. Sandbox keys are always listed; RC Checkout keys are omitted; production keys of Stripe/Web Billing apps are omitted when the linked Stripe account is test-only. **Not verified:** the key prefixes (`appl_`, `goog_`, `amzn_`, `rcb_`, `rcb_sb_`, `strp_`, `roku_`) and the exact shape of `next_page` (a URL according to the reference; secret-desk never follows it and continues with `starting_after` = id of the last item) |
 | `GET <baseUrl>/api/health`, `GET <baseUrl>/api/serviceaccounts/search` | Grafana reachability, service accounts | not verified |
 
-Variables can load their value from a source (`from: { connection, kind, resource, field }`), with a fixed allowlist of public fields only: Supabase `ref`, `url`, `publishableKey` (never `service_role` or secret keys); Cloudflare `accountId`, `zoneId`, zone `name`, Turnstile `sitekey`; Resend `domainId`, `name`. Not implemented: Grafana stack (`grafana.stack`: needs the Grafana Cloud API) and a Stripe publishable key (no read endpoint with a restricted key).
+Variables can load their value from a source (`from: { connection, kind, resource, field }`), with a fixed allowlist of public fields only: Supabase `ref`, `url`, `publishableKey` (never `service_role` or secret keys); Cloudflare `accountId`, `zoneId`, zone `name`, Turnstile `sitekey`; Resend `domainId`, `name`; RevenueCat project `id`, `name`, app `id`, `name`, `type`, and the public SDK keys `production` and `sandbox` of an app (never a secret key; if an app has several keys for an environment, the newest by `created_at` is used). Not implemented: Grafana stack (`grafana.stack`: needs the Grafana Cloud API) and a Stripe publishable key (no read endpoint with a restricted key).
 
 ## RevenueCat via the browser
 
@@ -85,6 +90,7 @@ Create each token with no more than this. The **Test connection** button on the 
 | `supabase` | Access token with *API Keys* Read-write and *API Key Secrets* Read (optionally *Project Settings* Read, *Projects* Read). The token never exceeds your own role (Owner or Admin). |
 | `stripe`, `stripe-test`, `stripe-live` | Restricted key: *Webhook Endpoints* Write, everything else None. Optionally *Balance* Read, so the test can confirm the key. |
 | `resend` | API key with *Full access*. Only this type can manage API keys. |
+| `revenuecat` | v2 secret key with *Project configuration: Read only*, everything else `None`. Read only; public values and identifiers only. |
 | `grafana` | Service account token (role Admin) of the stack. |
 
 ### Stripe: test and live
@@ -96,7 +102,7 @@ then the general `stripe` connection. Existing setups with only `stripe` keep wo
 Each connected integration has a **Test connection** button (`POST /api/ui/connections/<id>/check`, portal only, never available to agents). It makes read-only calls:
 GitHub `GET /user` (login and token expiry from the `github-authentication-token-expiration` header) plus a public-key read per inventory target; Cloudflare `GET /user/tokens/verify`
 (status and `expires_on`; an expiry beyond 7 days gets a recommendation to shorten it); Supabase `GET /v1/organizations`; Stripe `GET /v1/balance` (a 403 on a restricted key is normal and shown as information; the mode comes from the key prefix);
-Resend `GET /api-keys` (401/403 means the key lacks *Full access*). Grafana cannot be tested without a stack address. An expiry reported by the provider is shown on the card in place of the manual entry.
+Resend `GET /api-keys` (401/403 means the key lacks *Full access*). RevenueCat `GET /v2/projects?limit=1`. Grafana cannot be tested without a stack address. An expiry reported by the provider is shown on the card in place of the manual entry.
 GitHub also offers an opt-in *write test*, see [SECURITY-MODEL.md](SECURITY-MODEL.md#write-test).
 
 ## What providers do not offer

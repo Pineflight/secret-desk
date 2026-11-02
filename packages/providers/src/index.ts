@@ -4,6 +4,7 @@ import { grafanaProviders } from "./grafana.js";
 import { manualProviders } from "./manual.js";
 import { randomProviders } from "./random.js";
 import { resendProviders } from "./resend.js";
+import { revenueCatProviders } from "./revenuecat.js";
 import { stripeProviders } from "./stripe.js";
 import { supabaseProviders } from "./supabase.js";
 
@@ -13,6 +14,7 @@ export * from "./cloudflare.js";
 export * from "./supabase.js";
 export * from "./stripe.js";
 export * from "./resend.js";
+export * from "./revenuecat.js";
 export * from "./grafana.js";
 export * from "./manual.js";
 
@@ -24,6 +26,7 @@ export function createDefaultRegistry(): ProviderRegistry {
     ...supabaseProviders,
     ...stripeProviders,
     ...resendProviders,
+    ...revenueCatProviders,
     ...grafanaProviders,
     ...manualProviders,
   ]) {

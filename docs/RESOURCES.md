@@ -85,6 +85,11 @@ A variable can take its expected value from a resource of an integration instead
 | `cloudflare.zone` | `cloudflare` | `zoneId`, `name` |
 | `cloudflare.turnstileWidget` | `cloudflare-turnstile` | `sitekey` |
 | `resend.domain` | `resend` | `domainId`, `name` |
+| `revenuecat.project` | `revenuecat` | `id`, `name` |
+| `revenuecat.app` | `revenuecat` | `id`, `name`, `type` (needs the project, see below) |
+| `revenuecat.publicApiKey` | `revenuecat` | `production`, `sandbox` (public SDK keys of the app; newest key wins if several exist) |
+
+RevenueCat apps and SDK keys belong to a project. Several projects work like this: `revenuecat.project` lists the projects of the key; for `revenuecat.app` and `revenuecat.publicApiKey` the call (`params.projectId`) or the integration default `projectId` names the project. Without either, the apps of **all** projects of the key are listed (label: name and type; detail: app id and project name), and the project of the chosen app is found by looking it up. The key is limited to 60 requests per minute (Project configuration domain), so with many projects name the project.
 
 Not offered: the Grafana stack address and a Stripe publishable key (no usable read endpoint).
 
@@ -105,6 +110,7 @@ The same list as in [PROVIDERS.md](PROVIDERS.md#parameters-per-provider), with t
 | `supabase-service-role` | `projectRef`, `url` | `projectRef` yes | as above | as above |
 | `resend-api-key` | `permission` | no, default `sending_access` | fixed: `sending_access`, `full_access` | none |
 | | `domainId` | yes if `permission` is `sending_access` (also when omitted), not used for `full_access` | domains of the account | domain name contains the repository, exactly one hit |
+| `revenuecat-secret-key` | `projectId` | no (integration default allowed) | projects of the key | only if exactly one project |
 | `grafana-service-account-token` | `baseUrl` | yes (integration default allowed) | typed by hand | none |
 | | `serviceAccountId` | yes | service accounts of the stack at `baseUrl` | only if the stack has exactly one |
 | `stripe-webhook-secret` | `url`, `events` | yes | typed by hand | none |
@@ -136,7 +142,7 @@ resourceMap:
 
 | Field | Meaning |
 |---|---|
-| `kind` | The discovery kind: `supabase.project`, `cloudflare.zone`, `cloudflare.account`, `resend.domain`, `grafana.serviceAccount`. |
+| `kind` | The discovery kind: `supabase.project`, `cloudflare.zone`, `cloudflare.account`, `resend.domain`, `revenuecat.project`, `grafana.serviceAccount`. |
 | `repo` | Repository the entry applies to (a repository of one of the places of the secret). |
 | `stage` | Optional stage id. Without it the entry applies to all stages; an entry with a matching stage wins over one without. |
 | `value` | The id of the resource, the same value the list returns. |
@@ -158,6 +164,7 @@ Rules:
 | Cloudflare Turnstile | account belongs to the token | account not in the token's accounts | list not readable |
 | Supabase | project belongs to the access token | project not in the list | project name suggests another stage than the entry; list not readable; no projects returned |
 | Resend | domain exists in the account | domain not found | domain not verified; `full_access` (applies to the whole account); list not readable |
+| RevenueCat | none (discovery only) | | |
 | Grafana | address allowed and reachable; service account exists | address not allowed or not reachable; service account not in the stack | list not readable; no service accounts returned |
 | Stripe, random, manual | none | | |
 

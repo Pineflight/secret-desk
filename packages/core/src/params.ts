@@ -246,6 +246,7 @@ export const SUGGEST_MODES: Record<string, "name" | "repo" | "sole"> = {
   "supabase.project": "name",
   "cloudflare.zone": "repo",
   "resend.domain": "repo",
+  "revenuecat.project": "sole",
   "cloudflare.account": "sole",
   "grafana.serviceAccount": "sole",
 };

@@ -40,7 +40,7 @@ export interface OverviewSummary {
   paramsMissing: number;
 }
 
-const NAMES: Record<string, string> = { github: "GitHub", cloudflare: "Cloudflare", supabase: "Supabase", stripe: "Stripe", "stripe-test": "Stripe (Test)", "stripe-live": "Stripe (Live)", resend: "Resend", grafana: "Grafana" };
+const NAMES: Record<string, string> = { github: "GitHub", cloudflare: "Cloudflare", supabase: "Supabase", stripe: "Stripe", "stripe-test": "Stripe (Test)", "stripe-live": "Stripe (Live)", resend: "Resend", revenuecat: "RevenueCat", grafana: "Grafana" };
 
 /** Anzeigename: Beschriftung der Verbindung, sonst bekannter Name, sonst die Id. */
 export const integrationName = (id: string, label?: string): string => label || NAMES[id] || id;

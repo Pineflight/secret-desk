@@ -66,6 +66,37 @@ export const VARIABLE_SOURCES: readonly VariableSourceKind[] = [
       { field: "name", label: "Domainname", labelEn: "Domain name" },
     ],
   },
+  {
+    kind: "revenuecat.project",
+    connection: "revenuecat",
+    label: "RevenueCat-Projekt",
+    labelEn: "RevenueCat project",
+    fields: [
+      { field: "id", label: "Projekt-Kennung", labelEn: "Project id" },
+      { field: "name", label: "Projektname", labelEn: "Project name" },
+    ],
+  },
+  {
+    kind: "revenuecat.app",
+    connection: "revenuecat",
+    label: "RevenueCat-App",
+    labelEn: "RevenueCat app",
+    fields: [
+      { field: "id", label: "App-Kennung", labelEn: "App id" },
+      { field: "name", label: "App-Name", labelEn: "App name" },
+      { field: "type", label: "App-Typ", labelEn: "App type" },
+    ],
+  },
+  {
+    kind: "revenuecat.publicApiKey",
+    connection: "revenuecat",
+    label: "RevenueCat SDK-Schluessel (oeffentlich)",
+    labelEn: "RevenueCat SDK key (public)",
+    fields: [
+      { field: "production", label: "Produktion (oeffentlicher SDK-Schluessel)", labelEn: "Production (public SDK key)" },
+      { field: "sandbox", label: "Sandbox (oeffentlicher SDK-Schluessel)", labelEn: "Sandbox (public SDK key)" },
+    ],
+  },
 ];
 
 export const variableSourceKind = (kind: string): VariableSourceKind | undefined => VARIABLE_SOURCES.find((k) => k.kind === kind);

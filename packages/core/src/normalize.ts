@@ -94,7 +94,11 @@ const REF_RE = /^[a-z0-9]{20}$/;
 const SUPABASE_URL_RE = /^https:\/\/([a-z0-9]{20})\.supabase\.co\/?$/;
 const CLOUDFLARE_ID_RE = /^[a-f0-9]{32}$/;
 const SITEKEY_RE = /^0x[A-Za-z0-9_-]{8,}$/;
+const REVENUECAT_PROJECT_RE = /^proj[A-Za-z0-9]+$/;
+const REVENUECAT_APP_RE = /^app[A-Za-z0-9]+$/;
 const SOURCE_RULES: Record<string, SourceRule> = {
+  REVENUECAT_PROJECT_ID: { kind: "revenuecat.project", field: "id", fromValue: (v) => (REVENUECAT_PROJECT_RE.test(v) ? v : null), defaultKey: { connection: "revenuecat", key: "projectId" } },
+  REVENUECAT_WEB_APP_ID: { kind: "revenuecat.app", field: "id", fromValue: (v) => (REVENUECAT_APP_RE.test(v) ? v : null) },
   SUPABASE_URL: { kind: "supabase.project", field: "url", fromValue: (v) => SUPABASE_URL_RE.exec(v)?.[1] ?? null },
   SUPABASE_PROJECT_REF: { kind: "supabase.project", field: "ref", fromValue: (v) => (REF_RE.test(v) ? v : null) },
   SUPABASE_PUBLISHABLE_KEY: { kind: "supabase.project", field: "publishableKey" },
@@ -102,6 +106,15 @@ const SOURCE_RULES: Record<string, SourceRule> = {
   CLOUDFLARE_ZONE_ID: { kind: "cloudflare.zone", field: "zoneId", fromValue: (v) => (CLOUDFLARE_ID_RE.test(v) ? v : null) },
   TURNSTILE_SITE_KEY: { kind: "cloudflare.turnstileWidget", field: "sitekey", fromValue: (v) => (SITEKEY_RE.test(v) ? v : null) },
 };
+
+/** REVENUECAT_*SDK_KEY: the public SDK key of one app; the app (resource) has to be chosen, SANDBOX in the name picks the sandbox key. */
+const REVENUECAT_SDK_KEY_RE = /^REVENUECAT_(?:[A-Z0-9]+_)*SDK_KEY$/;
+function sourceRuleOf(target: string): SourceRule | undefined {
+  const exact = SOURCE_RULES[target];
+  if (exact) return exact;
+  if (REVENUECAT_SDK_KEY_RE.test(target)) return { kind: "revenuecat.publicApiKey", field: /(^|_)SANDBOX(_|$)/.test(target) ? "sandbox" : "production" };
+  return undefined;
+}
 
 /**
  * Secrets, deren Wert ein Anbieter erzeugen kann: Name (nach der Umbenennung) -> Anbieter, feste Parameter und die
@@ -314,7 +327,7 @@ function secretChanges(row: Row, before: NormalizationEntryState): Normalization
 
 function variableChanges(inv: Inventory, row: Row, before: NormalizationEntryState): NormalizationChange[] {
   const v = row.entry as VariableEntry;
-  const rule = SOURCE_RULES[row.target];
+  const rule = sourceRuleOf(row.target);
   if (v.from || !rule) return [];
   const kind = variableSourceKind(rule.kind);
   if (!kind) return [];

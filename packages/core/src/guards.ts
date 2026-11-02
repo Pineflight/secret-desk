@@ -18,6 +18,8 @@ const BLOCK_PREFIXES: [RegExp, string][] = [
   [/^AKIA[0-9A-Z]{16}$/, "AWS-Zugangsschluessel"],
   [/^re_[A-Za-z0-9_]{20,}/, "Resend-Key"],
   [/^sb_secret_/, "Supabase Secret Key"],
+  // RevenueCat v2 secret keys (sk_ + random). Stripe's sk_live_/sk_test_ match the rule above first.
+  [/^sk_[A-Za-z0-9_]{16,}/, "RevenueCat Secret Key"],
   [/^cfut_/, "Cloudflare-Token"],
   [/^glsa_/, "Grafana-Service-Account-Token"],
   [/^[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@/i, "Verbindungsstring mit Passwort"],
@@ -46,8 +48,15 @@ function entropy(s: string): number {
   return h;
 }
 
+/**
+ * RevenueCat public SDK keys (appl_, goog_, amzn_, rcb_, rcb_sb_, strp_, roku_) ship inside client apps and are public by design.
+ * The prefix list is taken from RevenueCat's SDK documentation and not verified against the API reference.
+ */
+const PUBLIC_SDK_KEY = /^(appl|goog|amzn|rcb_sb|rcb|strp|roku)_[A-Za-z0-9]{16,}$/;
+
 export function looksSecret(name: string, value: string): SecretLikeFinding | null {
   for (const [re, label] of BLOCK_PREFIXES) if (re.test(value)) return { level: "block", reason: `Sieht aus wie ein ${label}. Als Secret anlegen, nicht als Variable.` };
+  if (PUBLIC_SDK_KEY.test(value)) return null;
   const role = jwtRole(value);
   if (role === "service_role") return { level: "block", reason: "Supabase Service-Role-Schluessel. Als Secret anlegen." };
   if (role !== null) return { level: "warn", reason: "JWT (zum Beispiel Supabase Anon Key). Nur in Ordnung, wenn der Schluessel oeffentlich ist." };

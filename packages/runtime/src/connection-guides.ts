@@ -178,6 +178,18 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
           "Full access (nur dieser Typ darf API-Keys verwalten; \"Sending access\" kann nur Mails senden)",
         ],
       };
+    case "revenuecat":
+      return {
+        label: "RevenueCat",
+        description: "Liest Projekte, Apps und oeffentliche SDK-Schluessel von RevenueCat, damit Variablen wie Projekt-Kennung und SDK-Schluessel nicht abgetippt werden. Nur lesend.",
+        url: "https://app.revenuecat.com",
+        steps: [
+          "Im RevenueCat-Dashboard das Projekt oeffnen: Project settings, API keys, \"+ New secret API key\" (Direktlink: https://app.revenuecat.com/projects/<Projekt-Kennung>/api-keys/new).",
+          "Version v2 waehlen und bei \"Project configuration\" die Berechtigung \"Read only\" setzen, alle anderen Bereiche auf \"None\".",
+          "Schluessel kopieren (er beginnt mit sk_) und unten einfuegen. Ein v1-Schluessel funktioniert mit der API v2 nicht.",
+        ],
+        permissions: ["Project configuration: Read only (Projekte, Apps und oeffentliche Schluessel lesen)", "Alle anderen Bereiche: None"],
+      };
     case "grafana":
       return {
         label: "Grafana Cloud",
@@ -207,6 +219,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
  * Gibt eine Fehlermeldung zurueck oder undefined. Unbekannte Praefixe werden nicht beanstandet.
  */
 export function tokenPrefixProblem(id: string, token: string): string | undefined {
+  if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
   if (!mode) return undefined;
   if (id === "stripe-test" && mode === "live") return "Das ist ein Live-Schluessel (rk_live_). Die Verbindung Stripe (Sandbox) braucht einen Sandbox-Schluessel (rk_test_). Fuer Live die Verbindung Stripe (Live) verwenden.";

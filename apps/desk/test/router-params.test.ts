@@ -391,7 +391,7 @@ describe("variables from sources", () => {
     const { deps } = await setup();
     const r = await call(deps, ui(deps, "GET", "variable-sources"));
     const fields = r.json.sources.flatMap((s: { fields: { field: string }[] }) => s.fields.map((f) => f.field));
-    expect(fields).toEqual(["ref", "url", "publishableKey", "accountId", "zoneId", "name", "sitekey", "domainId", "name"]);
+    expect(fields).toEqual(["ref", "url", "publishableKey", "accountId", "zoneId", "name", "sitekey", "domainId", "name", "id", "name", "id", "name", "type", "production", "sandbox"]);
     expect(r.json.sources[0]).toMatchObject({ kind: "supabase.project", connected: true });
   });
   it("load-from-source proposes first and writes only on apply; no secret field ever shows up", async () => {
