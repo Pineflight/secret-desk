@@ -4,7 +4,16 @@ A **recipe** is a YAML file that tells secret-desk how to create a token in a pr
 
 This page is the how-to. The design, principles and implementation status are in [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md). Schema source: [`packages/automation/src/recipe.ts`](../packages/automation/src/recipe.ts).
 
-> **Status of the bundled recipes.** None has been verified against the live provider pages. Each starts with a `# STATUS: nicht gegen die echte Seite geprueft` comment (the bundled recipes' comments are still in German). Do a supervised trial run with a throwaway token first.
+> **Status of the bundled recipes.** None has been verified end to end against the live provider pages. For `revenuecat-secret-api-key` the form and the key list were checked on 2026-11-02 with a throwaway key (revoked afterwards); the full recipe run is not verified yet. Each starts with a `# STATUS: nicht gegen die echte Seite geprueft` comment (the bundled recipes' comments are still in German). Do a supervised trial run with a throwaway token first.
+
+## Bundled recipes
+
+| Recipe | Creates | Status |
+|---|---|---|
+| `github-fine-grained-token` | GitHub fine-grained personal access token | not verified |
+| `supabase-access-token` | Supabase access token | not verified |
+| `stripe-restricted-key` | Stripe restricted key (scaffold, rights matrix not modeled) | not verified |
+| `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked against the live page on 2026-11-02 with a throwaway key (revoked afterwards); full run not verified |
 
 ## Where recipes live
 
@@ -27,6 +36,7 @@ label: GitHub Fine-grained Token
 provider: github-fine-grained-token  # optional: provider id the recipe serves, if not the recipe id
 host: github.com                     # the only host the browser may be on (plus allowHosts)
 allowHosts: []                       # optional: more hosts, "*.example.com" allows subdomains
+params: []                           # optional: per-entry parameters, see "Parameters" below
 login:                               # optional
   expect: { url: "^https://github\\.com/settings/" }   # signed in when this holds
   message: Sign in to GitHub (password, 2FA).           # shown while waiting for you
@@ -79,11 +89,36 @@ Every step has exactly one kind.
 
 `fill`, `select`, `check`, `click` and `press` can carry `each: repos`: the step then runs once per repository with `{{item}}` set. An empty list aborts before the first click.
 
-A **condition** (for `login.expect`, `waitFor`, `pause.until`) has exactly one of `url` (regular expression against the current address), `visible` (a selector) or `text` (text anywhere on the page).
+A **condition** (for `login.expect`, `waitFor`, `pause.until`) has exactly one of `url` (regular expression against the current address), `visible` (a selector), `hidden` (a selector; holds once no matching element is visible, for example a table row after deleting it) or `text` (text anywhere on the page). `url` is a regular expression and is not rendered: it cannot contain `{{variables}}`.
+
+## Parameters
+
+Providers with several projects or accounts need a value per entry (a project id, an access level). A recipe declares them under `params`; the value comes from `params` of the inventory entry.
+
+```yaml
+params:
+  - key: projectId                 # ^[a-z][A-Za-z0-9]{0,30}$, must not be a fixed variable such as name or owner
+    label: RevenueCat-Projekt-ID   # German label in the portal
+    labelEn: RevenueCat project ID # optional English label (default: label)
+    pattern: "^[a-z0-9]{6,20}$"    # optional: the value must match (anchor it with ^ and $)
+    help: Part of the dashboard address after /projects/.   # optional
+  - key: iam
+    label: IAM
+    options: ["No access", "Read only", "Read & write"]   # optional: fixed choices
+    default: No access                                     # optional: used when the entry has no value
+    required: true                                         # default true; a parameter with a default is never reported missing
+```
+
+- Every declared key is a template variable `{{key}}` in steps, `capture` selectors, `mask` and `revoke`. In `goto` the value is URL-encoded like every other variable.
+- Values are read from `secret.params[key]`. Strings are trimmed; numbers are stringified; anything else counts as missing.
+- **Fail closed before the browser opens.** A missing required value, a value outside `options` or one that does not match `pattern` aborts with a message that names the key (never the value). This happens in the provider before the browser is opened, again in the runner, and in `browser run --dry`.
+- The browser provider exposes the parameters as parameter specs (`options` as fixed choices, `pattern` as a pattern), so the portal's parameter card and the `params_invalid` check work like for API providers.
+- `browser run --dry` takes them as `--param key=value` (repeatable).
+- A recipe that reads `params.owner` or `params.permissions` through the fixed variables (the GitHub recipe) does not need to declare them.
 
 ## Variables
 
-Use `{{name}}` in text. Unknown variables are an error. In `goto`, every value is URL-encoded, except `permissionsQuery` which is already encoded.
+Use `{{name}}` in text. Variables are also available in `capture.token.find`, `capture.externalId.find` and `mask` selectors, which is how a selector names the entry's own row. Unknown variables are an error. In `goto`, every value is URL-encoded, except `permissionsQuery` which is already encoded.
 
 | Variable | Content |
 |---|---|
@@ -99,6 +134,7 @@ Use `{{name}}` in text. Unknown variables are an error. In `goto`, every value i
 | `secretId` | The secret's id |
 | `externalId` | Only in `revoke` steps: the id captured earlier |
 | `item` | Only in steps with `each` |
+| _declared `params`_ | One variable per key, see [Parameters](#parameters) |
 
 ## Safety rules
 
@@ -135,6 +171,6 @@ Recipes are data, not code, so they are maintained by pull request: a web interf
 
 ## Limits
 
-- There is no step for elements inside a dialog (selectors have no notion of a scope); use `css` until then.
+- Selectors have no notion of a scope. To find an element inside a row or dialog, use Playwright CSS in `css`, for example `[role=row]:has-text("{{name}}") button[aria-label="Show key"]` or `[role=dialog] button:has-text("Confirm")`. The driver passes `css` to `page.locator()`, so `:has-text()` and `>> nth=0` work.
 - The Stripe recipe is a scaffold: the permission matrix per resource is not modeled yet.
-- Revocation through a recipe (`revoke.steps`) exists in the schema, but the bundled recipes leave revoking to the human.
+- Revocation through a recipe (`revoke.steps`) exists in the schema. `revenuecat-secret-api-key` uses it (More, Revoke, Confirm in the row of the key's name); the other bundled recipes leave revoking to the human.

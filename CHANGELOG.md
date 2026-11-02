@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Recipe parameters and a RevenueCat recipe:** browser recipes can declare per-entry `params` (key, label, optional `pattern`, `options`, `default`, `help`, `required`) that become `{{key}}` variables and provider parameter specs (so the parameter card and `params_invalid` work). A missing or invalid value aborts before the browser opens and names the key. `ParamSpec` gets an optional `pattern`. Conditions get `hidden` (waits until an element is gone), and `capture` and `mask` selectors can use variables. The new recipe `revenuecat-secret-api-key` creates a V2 secret API key with one access level per section and can revoke it (form and list checked against the live page on 2026-11-02; full run not verified). `browser run --dry` takes `--param key=value`. See [docs/RECIPES.md](docs/RECIPES.md#parameters).
 - **Providers and roadmap:** [docs/ROADMAP.md](docs/ROADMAP.md) lists supported, in-progress and planned providers with their live verification status and every external service secret-desk talks to. The browser sidecar image ships its own [third-party notices](docker/browser/THIRD-PARTY-NOTICES.md) under `/licenses`.
 - **Open the remote browser from the portal:** `automation.viewerUrl` (or `SECRET_DESK_BROWSER_VIEWER_URL`) adds an *Open browser* link to *Connections*, and the section text explains the server browser instead of a local Chrome window.
 

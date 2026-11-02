@@ -1,6 +1,6 @@
 import { SecretValue, redact } from "@secret-desk/core";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { hostAllowed, type Condition, type Recipe, type Step } from "./recipe.js";
+import { hostAllowed, paramValueProblem, type Condition, type Recipe, type Step } from "./recipe.js";
 import { describeSelector, pickSelector, type Selector } from "./selector.js";
 import { renderTemplate } from "./template.js";
 import { WaitAbortedError, WaitTimeoutError, conditionMet } from "./wait.js";
@@ -41,7 +41,7 @@ export interface RunResult {
   createdName?: string;
 }
 
-export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture";
+export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture" | "params";
 
 export class RecipeRunError extends Error {
   readonly kind: RunErrorKind;
@@ -62,6 +62,35 @@ export interface DryRunResult {
 }
 
 type Vars = Record<string, string>;
+
+/**
+ * Checks the values of the recipe's declared parameters. A missing required value or one outside pattern/options is an
+ * error that names the key (never the value), thrown before any browser is opened.
+ */
+export function checkRecipeParams(recipe: Pick<Recipe, "params">, vars: Vars): void {
+  for (const p of recipe.params) {
+    const value = (vars[p.key] ?? "").trim();
+    if (value === "") {
+      if (p.required) throw new RecipeRunError("params", `Pflichtparameter ${p.key} (${p.label}) fehlt.`);
+      continue;
+    }
+    if (paramValueProblem(p, value) === undefined) continue;
+    if (p.options && !p.options.includes(value)) throw new RecipeRunError("params", `Parameter ${p.key} (${p.label}): der Wert ist nicht erlaubt (erlaubt: ${p.options.join(", ")}).`);
+    throw new RecipeRunError("params", `Parameter ${p.key} (${p.label}): der Wert hat nicht das erwartete Format.`);
+  }
+}
+
+/** Template variables for the recipe's declared parameters, from `params` of the inventory entry. Defaults fill gaps; numbers are stringified. */
+export function recipeParamVars(recipe: Pick<Recipe, "params">, params: Record<string, unknown>): Vars {
+  const out: Vars = {};
+  for (const p of recipe.params) {
+    const raw = params[p.key];
+    const text = typeof raw === "string" ? raw.trim() : typeof raw === "number" && Number.isFinite(raw) ? String(raw) : "";
+    out[p.key] = text !== "" ? text : (p.default ?? "");
+  }
+  checkRecipeParams(recipe, out);
+  return out;
+}
 
 const TIMEOUT_DEFAULT_S = 30;
 
@@ -89,7 +118,12 @@ function renderValue<T>(value: T, vars: Vars, key = ""): T {
 
 function resolveCondition(c: Condition, vars: Vars): ResolvedCondition {
   const r = renderValue(c, vars);
-  return { ...(r.url !== undefined ? { url: new RegExp(r.url) } : {}), ...(r.visible ? { visible: r.visible as Selector } : {}), ...(r.text !== undefined ? { text: r.text } : {}) };
+  return {
+    ...(r.url !== undefined ? { url: new RegExp(r.url) } : {}),
+    ...(r.visible ? { visible: r.visible as Selector } : {}),
+    ...(r.hidden ? { hidden: r.hidden as Selector } : {}),
+    ...(r.text !== undefined ? { text: r.text } : {}),
+  };
 }
 
 function stripUrl(url: string): string {
@@ -118,6 +152,7 @@ class Runner {
     readonly hooks: RunHooks,
     readonly options: RunOptions,
   ) {
+    checkRecipeParams(recipe, vars);
     this.#loggedIn = recipe.login === undefined;
   }
 
@@ -206,7 +241,10 @@ class Runner {
     }
     if ("waitFor" in step) {
       const w = step.waitFor;
-      const cond = resolveCondition({ ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.text !== undefined ? { text: w.text } : {}) }, vars);
+      const cond = resolveCondition(
+        { ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}) },
+        vars,
+      );
       return this.driver.waitFor(cond, (w.timeoutSeconds ?? TIMEOUT_DEFAULT_S) * 1000, this.options.signal);
     }
     if ("pause" in step) {
@@ -252,7 +290,7 @@ class Runner {
 
   /** Screenshot mit allen Masken aus dem Rezept (plus extra). */
   async shoot(name: string, extra: Selector[] = []): Promise<void> {
-    const png = await this.driver.screenshot([...this.recipe.mask, ...extra]);
+    const png = await this.driver.screenshot([...this.recipe.mask.map((m) => renderValue(m, this.vars) as Selector), ...extra]);
     this.screenshots.push({ name, png });
   }
 }
@@ -310,9 +348,18 @@ async function readValue(r: Runner, sel: Selector, pattern: string | undefined, 
   return out;
 }
 
+function renderTemplateSelector(sel: Selector, vars: Vars, r: Runner): Selector {
+  try {
+    return renderValue(sel, vars);
+  } catch (err) {
+    return r.fail("capture", (err as Error).message);
+  }
+}
+
 async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
   const cap = recipe.capture;
-  const find = cap.token.find as Selector;
+  // The selector may name the entry's own row ({{name}}), so it is rendered like a step selector.
+  const find = renderTemplateSelector(cap.token.find, vars, r);
   // Token nur lesen, wenn der Browser noch auf einer erlaubten Seite steht (ein Klick kann woandershin fuehren).
   await r.checkHost();
   try {
@@ -329,7 +376,7 @@ async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDri
   let externalId: string | undefined;
   const ext = cap.externalId;
   if (ext && "from" in ext) externalId = vars[ext.from];
-  else if (ext) externalId = await readValue(r, ext.find as Selector, ext.pattern, "Kennung");
+  else if (ext) externalId = await readValue(r, renderTemplateSelector(ext.find, vars, r), ext.pattern, "Kennung");
   if (externalId?.includes(token)) externalId = undefined; // nie den Wert als Kennung fuehren
 
   let expiresAt: string | undefined;

@@ -1,7 +1,7 @@
-import type { EvidenceStore, IssueContext, IssuedSecret, Provider, RevokeContext, SecretEntry, Stage } from "@secret-desk/core";
+import type { EvidenceStore, IssueContext, IssuedSecret, ParamSpec, Provider, RevokeContext, SecretEntry, Stage } from "@secret-desk/core";
 import type { BrowserDriver } from "./driver.js";
 import type { Recipe } from "./recipe.js";
-import { revokeRecipe, runRecipe, type RunHooks, type RunOptions, type Screenshot } from "./run.js";
+import { recipeParamVars, revokeRecipe, runRecipe, type RunHooks, type RunOptions, type Screenshot } from "./run.js";
 
 type PerRun<T> = T | ((secretId: string) => T);
 
@@ -52,6 +52,26 @@ export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: 
   };
 }
 
+/**
+ * Parameter specs of a recipe for the portal's parameter card and the `params_invalid` check.
+ * Options become fixed choices (the value is its own label), a pattern stays a pattern. A parameter with a default is not
+ * required: the recipe fills the gap.
+ */
+export function recipeParamSpecs(recipe: Pick<Recipe, "params">): ParamSpec[] {
+  return recipe.params.map((p) => ({
+    key: p.key,
+    label: p.label,
+    labelEn: p.labelEn ?? p.label,
+    type: p.options ? "enum" : "string",
+    required: p.required && p.default === undefined,
+    help: p.help ?? "",
+    helpEn: p.help ?? "",
+    ...(p.options ? { options: p.options.map((value) => ({ value, label: value, labelEn: value })) } : {}),
+    ...(!p.options && p.pattern !== undefined ? { pattern: p.pattern } : {}),
+    ...(p.default !== undefined ? { defaultValue: p.default } : {}),
+  }));
+}
+
 /** Provider, der Token ueber ein Browser-Rezept erzeugt. Passt zum Provider-Interface aus @secret-desk/core. */
 export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProvider {
   const { recipe } = opts;
@@ -62,6 +82,7 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
     label: recipe.label,
     kind: "automatic",
     automation: { recipeId: recipe.id },
+    ...(recipe.params.length > 0 ? { params: recipeParamSpecs(recipe) } : {}),
     guide: {
       url: `https://${recipe.host}/`,
       steps: ["secret-desk oeffnet ein Browserfenster.", "Dort selbst anmelden (Passwort, 2FA); secret-desk tippt keine Zugangsdaten.", "Der Rest laeuft automatisch, danach pruefen und bestaetigen."],
@@ -77,7 +98,8 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
     },
     async issue(ctx: IssueContext): Promise<IssuedSecret> {
       const secretId = ctx.secret.id;
-      const vars = recipeVars(ctx.secret, ctx.stage, ctx.now);
+      // Parameters are checked before a browser is opened (fail closed).
+      const vars = { ...recipeVars(ctx.secret, ctx.stage, ctx.now), ...recipeParamVars(recipe, ctx.secret.params) };
       const driver = await opts.driverFactory();
       try {
         const result = await runRecipe(recipe, vars, driver, pick(opts.hooks, secretId, {}), pick(opts.runOptions, secretId, {}));
@@ -90,7 +112,7 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
     },
     async revoke(ctx: RevokeContext): Promise<void> {
       if (!recipe.revoke) throw new Error(`${recipe.label}: Widerruf ist nicht automatisiert, bitte beim Anbieter von Hand widerrufen (Kennung: ${ctx.externalId}).`);
-      const vars = recipeVars(ctx.secret, ctx.secret.stage, new Date(), { externalId: ctx.externalId });
+      const vars = { ...recipeVars(ctx.secret, ctx.secret.stage, new Date(), { externalId: ctx.externalId }), ...recipeParamVars(recipe, ctx.secret.params) };
       const driver = await opts.driverFactory();
       await revokeRecipe(recipe, vars, driver, pick(opts.hooks, ctx.secret.id, {}), pick(opts.runOptions, ctx.secret.id, {}));
     },

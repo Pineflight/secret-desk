@@ -42,6 +42,7 @@ const OPTIONS = {
   permissions: { type: "string" },
   stage: { type: "string" },
   "secret-id": { type: "string" },
+  param: { type: "string", multiple: true },
 } as const;
 
 export async function browserCmd(args: string[], io: Io): Promise<number> {
@@ -122,7 +123,16 @@ function finish(io: Io, bad: number): number {
 
 function varsFrom(recipe: Recipe, v: ReturnType<typeof parseArgs<{ options: typeof OPTIONS }>>["values"]): Record<string, string> {
   const date = v.date ?? new Date().toISOString().slice(0, 10);
+  const params: Record<string, string> = {};
+  for (const entry of v.param ?? []) {
+    const eq = entry.indexOf("=");
+    const key = eq > 0 ? entry.slice(0, eq) : "";
+    if (!recipe.params.some((p) => p.key === key)) throw new Error(`--param ${entry.split("=")[0]}: das Rezept ${recipe.id} kennt diesen Parameter nicht (bekannt: ${recipe.params.map((p) => p.key).join(", ") || "keine"}); Form: --param schluessel=wert`);
+    params[key] = entry.slice(eq + 1);
+  }
   return {
+    ...Object.fromEntries(recipe.params.map((p) => [p.key, p.default ?? ""])),
+    ...params,
     name: v.name ?? `${recipe.id}-probe-${date.replaceAll("-", "")}`.slice(0, 40),
     owner: v.owner ?? "",
     days: v.days ?? "30",

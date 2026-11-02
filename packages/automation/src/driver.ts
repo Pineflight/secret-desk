@@ -5,6 +5,8 @@ export interface ResolvedCondition {
   url?: RegExp;
   visible?: Selector;
   text?: string;
+  /** Holds once no element matching the selector is visible any more. */
+  hidden?: Selector;
 }
 
 /**

@@ -61,7 +61,7 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
   masking, login waiting with a timeout, abort.
 - A provider that runs `issue` through a recipe and returns `IssuedSecret` (evidence PNGs go to the `EvidenceStore`). The runtime
   (`createRuntime`) registers recipes from `recipes/` (bundled), `<inventory folder>/recipes/` and `automation.recipesDirs` as provider `<recipe-id>-browser`.
-- Bundled recipes: `github-fine-grained-token`, `supabase-access-token`; `stripe-restricted-key` as a scaffold (marked unverified).
+- Bundled recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`; `stripe-restricted-key` as a scaffold (marked unverified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
 - Configuration: `automation: { enabled?, chromePath?, cdpEndpoint?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
@@ -110,7 +110,8 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
   AbortSignal, host check before every action, masking in every screenshot (Playwright `mask`, plus an automatic evidence image `nach-erzeugen`), errors without page content,
   `RecipeRunError.createdName` after `createsToken`.
 - `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` fits the `Provider` interface (`kind: "automatic"`, plus `automation.recipeId`).
-- Recipes: `github-fine-grained-token`, `supabase-access-token`, `stripe-restricted-key` (scaffold). All carry `# STATUS: nicht gegen die echte Seite geprueft` (not verified against the real site).
+- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key` (scaffold). Each carries a `# STATUS:` comment; only `revenuecat-secret-api-key` was partly checked against the live page (2026-11-02, form and list; full run not verified), the rest is not verified.
+- Recipe `params` (per-entry values such as a project id) become template variables and provider parameter specs; see [RECIPES.md](RECIPES.md#parameters).
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
 - Tests: schema, template, host, fake runs, loading recipes, provider, integration with `PlaywrightDriver` against a local form (only with Chrome, headless, no internet).
 

@@ -19,6 +19,7 @@ export async function conditionMet(d: Probe, c: ResolvedCondition): Promise<bool
   if (c.url) return c.url.test(await d.currentUrl());
   if (c.visible) return d.isVisible(c.visible);
   if (c.text !== undefined) return d.hasText(c.text);
+  if (c.hidden) return !(await d.isVisible(c.hidden));
   return true;
 }
 

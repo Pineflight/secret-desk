@@ -3,6 +3,20 @@ import { ParamsInvalidError, effectiveParams, mappedResource, markSuggestions, p
 
 const spec = (extra: Partial<ParamSpec> & { key: string }): ParamSpec => ({ label: extra.key, labelEn: extra.key, type: "string", required: false, help: "", helpEn: "", ...extra });
 
+describe("validateEntryParams pattern", () => {
+  const provider = { params: [spec({ key: "projectId", required: true, pattern: "^[a-z0-9]{6,20}$" })] };
+  it("accepts a matching value and reports a mismatch as wrong_type", () => {
+    expect(validateEntryParams(provider, { params: { projectId: "proj1a2b3c" } })).toEqual([]);
+    expect(validateEntryParams(provider, { params: { projectId: " proj1a2b3c " } })).toEqual([]);
+    const problems = validateEntryParams(provider, { params: { projectId: "Bad Id" } });
+    expect(problems.map((p) => [p.key, p.code])).toEqual([["projectId", "wrong_type"]]);
+    expect(problems[0]?.message).toContain("Format");
+  });
+  it("a missing value is missing, not a pattern problem", () => {
+    expect(validateEntryParams(provider, { params: {} }).map((p) => p.code)).toEqual(["missing"]);
+  });
+});
+
 describe("validateEntryParams", () => {
   const provider = {
     params: [
