@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, chmod, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, chmod, mkdir, stat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TeamSyncError, TeamSyncSchema, ensureConfigFile, exportTeamBundle, InventoryStore, readTeamSyncState, ConfigSchema } from "@secret-desk/core";
@@ -60,6 +60,7 @@ class FakeGitHub {
   calls: string[] = [];
   bodies: string[] = [];
   fail: { status: number } | "network" | null = null;
+  repo: { private: boolean; permissions?: { push: boolean } } = { private: true, permissions: { push: true } };
   #n = 0;
   readonly fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
@@ -70,6 +71,7 @@ class FakeGitHub {
     if (this.fail === "network") throw new TypeError("fetch failed");
     if (this.fail) return json({ message: "denied" }, this.fail.status);
     if (auth !== `Bearer ${TOKEN}`) return json({ message: "Bad credentials" }, 401);
+    if (url.pathname === "/repos/acme/team-config" && method === "GET") return json(this.repo);
     const m = /^\/repos\/acme\/team-config\/(.*)$/.exec(url.pathname);
     if (!m) return json({ message: "Not Found" }, 404);
     const rest = m[1]!;
@@ -388,6 +390,136 @@ describe("push", () => {
   it("the plan refuses a team file that contains the access token", async () => {
     const { rt } = await setup({ teamSync: PUSH, inventory: LOCAL_INVENTORY.replace("service: intern", `service: intern\n    notes: ${TOKEN}`) });
     await expect(planTeamPush(rt)).rejects.toThrow(/Zugangs-Token/);
+  });
+});
+
+describe("push: private repository and push permission", () => {
+  async function ready(gh: FakeGitHub, teamSync = PUSH) {
+    const { rt } = await setup({ teamSync, gh, inventory: "version: 1\nsecrets: []\nvariables: []\n" });
+    gh.setMain("version: 1\nsecrets: []\nvariables: []\n");
+    await checkTeamSync(rt, t0);
+    rt.inventory.addSecret({ id: "s1", name: "S_ONE", stage: "shared", service: "intern", provider: "random-hex", expiry: "none", places: [{ repo: "app", scope: "repository" }] } as never);
+    const plan = await planTeamPush(rt);
+    return { rt, plan };
+  }
+  const writes = (gh: FakeGitHub) => gh.calls.filter((c) => !c.startsWith("GET "));
+
+  for (const [label, strategy] of [["direct", "  push: { strategy: direct }\n"], ["pull-request", ""]] as const) {
+    it(`${label}: a public repository is rejected and nothing is written`, async () => {
+      const gh = new FakeGitHub();
+      gh.repo = { private: false, permissions: { push: true } };
+      const { rt, plan } = await ready(gh, PUSH + strategy);
+      await expect(pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0)).rejects.toMatchObject({ code: "team_repo_not_private" });
+      expect(writes(gh)).toEqual([]);
+    });
+
+    it(`${label}: a token without push permission is rejected and nothing is written`, async () => {
+      const gh = new FakeGitHub();
+      gh.repo = { private: true, permissions: { push: false } };
+      const { rt, plan } = await ready(gh, PUSH + strategy);
+      await expect(pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0)).rejects.toMatchObject({ code: "team_repo_no_push" });
+      expect(writes(gh)).toEqual([]);
+    });
+
+    it(`${label}: a response without permissions fails closed for a user token`, async () => {
+      const gh = new FakeGitHub();
+      gh.repo = { private: true };
+      const { rt, plan } = await ready(gh, PUSH + strategy);
+      await expect(pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0)).rejects.toMatchObject({ code: "team_repo_no_push" });
+      expect(writes(gh)).toEqual([]);
+    });
+  }
+
+  it("succeeds with a PAT on a private repository with push permission", async () => {
+    const gh = new FakeGitHub();
+    const { rt, plan } = await ready(gh, PUSH + "  push: { strategy: direct }\n");
+    expect(await pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0)).toMatchObject({ pushed: true });
+    expect(writes(gh)).toHaveLength(1);
+  });
+});
+
+describe("path traversal in team sync input", () => {
+  const bad = (over: Record<string, unknown>) => TeamSyncSchema.safeParse({ repo: "acme/team-config", ...over }).success;
+  it("schema rejects traversal variants in owner, name, path and branches", () => {
+    for (const repo of ["../team-config", "acme/..", "./x", "acme/.", "../..", "a/b/c"]) expect(bad({ repo }), repo).toBe(false);
+    for (const path of ["../x.yaml", "a/../b", "/abs.yaml", ".", "a//b", "a\\b", "a/./b", "a\u0000b"]) expect(bad({ path }), path).toBe(false);
+    for (const branch of ["..", "a/../b", "/main", "main/", ".hidden", "a/.b", "x.lock", "a//b", "a@{b", "a b", "@", "a~b", "a.", "a:b"]) {
+      expect(bad({ branch }), branch).toBe(false);
+      expect(bad({ push: { branch } }), `push ${branch}`).toBe(false);
+    }
+  });
+  it("schema still accepts normal values", () => {
+    expect(bad({ repo: "Acme-Co/.github", path: "team/desk.yaml", branch: "feature/x-1", push: { branch: "secret-desk/team-sync" } })).toBe(true);
+  });
+});
+
+describe("startup merge", () => {
+  it("applies new entries only; changed entries stay pending and are only logged by id counts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sd-env-"));
+    const path = join(dir, "c.yaml");
+    await ensureConfigFile(path);
+    const gh = new FakeGitHub();
+    gh.setMain(REMOTE_OTHER, "team/desk.yaml");
+    const env = { SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: "team/desk.yaml", SECRET_DESK_TEAM_BRANCH: "main", SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv;
+    const rt = await createRuntime(path, { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
+    const logs: string[] = [];
+    const orig = console.info;
+    console.info = (m: unknown) => { logs.push(String(m)); };
+    try {
+      await startupTeamSync(rt, env);
+    } finally {
+      console.info = orig;
+    }
+    expect(rt.inventory.data.secrets).toHaveLength(2);
+    expect(logs.join("\n")).toMatch(/applied 2 new entries \(hmac-app, api-key\)/);
+    expect(logs.join("\n")).not.toContain("APP_HMAC_SECRET");
+  });
+
+  it("onlyAdded keeps the repository state unseen while changed entries remain", async () => {
+    const { rt, gh } = await setup({ inventory: "version: 1\nsecrets: []\nvariables: []\n" });
+    gh.setMain(REMOTE_OTHER.replace("provider: random-hex", "provider: random-hex"));
+    const check = await checkTeamSync(rt, t0);
+    // Make one remote entry differ from a local entry with the same id.
+    rt.inventory.addSecret({ id: "hmac-app", name: "APP_HMAC_SECRET", stage: "shared", service: "other-service", provider: "random-hex", expiry: "none", places: [{ repo: "app", scope: "repository" }] } as never);
+    const r = await applyTeamSync(rt, { expectSha: check.remoteSha!, resolution: "merge", onlyAdded: true }, t0);
+    expect(r.added).toEqual(["api-key"]);
+    expect(rt.inventory.getSecret("hmac-app")!.service).toBe("other-service");
+    const after = await checkTeamSync(rt, t0);
+    expect(["remote-new", "remote-changed"]).toContain(after.state);
+    expect(after.diff!.sections.secrets.changed).toEqual(["hmac-app"]);
+  });
+});
+
+describe("file hygiene", () => {
+  it("a created inventory.yaml and the state file have mode 0600, and the state file is written atomically", async () => {
+    if (process.platform === "win32") return;
+    const dir = await mkdtemp(join(tmpdir(), "sd-mode-"));
+    await ensureConfigFile(join(dir, "c.yaml"));
+    expect((await stat(join(dir, "inventory.yaml"))).mode & 0o777).toBe(0o600);
+    const { rt, gh, dir: d2 } = await setup();
+    gh.setMain("version: 1\nsecrets: []\nvariables: []\n");
+    await chmod(join(d2, "inventory.yaml"), 0o644);
+    const check = await checkTeamSync(rt, t0);
+    await applyTeamSync(rt, { expectSha: check.remoteSha!, resolution: "keep-local" }, t0);
+    const state = join(d2, ".secret-desk-team-sync.json");
+    expect((await stat(state)).mode & 0o777).toBe(0o600);
+    expect((await readdir(d2)).filter((f) => f.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("saving the inventory leaves it at mode 0600", async () => {
+    if (process.platform === "win32") return;
+    const { rt, dir } = await setup();
+    await chmod(join(dir, "inventory.yaml"), 0o644);
+    rt.inventory.addSecret({ id: "s9", name: "S_NINE", stage: "shared", service: "intern", provider: "random-hex", expiry: "none", places: [{ repo: "app", scope: "repository" }] } as never);
+    await rt.inventory.save();
+    expect((await stat(join(dir, "inventory.yaml"))).mode & 0o777).toBe(0o600);
+  });
+
+  it("a fetched team file larger than 1 MiB is rejected before parsing, and so is an uploaded one", async () => {
+    const { rt, gh } = await setup();
+    gh.setMain(`version: 1\nsecrets: []\nvariables: []\n# ${"x".repeat(1024 * 1024)}\n`);
+    await expect(checkTeamSync(rt, t0)).rejects.toThrow(/1 MiB/);
+    expect(() => previewTeamText(rt, `# ${"x".repeat(1024 * 1024)}\n`)).toThrow(/1 MiB/);
   });
 });
 

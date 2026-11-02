@@ -1,3 +1,4 @@
+import { assertSafeContentPath, assertSafeRepoSegment, assertValidBranchName } from "./git-names.js";
 import { createSign } from "node:crypto";
 import sodium from "libsodium-wrappers";
 import { SecretValue } from "./secret.js";
@@ -244,6 +245,10 @@ export class GitHubClient {
 
   /** Datei samt Blob-SHA an einem Zweig. null = Datei (oder Zweig) existiert nicht. Nur lesend. */
   async getContentFile(owner: string, repo: string, path: string, ref: string): Promise<{ sha: string; text: string } | null> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertSafeContentPath(path);
+    assertValidBranchName(ref);
     const encoded = path.split("/").map(enc).join("/");
     try {
       const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/contents/${encoded}?ref=${encodeURIComponent(ref)}`);
@@ -258,6 +263,10 @@ export class GitHubClient {
 
   /** Legt eine Datei an oder ersetzt sie (ein Commit). `sha` = Blob-SHA der ersetzten Datei, fehlt sie, wird neu angelegt. Gibt den neuen Blob-SHA zurueck. */
   async putContentFile(owner: string, repo: string, path: string, branch: string, text: string, message: string, sha?: string): Promise<string> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertSafeContentPath(path);
+    assertValidBranchName(branch);
     const encoded = path.split("/").map(enc).join("/");
     const res = await this.#request("PUT", `/repos/${enc(owner)}/${enc(repo)}/contents/${encoded}`, {
       message,
@@ -271,6 +280,9 @@ export class GitHubClient {
 
   /** Commit-SHA der Spitze eines Zweigs; null = Zweig existiert nicht. */
   async getBranchHead(owner: string, repo: string, branch: string): Promise<string | null> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(branch);
     try {
       const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${branch.split("/").map(enc).join("/")}`);
       const j = (await res.json()) as { object?: { sha?: string } };
@@ -282,16 +294,36 @@ export class GitHubClient {
   }
 
   async createBranch(owner: string, repo: string, branch: string, fromSha: string): Promise<void> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(branch);
     await this.#request("POST", `/repos/${enc(owner)}/${enc(repo)}/git/refs`, { ref: `refs/heads/${branch}`, sha: fromSha });
   }
 
   /** Loescht einen Zweig (nur fuer den Schreibtest mit einem eigenen Probe-Zweig). */
   async deleteBranch(owner: string, repo: string, branch: string): Promise<void> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(branch);
     await this.#request("DELETE", `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${branch.split("/").map(enc).join("/")}`);
+  }
+
+  /** Repository metadata needed before a push: visibility and, for user tokens, the permissions of the caller. Read only. */
+  async getRepo(owner: string, repo: string): Promise<{ private: boolean | null; permissions: { push: boolean | null } | null }> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}`);
+    const j = (await res.json()) as { private?: unknown; permissions?: { push?: unknown } | null };
+    const perms = j.permissions && typeof j.permissions === "object" ? { push: typeof j.permissions.push === "boolean" ? j.permissions.push : null } : null;
+    return { private: typeof j.private === "boolean" ? j.private : null, permissions: perms };
   }
 
   /** Offener Pull Request von `head` nach `base` (gleiches Repository). */
   async findOpenPull(owner: string, repo: string, head: string, base: string): Promise<{ number: number; url: string } | null> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(head);
+    assertValidBranchName(base);
     const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`);
     const list = (await res.json()) as { number?: number; html_url?: string }[];
     const first = list[0];
@@ -299,6 +331,10 @@ export class GitHubClient {
   }
 
   async createPull(owner: string, repo: string, head: string, base: string, title: string, body: string): Promise<{ number: number; url: string }> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(head);
+    assertValidBranchName(base);
     const res = await this.#request("POST", `/repos/${enc(owner)}/${enc(repo)}/pulls`, { title, head, base, body });
     const j = (await res.json()) as { number?: number; html_url?: string };
     return { number: j.number ?? 0, url: j.html_url ?? "" };

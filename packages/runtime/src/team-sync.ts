@@ -2,12 +2,14 @@ import { dirname, join } from "node:path";
 import {
   GitHubClient,
   GitHubError,
+  GitHubInputError,
   githubAppProvider,
   type TokenProvider,
   InventoryError,
   NotConnectedError,
   TEAM_SYNC_CONNECTION,
   TeamBundleError,
+  MAX_TEAM_FILE_BYTES,
   TeamSyncError,
   TeamSyncSchema,
   assertTeamFileClean,
@@ -92,49 +94,60 @@ export async function teamTokenSource(rt: Runtime): Promise<TeamTokenSource> {
   return (await rt.connections.status(GITHUB_APP_KEY_CONNECTION)).connected ? "github-app" : "none";
 }
 
-interface TeamAuth {
-  provider: TokenProvider;
+/** One team sync operation (one check, pull or push): one client and, with a GitHub App, one installation token provider. */
+interface TeamSession {
+  gh: GitHubClient;
   source: TeamTokenSource;
+  /** Permissions GitHub granted to the installation token minted in this operation, or null (no App token yet / not an App). */
+  granted(): Record<string, string> | null;
+  /** Secret texts seen in this operation (installation token, App private key). Used only to keep them out of the team file. */
+  secrets(): string[];
 }
 
 /**
- * Token-Anbieter fuer das Team-Repository. Eigenes Token zuerst; sonst die GitHub-Integration: ein PAT wird wie er ist benutzt (seine Rechte
- * und Repository-Auswahl gelten), bei einer GitHub App wird je Lauf ein Installationstoken nur fuer dieses eine Repository mit genau den
- * noetigen Rechten angefordert (contents, pull_requests, metadata). Dadurch ist kein zusaetzliches von Hand angelegtes Token noetig.
+ * Opens a session for the team repository. Own token first; otherwise the GitHub integration: a PAT is used as it is (its rights and
+ * repository selection apply). With a GitHub App an installation token for this one repository with exactly the needed rights
+ * (contents, pull_requests, metadata) is requested **per operation**: the provider, the private key read and the granted permissions
+ * live only as long as this session, nothing is cached across operations or repositories.
  */
-function teamAuth(rt: Runtime, c: TeamSyncConfig, source: TeamTokenSource): TeamAuth {
-  if (source === "own" || source === "none") return { provider: () => rt.connections.token(TEAM_SYNC_CONNECTION), source };
+async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession> {
+  const source = await teamTokenSource(rt);
   const auth = rt.config.github.auth;
-  if (source === "github-pat" || auth.type === "pat") return { provider: () => rt.connections.token(GITHUB_CONNECTION), source: "github-pat" };
-  const [owner, name] = split(c.repo);
-  const key = `${c.repo}|${JSON.stringify(teamPermissions(c))}`;
-  const memo = rt.teamSyncMemo as unknown as { app?: Map<string, TokenProvider>; granted?: Record<string, string> | null };
-  memo.app ??= new Map();
-  let provider = memo.app.get(key);
-  if (!provider) {
+  let granted: Record<string, string> | null = null;
+  const seenSecrets: string[] = [];
+  let provider: TokenProvider;
+  let effective: TeamTokenSource = source;
+  if (source === "own" || source === "none") provider = () => rt.connections.token(TEAM_SYNC_CONNECTION);
+  else if (source === "github-pat" || auth.type === "pat") {
+    provider = () => rt.connections.token(GITHUB_CONNECTION);
+    effective = "github-pat";
+  } else {
+    effective = "github-app";
+    const [owner, name] = split(c.repo);
     let inner: TokenProvider | null = null;
     provider = async () => {
-      inner ??= githubAppProvider({
-        appId: auth.appId,
-        privateKey: await rt.connections.token(GITHUB_APP_KEY_CONNECTION),
-        owner,
-        repositories: [name],
-        permissions: teamPermissions(c),
-        fetch: rt.fetch,
-        onToken: (info) => { memo.granted = info.permissions; },
-      });
-      return inner();
+      if (!inner) {
+        const privateKey = await rt.connections.token(GITHUB_APP_KEY_CONNECTION);
+        seenSecrets.push(privateKey.reveal());
+        inner = githubAppProvider({
+          appId: auth.appId,
+          privateKey,
+          owner,
+          repositories: [name],
+          permissions: teamPermissions(c),
+          fetch: rt.fetch,
+          onToken: (info) => { granted = info.permissions; },
+        });
+      }
+      const token = await inner();
+      const text = token.reveal();
+      if (!seenSecrets.includes(text)) seenSecrets.push(text);
+      return token;
     };
-    memo.app.set(key, provider);
   }
-  return { provider, source: "github-app" };
+  return { gh: new GitHubClient({ auth: provider, fetch: rt.fetch }), source: effective, granted: () => granted, secrets: () => [...seenSecrets] };
 }
 
-async function client(rt: Runtime): Promise<GitHubClient> {
-  const c = requireConfig(rt);
-  const { provider } = teamAuth(rt, c, await teamTokenSource(rt));
-  return new GitHubClient({ auth: provider, fetch: rt.fetch });
-}
 const split = (repo: string): [string, string] => {
   const [owner, name] = repo.split("/");
   return [owner!, name!];
@@ -143,6 +156,7 @@ const split = (repo: string): [string, string] => {
 /** GitHub-Fehler in verstaendliche Meldungen uebersetzen. Meldungen enthalten nie den Token. */
 export function mapTeamSyncError(e: unknown): Error {
   if (e instanceof TeamSyncError || e instanceof TeamBundleError || e instanceof NotConnectedError || e instanceof InventoryError) return e;
+  if (e instanceof GitHubInputError) return new TeamSyncError("Das Team-Repository, der Pfad oder der Zweig enthaelt ungueltige Zeichen oder Pfadbestandteile.", "invalid");
   if (e instanceof GitHubError) {
     if (/access_tokens/.test(e.message) && (e.status === 422 || e.status === 403)) return new TeamSyncError("Die GitHub App hat nicht die noetigen Rechte fuer das Team-Repository oder ist dort nicht installiert. In den Einstellungen der App Contents (und fuer Pull Requests Pull requests) freigeben und die Installation auf das Team-Repository erweitern.", "denied");
     if (/nicht installiert/.test(e.message)) return new TeamSyncError("Die GitHub App ist auf dem Besitzer des Team-Repositories nicht installiert. App dort installieren und das Team-Repository auswaehlen.", "denied");
@@ -195,12 +209,13 @@ export async function teamSyncStatus(rt: Runtime): Promise<TeamSyncStatus> {
   };
 }
 
-async function fetchRemote(rt: Runtime, c: TeamSyncConfig) {
+async function fetchRemote(c: TeamSyncConfig, sess: TeamSession) {
   const [owner, name] = split(c.repo);
-  const gh = await client(rt);
+  const gh = sess.gh;
   const file = await gh.getContentFile(owner, name, c.path, c.branch);
   // 404 heisst "Datei fehlt" nur, wenn Repository und Zweig erreichbar sind; sonst ist es ein Zugriffs- oder Namensfehler.
   if (!file && (await gh.getBranchHead(owner, name, c.branch)) === null) throw new GitHubError(404, "Repository oder Zweig nicht gefunden");
+  if (file && Buffer.byteLength(file.text, "utf8") > MAX_TEAM_FILE_BYTES) throw new TeamBundleError("Team-Datei ist groesser als 1 MiB: wird nicht gelesen.");
   return file;
 }
 
@@ -208,7 +223,7 @@ async function fetchRemote(rt: Runtime, c: TeamSyncConfig) {
 export async function checkTeamSync(rt: Runtime, now: Date = new Date()): Promise<TeamSyncCheck> {
   const c = requireConfig(rt);
   return guarded(rt, async () => {
-    const remote = await fetchRemote(rt, c);
+    const remote = await fetchRemote(c, await openSession(rt, c));
     const st = await readTeamSyncState(statePath(rt));
     const localHash = textHash(exportTeamBundle(rt.inventory.data));
     let check: TeamSyncCheck;
@@ -240,12 +255,14 @@ export type TeamSyncResolution = "merge" | "replace" | "keep-local";
  * Uebernimmt den Stand aus dem Repository. Vorher hat der Mensch die Vorschau gesehen (checkTeamSync); `expectSha` stellt sicher,
  * dass genau dieser Stand uebernommen wird. merge = Neues kommt dazu, Vorhandenes bleibt. replace = Repository gewinnt (braucht confirmReplace).
  * keep-local = den Repository-Stand als gesehen markieren und lokal nichts aendern.
+ * `onlyAdded` (Start ohne Mensch): nur neue Eintraege kommen dazu; sind geaenderte oder entfernte Eintraege offen, bleibt der Repository-Stand
+ * ungesehen, damit die Vorschau sie weiter zur Bestaetigung zeigt.
  */
-export async function applyTeamSync(rt: Runtime, options: { expectSha: string; resolution: TeamSyncResolution; confirmReplace?: boolean }, now: Date = new Date()) {
+export async function applyTeamSync(rt: Runtime, options: { expectSha: string; resolution: TeamSyncResolution; confirmReplace?: boolean; onlyAdded?: boolean }, now: Date = new Date()) {
   const c = requireConfig(rt);
   if (options.resolution === "replace" && options.confirmReplace !== true) throw new InventoryError("Ersetzen braucht die ausdrueckliche Bestaetigung confirmReplace: true.");
   return guarded(rt, async () => {
-    const remote = await fetchRemote(rt, c);
+    const remote = await fetchRemote(c, await openSession(rt, c));
     if (!remote) throw new TeamSyncError("Die Team-Datei gibt es im Repository nicht (mehr).", "not-found");
     if (remote.sha !== options.expectSha) throw new TeamSyncError("Das Repository hat sich seit der Vorschau geaendert. Bitte neu abgleichen.", "changed");
     const bundle = parseTeamBundle(remote.text);
@@ -256,7 +273,12 @@ export async function applyTeamSync(rt: Runtime, options: { expectSha: string; r
       await rt.inventory.save();
     }
     const localHash = options.resolution === "keep-local" ? null : textHash(exportTeamBundle(rt.inventory.data));
-    await writeTeamSyncState(statePath(rt), { ...st, remoteSha: remote.sha, localHash, lastSyncAt: now.toISOString(), setupDismissed: true });
+    let pending = false;
+    if (options.onlyAdded) {
+      const left = diffBundles(rt.inventory.data, bundle);
+      pending = Object.values(left.sections).some((d) => d.changed.length > 0 || d.removed.length > 0);
+    }
+    await writeTeamSyncState(statePath(rt), { ...st, remoteSha: pending ? st.remoteSha : remote.sha, localHash, lastSyncAt: now.toISOString(), setupDismissed: true });
     rt.teamSyncMemo.lastCheck = null;
     return { ...result, resolution: options.resolution };
   });
@@ -271,15 +293,17 @@ export interface TeamPushPlan {
   targetBranch: string;
 }
 
-async function teamTokenText(rt: Runtime): Promise<string[]> {
+/** Every secret text the team file must never contain: own token, GitHub PAT, App private key and the installation token of this operation. */
+async function teamTokenText(rt: Runtime, sess?: TeamSession): Promise<string[]> {
   const out: string[] = [];
-  for (const id of [TEAM_SYNC_CONNECTION, GITHUB_CONNECTION]) {
+  for (const id of [TEAM_SYNC_CONNECTION, GITHUB_CONNECTION, GITHUB_APP_KEY_CONNECTION]) {
     try {
       out.push((await rt.connections.token(id)).reveal());
     } catch {
-      /* nicht verbunden */
+      /* not connected */
     }
   }
+  if (sess) out.push(...sess.secrets());
   return out;
 }
 
@@ -287,19 +311,40 @@ async function teamTokenText(rt: Runtime): Promise<string[]> {
 export async function planTeamPush(rt: Runtime): Promise<TeamPushPlan> {
   const c = requireConfig(rt);
   if (c.mode !== "pull-push") throw new TeamSyncError('Schieben ist ausgeschaltet (teamSync.mode ist "pull"). Auf "pull-push" stellen.', "forbidden-mode");
-  return guarded(rt, async () => {
-    const text = exportTeamBundle(rt.inventory.data);
-    assertTeamFileClean(text, await teamTokenText(rt));
-    const remote = await fetchRemote(rt, c);
-    const st = await readTeamSyncState(statePath(rt));
-    const incoming = remote ? diffBundles(rt.inventory.data, parseTeamBundle(remote.text)) : null;
-    // Das Repository hat Neues oder Anderes, das lokal fehlt (nur lokale Zusaetze sind kein Konflikt: genau die werden geschoben).
-    if (remote && incoming && st.remoteSha !== remote.sha && Object.values(incoming.sections).some((d) => d.added.length > 0 || d.changed.length > 0)) {
-      throw new TeamSyncError("Das Repository hat Aenderungen, die lokal fehlen. Erst abgleichen (Uebernehmen oder Lokal behalten), dann schieben.", "conflict");
-    }
-    const diff = remote ? diffBundles(parseTeamBundle(remote.text), rt.inventory.data) : diffBundles({ version: 1, secrets: [], variables: [], providers: [], envTemplates: [], stages: [] } as never, rt.inventory.data);
-    return { diff, remoteSha: remote?.sha ?? null, localHash: textHash(text), strategy: c.push.strategy, targetBranch: c.push.strategy === "direct" ? c.branch : c.push.branch };
-  });
+  return guarded(rt, async () => planWith(rt, c, await openSession(rt, c)));
+}
+
+async function planWith(rt: Runtime, c: TeamSyncConfig, sess: TeamSession): Promise<TeamPushPlan> {
+  const text = exportTeamBundle(rt.inventory.data);
+  assertTeamFileClean(text, await teamTokenText(rt, sess));
+  const remote = await fetchRemote(c, sess);
+  // Check again: the installation token of this operation exists only after the first request.
+  assertTeamFileClean(text, await teamTokenText(rt, sess));
+  const st = await readTeamSyncState(statePath(rt));
+  const incoming = remote ? diffBundles(rt.inventory.data, parseTeamBundle(remote.text)) : null;
+  // Das Repository hat Neues oder Anderes, das lokal fehlt (nur lokale Zusaetze sind kein Konflikt: genau die werden geschoben).
+  if (remote && incoming && st.remoteSha !== remote.sha && Object.values(incoming.sections).some((d) => d.added.length > 0 || d.changed.length > 0)) {
+    throw new TeamSyncError("Das Repository hat Aenderungen, die lokal fehlen. Erst abgleichen (Uebernehmen oder Lokal behalten), dann schieben.", "conflict");
+  }
+  const diff = remote ? diffBundles(parseTeamBundle(remote.text), rt.inventory.data) : diffBundles({ version: 1, secrets: [], variables: [], providers: [], envTemplates: [], stages: [] } as never, rt.inventory.data);
+  return { diff, remoteSha: remote?.sha ?? null, localHash: textHash(text), strategy: c.push.strategy, targetBranch: c.push.strategy === "direct" ? c.branch : c.push.branch };
+}
+
+/**
+ * Before any write: the team repository must be private and the token must be able to push. Fails closed, no override.
+ * User tokens: GET /repos returns `permissions.push`. GitHub App installation tokens usually return no `permissions`; then the
+ * permissions GitHub granted to the installation token (contents: write, pull_requests: write for pull-request mode) decide.
+ */
+async function assertPushable(c: TeamSyncConfig, sess: TeamSession): Promise<void> {
+  const [owner, name] = split(c.repo);
+  const info = await sess.gh.getRepo(owner, name);
+  if (info.private !== true) throw new TeamSyncError("Das Team-Repository ist nicht privat. Es wird nichts geschrieben.", "team_repo_not_private");
+  const noPush = new TeamSyncError("Der Token darf in das Team-Repository nicht schreiben (oder das Recht laesst sich nicht feststellen). Es wird nichts geschrieben.", "team_repo_no_push");
+  if (info.permissions && info.permissions.push !== true) throw noPush;
+  if (sess.source === "github-app") {
+    const g = sess.granted();
+    if (!g || g["contents"] !== "write" || (c.push.strategy === "pull-request" && g["pull_requests"] !== "write")) throw noPush;
+  } else if (!info.permissions) throw noPush;
 }
 
 /** Vorschau fuer eine hochgeladene Team-Datei: was sie gegenueber dem lokalen Stand hinzufuegt. Aendert nichts. */
@@ -319,7 +364,10 @@ const messages = {
 export async function pushTeamSync(rt: Runtime, options: { confirm: boolean; expectLocalHash: string; expectRemoteSha: string | null; lang?: "de" | "en" }, now: Date = new Date()) {
   if (options.confirm !== true) throw new InventoryError("Schieben braucht die ausdrueckliche Bestaetigung confirm: true.");
   const c = requireConfig(rt);
-  const plan = await planTeamPush(rt);
+  if (c.mode !== "pull-push") throw new TeamSyncError('Schieben ist ausgeschaltet (teamSync.mode ist "pull"). Auf "pull-push" stellen.', "forbidden-mode");
+  // One operation = one session = one installation token.
+  const sess = await openSession(rt, c);
+  const plan = await guarded(rt, () => planWith(rt, c, sess));
   if (plan.localHash !== options.expectLocalHash || plan.remoteSha !== options.expectRemoteSha) throw new TeamSyncError("Der Stand hat sich seit der Vorschau geaendert. Bitte Vorschau neu laden.", "changed");
   const st = await readTeamSyncState(statePath(rt));
   if (st.lastPushAt && now.getTime() - Date.parse(st.lastPushAt) < MIN_PUSH_INTERVAL_MS) throw new TeamSyncError("Der letzte Push ist erst wenige Sekunden her. Bitte kurz warten.", "too-soon");
@@ -327,7 +375,8 @@ export async function pushTeamSync(rt: Runtime, options: { confirm: boolean; exp
   const text = exportTeamBundle(rt.inventory.data);
   const m = messages[options.lang ?? "de"];
   return guarded(rt, async () => {
-    const gh = await client(rt);
+    const gh = sess.gh;
+    await assertPushable(c, sess);
     const [owner, name] = split(c.repo);
     let remoteSha = st.remoteSha;
     let pendingPullUrl: string | null = null;
@@ -398,7 +447,13 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
       await setupTeamSync(rt, fromEnv);
       if (inventoryEmpty(rt) && (await teamTokenSource(rt)) !== "none") {
         const check = await checkTeamSync(rt);
-        if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: "merge" });
+        // Unattended: only entries that are new are applied. Changed or removed entries stay pending for the portal preview.
+        if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) {
+          const r = await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: "merge", onlyAdded: true });
+          const d = check.diff;
+          const count = (k: "changed" | "removed") => (d ? Object.values(d.sections).reduce((n, x) => n + x[k].length, 0) : 0);
+          console.info(`team sync startup: applied ${r.added.length} new entries (${r.added.join(", ")}); pending for confirmation: ${count("changed")} changed, ${count("removed")} removed`);
+        }
       }
       return;
     }
@@ -440,11 +495,18 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
   if (source === "none") return out;
   const [owner, name] = split(c.repo);
   const needed = `Noetig: ${neededRights(c).join(", ")}. ${howToExtend(source, c)}`;
-  const gh = await client(rt);
+  const sess = await openSession(rt, c);
+  const gh = sess.gh;
   try {
     const head = await gh.getBranchHead(owner, name, c.branch);
     out.push(head === null ? { id: "read", label: "Repository lesen", status: "fail", detail: `Repository oder Zweig nicht gefunden, oder kein Zugriff. ${needed}` } : { id: "read", label: "Repository lesen", status: "pass", detail: `${c.repo}, Zweig ${c.branch}` });
     if (head === null) return out;
+    try {
+      const info = await gh.getRepo(owner, name);
+      out.push(info.private === true ? { id: "private", label: "Repository privat", status: "pass", detail: c.repo } : { id: "private", label: "Repository privat", status: "fail", detail: "Das Team-Repository ist nicht privat. Schieben ist gesperrt, bis es privat ist." });
+    } catch (e) {
+      out.push({ id: "private", label: "Repository privat", status: "fail", detail: mapTeamSyncError(e).message });
+    }
     const file = await gh.getContentFile(owner, name, c.path, c.branch);
     out.push({ id: "file", label: "Team-Datei", status: file ? "pass" : "warn", detail: file ? c.path : `${c.path} fehlt noch im Repository` });
   } catch (e) {
@@ -460,7 +522,7 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
       out.push({ id: "pulls", label: "Pull Requests", status: "fail", detail: `${mapTeamSyncError(e).message} ${needed}` });
     }
   }
-  const granted = (rt.teamSyncMemo as unknown as { granted?: Record<string, string> | null }).granted;
+  const granted = sess.granted();
   if (source === "github-app" && granted) {
     const want = teamPermissions(c) as Record<string, string>;
     const missing = Object.entries(want).filter(([k, v]) => granted[k] !== v && !(v === "read" && granted[k] === "write"));

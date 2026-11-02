@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile, mkdir, writeFile, access, constants } from "node:fs/promises";
+import { readFile, mkdir, writeFile, access, constants, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { writePrivateFile } from "./platform.js";
 import { parse, parseDocument } from "yaml";
 import { ConfigSchema, type TeamSyncConfig } from "./config.js";
 import { exportTeamBundle, TeamBundleError } from "./team.js";
@@ -9,7 +11,7 @@ import type { Inventory } from "./types.js";
 export class TeamSyncError extends Error {
   constructor(
     message: string,
-    readonly code: "not-configured" | "not-connected" | "not-found" | "denied" | "conflict" | "changed" | "invalid" | "network" | "forbidden-mode" | "too-soon" | "unwritable",
+    readonly code: "not-configured" | "not-connected" | "not-found" | "denied" | "conflict" | "changed" | "invalid" | "network" | "forbidden-mode" | "too-soon" | "unwritable" | "team_repo_not_private" | "team_repo_no_push",
   ) {
     super(message);
     this.name = "TeamSyncError";
@@ -66,6 +68,8 @@ export function assertTeamFileClean(text: string, forbidden: readonly string[] =
     for (const key of ["externalId", "rotatedAt"]) if (key in s) throw new TeamBundleError(`Team-Datei enthaelt ${key}: wird nicht hochgeladen.`);
   }
   for (const f of forbidden) if (f.length >= 8 && text.includes(f)) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(text)) throw new TeamBundleError("Team-Datei enthaelt einen privaten Schluessel: wird nicht hochgeladen.");
+  if (/gh[pousr]_[A-Za-z0-9]{20,}/.test(text) || /github_pat_[A-Za-z0-9_]{20,}/.test(text)) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
 }
 
 // ------------------------------------------------------------------------------------------------ Zustand (lokal)
@@ -95,7 +99,15 @@ export async function readTeamSyncState(path: string): Promise<TeamSyncState> {
 
 export async function writeTeamSyncState(path: string, state: TeamSyncState): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  // Atomic: temp file in the same directory (mode 0600), then rename.
+  const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writePrivateFile(tmp, `${JSON.stringify(state, null, 2)}\n`);
+    await rename(tmp, path);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 // ------------------------------------------------------------------------------------------------ Konfigurationsdatei
@@ -136,7 +148,7 @@ export async function ensureConfigFile(configPath: string): Promise<boolean> {
   if (!(await writable(dir))) throw new TeamSyncError(`Die Konfigurationsdatei ${configPath} fehlt und der Ordner ist nicht beschreibbar. Datei anlegen oder SECRET_DESK_CONFIG auf einen beschreibbaren Pfad setzen.`, "unwritable");
   await writeFile(configPath, MINIMAL_CONFIG, { flag: "wx", mode: 0o600 });
   try {
-    await writeFile(`${dir}/inventory.yaml`, "version: 1\nsecrets: []\nvariables: []\n", { flag: "wx" });
+    await writeFile(`${dir}/inventory.yaml`, "version: 1\nsecrets: []\nvariables: []\n", { flag: "wx", mode: 0o600 });
   } catch {
     /* Inventar existiert schon */
   }
