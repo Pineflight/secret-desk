@@ -185,6 +185,8 @@ describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
     expect((await getAutomation(rt, human)).browser.viewerUrl).toBe(viewer);
     expect(viewerUrlFrom("http://user:pw@desk.local/browser/", {})).toBeNull();
     expect(viewerUrlFrom("javascript:alert(1)", {})).toBeNull();
+    expect(viewerUrlFrom("/browser/vnc.html?path=browser/websockify&autoconnect=1", {})).toBe("/browser/vnc.html?path=browser/websockify&autoconnect=1");
+    expect(viewerUrlFrom("//evil.example/x", {})).toBeNull();
     expect(viewerUrlFrom("http://desk.local/a", { SECRET_DESK_BROWSER_VIEWER_URL: "https://other.local/b" })).toBe("https://other.local/b");
   });
 

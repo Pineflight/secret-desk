@@ -148,8 +148,10 @@ export const ConfigSchema = z.object({
        */
       viewerUrl: z
         .string()
-        .url()
-        .refine((v) => /^https?:\/\//.test(v) && !/^https?:\/\/[^/]*@/.test(v), "Expected an http or https URL without credentials")
+        .refine(
+          (v) => (v.startsWith("/") && !v.startsWith("//") && !/[\s\\]/.test(v)) || (/^https?:\/\/[^\s]+$/.test(v) && !/^https?:\/\/[^/]*@/.test(v)),
+          "Expected a path on the portal host (/browser/...) or an http(s) URL without credentials",
+        )
         .optional(),
       /** Dauerhaftes Browserprofil. Standard: ~/.secret-desk/browser-profile. */
       profileDir: z.string().min(1).optional(),
