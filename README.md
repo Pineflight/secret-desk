@@ -56,7 +56,9 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Parameters and resource selection:** each provider declares what an entry needs (account, project, zone, domain). The portal lists the resources of the connected integration read-only, suggests at most one match that you confirm with a click, blocks issuing while required parameters are missing and runs a read-only preflight. Variables can load public values (project URL, zone id, sitekey) from a provider. See [Parameters and resources](docs/RESOURCES.md).
 - **Integrations with permission guides:** for each provider the exact permissions to grant, a link that prefills the GitHub token form, a read-only **Test connection** and an opt-in **write test**. See [Integrations](docs/INTEGRATIONS.md).
 - **Encrypted vault for integration tokens:** optional, AES-256-GCM, key in the OS keychain (macOS Keychain, Linux `secret-tool`, Windows DPAPI) or a key file.
-- **Browser automation recipes:** for providers without an API, a visible Chrome walks through the form from a YAML recipe. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md).
+- **Browser automation recipes:** for providers without an API, a browser walks through the form from a YAML recipe: a local Chrome, or a browser sidecar on a server that you reach through noVNC, sign in to once, and that later runs use without anyone watching. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md) and [Browser on the Pi](docs/DOCKER.md#browser-on-the-pi).
+- **Runs on a small server:** the portal and the browser sidecar run as containers on a Raspberry Pi in your LAN, behind a reverse proxy, updated automatically. See [Docker](docs/DOCKER.md).
+- **Full sync in one pass:** read what every workflow needs, normalize names, create every value a provider can create and load every variable from its source, then write all of it. See [Full sync](docs/FULL-SYNC.md).
 - **Dev `.env` export:** per-repository templates produce the file on demand (defaults, random values, personal dev tokens, variables) with mode 600, stored nowhere.
 - **Search and command palette:** ⌘K / Ctrl K opens a palette over secrets, variables, repositories, stages, integrations, providers, pages and actions (metadata only, never values) with typo-tolerant matching, filters such as `stage:staging`, suggestions and recent items. See [Search](docs/SEARCH.md).
 - **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
@@ -65,18 +67,19 @@ secret-desk closes these gaps without becoming a second secret store:
 
 The overview page shows which integrations are connected, what hangs on them and how many secrets can be renewed automatically. Details per provider: [Providers](docs/PROVIDERS.md).
 
-| Integration | Automatic (portal creates the value) | By hand (you paste it, the portal verifies it) |
-|---|---|---|
-| Local | random hex, base64 and UUID values | n/a |
-| Cloudflare | API tokens, Turnstile secrets | n/a |
-| Supabase | API keys, service role key (read) | access token |
-| Stripe | webhook signing secrets | restricted keys |
-| Resend | API keys | n/a |
-| Grafana | service account tokens | n/a |
-| GitHub | n/a (it is where values are written) | fine-grained tokens |
-| Others | n/a | OpenAI, Telegram bot (guides) |
+| Integration | Created through the API | Loaded as variables | In a browser (recipe) |
+|---|---|---|---|
+| Local | random hex, base64 and UUID values | n/a | n/a |
+| Cloudflare | API tokens, Turnstile secrets | account id, zone id, Turnstile site key | n/a |
+| Supabase | API keys, service role key (read) | project ref, URL, publishable key | access tokens (scaffold) |
+| Stripe | webhook signing secrets (sandbox and live) | n/a | restricted keys (scaffold) |
+| Resend | domain-limited sending keys | domain id | n/a |
+| Grafana | service account tokens | n/a | n/a |
+| GitHub | n/a (it is where values are written) | n/a | fine-grained tokens (scaffold) |
+| RevenueCat | *in progress* | *in progress:* project id, app ids, SDK and sandbox keys | *in progress:* secret API keys |
+| Anything else | n/a | n/a | you paste it, the portal verifies and writes it |
 
-Only the Cloudflare API token provider is verified against the reference; the other automatic providers are **not verified** against the real API yet, see the table in [Providers](docs/PROVIDERS.md).
+Cloudflare tokens and Turnstile secrets, Supabase secret keys, Stripe sandbox webhooks and Resend keys were verified against the live services in a full rollout on 2 November 2026; the rest is tested against mocks. What is supported, in progress and planned, and which external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Per endpoint: [Providers](docs/PROVIDERS.md).
 
 - **MCP server, skill and agent HTTP API:** AI agents maintain metadata, query status and request renewals. They never see values and never confirm. See [Agents](docs/AGENTS.md) and the [Agent API](docs/AGENT-API.md).
 - **German and English UI**, runs on **macOS, Linux and Windows**.
@@ -234,15 +237,13 @@ Early version (0.1.0), not yet used in production at scale. Honest limits:
 - **The browser recipes have not been checked against the live provider pages** ([docs/BROWSER-AUTOMATION.md](docs/BROWSER-AUTOMATION.md)). Every bundled recipe carries a `# STATUS` comment saying so.
 - **Real-world testing so far happened on macOS.** Windows and Linux are covered by simulated platforms and the manually triggered cross-platform workflow.
 - The GitHub side (encrypting and writing secrets and variables, environments) was exercised against the real GitHub in a throwaway repository on 27 October 2026 ([docs/TRIAL-RUN.md](docs/TRIAL-RUN.md)).
+- A first full rollout over a dozen repositories ran on 2 November 2026 from a Raspberry Pi ([docs/FULL-SYNC.md](docs/FULL-SYNC.md)): about 50 secrets created at Cloudflare, Supabase, Stripe (sandbox), Resend and locally, and over 50 variables written. It found and fixed one provider bug (Supabase key names).
 
 ## Roadmap ideas
 
-Ideas, not promises:
+In progress: RevenueCat (secret keys by recipe, project and app ids and public SDK keys through its API), recipe parameters for several projects per provider, and a guided sign-in where you pick a provider on *Integrations*, sign in through a form and watch every step. Planned: Peecho, VesselAPI and OpenAI recipes, Cloudflare R2 credentials and Access service tokens, GitHub App tokens instead of personal tokens, VAPID pairs, organization secrets. The full list with the external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Ideas, not promises.
 
 - An OpenAPI description for the human routes (`/api/ui`) in addition to the [agent routes](docs/openapi-agent.yaml).
-- More providers, and verifying the existing endpoints against the live services.
-- Organization-level secrets in the portal (the `organization` scope exists in the schema, but the portal form does not offer it yet).
-- Verified browser recipes, and recipe-driven revocation.
 
 ## Contributing
 
@@ -252,7 +253,7 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: setup,
 
 secret-desk is created by [Pineflight](https://github.com/Pineflight) and released under the [MIT license](LICENSE) (copyright line unchanged: Niklas Lurse (Pineflight)). The portal shows this on its **About** page (`/about`) and in the sidebar footer, and the CLI prints it with `secret-desk about` (`--version` prints the version only). The Docker image carries the same information as OCI labels (vendor, authors, source, license, version, revision) and contains `LICENSE` and `THIRD-PARTY-NOTICES.md` under `/licenses`.
 
-**Third-party licenses.** [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists every production dependency with version and license. It is generated offline by `node scripts/licenses.mjs` from the installed dependencies, and CI runs `node scripts/licenses.mjs --check`, which fails on a forbidden (GPL, AGPL, SSPL ...) or unknown license and on a stale list, and warns about everything outside the allow list (MIT, ISC, BSD-2/3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, Unlicense; MPL-2.0 only as a warning).
+**Third-party licenses.** The browser sidecar image bundles Chromium, Xvfb, x11vnc, noVNC, websockify and socat from Debian; [docker/browser/THIRD-PARTY-NOTICES.md](docker/browser/THIRD-PARTY-NOTICES.md) lists them with licenses and where to get their source. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists every production dependency with version and license. It is generated offline by `node scripts/licenses.mjs` from the installed dependencies, and CI runs `node scripts/licenses.mjs --check`, which fails on a forbidden (GPL, AGPL, SSPL ...) or unknown license and on a stale list, and warns about everything outside the allow list (MIT, ISC, BSD-2/3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, Unlicense; MPL-2.0 only as a warning).
 
 **Privacy.** No telemetry, no connection to Pineflight servers. secret-desk only talks to the providers and GitHub that you configure (and optionally the repository of your team sync). This is checked in the source by a test (`packages/runtime/test/about.test.ts`: no telemetry library, no Pineflight host in the code). The Next.js framework has its own optional telemetry; it is switched off in the Docker image and in `pnpm demo`; for `pnpm dev` and `pnpm start` set `NEXT_TELEMETRY_DISABLED=1`.
 

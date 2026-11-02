@@ -18,6 +18,7 @@ RUN apt-get update \
  && mkdir /profile && chown browser:browser /profile
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY THIRD-PARTY-NOTICES.md /licenses/THIRD-PARTY-NOTICES.md
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 LABEL org.opencontainers.image.title="secret-desk-browser" \

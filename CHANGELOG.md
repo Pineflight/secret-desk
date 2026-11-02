@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Providers and roadmap:** [docs/ROADMAP.md](docs/ROADMAP.md) lists supported, in-progress and planned providers with their live verification status and every external service secret-desk talks to. The browser sidecar image ships its own [third-party notices](docker/browser/THIRD-PARTY-NOTICES.md) under `/licenses`.
 - **Open the remote browser from the portal:** `automation.viewerUrl` (or `SECRET_DESK_BROWSER_VIEWER_URL`) adds an *Open browser* link to *Connections*, and the section text explains the server browser instead of a local Chrome window.
 
 - **Full sync guide:** [docs/FULL-SYNC.md](docs/FULL-SYNC.md) walks through setting up many repositories in one pass: needs from the workflows, normalize, sources and parameters, GitHub environments, dry run, writing variables and secrets with the CLI (also inside the Docker container), removing old names, and the provider limits met in practice (paused Supabase projects, Cloudflare read permissions and single-zone tokens, Turnstile rotation).
