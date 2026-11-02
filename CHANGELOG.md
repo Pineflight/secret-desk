@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **RevenueCat as a source of variables:** the new connection `revenuecat` (a v2 secret key with *Project configuration: Read only*, test connection `GET /v2/projects`) reads projects, apps and the public SDK keys (production and sandbox, newest key wins) so `REVENUECAT_PROJECT_ID`, the app ids and `REVENUECAT_*SDK_KEY` are loaded instead of typed. Sources `revenuecat.project`, `revenuecat.app`, `revenuecat.publicApiKey`; the normalize suggestions know these names; the secret-shape guard accepts the public SDK key prefixes and blocks `sk_` keys. Secret keys are never a source. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) and [docs/RESOURCES.md](docs/RESOURCES.md).
 - **Open the remote browser from the portal:** `automation.viewerUrl` (or `SECRET_DESK_BROWSER_VIEWER_URL`) adds an *Open browser* link to *Connections*, and the section text explains the server browser instead of a local Chrome window.
 
 - **Full sync guide:** [docs/FULL-SYNC.md](docs/FULL-SYNC.md) walks through setting up many repositories in one pass: needs from the workflows, normalize, sources and parameters, GitHub environments, dry run, writing variables and secrets with the CLI (also inside the Docker container), removing old names, and the provider limits met in practice (paused Supabase projects, Cloudflare read permissions and single-zone tokens, Turnstile rotation).

@@ -165,7 +165,7 @@ A **source** says where an access token comes from. It is never the value itself
 | `env` | `name` | Read from the environment variable `name`. |
 | `op` | `ref` (must start with `op://`) | Read with the 1Password CLI (`op read <ref>`). |
 
-`connections` is keyed by connection id. The ids in use are `github`, `github-app-key`, `cloudflare`, `cloudflare-turnstile`, `supabase`, `stripe`, `stripe-test`, `stripe-live`, `resend` and `grafana`; a custom provider may bring its own. The GitHub entry is set through `github.auth`, not `connections`.
+`connections` is keyed by connection id. The ids in use are `github`, `github-app-key`, `cloudflare`, `cloudflare-turnstile`, `supabase`, `stripe`, `stripe-test`, `stripe-live`, `resend`, `revenuecat` and `grafana`; a custom provider may bring its own. The GitHub entry is set through `github.auth`, not `connections`.
 
 ```yaml
 connections:

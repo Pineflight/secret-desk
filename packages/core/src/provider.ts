@@ -95,6 +95,8 @@ export interface Provider {
   params?: ParamSpec[];
   /** Listet Ressourcen der verbundenen Integration (Konten, Projekte, Zonen ...). Nur lesend. Unbekannte Art: UnknownDiscoverKindError. */
   discover?(kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]>;
+  /** Further discover kinds this provider answers that no parameter uses, for example sources of variables. */
+  discoverKinds?: string[];
   /** Lesender Vorabcheck: gehoert die gewaehlte Ressource zur Integration? Laeuft vor dem Ausstellen. */
   preflight?(ctx: PreflightContext): Promise<PreflightResult>;
   /** Wie viele Stunden der Anbieter fuer den Wert maximal vorsieht, falls bekannt. */
