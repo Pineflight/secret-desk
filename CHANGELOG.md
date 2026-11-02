@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Full sync guide:** [docs/FULL-SYNC.md](docs/FULL-SYNC.md) walks through setting up many repositories in one pass: needs from the workflows, normalize, sources and parameters, GitHub environments, dry run, writing variables and secrets with the CLI (also inside the Docker container), removing old names, and the provider limits met in practice (paused Supabase projects, Cloudflare read permissions and single-zone tokens, Turnstile rotation).
 - **Normalize the inventory:** a naming convention for secrets and variables (`UPPER_SNAKE_CASE`, no stage, provider spelled out, no framework prefix, canonical Supabase names, English words; `naming.renames` and `naming.keep` in the configuration) and a **Normalize** action on *Secrets and variables* that previews the changes (rename, stage, switch to a provider, variable sources, collisions, entries that stay manual) and applies the selected or all unambiguous ones. Also `secret-desk inventory normalize` and `GET normalization` / `POST normalization/apply`. Inventory only: nothing is written to GitHub. Entry ids stay. See [docs/NAMING.md](docs/NAMING.md).
 
 ### Security

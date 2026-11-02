@@ -5,6 +5,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 ## Guides
 
 - [GETTING-STARTED.md](GETTING-STARTED.md): from a fresh checkout to the demo, your own configuration, a GitHub token with the exact permissions, the first reviewed renewal and a dev `.env`.
+- [FULL-SYNC.md](FULL-SYNC.md): bring many repositories into a known state in one pass: needs from the workflows, normalize, sources and parameters, environments, dry run, writing variables and secrets, removing old names, and the limits you may meet.
 - [TRIAL-RUN.md](TRIAL-RUN.md): a guided first run with real services in a throwaway repository, with `doctor` pre-check and an acceptance list.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): common errors (403 on environments, launch secret, ports, vault and keychain, Chrome, Windows paths) and their fixes.
 - [RESOURCES.md](RESOURCES.md): parameters and resource selection: choose the account, project, zone or domain a token is created for, suggestions, preflight and variables from a provider.
