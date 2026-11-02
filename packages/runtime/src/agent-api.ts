@@ -80,7 +80,7 @@ export class PolicyError extends Error {
   }
 }
 
-const requireHuman = (actor: Actor, what: string): void => {
+export const requireHuman = (actor: Actor, what: string): void => {
   if (actor.kind !== "human") throw new PolicyError(`${what} darf nur ein Mensch.`);
 };
 

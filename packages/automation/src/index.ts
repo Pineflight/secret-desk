@@ -9,5 +9,6 @@ export * from "./chrome.js";
 export * from "./cdp.js";
 export * from "./playwright-driver.js";
 export * from "./run.js";
+export * from "./login.js";
 export * from "./provider.js";
 export * from "./bundled.js";

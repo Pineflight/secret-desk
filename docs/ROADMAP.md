@@ -26,6 +26,12 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 | Supabase | personal access tokens | recipe scaffold, not verified |
 | Stripe | restricted API keys | recipe scaffold (permission matrix not modeled), not verified |
 
+### Created through a guided sign-in (provider facade)
+
+| Provider | What the facade does | Status |
+|---|---|---|
+| RevenueCat | Signs in through the remote browser, creates a v2 secret key (*Project configuration: Read only*), stores it as the connection `revenuecat`, tests it; projects, apps and public SDK keys are then loaded through the API v2 for several projects | Key form and list checked live on 2026-11-02. Sign-in: only the email step checked; password, one-time code, approval, CAPTCHA and error steps **not verified**. The full flow has not run against the live site. |
+
 ### Pasted by a human, verified and written by secret-desk
 
 Anything else: passwords, keys of providers without an API, values a provider hands out once. The portal checks the shape,
@@ -35,15 +41,13 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 
 | Item | What it brings |
 |---|---|
-| Recipe parameters | Recipes take per-entry parameters (project id, permission levels), so one recipe serves several projects or accounts. |
-| RevenueCat | Secret API keys (v2, permission levels per area) through a recipe; project ids, app ids, public SDK keys and sandbox keys loaded through the RevenueCat API v2, for several projects. |
-| Guided sign-in | On *Integrations*, pick a provider and sign in through a form: the portal drives the server browser, shows every step (email, password, one-time code, approval in the app, CAPTCHA hand-over) and then connects the integration on its own. The password is used for that run only and never stored. |
+| Live verification of the RevenueCat sign-in | Password, one-time code, approval, CAPTCHA and error steps of the recipe are written defensively and still to be checked against the live site. |
 
 ## Planned
 
 | Item | Approach |
 |---|---|
-| Peecho, VesselAPI, OpenAI | Browser recipes behind the guided sign-in |
+| GitHub, Supabase, Stripe, Peecho, VesselAPI, OpenAI | A facade descriptor and recipes each, behind the same guided sign-in |
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Cloudflare Access service tokens | API |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
@@ -66,8 +70,8 @@ secret-desk has no telemetry and no Pineflight server. It talks only to the serv
 | Stripe API | Create webhook endpoints | Endpoint URL, event types |
 | Resend API | Create sending keys, read domains | Key names, domain ids |
 | Grafana Cloud API | Create service account tokens | Token names |
-| RevenueCat API v2 (in progress) | Read projects, apps and public SDK keys | Project and app ids |
-| Provider websites (browser recipes) | Create tokens where no API exists | What the recipe types into the provider's own form |
+| RevenueCat API v2 | Read projects, apps and public SDK keys | Project and app ids |
+| Provider websites (browser recipes) | Create tokens where no API exists | What the recipe types into the provider's own form; with the guided sign-in also the email and password you entered for that run (only on the recipe's host, never stored) |
 | Your team repository (optional team sync) | Share the value-free configuration | Inventory metadata |
 
 Values are generated at the provider, held in memory for the review (at most 15 minutes) and written to GitHub

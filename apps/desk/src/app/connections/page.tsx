@@ -5,6 +5,8 @@ import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
+import { FacadeFlow, FacadeSection } from "@/components/ProviderFacade";
+import type { FacadeInfo } from "@/lib/facade";
 import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
@@ -59,6 +61,8 @@ export default function ConnectionsPage() {
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
   const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
+  // Providers with a guided sign-in. Failing to load them only hides the section.
+  const facades = useQuery<FacadeInfo[]>("facades", () => api<FacadeInfo[]>("GET", "facades"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
   const connected = (conns.data ?? []).filter((c) => c.connected);
   return (
@@ -75,6 +79,7 @@ export default function ConnectionsPage() {
           <Button variant="primary" onClick={() => setPicking(null)}>{t("connections.add")}</Button>
         </EmptyState>
       ) : null}
+      <FacadeSection facades={facades.data ?? []} onOpen={(id) => { const f = facades.data?.find((x) => x.id === id); if (f) setPicking(f.connectionId); }} />
       <div className="grid gap-4 md:grid-cols-2">
         {connected.map((c) => (
           <ConnectionCard key={c.id} c={c} onGuide={() => setPicking(c.id)} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} />
@@ -86,8 +91,9 @@ export default function ConnectionsPage() {
           initial={picking}
           conns={conns.data ?? []}
           provs={provs.data ?? []}
+          facades={facades.data ?? []}
           onClose={() => setPicking(false)}
-          onChanged={conns.reload}
+          onChanged={() => { conns.reload(); facades.reload(); }}
           onNewProvider={() => { setPicking(false); setAdding(true); }}
         />
       ) : null}
@@ -215,13 +221,14 @@ function withExpiry(url: string, days: number | null): string {
 
 const labelOf = (c: Connection) => c.label || NAMES[c.id] || c.id;
 
-function IntegrationPicker({ initial, conns, provs, onClose, onChanged, onNewProvider }: { initial: string | null; conns: Connection[]; provs: Provider[]; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
+function IntegrationPicker({ initial, conns, provs, facades, onClose, onChanged, onNewProvider }: { initial: string | null; conns: Connection[]; provs: Provider[]; facades: FacadeInfo[]; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
   const t = useT();
   const [selected, setSelected] = useState<string | null>(initial);
   const [q, setQ] = useState("");
   const manual = provs.filter((p) => p.kind === "manual" && p.guide);
   const sel = selected ? (conns.find((c) => c.id === selected) ?? null) : null;
   const selProv = selected?.startsWith("provider:") ? (manual.find((p) => `provider:${p.id}` === selected) ?? null) : null;
+  const facade = sel ? facades.find((f) => f.connectionId === sel.id) : undefined;
   const needle = q.trim().toLowerCase();
   const connItems = conns.filter((c) => !needle || `${labelOf(c)} ${c.description ?? ""} ${c.id}`.toLowerCase().includes(needle));
   const provItems = manual.filter((p) => !needle || `${p.label} ${p.id}`.toLowerCase().includes(needle));
@@ -230,7 +237,14 @@ function IntegrationPicker({ initial, conns, provs, onClose, onChanged, onNewPro
     return (
       <Dialog title={sel ? labelOf(sel) : selProv!.label} onClose={onClose} wide>
         <button type="button" onClick={() => setSelected(null)} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{t("connections.back")}</button>
-        {sel ? <ConnectionDetail c={sel} onChanged={onChanged} onDone={onClose} /> : <ProviderDetail p={selProv!} />}
+        {sel && facade ? (
+          // Providers with a guided sign-in start with the sign-in; pasting a key is only the collapsed way out.
+          <FacadeFlow facade={facade} onChanged={onChanged} onDone={onClose} fallback={<ConnectionDetail c={sel} onChanged={onChanged} onDone={onClose} noExpiry />} />
+        ) : sel ? (
+          <ConnectionDetail c={sel} onChanged={onChanged} onDone={onClose} />
+        ) : (
+          <ProviderDetail p={selProv!} />
+        )}
       </Dialog>
     );
   }
@@ -242,7 +256,7 @@ function IntegrationPicker({ initial, conns, provs, onClose, onChanged, onNewPro
         {connItems.map((c) => (
           <li key={c.id}>
             <button type="button" onClick={() => setSelected(c.id)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-page">
-              <span><span className="block text-sm font-medium">{labelOf(c)}</span>{c.description ? <span className="block text-xs text-muted">{c.description}</span> : null}</span>
+              <span><span className="block text-sm font-medium">{labelOf(c)}{facades.some((f) => f.connectionId === c.id) ? <span className="ml-2 align-middle"><Badge info={{ label: t("facade.badge"), tone: "primary", icon: "plug" }} /></span> : null}</span>{c.description ? <span className="block text-xs text-muted">{c.description}</span> : null}</span>
               {c.connected ? <span className="shrink-0 text-xs text-success">{t("connections.connected")}</span> : <Icon name="plug" className="h-4 w-4 shrink-0 text-muted" />}
             </button>
           </li>
@@ -276,7 +290,8 @@ function ProviderDetail({ p }: { p: Provider }) {
   );
 }
 
-function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: () => void; onDone: () => void }) {
+/** noExpiry: the provider's keys do not expire, so no lifetime is asked for (RevenueCat). */
+function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Connection; onChanged: () => void; onDone: () => void; noExpiry?: boolean }) {
   const t = useT();
   const toast = useToast();
   const [value, setValue] = useState("");
@@ -288,7 +303,7 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   const set = useMutation(async (body: unknown) => api<Connection>("POST", `connections/${enc(c.id)}/token`, body));
   const name = labelOf(c);
   const today = new Date().toISOString().slice(0, 10);
-  const never = preset === "never";
+  const never = noExpiry || preset === "never";
   const expires = never ? "" : preset === "custom" ? custom : addDays(today, Number(preset));
   const days = never ? null : Math.max(1, Math.round((Date.parse(`${expires}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000));
   const link = c.openUrl ? withExpiry(c.openUrl, days) : null;
@@ -317,7 +332,7 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
   return (
     <div className="text-sm">
       {c.description ? <p className="text-muted">{c.description}</p> : null}
-      <div className="mt-4 grid gap-3 rounded-xl bg-page p-4 sm:grid-cols-2">
+      {noExpiry ? null : <div className="mt-4 grid gap-3 rounded-xl bg-page p-4 sm:grid-cols-2">
         <SelectField label={t("connections.step1")} value={preset} onChange={(e) => setPreset(e.target.value)}>
           {[7, 30, 90, 180, 365].map((d) => <option key={d} value={d}>{t("connections.days", { count: d })}</option>)}
           <option value="custom">{t("connections.customDate")}</option>
@@ -332,17 +347,17 @@ function ConnectionDetail({ c, onChanged, onDone }: { c: Connection; onChanged: 
           <p className="self-end pb-2 text-sm text-muted">{never ? t("connections.noExpiryNotRecommended") : t("connections.validUntilShort", { date: formatDate(expires) })}</p>
         )}
         <p className="text-xs text-muted sm:col-span-2">{t("connections.expiryHint")}</p>
-      </div>
+      </div>}
       {link ? (
         <a href={link} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-medium text-primary underline">
-          {c.openUrl !== c.url ? t("connections.step2Prefilled") : t("connections.step2")}<Icon name="external" className="h-3.5 w-3.5" />
+          {noExpiry ? t("connections.openKeyPage") : c.openUrl !== c.url ? t("connections.step2Prefilled") : t("connections.step2")}<Icon name="external" className="h-3.5 w-3.5" />
         </a>
       ) : null}
       {c.permissions.length > 0 ? <ul className="mt-3 flex flex-wrap gap-1.5">{c.permissions.map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted">{r}</li>)}</ul> : null}
       {c.steps.length > 0 ? <ol className="mt-3 list-decimal space-y-1 pl-5 text-muted">{c.steps.map((s, i) => <li key={i}>{s}</li>)}</ol> : null}
       {!c.connected && c.hint ? <p className="mt-3 text-xs text-muted">{c.hint}</p> : null}
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-5 space-y-2 border-t border-line pt-5">
-        <label htmlFor={`tok-${c.id}`} className="block font-medium">{t("connections.step3")}</label>
+        <label htmlFor={`tok-${c.id}`} className="block font-medium">{noExpiry ? t("connections.pasteKey") : t("connections.step3")}</label>
         <input id={`tok-${c.id}`} type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} font-mono`} />
         {mismatch ? <Notice tone="warn">{t(mismatch === "live" ? "connections.prefixLive" : "connections.prefixTest")}</Notice> : null}
         <p className="text-xs text-muted">{t("connections.memoryOnly")}</p>

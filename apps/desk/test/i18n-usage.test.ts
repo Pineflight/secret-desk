@@ -21,6 +21,7 @@ const FILES = [
   "app/connections/page.tsx",
   "app/page.tsx",
   "components/IntegrationsOverview.tsx",
+  "components/ProviderFacade.tsx",
 ];
 
 describe("i18n keys used by the parameter screens", () => {

@@ -75,6 +75,9 @@ Team sync talks to one private GitHub repository. It uses the GitHub integration
 Enter them per session in the portal (memory only), optionally keep them in the encrypted vault ([INTEGRATIONS.md](INTEGRATIONS.md#vault)), or read them from an environment variable or a 1Password reference (`op://`). Never in the configuration. Order of use: session, vault, configured source.
 Cloudflare needs a token with the *User > API Tokens > Edit* permission. That is powerful: keep it only for the session.
 
+## Guided sign-in
+The provider facade (see [INTEGRATIONS.md](INTEGRATIONS.md#guided-sign-in-provider-facade)) is the one place where secret-desk types a provider password: the email and password the human entered in the portal for this run. Why this is acceptable: a human started it and typed the values; they are held in memory for one run, typed only into pages on the recipe's `host` (and `allowHosts`), and the run aborts if the browser is on any other host; they are wiped when the run ends, is cancelled or times out; there is no automatic retry with the same password. What it never does: store the values (not in the vault, configuration, inventory, run state, logs, evidence, screenshots, error messages or API responses; the sign-in takes no screenshots), solve CAPTCHAs, or read credentials from files. A one-time code is typed once and dropped. The routes are human-only (`/api/ui`, cookie and CSRF); agents get 404 and the MCP server has no tool for it. The key the facade creates is stored as a connection by this human-started flow, with the smallest permission the connection needs.
+
 ## Write test
 **Test connection** for GitHub can additionally prove that the token may write. This is opt-in and never automatic: the request must carry `deep: true` and an explicit list of `targets`
 (repository or environment ids from the inventory, chosen by the human in the portal; live stages are never preselected). For each chosen target the portal

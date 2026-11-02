@@ -76,7 +76,7 @@ The overview page shows which integrations are connected, what hangs on them and
 | Resend | domain-limited sending keys | domain id | n/a |
 | Grafana | service account tokens | n/a | n/a |
 | GitHub | n/a (it is where values are written) | n/a | fine-grained tokens (scaffold) |
-| RevenueCat | *in progress* | *in progress:* project id, app ids, SDK and sandbox keys | *in progress:* secret API keys |
+| RevenueCat | n/a (no key API) | project id, app ids, SDK and sandbox keys | secret API keys through the guided sign-in (sign-in steps after the email not verified live) |
 | Anything else | n/a | n/a | you paste it, the portal verifies and writes it |
 
 Cloudflare tokens and Turnstile secrets, Supabase secret keys, Stripe sandbox webhooks and Resend keys were verified against the live services in a full rollout on 2 November 2026; the rest is tested against mocks. What is supported, in progress and planned, and which external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Per endpoint: [Providers](docs/PROVIDERS.md).
@@ -241,7 +241,7 @@ Early version (0.1.0), not yet used in production at scale. Honest limits:
 
 ## Roadmap ideas
 
-In progress: RevenueCat (secret keys by recipe, project and app ids and public SDK keys through its API), recipe parameters for several projects per provider, and a guided sign-in where you pick a provider on *Integrations*, sign in through a form and watch every step. Planned: Peecho, VesselAPI and OpenAI recipes, Cloudflare R2 credentials and Access service tokens, GitHub App tokens instead of personal tokens, VAPID pairs, organization secrets. The full list with the external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Ideas, not promises.
+In progress: live verification of the RevenueCat sign-in beyond the email step. Planned: facades (guided sign-in) for more providers, Peecho, VesselAPI and OpenAI recipes, Cloudflare R2 credentials and Access service tokens, GitHub App tokens instead of personal tokens, VAPID pairs, organization secrets. The full list with the external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Ideas, not promises.
 
 - An OpenAPI description for the human routes (`/api/ui`) in addition to the [agent routes](docs/openapi-agent.yaml).
 

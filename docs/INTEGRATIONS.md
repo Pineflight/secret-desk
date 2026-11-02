@@ -87,6 +87,10 @@ A service account for secret-desk with role Admin (so it can manage tokens of ot
 
 The card links to `https://grafana.com/profile/org` (forwards signed-in users to their own organization; `grafana.com/orgs` needs an org slug and answers 404). As soon as a stack address is known (integration default `baseUrl` or any Grafana entry), the card's direct link is `<baseUrl>/org/serviceaccounts`. Steps: open the stack, Administration, Users and access, Service accounts.
 
+## Guided sign-in (provider facade)
+
+For providers whose keys exist only with a user account, *Integrations* has *Connect with sign-in* (RevenueCat today). Flow: enter the provider email and password (this run only, never stored); the portal signs in through the remote browser (`automation.cdpEndpoint`) and shows each step with elapsed time and time limit; a one-time code is typed in the portal, an approval is awaited, a CAPTCHA is solved by you via *Open browser*; then the facade creates the integration key (RevenueCat: v2, *Project configuration: Read only*, no expiry, name `secret-desk-integration-<date>-<time>`), stores it as the connection (vault, else this session), runs *Test connection* and reports e.g. "1 project, 3 apps". The project is read from the dashboard address after sign-in; if that fails, enter the project id and connect (the browser stays signed in). *Check sign-in* needs no credentials. Pasting a key stays available as the collapsed *I already have a key*. Adding a provider means a descriptor in `packages/runtime/src/facade.ts` plus a recipe with `login.form`. Verification: see [ROADMAP.md](ROADMAP.md).
+
 ## Resources and defaults
 
 Besides the permissions above, each card has **Resources and defaults**. The portal uses the same token, read-only, to list the accounts, projects, zones, domains or service accounts it can see, so entries can pick a resource from a list instead of typing an id, and to store non-secret **defaults** per integration. How the lists, suggestions and the preflight work: [RESOURCES.md](RESOURCES.md).

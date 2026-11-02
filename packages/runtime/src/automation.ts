@@ -14,6 +14,8 @@ import {
   type BrowserDriver,
   type BrowserProvider,
   type HumanWait,
+  type LoginNeed,
+  type Recipe,
 } from "@secret-desk/automation";
 import {
   GitHubError,
@@ -47,6 +49,26 @@ export interface AutomationRunState {
   issuanceId?: string;
   /** Name, unter dem beim Anbieter schon ein Token angelegt sein kann (bei failed/cancelled). */
   createdName?: string;
+  /** Guided sign-in (facade) runs only, see facade.ts: */
+  kind?: "signin" | "connect";
+  /** What the provider waits for from the human right now. */
+  needs?: LoginNeed | null;
+  /** Current phase of the run. */
+  phase?: string;
+  /** Phases reached so far, with their state, oldest first. */
+  timeline?: FacadeTimelineEntry[];
+  /** When the run gives up waiting (ISO time). */
+  timeoutAt?: string | null;
+  /** Why the run failed: a code, plus the text in both interface languages. Never contains a value. */
+  failure?: { code: string; message: string; messageEn: string };
+  /** The outcome of a finished connect run. */
+  result?: unknown;
+}
+
+export interface FacadeTimelineEntry {
+  phase: string;
+  state: "active" | "done" | "failed";
+  at: string;
 }
 
 export interface AutomationRecipeInfo {
@@ -176,6 +198,7 @@ export class AutomationManager {
   readonly #cdpEndpoint: string | undefined;
   readonly #viewerUrl: string | null;
   readonly #providers = new Map<string, BrowserProvider>();
+  readonly #recipes = new Map<string, Recipe>();
   readonly #runs = new Map<string, AutomationRunState>();
   readonly #controllers = new Map<string, AbortController>();
   readonly #now: () => Date;
@@ -231,8 +254,55 @@ export class AutomationManager {
       const provider: BrowserProvider = { ...base, id: `${recipe.id}-browser`, label: `${recipe.label} (Browser)` };
       providers.register(provider);
       this.#providers.set(provider.id, provider);
+      this.#recipes.set(recipe.id, recipe);
       this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled });
     }
+  }
+
+  /** A loaded recipe by id (the guided sign-in and its key recipe live in one recipe). */
+  recipe(id: string): Recipe | undefined {
+    return this.#recipes.get(id);
+  }
+
+  /** A fresh driver for the configured browser (remote or local). */
+  newDriver(): BrowserDriver | Promise<BrowserDriver> {
+    return this.#driver();
+  }
+
+  /** Where a human sees the remote browser (noVNC), if configured. */
+  get viewerUrl(): string | null {
+    return this.#cdpEndpoint ? this.#viewerUrl : null;
+  }
+
+  /**
+   * Starts a tracked run that is not tied to an inventory entry (guided sign-in). Only one browser run at a time. Returns the
+   * signal that cancel() fires.
+   */
+  begin(key: string, providerId: string, init: Partial<AutomationRunState> & { text: string }): AbortSignal {
+    if (this.#active !== null) {
+      throw new IssuanceError(this.#active === key ? "A browser run for this provider is already in progress." : "A browser run is already in progress. Wait for it or cancel it first.");
+    }
+    const controller = new AbortController();
+    this.#active = key;
+    this.#controllers.set(key, controller);
+    const at = this.#now().toISOString();
+    this.#runs.set(key, { secretId: key, providerId, status: "running", host: null, step: null, startedAt: at, updatedAt: at, ...init });
+    return controller.signal;
+  }
+
+  /** Changes a running tracked run (ignored once it has finished). */
+  update(key: string, patch: Partial<AutomationRunState>): void {
+    this.#patch(key, patch);
+  }
+
+  /** Ends a tracked run and releases the browser. */
+  end(key: string, patch: Partial<AutomationRunState> & { status: AutomationStatus; text: string }): void {
+    this.#finish(key, patch);
+  }
+
+  /** Is this key the run that holds the browser right now? */
+  isActive(key: string): boolean {
+    return this.#active === key;
   }
 
   #driver(): BrowserDriver | Promise<BrowserDriver> {
@@ -314,6 +384,12 @@ export class AutomationManager {
 
   state(secretId: string): AutomationRunState {
     return this.#runs.get(secretId) ?? { secretId, providerId: "", status: "idle", text: "", host: null, step: null, startedAt: "", updatedAt: "" };
+  }
+
+  /** Forgets the state of a finished tracked run (a new sign-in starts from a clean slate). */
+  forget(key: string): void {
+    const cur = this.#runs.get(key);
+    if (cur && cur.status !== "running" && cur.status !== "waiting-human") this.#runs.delete(key);
   }
 
   /** Bricht den laufenden Lauf ab. Ohne laufenden Lauf ein Fehler. */
