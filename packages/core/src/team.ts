@@ -26,7 +26,11 @@ export function exportTeamBundle(inventory: Inventory): string {
   return header + stringify(JSON.parse(JSON.stringify(doc)), { lineWidth: 0 });
 }
 
+/** Largest team file the portal parses (bytes). Larger files are rejected before parsing. */
+export const MAX_TEAM_FILE_BYTES = 1024 * 1024;
+
 export function parseTeamBundle(text: string): Inventory {
+  if (Buffer.byteLength(text, "utf8") > MAX_TEAM_FILE_BYTES) throw new TeamBundleError("Team-Datei ist groesser als 1 MiB: wird nicht gelesen.");
   let raw: unknown;
   try {
     raw = parse(text, { schema: "core" });

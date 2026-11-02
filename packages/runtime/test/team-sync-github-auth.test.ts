@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { listConnections } from "../src/agent-api.js";
 import { checkConnection } from "../src/connection-check.js";
 import { createRuntime, type Runtime } from "../src/runtime.js";
-import { checkTeamSync, checkTeamSyncAccess, neededRights, teamPermissions, teamSyncStatus } from "../src/team-sync.js";
+import { checkTeamSync, checkTeamSyncAccess, neededRights, planTeamPush, pushTeamSync, teamPermissions, teamSyncStatus } from "../src/team-sync.js";
 
 const PAT = "github_pat_made_up_main_token";
 const OWN = "team_token_made_up_own";
@@ -26,6 +26,8 @@ class Fake {
   refs: string[] = [];
   deleted: string[] = [];
   validTokens = new Set<string>();
+  repo: { private: boolean; permissions?: { push: boolean } } = { private: true };
+  writes: string[] = [];
   readonly fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -41,9 +43,11 @@ class Fake {
       return j({ token: INSTALL_TOKEN, expires_at: "2099-01-01T00:00:00Z", permissions: this.granted, repositories: [{ name: "team-config" }] }, 201);
     }
     if (!this.validTokens.has(bearer)) return j({ message: "Bad credentials" }, 401);
+    if (url.pathname === "/repos/acme/team-config" && method === "GET") return j(this.repo);
     const m = /^\/repos\/acme\/team-config\/(.*)$/.exec(url.pathname);
     if (!m) return j({ message: "Not Found" }, 404);
     const rest = m[1]!;
+    if (rest.startsWith("contents/") && method === "PUT") { this.writes.push(rest); return j({ content: { sha: "s2" } }); }
     if (rest.startsWith("contents/")) return this.contentsStatus === 200 ? j({ type: "file", sha: "s1", content: Buffer.from(FILE).toString("base64") }) : j({ message: "x" }, this.contentsStatus);
     if (rest.startsWith("git/ref/heads/")) return this.contentsStatus === 404 ? j({ message: "Not Found" }, 404) : j({ object: { sha: "head1" } });
     if (rest === "git/refs" && method === "POST") { if (this.refCreateStatus !== 201) return j({ message: "Resource not accessible" }, this.refCreateStatus); this.refs.push(String(body["ref"])); return j({}, 201); }
@@ -128,7 +132,7 @@ describe("access findings", () => {
   it("a working PAT: source, read access and the file are reported", async () => {
     const { rt } = await setup({ auth: "pat" });
     const checks = await checkTeamSyncAccess(rt);
-    expect(checks.map((c) => [c.id, c.status])).toEqual([["source", "info"], ["read", "pass"], ["file", "pass"]]);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([["source", "info"], ["read", "pass"], ["private", "pass"], ["file", "pass"]]);
     expect(checks[0]!.detail).toContain("GitHub-Integration");
   });
 
@@ -202,7 +206,7 @@ describe("portal views", () => {
     const { rt } = await setup({ auth: "pat" });
     const r = await checkConnection(rt, "team-sync");
     expect(r.ok).toBe(true);
-    expect(r.checks.map((c) => c.id)).toEqual(["source", "read", "file"]);
+    expect(r.checks.map((c) => c.id)).toEqual(["source", "read", "private", "file"]);
   });
 
   it("the Integrations list shows team-sync as connected through GitHub (PAT and App)", async () => {
@@ -237,6 +241,89 @@ describe("no token anywhere", () => {
       const text = all(out);
       for (const secret of [PAT, OWN, INSTALL_TOKEN, "BEGIN PRIVATE KEY", PRIVATE_KEY.slice(40, 80)]) expect(text).not.toContain(secret);
     }
+  });
+});
+
+const ONE_SECRET = { id: "s1", name: "S_ONE", stage: "shared", service: "intern", provider: "random-hex", expiry: "none", places: [{ repo: "app", scope: "repository" }] } as never;
+const DIRECT = "teamSync:\n  repo: acme/team-config\n  mode: pull-push\n  push: { strategy: direct }\n";
+const t0 = new Date("2026-03-01T10:00:00Z");
+
+async function pushOnce(rt: Runtime) {
+  const plan = await planTeamPush(rt);
+  return pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0);
+}
+
+describe("push permission with a GitHub App", () => {
+  it("succeeds on a private repository when the installation token was granted contents: write", async () => {
+    const { rt, fake } = await setup({ auth: "app", teamSync: DIRECT });
+    rt.inventory.addSecret(ONE_SECRET);
+    expect(await pushOnce(rt)).toMatchObject({ pushed: true });
+    expect(fake.writes).toHaveLength(1);
+  });
+
+  it("is rejected when the installation token has no contents: write (nothing is written)", async () => {
+    const fake = new Fake();
+    fake.granted = { contents: "read", metadata: "read" };
+    const { rt } = await setup({ auth: "app", teamSync: DIRECT, fake });
+    rt.inventory.addSecret(ONE_SECRET);
+    await expect(pushOnce(rt)).rejects.toMatchObject({ code: "team_repo_no_push" });
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  it("two consecutive operations mint two installation tokens (no provider cache across operations)", async () => {
+    const { rt, fake } = await setup({ auth: "app" });
+    await checkTeamSync(rt);
+    await checkTeamSync(rt);
+    expect(fake.tokenRequests).toHaveLength(2);
+  });
+
+  it("one push is one operation: a single installation token for plan and write", async () => {
+    const { rt, fake } = await setup({ auth: "app", teamSync: DIRECT });
+    rt.inventory.addSecret(ONE_SECRET);
+    await pushOnce(rt);
+    // planTeamPush (preview) is its own operation, pushTeamSync another: two tokens, not three or more.
+    expect(fake.tokenRequests).toHaveLength(2);
+  });
+
+  it("granted permissions are not shared across operations or repositories", async () => {
+    const fake = new Fake();
+    const { rt } = await setup({ auth: "app", teamSync: DIRECT, fake });
+    await checkTeamSyncAccess(rt);
+    fake.granted = { contents: "read", metadata: "read" };
+    const checks = await checkTeamSyncAccess(rt);
+    expect(checks.find((c) => c.id === "granted")).toMatchObject({ status: "fail" });
+  });
+
+  it("a team file that contains the installation token is rejected without naming it", async () => {
+    const { rt, fake } = await setup({ auth: "app", teamSync: DIRECT });
+    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: INSTALL_TOKEN } as never);
+    await expect(planTeamPush(rt)).rejects.toThrow(/Zugangs-Token/);
+    await expect(planTeamPush(rt)).rejects.not.toThrow(new RegExp(INSTALL_TOKEN));
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  it("a team file with a PEM private key header is rejected without naming the key", async () => {
+    const { rt } = await setup({ auth: "app", teamSync: DIRECT });
+    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: "-----BEGIN PRIVATE KEY----- x" } as never);
+    const err = await planTeamPush(rt).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/privaten Schluessel/);
+    expect((err as Error).message).not.toContain("BEGIN");
+  });
+
+  it("generic token shapes are rejected", async () => {
+    const { rt } = await setup({ auth: "pat", teamSync: DIRECT });
+    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: `ghp_${"a".repeat(30)}` } as never);
+    await expect(planTeamPush(rt)).rejects.toThrow(/Zugangs-Token/);
+  });
+});
+
+describe("private check in the access findings", () => {
+  it("passes for a private and fails for a public repository", async () => {
+    const fake = new Fake();
+    const { rt } = await setup({ auth: "pat", fake });
+    expect((await checkTeamSyncAccess(rt)).find((c) => c.id === "private")).toMatchObject({ status: "pass" });
+    fake.repo = { private: false };
+    expect((await checkTeamSyncAccess(rt)).find((c) => c.id === "private")).toMatchObject({ status: "fail" });
   });
 });
 

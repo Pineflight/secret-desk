@@ -244,7 +244,7 @@ export async function listConnections(rt: Runtime) {
   const gh = [statuses.find((x) => x.id === "github"), statuses.find((x) => x.id === "github-app-key")].find((x) => x?.connected);
   for (let i = 0; i < statuses.length; i++) {
     const s = statuses[i]!;
-    if (s.id === "team-sync" && !s.connected && gh?.connected) statuses[i] = { ...s, connected: true, source: "github" as never, ...(gh.expires !== undefined ? { expires: gh.expires } : {}) };
+    if (s.id === "team-sync" && !s.connected && gh?.connected) statuses[i] = { ...s, connected: true, source: "github" as const, ...(gh.expires !== undefined ? { expires: gh.expires } : {}) };
   }
   const saved = new Map<string, string>();
   for (const s of statuses) {

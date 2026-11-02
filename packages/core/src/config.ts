@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { z } from "zod";
 import { SecretName, StageSchema } from "./types.js";
+import { isSafeContentPath, isSafeRepoSlug, isValidBranchName } from "./git-names.js";
 import type { StageDef } from "./stages.js";
 
 export const SourceSpecSchema = z.discriminatedUnion("type", [
@@ -13,11 +14,11 @@ export const SourceSpecSchema = z.discriminatedUnion("type", [
 /** Team-Sync: Team-Datei (ohne Werte) mit einem privaten GitHub-Repository abgleichen. Der Zugangs-Token ist die Verbindung "team-sync". */
 export const TeamSyncSchema = z.object({
   /** Ziel-Repository, "owner/name". */
-  repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'Format "owner/name"'),
+  repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'Format "owner/name"').refine(isSafeRepoSlug, 'Format "owner/name" (owner and name must not be "." or "..")'),
   /** Pfad der Team-Datei im Repository. */
-  path: z.string().min(1).default("secret-desk.team.yaml"),
+  path: z.string().min(1).refine(isSafeContentPath, "Relative file path without \"..\", \".\", empty segments, backslashes or control characters").default("secret-desk.team.yaml"),
   /** Zweig, aus dem gelesen wird und (bei strategy pull-request) in den der Pull Request geht. */
-  branch: z.string().min(1).default("main"),
+  branch: z.string().min(1).refine(isValidBranchName, "Invalid branch name").default("main"),
   /** pull: nur lesen. pull-push: Aenderungen aus dem Portal zusaetzlich ins Repository schieben (nach Bestaetigung). */
   mode: z.enum(["pull", "pull-push"]).default("pull"),
   push: z
@@ -25,7 +26,7 @@ export const TeamSyncSchema = z.object({
       /** pull-request: Aenderung auf einem eigenen Zweig und Pull Request. direct: Commit direkt auf den Zweig. */
       strategy: z.enum(["pull-request", "direct"]).default("pull-request"),
       /** Zweig fuer Pull Requests. */
-      branch: z.string().min(1).default("secret-desk/team-sync"),
+      branch: z.string().min(1).refine(isValidBranchName, "Invalid branch name").default("secret-desk/team-sync"),
     })
     .default({ strategy: "pull-request", branch: "secret-desk/team-sync" }),
   /** Beim Start des Portals den Stand im Repository abfragen (nur lesend, nichts wird ohne Vorschau uebernommen). */

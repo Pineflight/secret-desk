@@ -61,7 +61,8 @@ export class SessionVault {
 export interface ConnectionStatus {
   id: string;
   connected: boolean;
-  source: SourceSpec["type"] | "vault" | "none";
+  source: SourceSpec["type"] | "vault" | "none" | "github";
+  // "github": team-sync without an own token, served by the GitHub integration.
   hint?: string;
   /** Nur bei Tokens aus der Sitzung: Tag, bis zu dem der Token gilt, null = laeuft nie ab. */
   expires?: string | null;

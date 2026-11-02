@@ -7,6 +7,7 @@ export * from "./verification.js";
 export * from "./evidence.js";
 export * from "./guards.js";
 export * from "./variables.js";
+export * from "./git-names.js";
 export * from "./github.js";
 export * from "./connections.js";
 export * from "./provider.js";
