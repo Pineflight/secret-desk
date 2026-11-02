@@ -31,6 +31,7 @@ interface Connection {
 }
 interface AutomationInfo {
   enabled: boolean;
+  browser: { mode: "local" | "remote"; endpoint: string | null; reachable: boolean | null; browser: string | null; detail: string | null };
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
@@ -152,9 +153,18 @@ function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
             <dl className="divide-y divide-line text-sm">
+              {a.browser.mode === "remote" ? (
+                <>
+                  <div className="flex justify-between gap-4 py-2"><dt className="shrink-0 text-muted-text">{t("connections.browserRemote")}</dt><dd className="min-w-0 text-right font-medium">{a.browser.reachable ? <Badge info={{ label: t("connections.browserRemoteOk"), tone: "success", icon: "check" }} /> : <Badge info={{ label: t("connections.browserRemoteDown"), tone: "warn", icon: "alert" }} />}<span className="mt-1 block break-all font-mono text-xs font-normal text-muted-text">{a.browser.endpoint ?? ""}</span></dd></div>
+                  <div className="py-2 text-xs text-muted">{a.browser.detail ?? t("connections.browserRemoteHint")}</div>
+                </>
+              ) : (
+                <>
               <div className="flex justify-between gap-4 py-2"><dt className="shrink-0 text-muted-text">{t("connections.browserChrome")}</dt><dd className="min-w-0 text-right font-medium">{a.chrome.found ? <><Badge info={{ label: t("connections.browserChromeFoundShort"), tone: "success", icon: "check" }} /><span className="mt-1 block break-all font-mono text-xs font-normal text-muted-text" title={a.chrome.path ?? ""}>{a.chrome.path ?? ""}</span></> : <Badge info={{ label: t("connections.browserChromeMissing"), tone: "warn", icon: "alert" }} />}</dd></div>
               {!a.chrome.found && a.chrome.hint ? <div className="py-2 text-xs text-muted">{a.chrome.hint}</div> : null}
-              <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserProfile")}</dt><dd className="break-all text-right font-mono text-xs">{a.profileDir}</dd></div>
+                </>
+              )}
+              {a.browser.mode === "local" ? <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserProfile")}</dt><dd className="break-all text-right font-mono text-xs">{a.profileDir}</dd></div> : null}
               <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserTimeout")}</dt><dd className="text-right font-medium">{t("connections.browserMinutes", { count: a.loginTimeoutMinutes })}</dd></div>
             </dl>
           </Card>

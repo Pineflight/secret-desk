@@ -1,8 +1,8 @@
 name: Release
 
-# Bei jedem Lauf auf main: pruefen, je Plattform nativ ein Image bauen (amd64 und arm64),
-# daraus ein Multi-Arch-Manifest nach ghcr.io legen und ein GitHub-Release anlegen.
-# Tag und Image-Version: <package.json>-<Laufnummer>.
+# Bei jedem Lauf auf main: pruefen, je Plattform nativ zwei Images bauen (amd64 und arm64: das Portal und der
+# Browser-Sidecar docker/browser), daraus je ein Multi-Arch-Manifest nach ghcr.io legen und ein GitHub-Release anlegen.
+# Tag und Image-Version: <package.json>-<Laufnummer> (beide Images gleich).
 on:
   push:
     branches: [main]
@@ -104,6 +104,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        id: meta_browser
+        with:
+          images: ghcr.io/${{ github.repository }}-browser
+          tags: |
+            type=raw,value=${{ needs.version.outputs.tag }}-${{ matrix.arch }}
+            type=raw,value=latest-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.title=secret-desk-browser
+            org.opencontainers.image.description=secret-desk-browser: headed Chromium with noVNC and a DevTools endpoint for secret-desk browser automation
+            org.opencontainers.image.vendor=Pineflight
+            org.opencontainers.image.authors=Pineflight
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/docs/DOCKER.md#browser-on-the-pi
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.version.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: docker/browser
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta_browser.outputs.tags }}
+          labels: ${{ steps.meta_browser.outputs.labels }}
+          cache-from: type=gha,scope=browser-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=browser-${{ matrix.arch }}
 
   manifest:
     needs: [version, build]
@@ -145,15 +174,45 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        id: meta_browser
+        with:
+          images: ghcr.io/${{ github.repository }}-browser
+          tags: |
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
+            type=sha
+          labels: |
+            org.opencontainers.image.title=secret-desk-browser
+            org.opencontainers.image.description=secret-desk-browser: headed Chromium with noVNC and a DevTools endpoint for secret-desk browser automation
+            org.opencontainers.image.vendor=Pineflight
+            org.opencontainers.image.authors=Pineflight
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/docs/DOCKER.md#browser-on-the-pi
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.version.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      # Zwei metadata-action-Schritte: DOCKER_METADATA_OUTPUT_JSON gehoert dem letzten, deshalb je Schritt die eigene Ausgabe.
       - name: Multi-Arch-Manifest anlegen
+        env:
+          METADATA: ${{ steps.meta.outputs.json }}
         run: |
           args=()
-          while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
-          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$METADATA")
+          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$METADATA")
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${TAG}-amd64" "${IMAGE}:${TAG}-arm64"
+      - name: Multi-Arch-Manifest des Browser-Sidecars anlegen
+        env:
+          METADATA: ${{ steps.meta_browser.outputs.json }}
+        run: |
+          args=()
+          while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$METADATA")
+          while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$METADATA")
+          docker buildx imagetools create "${args[@]}" "${IMAGE}-browser:${TAG}-amd64" "${IMAGE}-browser:${TAG}-arm64"
       - name: Plattformen im Manifest pruefen
         run: |
-          for ref in "${IMAGE}:${TAG}" "${IMAGE}:latest"; do
+          for ref in "${IMAGE}:${TAG}" "${IMAGE}:latest" "${IMAGE}-browser:${TAG}" "${IMAGE}-browser:latest"; do
             manifest=$(docker buildx imagetools inspect "$ref")
             echo "$manifest"
             for platform in linux/amd64 linux/arm64; do
@@ -165,4 +224,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
-            --notes "License: MIT. Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\`"
+            --notes "License: MIT. Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\` and the browser sidecar \`docker pull ${IMAGE}-browser:${TAG}\`"

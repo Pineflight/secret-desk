@@ -208,6 +208,105 @@ HTTP in the LAN is not encrypted: the launch secret in the address and the token
 - **502 from Caddy:** the portal is not ready yet, or the service name in the `Caddyfile` is wrong. Check `docker compose logs secret-desk`.
 - **The name does not resolve:** this is mDNS, check with `ping desk.local` and the notes in step 1.
 
+## Browser on the Pi
+
+Providers without an API (GitHub fine-grained tokens, Supabase access tokens, see [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md)) need a real browser. The Pi has no display, so a second container runs one: the **browser sidecar** (`ghcr.io/pineflight/secret-desk-browser`, built from [`docker/browser`](../docker/browser), `linux/amd64` and `linux/arm64`). It contains a headed Chromium on a virtual display (Xvfb), a VNC server and noVNC.
+
+- **You sign in once per provider**, in a normal web browser on your Mac: you open the noVNC window of the sidecar, and the Chromium in it is the one secret-desk drives. Cookies live in the sidecar's profile volume and survive restarts and updates.
+- **Later runs need nobody watching.** secret-desk connects to the sidecar's Chromium over the Chrome DevTools Protocol, opens its own tab, runs the recipe and closes that tab again. Other tabs and the browser stay.
+- **When a provider asks again** (GitHub "Confirm access", 2FA), the run pauses exactly as on a desktop ("waiting for you in the browser window") and you complete it in the same noVNC window. Nothing else changes: you sign in, values stay in memory, a human confirms.
+
+> **Warning: port 9222 is full control over a signed-in browser.** Whoever reaches it can read every cookie and session in the profile, open any page as you and read the tokens it shows. Never publish it (`ports:`), never proxy it (no Caddy route), never put it behind a tunnel. It stays on the compose network, and only the `secret-desk` container needs it. The same goes for the profile volume: it holds your sign-ins.
+
+### Compose services
+
+Add the `browser` service, a volume and a secret to the compose file above, and point the portal at it:
+
+```yaml
+services:
+  secret-desk:
+    # ... as above, plus:
+    environment:
+      SECRET_DESK_BROWSER_CDP: http://browser:9222
+    depends_on:
+      - browser
+
+  browser:
+    image: ghcr.io/pineflight/secret-desk-browser:latest
+    restart: unless-stopped
+    shm_size: 512m                     # Chromium needs more than Docker's 64 MB /dev/shm
+    mem_limit: 1536m                   # keeps a runaway tab from starving the Pi (4 GB)
+    # No "ports:" for 9222. The Caddy route below reaches noVNC (6080) over the compose network.
+    secrets:
+      - vnc-password
+    volumes:
+      - browser-profile:/profile
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+secrets:
+  vnc-password:
+    file: /srv/tresor/secret-desk/vnc-password
+
+volumes:
+  browser-profile:
+```
+
+The VNC password file holds one line with at least 8 characters (the VNC protocol only uses the first 8). The sidecar **refuses to start without it**; there is no default password. It must be readable by the container user (UID 10001):
+
+```bash
+openssl rand -base64 12 > /srv/tresor/secret-desk/vnc-password
+chmod 644 /srv/tresor/secret-desk/vnc-password   # compose mounts it read-only; the directory itself stays private
+```
+
+Instead of a named volume you can bind-mount a directory; then `sudo chown 10001:10001` it. In the portal's configuration set `automation.enabled: true` (the minimal configuration above disables it, because without the sidecar there is no browser). `SECRET_DESK_BROWSER_CDP` replaces `automation.cdpEndpoint`; `chromePath` and `profileDir` are ignored while it is set.
+
+Check it from the Pi:
+
+```bash
+docker compose exec secret-desk node /app/packages/cli/dist/bin.js browser doctor
+```
+
+The portal shows the same under *Connections*: *Remote browser* with *Answers* or *Not reachable*.
+
+### Caddy route to noVNC
+
+Add a route for `/browser/*` to the `Caddyfile`. noVNC controls the whole browser, so it is protected with `basic_auth` before anything reaches the sidecar. Create the password hash once and paste it in:
+
+```bash
+docker compose run --rm caddy caddy hash-password
+```
+
+```
+http://desk.local, http://192.168.1.20 {
+	handle_path /browser/* {
+		basic_auth {
+			niklas <hash printed above>
+		}
+		reverse_proxy browser:6080
+	}
+	reverse_proxy secret-desk:4747
+}
+```
+
+`handle_path` removes the `/browser` prefix; Caddy proxies the WebSocket that noVNC uses on its own. Open the sidecar on your Mac at:
+
+```
+http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1&resize=scale
+```
+
+The browser asks for the Caddy user and password, noVNC then for the VNC password. Over plain HTTP in the LAN both cross the network in clear text, see [Security and HTTPS](#security-and-https): use it only in networks you trust.
+
+Port 6080 on the sidecar is not published; without a reverse proxy in front it must stay that way. If the sidecar stays up unattended, sign in to each provider once per profile: run a recipe, complete the login in the noVNC window, and later runs reuse it.
+
+### What is inside and what it costs
+
+- Chromium listens for DevTools on `127.0.0.1` inside the container only. A small `socat` forwards port 9222 to the compose network. Chromium rejects requests whose `Host` header is a name instead of an IP address, so secret-desk resolves `browser` to its address before it connects.
+- The VNC server listens on `127.0.0.1` only; noVNC (websockify) is the only way in. All processes run as a non-root user (UID 10001).
+- Chromium runs with `--no-sandbox` by default, because its own sandbox needs user namespaces that Docker does not allow without extra privileges. The container is the boundary, and the browser only visits the sites named in the recipes. To use Chromium's sandbox, set `BROWSER_SANDBOX=1` and allow user namespaces for the container (a custom seccomp profile).
+- Memory: about 250 MB idle, more with open tabs. `RESOLUTION` (default `1440x900`) sets the size of the virtual screen.
+- After an unclean stop, the sidecar removes stale profile locks at start.
+
 ## Restart behavior
 
 `restart: unless-stopped` starts the container again after a crash and after a reboot, as long as Docker itself starts at boot (`sudo systemctl enable docker`). Because Docker keeps its data and the volume on the external disk, Docker must not start before the disk is mounted. Add a drop-in with `sudo systemctl edit docker.service`:

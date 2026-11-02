@@ -99,6 +99,7 @@ Browser automation, see [RECIPES.md](RECIPES.md) and [BROWSER-AUTOMATION.md](BRO
 |---|---|---|---|
 | `enabled` | boolean | `true` | `false` disables browser providers. |
 | `chromePath` | string | unset | Chrome, Chromium or Edge executable. Otherwise the usual locations are searched. |
+| `cdpEndpoint` | string (http, https, ws or wss URL) | unset | Remote browser over the Chrome DevTools Protocol, e.g. `http://browser:9222` (the sidecar from [DOCKER.md](DOCKER.md#browser-on-the-pi)). Also settable with the environment variable `SECRET_DESK_BROWSER_CDP`, which wins. The browser's default context and profile are used; `chromePath` and `profileDir` are ignored. The endpoint gives full control over a signed-in browser: never expose it. |
 | `profileDir` | string | `~/.secret-desk/browser-profile` | Persistent browser profile (mode 700). |
 | `loginTimeoutMinutes` | number, 1 to 120 | `10` | How long to wait for sign-in, 2FA or CAPTCHA in the window. |
 | `slowMoMs` | integer, 0 to 5000 | unset | Slows every browser action down (milliseconds), so you can watch. |

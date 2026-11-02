@@ -5,10 +5,12 @@ import {
   PlaywrightDriver,
   RecipeRunError,
   bundledRecipesDir,
+  cdpEndpointFrom,
   chromeInstallHint,
   createBrowserProvider,
   findChrome,
   loadRecipesDetailed,
+  probeCdp,
   type BrowserDriver,
   type BrowserProvider,
   type HumanWait,
@@ -20,6 +22,8 @@ import {
   NotConnectedError,
   RotationError,
   expandHome,
+  parseCdpEndpoint,
+  redactCdpEndpoint,
   type DeskConfig,
   type EvidenceStore,
   type Provider,
@@ -61,8 +65,21 @@ export interface AutomationRecipeInfo {
   bundled: boolean;
 }
 
+/** Which browser runs the recipes. In remote mode the endpoint is shown without credentials, query or fragment. */
+export interface AutomationBrowserInfo {
+  mode: "local" | "remote";
+  endpoint: string | null;
+  /** Remote mode: whether the endpoint answered (null = not checked or local mode). */
+  reachable: boolean | null;
+  /** Remote mode: browser product and version, when reachable. */
+  browser: string | null;
+  /** Remote mode: why the endpoint is invalid or not reachable. */
+  detail: string | null;
+}
+
 export interface AutomationInfo {
   enabled: boolean;
+  browser: AutomationBrowserInfo;
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
@@ -97,6 +114,10 @@ export interface AutomationOptions {
   driverFactory?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: mitgelieferter Rezeptordner. */
   bundledDir?: string | null;
+  /** Environment for SECRET_DESK_BROWSER_CDP (default process.env). */
+  env?: NodeJS.ProcessEnv;
+  /** Tests only: replaces the reachability check of the remote browser. */
+  probe?: typeof probeCdp;
   now?: () => Date;
 }
 
@@ -133,6 +154,7 @@ export class AutomationManager {
   readonly problems: { file: string; message: string }[] = [];
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
+  readonly #cdpEndpoint: string | undefined;
   readonly #providers = new Map<string, BrowserProvider>();
   readonly #runs = new Map<string, AutomationRunState>();
   readonly #controllers = new Map<string, AbortController>();
@@ -143,6 +165,7 @@ export class AutomationManager {
     const c = opts.config.automation;
     this.enabled = c.enabled;
     this.#chromePath = c.chromePath ? path(c.chromePath, opts.configDir) : undefined;
+    this.#cdpEndpoint = cdpEndpointFrom(c.cdpEndpoint, opts.env ?? process.env);
     this.profileDir = path(c.profileDir ?? PROFILE_DEFAULT, opts.configDir);
     this.loginTimeoutMinutes = c.loginTimeoutMinutes;
     this.#now = opts.now ?? (() => new Date());
@@ -194,6 +217,10 @@ export class AutomationManager {
   #driver(): BrowserDriver | Promise<BrowserDriver> {
     if (this.opts.driverFactory) return this.opts.driverFactory();
     const c = this.opts.config.automation;
+    if (this.#cdpEndpoint) {
+      parseCdpEndpoint(this.#cdpEndpoint); // fail closed: an invalid endpoint never falls back to a local Chrome
+      return new PlaywrightDriver({ cdpEndpoint: this.#cdpEndpoint, ...(c.slowMoMs !== undefined ? { slowMoMs: c.slowMoMs } : {}) });
+    }
     return new PlaywrightDriver({ ...(this.#chromePath ? { chromePath: this.#chromePath } : {}), profileDir: this.profileDir, ...(c.slowMoMs !== undefined ? { slowMoMs: c.slowMoMs } : {}) });
   }
 
@@ -282,14 +309,35 @@ export class AutomationManager {
     return [...this.#runs.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
+  /** Like info(), plus a reachability check of the remote browser. */
+  async status(): Promise<AutomationInfo> {
+    const info = this.info();
+    if (!this.enabled || !this.#cdpEndpoint || info.browser.detail) return info;
+    const probe = await (this.opts.probe ?? probeCdp)(this.#cdpEndpoint);
+    return { ...info, browser: { ...info.browser, reachable: probe.reachable, browser: probe.browser, detail: probe.detail } };
+  }
+
+  #browserInfo(): AutomationBrowserInfo {
+    if (!this.#cdpEndpoint) return { mode: "local", endpoint: null, reachable: null, browser: null, detail: null };
+    try {
+      return { mode: "remote", endpoint: redactCdpEndpoint(this.#cdpEndpoint), reachable: null, browser: null, detail: null };
+    } catch (err) {
+      return { mode: "remote", endpoint: null, reachable: false, browser: null, detail: (err as Error).message };
+    }
+  }
+
   info(): AutomationInfo {
     let chrome: AutomationInfo["chrome"];
-    try {
-      const p = findChrome(this.#chromePath);
-      chrome = p ? { found: true, path: p, hint: null } : { found: false, path: null, hint: chromeInstallHint() };
-    } catch (err) {
-      chrome = { found: false, path: null, hint: (err as Error).message };
+    if (this.#cdpEndpoint) {
+      chrome = { found: false, path: null, hint: "Not needed: the recipes run in the remote browser." };
+    } else {
+      try {
+        const p = findChrome(this.#chromePath);
+        chrome = p ? { found: true, path: p, hint: null } : { found: false, path: null, hint: chromeInstallHint() };
+      } catch (err) {
+        chrome = { found: false, path: null, hint: (err as Error).message };
+      }
     }
-    return { enabled: this.enabled, chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
+    return { enabled: this.enabled, browser: this.#browserInfo(), chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
   }
 }

@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensurePrivateDir } from "@secret-desk/core";
-import type { BrowserContext, Locator, Page } from "playwright-core";
+import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
+import { redactCdpEndpoint } from "@secret-desk/core";
+import { resolveCdpEndpoint } from "./cdp.js";
 import { ChromeNotFoundError, findChrome } from "./chrome.js";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
 import { describeSelector, type Selector } from "./selector.js";
@@ -16,6 +18,11 @@ export interface PlaywrightDriverOptions {
   headless?: boolean;
   /** Zeitlimit je Aktion (Standard 15 s). */
   actionTimeoutMs?: number;
+  /**
+   * Remote browser (DevTools endpoint, e.g. http://browser:9222). When set, the driver connects to it and uses its default
+   * context (the persistent profile lives there); chromePath, profileDir and headless are ignored.
+   */
+  cdpEndpoint?: string;
 }
 
 export const DEFAULT_PROFILE_DIR = join(homedir(), ".secret-desk", "browser-profile");
@@ -27,6 +34,9 @@ export class PlaywrightDriver implements BrowserDriver {
   readonly #opts: PlaywrightDriverOptions;
   #context: BrowserContext | undefined;
   #page: Page | undefined;
+  /** Remote mode only: the connection and the pages this run opened. */
+  #remote: Browser | undefined;
+  #ownedPages: Page[] = [];
 
   constructor(opts: PlaywrightDriverOptions = {}) {
     this.#opts = opts;
@@ -39,6 +49,7 @@ export class PlaywrightDriver implements BrowserDriver {
     } catch {
       throw new Error("playwright-core ist nicht installiert (pnpm install, optionale Abhaengigkeit).");
     }
+    if (this.#opts.cdpEndpoint) return this.#openRemote(chromium, this.#opts.cdpEndpoint);
     const path = findChrome(this.#opts.chromePath);
     const profile = this.#opts.profileDir ?? DEFAULT_PROFILE_DIR;
     await ensurePrivateDir(profile);
@@ -57,6 +68,34 @@ export class PlaywrightDriver implements BrowserDriver {
     }
     this.#context.setDefaultTimeout(this.#opts.actionTimeoutMs ?? 15_000);
     this.#page = this.#context.pages()[0] ?? (await this.#context.newPage());
+  }
+
+  async #openRemote(chromium: typeof import("playwright-core").chromium, endpoint: string): Promise<void> {
+    const shown = redactCdpEndpoint(endpoint);
+    const timeout = this.#opts.actionTimeoutMs ?? 15_000;
+    try {
+      const target = await resolveCdpEndpoint(endpoint);
+      this.#remote = await chromium.connectOverCDP(target, { timeout, slowMo: this.#opts.slowMoMs ?? 0 });
+    } catch (err) {
+      // The library message may repeat the address, which can carry credentials.
+      const detail = (err as Error).message.split("\n")[0] ?? "";
+      throw new Error(`Cannot connect to the remote browser at ${shown}: ${detail.split(endpoint).join(shown)}`.slice(0, 400));
+    }
+    const context = this.#remote.contexts()[0];
+    if (!context) {
+      await this.#remote.close().catch(() => undefined);
+      this.#remote = undefined;
+      throw new Error(`The remote browser at ${shown} has no default context.`);
+    }
+    this.#context = context;
+    context.setDefaultTimeout(timeout);
+    // Own tab: tabs the human keeps open in the remote browser are never reused or closed.
+    const page = await context.newPage();
+    this.#ownedPages.push(page);
+    this.#page = page;
+    // Popups opened by the page itself (OAuth windows) belong to the run as well.
+    page.on("popup", (popup) => this.#ownedPages.push(popup));
+    await page.bringToFront().catch(() => undefined);
   }
 
   get #p(): Page {
@@ -137,6 +176,16 @@ export class PlaywrightDriver implements BrowserDriver {
   }
 
   async close(): Promise<void> {
+    if (this.#remote) {
+      // Remote browser: close only the tabs of this run, then disconnect. The browser, its profile and its other tabs stay.
+      for (const page of this.#ownedPages) await page.close().catch(() => undefined);
+      await this.#remote.close().catch(() => undefined);
+      this.#remote = undefined;
+      this.#ownedPages = [];
+      this.#context = undefined;
+      this.#page = undefined;
+      return;
+    }
     await this.#context?.close().catch(() => undefined);
     this.#context = undefined;
     this.#page = undefined;

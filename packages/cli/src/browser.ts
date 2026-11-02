@@ -7,10 +7,13 @@ import {
   PlaywrightDriver,
   RecipeRunError,
   dryRunRecipe,
+  cdpEndpointFrom,
   chromeInstallHint,
   findChrome,
   loadRecipesDetailed,
   playwrightAvailable,
+  probeCdp,
+  redactCdpEndpoint,
   type Recipe,
 } from "@secret-desk/automation";
 
@@ -25,6 +28,7 @@ const BUNDLED_RECIPES = fileURLToPath(new URL("../../../recipes", import.meta.ur
 const OPTIONS = {
   recipes: { type: "string", multiple: true },
   "chrome-path": { type: "string" },
+  cdp: { type: "string" },
   "profile-dir": { type: "string" },
   dry: { type: "boolean" },
   out: { type: "string" },
@@ -69,16 +73,36 @@ async function doctor(args: string[], io: Io): Promise<number> {
     line(io, "fail", "playwright-core fehlt (pnpm install)");
   }
 
-  try {
-    const chrome = findChrome(values["chrome-path"]);
-    if (chrome) line(io, "ok", `Chrome gefunden: ${chrome}`);
-    else line(io, "warn", `Kein Chrome an den ueblichen Orten; es wird channel "chrome" versucht. ${chromeInstallHint()}`);
-  } catch (err) {
-    bad++;
-    line(io, "fail", (err as Error).message);
-  }
+  const cdp = cdpEndpointFrom(values.cdp);
+  if (cdp) {
+    let shown: string;
+    try {
+      shown = redactCdpEndpoint(cdp);
+    } catch (err) {
+      bad++;
+      line(io, "fail", (err as Error).message);
+      return finish(io, bad);
+    }
+    line(io, "ok", `Mode: remote browser at ${shown} (local Chrome and profile folder are not used)`);
+    const probe = await probeCdp(cdp);
+    if (probe.reachable) line(io, "ok", `Remote browser answers${probe.browser ? `: ${probe.browser}` : ""}`);
+    else {
+      bad++;
+      line(io, "fail", `Remote browser not reachable: ${probe.detail ?? "no answer"}`);
+    }
+  } else {
+    line(io, "ok", "Mode: local Chrome");
+    try {
+      const chrome = findChrome(values["chrome-path"]);
+      if (chrome) line(io, "ok", `Chrome gefunden: ${chrome}`);
+      else line(io, "warn", `Kein Chrome an den ueblichen Orten; es wird channel "chrome" versucht. ${chromeInstallHint()}`);
+    } catch (err) {
+      bad++;
+      line(io, "fail", (err as Error).message);
+    }
 
-  line(io, "ok", `Profilordner: ${values["profile-dir"] ?? DEFAULT_PROFILE_DIR} (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
+    line(io, "ok", `Profilordner: ${values["profile-dir"] ?? DEFAULT_PROFILE_DIR} (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
+  }
 
   const { recipes, errors } = await loadRecipesDetailed(dirs(values.recipes));
   for (const r of recipes) line(io, "ok", `Rezept ${r.recipe.id} (${r.recipe.host}): ${await statusComment(r.file)}`);
@@ -88,6 +112,10 @@ async function doctor(args: string[], io: Io): Promise<number> {
   }
   if (recipes.length === 0 && errors.length === 0) line(io, "warn", "Keine Rezepte gefunden");
 
+  return finish(io, bad);
+}
+
+function finish(io: Io, bad: number): number {
   io.out(bad === 0 ? "Browser-Automatisierung ist startbereit (Rezepte sind nicht gegen echte Seiten geprueft)." : `${bad} Problem(e) beheben.`);
   return bad === 0 ? 0 : 1;
 }
@@ -125,7 +153,9 @@ async function run(args: string[], io: Io): Promise<number> {
     throw new Error(`Rezept ${id} nicht gefunden (bekannt: ${recipes.map((r) => r.recipe.id).join(", ") || "keine"})`);
   }
 
+  const cdp = cdpEndpointFrom(values.cdp);
   const driver = new PlaywrightDriver({
+    ...(cdp ? { cdpEndpoint: cdp } : {}),
     ...(values["chrome-path"] ? { chromePath: values["chrome-path"] } : {}),
     ...(values["profile-dir"] ? { profileDir: values["profile-dir"] } : {}),
   });
