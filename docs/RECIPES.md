@@ -116,6 +116,31 @@ params:
 - `browser run --dry` takes them as `--param key=value` (repeatable).
 - A recipe that reads `params.owner` or `params.permissions` through the fixed variables (the GitHub recipe) does not need to declare them.
 
+## Guided sign-in (`login.form`)
+
+Optional, next to `login.expect` (which doubles as the success condition). Used by the provider facade; the human types email and password for one run.
+
+```yaml
+login:
+  expect: { url: "^https://app\\.example\\.com/projects/[^/]+/" }
+  form:
+    start: "https://app.example.com/login"    # on host; no variables
+    home: "https://app.example.com/"          # optional, used by "Check sign-in"
+    steps:                                     # only fill, click, waitFor
+      - fill: { css: 'input[name="email"]', value: "{{login.username}}" }
+      - click: { role: button, name: "Log in" }
+      - waitFor: { visible: { css: 'input[type="password"]' } }
+      - fill: { css: 'input[type="password"]', value: "{{login.password}}" }
+      - click: { css: 'button[type="submit"]' }
+    mfa: { detect: { visible: { css: "#code" } }, field: { css: "#code" }, submit: { css: "#verify" } }
+    approval: { detect: { text: "Check your email" }, message: "...", messageEn: "..." }
+    captcha: { detect: { visible: { css: "#challenge" } } }
+    failure:
+      - { detect: { text: "Incorrect password" }, message: "...", messageEn: "..." }
+```
+
+`{{login.username}}` and `{{login.password}}` are valid only in the `value` of a `fill` step here (both must be used); selectors, conditions and messages cannot contain variables, and no other part of a recipe knows them. Priority while waiting: success, `failure`, `mfa`, `approval`, `captcha`. Mark unverified parts with `# STATUS:`.
+
 ## Variables
 
 Use `{{name}}` in text. Variables are also available in `capture.token.find`, `capture.externalId.find` and `mask` selectors, which is how a selector names the entry's own row. Unknown variables are an error. In `goto`, every value is URL-encoded, except `permissionsQuery` which is already encoded.

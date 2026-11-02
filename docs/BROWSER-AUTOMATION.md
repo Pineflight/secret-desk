@@ -6,7 +6,7 @@ generate the value, review it, report with evidence, **a human confirms**, and o
 
 ## Principles
 
-1. **The human signs in themselves.** The browser is a visible window (not headless) with its own persistent profile
+1. **The human signs in themselves, or types the sign-in for one run.** The browser is a visible window (not headless) with its own persistent profile
    (`~/.secret-desk/browser-profile`, mode 700). secret-desk never types a password or 2FA code and never solves a CAPTCHA. When a
    login, 2FA, CAPTCHA or password confirmation appears, it waits (10 minutes by default) and then continues.
 2. **The value stays in memory.** The token is read from the page and handed to `prepareIssuance` as a `SecretValue`.
@@ -21,6 +21,10 @@ generate the value, review it, report with evidence, **a human confirms**, and o
    see [Remote browser](#remote-browser-headless-host)); no browser download.
 6. **No circumvention.** No stealth plugins, no CAPTCHA services, no credentials from files. If a page demands a bot check,
    the human completes it in the window.
+
+## Guided sign-in (provider facade)
+
+Principle 1 has one exception: a recipe with `login.form` can be driven by the guided sign-in. The human enters email and password in the portal; they are used for that run only (memory, typed only on the recipe's hosts, wiped afterwards, never logged or stored). The run state (`AutomationRunState`) then carries `phase`, `timeline`, `needs` (`mfa-code`, `approval` or `captcha`), `timeoutAt`, `failure` and `result`; the portal polls it. A one-time code is typed in the portal and entered once. For a CAPTCHA the portal offers *Open browser* (noVNC); nothing is circumvented. Afterwards the key recipe runs in the same browser profile. Routes (human-only): `GET facades`, `GET facades/:id/state`, `POST facades/:id/sign-in|code|connect|cancel|check`. Only one browser run at a time. See [RECIPES.md](RECIPES.md#guided-sign-in-loginform) and [SECURITY-MODEL.md](SECURITY-MODEL.md#guided-sign-in).
 
 ## Recipe (YAML)
 

@@ -56,7 +56,7 @@ export function ConnectionCheckPanel({ id, onResult }: { id: string; onResult: (
   );
 }
 
-function CheckList({ result }: { result: CheckResult }) {
+export function CheckList({ result }: { result: CheckResult }) {
   const t = useT();
   return (
     <div className="mt-3 text-sm" role="status">

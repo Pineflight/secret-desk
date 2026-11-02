@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SelectorSchema, selectorProblem, selectorShape, type Selector } from "./selector.js";
-import { KNOWN_VARS, placeholdersOf } from "./template.js";
+import { KNOWN_VARS, LOGIN_VARS, placeholdersOf } from "./template.js";
 
 const Regex = z.string().refine(
   (s) => {
@@ -102,6 +102,33 @@ export const StepSchema = z.unknown().transform<Step>((raw, ctx) => {
   return parsed.data as Step;
 });
 
+
+/** A provider message shown to the human: German (default UI language) with an optional English text. */
+const Message = { message: z.string().min(1), messageEn: z.string().min(1).optional() };
+
+/**
+ * Guided sign-in of a provider (the human types email and password in the portal for this run only).
+ * Steps may only fill, click and wait; `fill` values may use {{login.username}} and {{login.password}}, nothing else may.
+ */
+export const LoginFormSchema = z
+  .object({
+    /** Sign-in page, on `host`. */
+    start: z.string().min(1),
+    /** Page that shows whether a browser session is still signed in (default: start). */
+    home: z.string().min(1).optional(),
+    steps: z.array(StepSchema).min(1),
+    /** The provider asks for a one-time code: it is typed into `field` and confirmed with `submit`. */
+    mfa: z.object({ detect: ConditionSchema, field: SelectorSchema, submit: SelectorSchema }).strict().optional(),
+    /** The provider waits for an approval elsewhere (push, e-mail link). The portal says so and waits. */
+    approval: z.object({ detect: ConditionSchema, ...Message }).strict().optional(),
+    /** A CAPTCHA or other bot check. The human solves it in the browser window; nothing is circumvented. */
+    captcha: z.object({ detect: ConditionSchema, message: z.string().min(1).optional(), messageEn: z.string().min(1).optional() }).strict().optional(),
+    /** Page states that mean the sign-in was refused (wrong password, locked account). */
+    failure: z.array(z.object({ detect: ConditionSchema, ...Message }).strict()).default([]),
+  })
+  .strict();
+export type LoginForm = z.infer<typeof LoginFormSchema>;
+
 const Ident = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Kennung in kleinbuchstaben-mit-bindestrich");
 const Hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname ohne Schema und Pfad");
 
@@ -148,7 +175,7 @@ export const RecipeSchema = z
     allowHosts: z.array(Hostname).default([]),
     /** Per-entry parameters, read from `params` of the inventory entry. Each key is usable as {{key}}. */
     params: z.array(RecipeParamSchema).default([]),
-    login: z.object({ expect: ConditionSchema, message: z.string().optional() }).strict().optional(),
+    login: z.object({ expect: ConditionSchema, message: z.string().optional(), form: LoginFormSchema.optional() }).strict().optional(),
     steps: z.array(StepSchema).min(1),
     capture: z
       .object({
@@ -195,11 +222,47 @@ export const RecipeSchema = z
       });
     check(r.steps, "steps");
     if (r.revoke) check(r.revoke.steps, "revoke");
+    if (r.login?.form) loginFormProblems(r.login.form, r).forEach((p) => ctx.addIssue({ code: "custom", path: ["login", "form", ...p.path], message: p.message }));
     const creates = r.steps.some((s) => "click" in s && s.click.createsToken === true);
     if (!creates) ctx.addIssue({ code: "custom", path: ["steps"], message: "Ein click-Schritt braucht createsToken: true (der Punkt, ab dem beim Anbieter etwas entsteht)" });
   });
 
 export type Recipe = z.infer<typeof RecipeSchema>;
+
+/** Static checks of `login.form`: allowed step kinds, hosts, and where the sign-in variables may appear. */
+function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: string[] }): { path: (string | number)[]; message: string }[] {
+  const out: { path: (string | number)[]; message: string }[] = [];
+  const add = (path: (string | number)[], message: string): void => void out.push({ path, message });
+  const allowed = new Set<string>(LOGIN_VARS);
+  for (const key of ["start", "home"] as const) {
+    const url = form[key];
+    if (url === undefined) continue;
+    if (url.includes("{{")) add([key], "The address must not contain variables");
+    else gotoProblem(url, r).forEach((message) => add([key], message));
+  }
+  const used = new Set<string>();
+  form.steps.forEach((step, i) => {
+    const kind = Object.keys(step).find((k) => k !== "each");
+    if (kind !== "fill" && kind !== "click" && kind !== "waitFor") return add(["steps", i], "A sign-in step is fill, click or waitFor");
+    if ("each" in step && step.each) add(["steps", i, "each"], "A sign-in step must not repeat per item");
+    if ("click" in step && step.click.createsToken) add(["steps", i], "A sign-in step must not create a token");
+    // Sign-in variables only in the value of a fill: selectors and conditions end up in error texts and logs.
+    const rest = "fill" in step ? { ...step.fill, value: "" } : step;
+    if (stringsOf(rest).some((t) => placeholdersOf(t).length > 0)) add(["steps", i], "Only the value of a fill step may use {{login.username}} or {{login.password}}");
+    if ("fill" in step) {
+      for (const v of placeholdersOf(step.fill.value)) {
+        if (!allowed.has(v)) add(["steps", i, "fill", "value"], `Unknown variable {{${v}}} (only {{login.username}} and {{login.password}})`);
+        else used.add(v);
+      }
+    }
+  });
+  for (const v of LOGIN_VARS) if (!used.has(v)) add(["steps"], `No fill step uses {{${v}}}`);
+  const others: [string, unknown][] = [["mfa", form.mfa], ["approval", form.approval], ["captcha", form.captcha], ["failure", form.failure]];
+  for (const [name, value] of others) {
+    if (value !== undefined && stringsOf(value).some((t) => placeholdersOf(t).length > 0)) add([name], "No variables allowed here");
+  }
+  return out;
+}
 
 /** Alle Texte eines Schritts ausser regulaeren Ausdruecken (url, pattern) und Tastennamen. */
 function stringsOf(value: unknown, key = ""): string[] {

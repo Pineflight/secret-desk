@@ -116,7 +116,7 @@ function renderValue<T>(value: T, vars: Vars, key = ""): T {
   return value;
 }
 
-function resolveCondition(c: Condition, vars: Vars): ResolvedCondition {
+export function resolveCondition(c: Condition, vars: Vars): ResolvedCondition {
   const r = renderValue(c, vars);
   return {
     ...(r.url !== undefined ? { url: new RegExp(r.url) } : {}),

@@ -24,7 +24,14 @@ export const KNOWN_VARS = [
 /** Schon fertig kodierte Variablen: in URLs nicht noch einmal kodieren. */
 const PRE_ENCODED = new Set(["permissionsQuery"]);
 
-const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+/** Placeholder names may carry a namespace, for example `login.password`. */
+const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}/g;
+
+/**
+ * Variables that exist only inside `login.form` fill steps (the sign-in the human typed for this run). They are never part of
+ * the variables of a normal run and no other place of a recipe may use them.
+ */
+export const LOGIN_VARS = ["login.username", "login.password"] as const;
 
 export function placeholdersOf(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER)].map((m) => m[1] as string);
