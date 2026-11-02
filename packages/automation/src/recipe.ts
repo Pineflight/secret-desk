@@ -18,13 +18,15 @@ const conditionShape = {
   /** Regulaerer Ausdruck gegen die aktuelle Adresse. */
   url: Regex.optional(),
   visible: SelectorSchema.optional(),
+  /** Holds once no element matching the selector is visible any more (for example a row after deleting it). */
+  hidden: SelectorSchema.optional(),
   /** Text, der irgendwo auf der Seite stehen muss. */
   text: z.string().min(1).optional(),
 };
 
-function oneCondition(c: { url?: unknown; visible?: unknown; text?: unknown }, ctx: z.RefinementCtx): void {
-  const n = [c.url, c.visible, c.text].filter((x) => x !== undefined).length;
-  if (n !== 1) ctx.addIssue({ code: "custom", message: "Genau eines von url, visible oder text angeben" });
+function oneCondition(c: { url?: unknown; visible?: unknown; hidden?: unknown; text?: unknown }, ctx: z.RefinementCtx): void {
+  const n = [c.url, c.visible, c.hidden, c.text].filter((x) => x !== undefined).length;
+  if (n !== 1) ctx.addIssue({ code: "custom", message: "Genau eines von url, visible, hidden oder text angeben" });
 }
 
 /** Bedingung fuer Anmeldung, waitFor und pause. */
@@ -105,6 +107,36 @@ const Hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname
 
 const FromVar = z.enum(["name", "days", "date", "secretId"]);
 
+/** Per-entry parameter of a recipe (for example a project id). Every declared key becomes a template variable. */
+export const RecipeParamSchema = z
+  .object({
+    key: z.string().regex(/^[a-z][A-Za-z0-9]{0,30}$/, "Schluessel aus Buchstaben und Ziffern, beginnt mit einem Kleinbuchstaben (hoechstens 31 Zeichen)"),
+    label: z.string().min(1),
+    labelEn: z.string().min(1).optional(),
+    /** Default true. A parameter with a default is never reported as missing. */
+    required: z.boolean().default(true),
+    /** The value must match this regular expression (anchor it with ^ and $). */
+    pattern: Regex.optional(),
+    /** Fixed choices. */
+    options: z.array(z.string().min(1)).min(1).optional(),
+    default: z.string().optional(),
+    help: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((p, ctx) => {
+    if (p.default !== undefined && paramValueProblem(p, p.default)) {
+      ctx.addIssue({ code: "custom", path: ["default"], message: "Der Standardwert passt nicht zu pattern/options" });
+    }
+  });
+export type RecipeParam = z.infer<typeof RecipeParamSchema>;
+
+/** Why `value` is not allowed for the parameter (pattern/options), or undefined. Does not look at required. */
+export function paramValueProblem(p: Pick<RecipeParam, "pattern" | "options">, value: string): string | undefined {
+  if (p.options && !p.options.includes(value)) return `ist nicht erlaubt (erlaubt: ${p.options.join(", ")})`;
+  if (p.pattern !== undefined && !new RegExp(p.pattern).test(value)) return "hat nicht das erwartete Format";
+  return undefined;
+}
+
 export const RecipeSchema = z
   .object({
     id: Ident,
@@ -114,6 +146,8 @@ export const RecipeSchema = z
     /** Seiten ausserhalb dieses Hosts (und allowHosts) werden nicht bedient. */
     host: Hostname,
     allowHosts: z.array(Hostname).default([]),
+    /** Per-entry parameters, read from `params` of the inventory entry. Each key is usable as {{key}}. */
+    params: z.array(RecipeParamSchema).default([]),
     login: z.object({ expect: ConditionSchema, message: z.string().optional() }).strict().optional(),
     steps: z.array(StepSchema).min(1),
     capture: z
@@ -138,13 +172,25 @@ export const RecipeSchema = z
   .strict()
   .superRefine((r, ctx) => {
     const known = new Set<string>(KNOWN_VARS);
+    const seen = new Set<string>();
+    r.params.forEach((p, i) => {
+      if (known.has(p.key)) ctx.addIssue({ code: "custom", path: ["params", i, "key"], message: `Der Schluessel ${p.key} ist eine feste Rezeptvariable und darf nicht als Parameter dienen` });
+      else if (seen.has(p.key)) ctx.addIssue({ code: "custom", path: ["params", i, "key"], message: `Parameter ${p.key} ist doppelt deklariert` });
+      seen.add(p.key);
+    });
+    for (const p of r.params) known.add(p.key);
+    const checkText = (value: unknown, path: (string | number)[]): void => {
+      for (const text of stringsOf(value)) {
+        for (const v of placeholdersOf(text)) {
+          if (!known.has(v)) ctx.addIssue({ code: "custom", path, message: `Unbekannte Variable {{${v}}}` });
+        }
+      }
+    };
+    checkText(r.capture, ["capture"]);
+    checkText(r.mask, ["mask"]);
     const check = (steps: Step[], base: string): void =>
       steps.forEach((step, i) => {
-        for (const text of stringsOf(step)) {
-          for (const v of placeholdersOf(text)) {
-            if (!known.has(v)) ctx.addIssue({ code: "custom", path: [base, i], message: `Unbekannte Variable {{${v}}}` });
-          }
-        }
+        checkText(step, [base, i]);
         if ("goto" in step) gotoProblem(step.goto, r).forEach((message) => ctx.addIssue({ code: "custom", path: [base, i, "goto"], message }));
       });
     check(r.steps, "steps");
@@ -155,9 +201,9 @@ export const RecipeSchema = z
 
 export type Recipe = z.infer<typeof RecipeSchema>;
 
-/** Alle Texte eines Schritts ausser regulaeren Ausdruecken (url) und Tastennamen. */
+/** Alle Texte eines Schritts ausser regulaeren Ausdruecken (url, pattern) und Tastennamen. */
 function stringsOf(value: unknown, key = ""): string[] {
-  if (key === "url" || key === "key") return [];
+  if (key === "url" || key === "key" || key === "pattern") return [];
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap((v) => stringsOf(v));
   if (typeof value === "object" && value !== null) return Object.entries(value).flatMap(([k, v]) => stringsOf(v, k));

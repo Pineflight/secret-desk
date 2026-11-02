@@ -152,8 +152,11 @@ secret-desk browser doctor [--recipes <dir>]... [--chrome-path <path>] [--profil
 secret-desk browser run <recipe-id> --dry [--recipes <dir>]... [--chrome-path <path>] [--profile-dir <dir>] [--cdp <url>]
                         [--name <n>] [--owner <o>] [--days <n>] [--date <YYYY-MM-DD>] [--description <text>]
                         [--repos a,b] [--permissions k=v,k=v] [--stage <id>] [--secret-id <id>]
+                        [--param <key>=<value>]...
                         [--login-timeout <minutes>] [--out <dir>]
 ```
+
+`--param <key>=<value>` (repeatable) sets a parameter the recipe declares under `params` (for example `--param projectId=proj1a2b3c`); defaults of the recipe apply to the rest, and a missing required parameter aborts before the browser opens. See [RECIPES.md](RECIPES.md#parameters).
 
 `browser doctor` checks that `playwright-core` is installed, finds Chrome, shows the profile folder, and loads and validates all recipes (the bundled ones plus `--recipes` folders), printing each recipe's `# STATUS` comment. Exit `1` if anything fails.
 

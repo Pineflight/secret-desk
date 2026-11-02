@@ -63,6 +63,17 @@ New read endpoints (all `GET`, with the stored token of the integration). **Not 
 
 Variables can load their value from a source (`from: { connection, kind, resource, field }`), with a fixed allowlist of public fields only: Supabase `ref`, `url`, `publishableKey` (never `service_role` or secret keys); Cloudflare `accountId`, `zoneId`, zone `name`, Turnstile `sitekey`; Resend `domainId`, `name`. Not implemented: Grafana stack (`grafana.stack`: needs the Grafana Cloud API) and a Stripe publishable key (no read endpoint with a restricted key).
 
+## RevenueCat via the browser
+
+`revenuecat-secret-api-key-browser` creates a RevenueCat **secret API key** (V2) through the dashboard with a [browser recipe](RECIPES.md) (`recipes/revenuecat-secret-api-key.yaml`), because the key is created in the dashboard. You sign in yourself; secret-desk fills the form, clicks *Generate*, reveals the key in the key list and reads it. Revocation is automated too (More, Revoke, Confirm in the key's row).
+
+| Parameter | Meaning |
+|---|---|
+| `projectId` | Required. The project id from the dashboard address (`/projects/<id>/`), matching `^[a-z0-9]{6,20}$`. |
+| `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` | Access level of that permission section: `No access` (default), `Read only` or `Read & write`. Give the key no more than the service needs. |
+
+The parameters are validated before any browser opens (`params_invalid`). The form and the key list were checked against the live dashboard on 2026-11-02 with a throwaway key (revoked afterwards); a full recipe run is **not verified** yet.
+
 ## Permissions per integration
 Create each token with no more than this. The **Test connection** button on the Integrations page makes read-only calls to confirm it (see below).
 
