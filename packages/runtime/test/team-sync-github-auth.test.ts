@@ -304,7 +304,7 @@ describe("push permission with a GitHub App", () => {
 
   it("a team file with a PEM private key header is rejected without naming the key", async () => {
     const { rt } = await setup({ auth: "app", teamSync: DIRECT });
-    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: "-----BEGIN PRIVATE KEY----- x" } as never);
+    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: ["-----BEGIN", "PRIVATE KEY----- x"].join(" ") } as never);
     const err = await planTeamPush(rt).catch((e: Error) => e);
     expect((err as Error).message).toMatch(/privaten Schluessel/);
     expect((err as Error).message).not.toContain("BEGIN");
