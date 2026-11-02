@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { supabaseProviders } from "../src/supabase.js";
+import { supabaseKeyName, supabaseProviders } from "../src/supabase.js";
 import { ProviderError } from "../src/http.js";
 import { CONN_TOKEN, ISSUED, LEAK, issueCtx, mockFetch, revokeCtx } from "./helpers.js";
 
@@ -12,7 +12,7 @@ describe("supabase-api-key", () => {
     const r = await apiKey.issue!(issueCtx(m.fetch, { projectRef: "abc" }, { conns: ["supabase"] }));
     expect(m.calls[0]).toMatchObject({ url: "https://api.supabase.com/v1/projects/abc/api-keys?reveal=true", method: "POST" });
     expect(m.calls[0]!.headers).toMatchObject({ Authorization: `Bearer ${CONN_TOKEN}` });
-    expect(JSON.parse(m.calls[0]!.body!)).toEqual({ type: "secret", name: "test-secret-2026-11-01" });
+    expect(JSON.parse(m.calls[0]!.body!)).toEqual({ type: "secret", name: "test_secret_2026_11_01" });
     expect(r.value.reveal()).toBe(ISSUED);
     expect(r.externalId).toBe("k1");
     expect(m.calls[0]!.signal).toBeInstanceOf(AbortSignal);
@@ -56,5 +56,13 @@ describe("supabase-service-role", () => {
     const m = mockFetch({ status: 403, body: CONN_TOKEN });
     const err = await serviceRole.issue!(issueCtx(m.fetch, { projectRef: "abc" }, { conns: ["supabase"] })).catch((e: unknown) => e as Error);
     expect(err.message).not.toContain(CONN_TOKEN);
+  });
+});
+
+describe("supabaseKeyName", () => {
+  it("maps portal labels to names Supabase accepts", () => {
+    expect(supabaseKeyName("supabase-secret-key-wake-miles-staging-2026-11-02")).toBe("supabase_secret_key_wake_miles_staging_2026_11_02");
+    expect(supabaseKeyName("2026-key")).toBe("_2026_key");
+    expect(supabaseKeyName("--A b--")).toBe("a_b");
   });
 });
