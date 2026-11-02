@@ -9,6 +9,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 - [TRIAL-RUN.md](TRIAL-RUN.md): a guided first run with real services in a throwaway repository, with `doctor` pre-check and an acceptance list.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): common errors (403 on environments, launch secret, ports, vault and keychain, Chrome, Windows paths) and their fixes.
 - [RESOURCES.md](RESOURCES.md): parameters and resource selection: choose the account, project, zone or domain a token is created for, suggestions, preflight and variables from a provider.
+- [ROADMAP.md](ROADMAP.md): providers supported today (API, browser, by hand), what is in progress and planned, and every external service secret-desk talks to.
 - [FAQ.md](FAQ.md): short answers to frequent questions.
 
 ## Reference
