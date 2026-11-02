@@ -6,6 +6,7 @@ export * from "./driver.js";
 export * from "./wait.js";
 export * from "./fake-driver.js";
 export * from "./chrome.js";
+export * from "./cdp.js";
 export * from "./playwright-driver.js";
 export * from "./run.js";
 export * from "./provider.js";

@@ -407,9 +407,9 @@ async function prepareTracked(rt: Runtime, secretId: string): Promise<PendingIss
 
 // ------------------------------------------------------------------------------ Browser-Automatisierung
 
-export function getAutomation(rt: Runtime, actor: Actor): AutomationInfo {
+export async function getAutomation(rt: Runtime, actor: Actor): Promise<AutomationInfo> {
   requireHuman(actor, "Die Browser-Automatisierung ansehen");
-  return rt.automation.info();
+  return rt.automation.status();
 }
 
 export function getAutomationRun(rt: Runtime, actor: Actor, secretId: string): AutomationRunState {

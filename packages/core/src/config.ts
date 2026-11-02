@@ -5,6 +5,29 @@ import { SecretName, StageSchema } from "./types.js";
 import { isSafeContentPath, isSafeRepoSlug, isValidBranchName } from "./git-names.js";
 import type { StageDef } from "./stages.js";
 
+/**
+ * Parses the address of a remote browser (Chrome DevTools Protocol endpoint). Only http(s) and ws(s) are accepted.
+ * Throws a message without the input, because the address may carry credentials.
+ */
+export function parseCdpEndpoint(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new Error("Invalid browser endpoint: expected a URL such as http://browser:9222");
+  }
+  if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) throw new Error("Invalid browser endpoint: only http, https, ws and wss are allowed");
+  if (!url.hostname) throw new Error("Invalid browser endpoint: host is missing");
+  return url;
+}
+
+/** The endpoint for logs and the portal: no credentials, query or fragment. */
+export function redactCdpEndpoint(raw: string | URL): string {
+  const url = typeof raw === "string" ? parseCdpEndpoint(raw) : raw;
+  const path = url.pathname === "/" ? "" : url.pathname;
+  return `${url.protocol}//${url.host}${path}`;
+}
+
 export const SourceSpecSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("env"), name: z.string().min(1) }),
   z.object({ type: z.literal("op"), ref: z.string().startsWith("op://") }),
@@ -98,6 +121,26 @@ export const ConfigSchema = z.object({
       enabled: z.boolean().default(true),
       /** Chrome/Chromium/Edge; sonst wird an den ueblichen Orten gesucht. */
       chromePath: z.string().min(1).optional(),
+      /**
+       * Remote browser (Chrome DevTools Protocol), e.g. "http://browser:9222" (the sidecar from docs/DOCKER.md). When set (or via the
+       * environment variable SECRET_DESK_BROWSER_CDP), the driver connects to it and uses its default context; chromePath and
+       * profileDir are ignored. The endpoint gives full control over a signed-in browser: never expose it.
+       */
+      cdpEndpoint: z
+        .string()
+        .min(1)
+        .refine(
+          (v) => {
+            try {
+              parseCdpEndpoint(v);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          "Expected an http, https, ws or wss URL",
+        )
+        .optional(),
       /** Dauerhaftes Browserprofil. Standard: ~/.secret-desk/browser-profile. */
       profileDir: z.string().min(1).optional(),
       /** Wie lange auf Anmeldung, 2FA oder CAPTCHA im Fenster gewartet wird. */

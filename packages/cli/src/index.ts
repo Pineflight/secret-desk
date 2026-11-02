@@ -73,7 +73,7 @@ Aufruf: secret-desk <befehl> [optionen]
   team status    Stand des Team-Syncs (ohne Netzwerk)      --config <datei>
   team pull      Team-Repository abfragen, Vorschau         --config <datei> [--apply merge|replace|keep-local] [--confirm-replace]
   team push      Team-Datei ins Repository schieben         --config <datei> [--yes]
-  browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>]
+  browser doctor Browser-Automatisierung pruefen: Chrome, Profil, Rezepte   [--recipes <ordner>]... [--chrome-path <pfad>] [--cdp <url>]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   inventory normalize  Namen vereinheitlichen und Werte automatisch beziehen: Plan anzeigen (nur Namen, keine Werte)
                    --config <datei>   [--apply all|<id>,<id>...]   [--yes]   (aendert nur das Inventar, nie GitHub)
