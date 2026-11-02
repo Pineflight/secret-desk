@@ -141,6 +141,16 @@ export const ConfigSchema = z.object({
           "Expected an http, https, ws or wss URL",
         )
         .optional(),
+      /**
+       * Address where a human sees the remote browser (the sidecar's noVNC page), e.g.
+       * "http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1&resize=scale". Also via SECRET_DESK_BROWSER_VIEWER_URL.
+       * Only shown as a link in the portal; it never carries credentials.
+       */
+      viewerUrl: z
+        .string()
+        .url()
+        .refine((v) => /^https?:\/\//.test(v) && !/^https?:\/\/[^/]*@/.test(v), "Expected an http or https URL without credentials")
+        .optional(),
       /** Dauerhaftes Browserprofil. Standard: ~/.secret-desk/browser-profile. */
       profileDir: z.string().min(1).optional(),
       /** Wie lange auf Anmeldung, 2FA oder CAPTCHA im Fenster gewartet wird. */

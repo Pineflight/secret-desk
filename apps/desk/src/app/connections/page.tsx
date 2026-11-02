@@ -31,7 +31,7 @@ interface Connection {
 }
 interface AutomationInfo {
   enabled: boolean;
-  browser: { mode: "local" | "remote"; endpoint: string | null; reachable: boolean | null; browser: string | null; detail: string | null };
+  browser: { mode: "local" | "remote"; endpoint: string | null; reachable: boolean | null; browser: string | null; detail: string | null; viewerUrl: string | null };
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
@@ -145,7 +145,7 @@ function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined
   return (
     <section className="sd-section" aria-labelledby="browser-automation-title">
       <h2 id="browser-automation-title" className="text-lg font-semibold tracking-tight">{t("connections.browserTitle")}</h2>
-      <p className="mt-1 max-w-2xl text-sm text-muted">{t("connections.browserSubtitle")}</p>
+      <p className="mt-1 max-w-2xl text-sm text-muted">{t(a?.browser.mode === "remote" ? "connections.browserSubtitleRemote" : "connections.browserSubtitle")}</p>
       {q.error ? <div className="mt-4"><ErrorState error={q.error} onRetry={q.reload} /></div> : null}
       {q.loading && !a ? <div className="mt-4"><ListSkeleton rows={1} /></div> : null}
       {a && !a.enabled ? <div className="mt-4"><Notice tone="info">{t("connections.browserOff")}</Notice></div> : null}
@@ -157,6 +157,7 @@ function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined
                 <>
                   <div className="flex justify-between gap-4 py-2"><dt className="shrink-0 text-muted-text">{t("connections.browserRemote")}</dt><dd className="min-w-0 text-right font-medium">{a.browser.reachable ? <Badge info={{ label: t("connections.browserRemoteOk"), tone: "success", icon: "check" }} /> : <Badge info={{ label: t("connections.browserRemoteDown"), tone: "warn", icon: "alert" }} />}<span className="mt-1 block break-all font-mono text-xs font-normal text-muted-text">{a.browser.endpoint ?? ""}</span></dd></div>
                   <div className="py-2 text-xs text-muted">{a.browser.detail ?? t("connections.browserRemoteHint")}</div>
+                  {a.browser.viewerUrl ? <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserViewer")}</dt><dd className="text-right"><a className="font-medium text-primary underline-offset-2 hover:underline" href={a.browser.viewerUrl} target="_blank" rel="noopener noreferrer">{t("connections.browserViewerOpen")}</a></dd></div> : <div className="py-2 text-xs text-muted">{t("connections.browserViewerMissing")}</div>}
                 </>
               ) : (
                 <>

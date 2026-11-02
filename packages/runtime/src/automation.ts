@@ -75,6 +75,8 @@ export interface AutomationBrowserInfo {
   browser: string | null;
   /** Remote mode: why the endpoint is invalid or not reachable. */
   detail: string | null;
+  /** Remote mode: where a human sees the remote browser (noVNC), if configured. */
+  viewerUrl: string | null;
 }
 
 export interface AutomationInfo {
@@ -121,6 +123,21 @@ export interface AutomationOptions {
   now?: () => Date;
 }
 
+const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
+
+/** Viewer address of the remote browser: environment first, then configuration. Only http(s) without credentials is kept. */
+export function viewerUrlFrom(configured: string | undefined, env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env[VIEWER_ENV]?.trim() || configured?.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || u.username || u.password) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 const PROFILE_DEFAULT = "~/.secret-desk/browser-profile";
 const MAX_TEXT = 400;
 
@@ -155,6 +172,7 @@ export class AutomationManager {
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
   readonly #cdpEndpoint: string | undefined;
+  readonly #viewerUrl: string | null;
   readonly #providers = new Map<string, BrowserProvider>();
   readonly #runs = new Map<string, AutomationRunState>();
   readonly #controllers = new Map<string, AbortController>();
@@ -166,6 +184,7 @@ export class AutomationManager {
     this.enabled = c.enabled;
     this.#chromePath = c.chromePath ? path(c.chromePath, opts.configDir) : undefined;
     this.#cdpEndpoint = cdpEndpointFrom(c.cdpEndpoint, opts.env ?? process.env);
+    this.#viewerUrl = viewerUrlFrom(c.viewerUrl, opts.env ?? process.env);
     this.profileDir = path(c.profileDir ?? PROFILE_DEFAULT, opts.configDir);
     this.loginTimeoutMinutes = c.loginTimeoutMinutes;
     this.#now = opts.now ?? (() => new Date());
@@ -318,11 +337,11 @@ export class AutomationManager {
   }
 
   #browserInfo(): AutomationBrowserInfo {
-    if (!this.#cdpEndpoint) return { mode: "local", endpoint: null, reachable: null, browser: null, detail: null };
+    if (!this.#cdpEndpoint) return { mode: "local", endpoint: null, reachable: null, browser: null, detail: null, viewerUrl: null };
     try {
-      return { mode: "remote", endpoint: redactCdpEndpoint(this.#cdpEndpoint), reachable: null, browser: null, detail: null };
+      return { mode: "remote", endpoint: redactCdpEndpoint(this.#cdpEndpoint), reachable: null, browser: null, detail: null, viewerUrl: this.#viewerUrl };
     } catch (err) {
-      return { mode: "remote", endpoint: null, reachable: false, browser: null, detail: (err as Error).message };
+      return { mode: "remote", endpoint: null, reachable: false, browser: null, detail: (err as Error).message, viewerUrl: this.#viewerUrl };
     }
   }
 
