@@ -68,6 +68,62 @@ describe("RecipeSchema", () => {
   });
 });
 
+describe("RecipeSchema params", () => {
+  const withParams = (params: unknown[], extra: Record<string, unknown> = {}) => ({ ...base(), params, ...extra });
+  const param = (over: Record<string, unknown> = {}) => ({ key: "projectId", label: "Projekt", pattern: "^[a-z0-9]{6,20}$", ...over });
+
+  it("accepts declared params with defaults and makes the keys known variables", () => {
+    const d = withParams([param(), param({ key: "level", label: "Stufe", pattern: undefined, options: ["A", "B"], default: "A", required: false })]);
+    d.steps = [{ goto: "https://example.test/p/{{projectId}}" }, { fill: { css: "#a", value: "{{level}}" } } as never, d.steps[1] as never];
+    expect(errors(d)).toBe("");
+    const r = RecipeSchema.parse(d);
+    expect(r.params.map((p) => [p.key, p.required])).toEqual([["projectId", true], ["level", false]]);
+  });
+  it("params default to an empty list", () => {
+    expect(RecipeSchema.parse(base()).params).toEqual([]);
+  });
+  it("rejects invalid keys", () => {
+    for (const key of ["Project", "1abc", "a-b", "a_b", "", "a".repeat(32)]) expect(errors(withParams([param({ key })])), key).toMatch(/params\.0\.key/);
+  });
+  it("rejects keys that collide with fixed variables and duplicates", () => {
+    expect(errors(withParams([param({ key: "name" })]))).toMatch(/params\.0\.key: .*name.*feste Rezeptvariable/);
+    expect(errors(withParams([param({ key: "owner" })]))).toMatch(/feste Rezeptvariable/);
+    expect(errors(withParams([param(), param()]))).toMatch(/params\.1\.key: .*doppelt/);
+  });
+  it("rejects an invalid pattern, empty options and a default outside pattern/options", () => {
+    expect(errors(withParams([param({ pattern: "(" })]))).toMatch(/Ungueltiger regulaerer Ausdruck/);
+    expect(errors(withParams([param({ options: [] })]))).toMatch(/params\.0\.options/);
+    expect(errors(withParams([param({ default: "BAD!" })]))).toMatch(/params\.0\.default/);
+    expect(errors(withParams([param({ pattern: undefined, options: ["A"], default: "B" })]))).toMatch(/params\.0\.default/);
+  });
+  it("rejects unknown fields in a param", () => {
+    expect(errors(withParams([param({ extra: 1 })]))).not.toBe("");
+  });
+  it("an undeclared parameter variable is still unknown", () => {
+    const d = withParams([param()]);
+    d.steps = [{ goto: "https://example.test/p/{{other}}" }, d.steps[1] as never];
+    expect(errors(d)).toMatch(/Unbekannte Variable \{\{other\}\}/);
+  });
+  it("checks variables in capture and mask selectors too", () => {
+    expect(errors({ ...base(), capture: { token: { find: { css: "#t-{{nope}}" } } } })).toMatch(/capture.*Unbekannte Variable \{\{nope\}\}/);
+    expect(errors({ ...base(), mask: [{ css: "#t-{{nope}}" }] })).toMatch(/mask.*Unbekannte Variable/);
+    expect(errors({ ...base(), capture: { token: { find: { css: "#t-{{name}}" } } }, mask: [{ css: "#t-{{name}}" }] })).toBe("");
+  });
+  it("a regular expression with braces in pattern is not read as a variable", () => {
+    expect(errors({ ...base(), capture: { token: { find: { css: "#t" }, pattern: "^a{{2}}$" } } })).toBe("");
+  });
+});
+
+describe("hidden condition", () => {
+  it("is exactly one of url, visible, hidden or text", () => {
+    const d = base();
+    d.steps = [{ goto: "https://example.test/a" }, { waitFor: { hidden: { css: "#row" } } } as never, d.steps[1] as never];
+    expect(errors(d)).toBe("");
+    d.steps = [{ goto: "https://example.test/a" }, { waitFor: { hidden: { css: "#row" }, text: "x" } } as never, d.steps[1] as never];
+    expect(errors(d)).toMatch(/Genau eines von url, visible, hidden oder text/);
+  });
+});
+
 describe("hostAllowed", () => {
   it("compares exactly, wildcard only via *.", () => {
     const r = { host: "github.com", allowHosts: ["*.githubusercontent.com"] };

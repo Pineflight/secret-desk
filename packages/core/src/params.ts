@@ -47,6 +47,8 @@ export interface ParamSpec {
   /** Nur integer: Grenzen. */
   min?: number;
   max?: number;
+  /** Only string: regular expression the value must match (anchor it with ^ and $), for example identifiers of browser recipes. */
+  pattern?: string;
 }
 
 /** Eine entdeckte Ressource beim Anbieter (Konto, Projekt, Zone, Domain ...). Nur lesend ermittelt. */
@@ -199,6 +201,10 @@ export function validateEntryParams(
     }
     if (!typeOk(spec, v)) {
       out.push(problem(spec, "wrong_type", TYPE_MESSAGE[spec.type](spec.key)));
+      continue;
+    }
+    if (spec.type === "string" && spec.pattern !== undefined && !new RegExp(spec.pattern).test((v as string).trim())) {
+      out.push(problem(spec, "wrong_type", `Parameter ${spec.key}: "${(v as string).trim()}" hat nicht das erwartete Format`));
       continue;
     }
     if (spec.type === "enum" && spec.options && !spec.options.some((o) => o.value === v)) {
