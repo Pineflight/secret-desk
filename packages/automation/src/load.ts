@@ -63,7 +63,9 @@ export async function loadRecipesDetailed(dirs: string[], options: LoadOptions =
   for (const dir of ordered) {
     const bundled = isBundled(dir);
     if (guarded && !bundled && !allowExternal) {
-      skippedDirs.push(dir);
+      // A missing or empty folder skips nothing worth reporting; only recipes that are really ignored are a finding.
+      const yamls = await readdir(dir).then((n) => n.filter((x) => x.endsWith(".yaml")), () => []);
+      if (yamls.length > 0) skippedDirs.push(dir);
       continue;
     }
     let names: string[];

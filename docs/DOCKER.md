@@ -228,6 +228,8 @@ services:
     # ... as above, plus:
     environment:
       SECRET_DESK_BROWSER_CDP: http://browser:9222
+      # Link "Open browser" on the Connections page (the noVNC address from the Caddy route below):
+      SECRET_DESK_BROWSER_VIEWER_URL: http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1&resize=scale
     depends_on:
       - browser
 

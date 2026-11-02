@@ -67,6 +67,14 @@ describe("protection of bundled recipes", () => {
     expect(recipes.map((r) => r.recipe.id)).toEqual(["a"]);
     expect(skippedDirs).toEqual([ext]);
   });
+  it("a missing or empty external folder is not reported as skipped", async () => {
+    const bundled = await mkdtemp(join(tmpdir(), "rb-"));
+    const empty = await mkdtemp(join(tmpdir(), "re-"));
+    await writeFile(join(bundled, "a.yaml"), yaml("a"));
+    await writeFile(join(empty, "notes.txt"), "no recipes here");
+    const { skippedDirs } = await loadRecipesDetailed([bundled, empty, join(empty, "missing")], { bundledDirs: [bundled] });
+    expect(skippedDirs).toEqual([]);
+  });
   it("returns SHA-256, host and allowHosts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rb-"));
     const text = yaml("a");

@@ -7,7 +7,7 @@ import sodium from "libsodium-wrappers";
 import { FakeDriver } from "@secret-desk/automation";
 import { IssuanceError } from "@secret-desk/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { AutomationError } from "../src/automation.js";
+import { AutomationError, viewerUrlFrom } from "../src/automation.js";
 import { requestIssuance, resolveApproval, listProviders, listSecrets, getAutomation, getAutomationRun, cancelAutomationRun, PolicyError } from "../src/agent-api.js";
 import { createRuntime } from "../src/runtime.js";
 
@@ -165,7 +165,7 @@ describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
 
   it("is local by default", async () => {
     const { rt } = await setup();
-    expect((await getAutomation(rt, human)).browser).toEqual({ mode: "local", endpoint: null, reachable: null, browser: null, detail: null });
+    expect((await getAutomation(rt, human)).browser).toEqual({ mode: "local", endpoint: null, reachable: null, browser: null, detail: null, viewerUrl: null });
   });
 
   it("reports the mode and that the endpoint answers; no credentials in the output", async () => {
@@ -173,9 +173,19 @@ describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
     const withAuth = url.replace("http://", "http://user:s3cret@");
     const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: withAuth } });
     const info = await getAutomation(rt, human);
-    expect(info.browser).toEqual({ mode: "remote", endpoint: url, reachable: true, browser: "Chrome/140.0.0.0", detail: null });
+    expect(info.browser).toEqual({ mode: "remote", endpoint: url, reachable: true, browser: "Chrome/140.0.0.0", detail: null, viewerUrl: null });
     expect(info.chrome).toMatchObject({ found: false, path: null });
     expect(JSON.stringify(info)).not.toContain("s3cret");
+  });
+
+  it("shows the viewer address of the remote browser, never with credentials", async () => {
+    const url = await devtools();
+    const viewer = "http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1";
+    const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: url, SECRET_DESK_BROWSER_VIEWER_URL: viewer } });
+    expect((await getAutomation(rt, human)).browser.viewerUrl).toBe(viewer);
+    expect(viewerUrlFrom("http://user:pw@desk.local/browser/", {})).toBeNull();
+    expect(viewerUrlFrom("javascript:alert(1)", {})).toBeNull();
+    expect(viewerUrlFrom("http://desk.local/a", { SECRET_DESK_BROWSER_VIEWER_URL: "https://other.local/b" })).toBe("https://other.local/b");
   });
 
   it("takes the endpoint from the configuration; the environment variable wins", async () => {

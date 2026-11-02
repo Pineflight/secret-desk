@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Open the remote browser from the portal:** `automation.viewerUrl` (or `SECRET_DESK_BROWSER_VIEWER_URL`) adds an *Open browser* link to *Connections*, and the section text explains the server browser instead of a local Chrome window.
+
 - **Full sync guide:** [docs/FULL-SYNC.md](docs/FULL-SYNC.md) walks through setting up many repositories in one pass: needs from the workflows, normalize, sources and parameters, GitHub environments, dry run, writing variables and secrets with the CLI (also inside the Docker container), removing old names, and the provider limits met in practice (paused Supabase projects, Cloudflare read permissions and single-zone tokens, Turnstile rotation).
 - **Normalize the inventory:** a naming convention for secrets and variables (`UPPER_SNAKE_CASE`, no stage, provider spelled out, no framework prefix, canonical Supabase names, English words; `naming.renames` and `naming.keep` in the configuration) and a **Normalize** action on *Secrets and variables* that previews the changes (rename, stage, switch to a provider, variable sources, collisions, entries that stay manual) and applies the selected or all unambiguous ones. Also `secret-desk inventory normalize` and `GET normalization` / `POST normalization/apply`. Inventory only: nothing is written to GitHub. Entry ids stay. See [docs/NAMING.md](docs/NAMING.md).
 
@@ -26,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- An external recipe folder that does not exist or holds no recipes is no longer reported as skipped.
 - Secrets and variables list: the actions column no longer detaches from the table. The table fits its card at 1440, 1024, 768, 375 and 320 px instead of scrolling: below 1280 px kind, stage, value and targets fold into the name cell, below 640 px status and actions do too. Secret and variable rows now share one actions cell with one icon group of the same width, vertically centered (secrets: edit and open, variables: compare, set, adopt, edit, remove). Long descriptions wrap to two lines instead of widening the table.
 - Lists: the actions column of the variables table is no longer cut off. Cells are narrower and the actions stay at the right edge (sticky) when a narrow window still has to scroll horizontally. Checked on the real pages at 1280, 1440 and 1920 px (no horizontal scroll in Variables, Secrets, Compare, Repositories) and 768 px (usable, actions visible).
 
