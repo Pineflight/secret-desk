@@ -150,6 +150,12 @@ function keyChecklist(secret: { stage: string; params: Record<string, unknown> }
   ];
 }
 
+/** Supabase accepts key names of lowercase letters, digits and underscores that start with a letter or underscore. */
+export function supabaseKeyName(label: string): string {
+  const name = label.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return /^[a-z_]/.test(name) ? name : `_${name}`;
+}
+
 const apiKeyProvider: Provider = {
   id: "supabase-api-key",
   label: "Supabase API-Key (experimentell, Endpunkt-Form nicht verifiziert)",
@@ -166,7 +172,7 @@ const apiKeyProvider: Provider = {
     const res = await callWithToken<ApiKey>(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/api-keys?reveal=true`, {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ type, name: ctx.label }),
+      body: JSON.stringify({ type, name: supabaseKeyName(ctx.label) }),
     });
     if (!res || typeof res.api_key !== "string" || typeof res.id !== "string") throw badResponse(id);
     return { value: new SecretValue(res.api_key), externalId: res.id, expiresAt: null };
