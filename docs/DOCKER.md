@@ -281,7 +281,7 @@ docker compose run --rm caddy caddy hash-password
 http://desk.local, http://192.168.1.20 {
 	handle_path /browser/* {
 		basic_auth {
-			niklas <hash printed above>
+			admin <hash printed above>
 		}
 		reverse_proxy browser:6080
 	}
