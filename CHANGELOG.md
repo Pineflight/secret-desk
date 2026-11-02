@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Guided sign-in: a browser that is already signed in is recognised even when the provider redirects from its sign-in page only after a few seconds. The run then skips the form instead of failing on the missing email field.
 - The *Open browser* link can be a path on the portal host (`/browser/vnc.html?...`), so it works under every address of the portal instead of one fixed host name.
 - An external recipe folder that does not exist or holds no recipes is no longer reported as skipped.
 - Secrets and variables list: the actions column no longer detaches from the table. The table fits its card at 1440, 1024, 768, 375 and 320 px instead of scrolling: below 1280 px kind, stage, value and targets fold into the name cell, below 640 px status and actions do too. Secret and variable rows now share one actions cell with one icon group of the same width, vertically centered (secrets: edit and open, variables: compare, set, adopt, edit, remove). Long descriptions wrap to two lines instead of widening the table.
