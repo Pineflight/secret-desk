@@ -134,6 +134,8 @@ Then:
 2. Click **Test connection**. It makes read-only calls: login, token expiry, and a public-key read for every target in your inventory. A red line names the missing permission.
 3. Optional: open **Write test**, choose targets and run it. It creates a probe secret and variable (`SD_WRITE_PROBE`, `SD_WRITE_PROBE_VAR`) and deletes them immediately. Live stages are never preselected.
 
+**Starting from a team repository?** If your team keeps the configuration in a private GitHub repository, the welcome page (shown while the inventory is empty) loads it without typing: with the GitHub integration connected, pick the repository, branch, file and mode from lists and look at the preview before anything is taken over. See [Team](TEAM.md#choose-the-repository-from-lists).
+
 You can run the same pre-check from the command line (only works for tokens from environment variables or 1Password; a session token lives in the portal's memory):
 
 ```bash

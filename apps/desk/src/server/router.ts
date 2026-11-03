@@ -107,6 +107,10 @@ import {
   pushTeamSync,
   setupTeamSync,
   teamSyncStatus,
+  listTeamRepos,
+  listTeamBranches,
+  listTeamFiles,
+  checkTeamModeAccess,
   updateSecretMeta,
   updateVariable,
   type Actor,
@@ -162,6 +166,11 @@ function paramsFromQuery(q: URLSearchParams): Record<string, unknown> {
   return out;
 }
 const optQ = (q: URLSearchParams, k: string): string | undefined => q.get(k) || undefined;
+const queryText = (q: URLSearchParams, k: string): string => {
+  const v = q.get(k);
+  if (!v) throw new InventoryError(`Feld fehlt: ${k}`);
+  return v;
+};
 /** Kommagetrennte Liste aus dem Query, ohne Leereintraege. */
 const csv = (q: URLSearchParams, k: string): string[] => (q.get(k) ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 /** Art-Liste des Stage-Vergleichs: secret(s) und variable(s), alles andere wird ignoriert. */
@@ -242,6 +251,12 @@ const humanOnly: [string, RegExp, Handler][] = [
     if (resolution !== "merge" && resolution !== "replace" && resolution !== "keep-local") throw new InventoryError("Feld resolution: merge, replace oder keep-local.");
     return applyTeamSync(rt, { expectSha: str(body, "expectSha"), resolution, confirmReplace: body.confirmReplace === true });
   }],
+  // Discovery for the setup pickers: repositories, branches and team files the GitHub integration can see, and what a mode needs.
+  // Read only, no token in any answer. Agents get 404: listing the repositories of the integration is a human decision.
+  ["GET", /^team-sync\/discovery\/repos$/, ({ rt }) => listTeamRepos(rt)],
+  ["GET", /^team-sync\/discovery\/branches$/, ({ rt, query }) => listTeamBranches(rt, queryText(query, "repo"))],
+  ["GET", /^team-sync\/discovery\/files$/, ({ rt, query }) => listTeamFiles(rt, queryText(query, "repo"), queryText(query, "branch"))],
+  ["GET", /^team-sync\/discovery\/access$/, ({ rt, query }) => checkTeamModeAccess(rt, { repo: queryText(query, "repo"), branch: queryText(query, "branch"), path: queryText(query, "path"), mode: queryText(query, "mode"), ...(optQ(query, "strategy") ? { strategy: optQ(query, "strategy")! } : {}) })],
   ["POST", /^team-sync\/push-plan$/, ({ rt }) => planTeamPush(rt)],
   ["POST", /^team-sync\/push$/, ({ rt, req, body }) => pushTeamSync(rt, { confirm: body.confirm === true, expectLocalHash: str(body, "expectLocalHash"), expectRemoteSha: typeof body["expectRemoteSha"] === "string" ? (body["expectRemoteSha"] as string) : null, lang: req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de" })],
   ["PUT", /^team-sync\/config$/, async ({ rt, body }) => ({ config: await setupTeamSync(rt, body.teamSync), status: await teamSyncStatus(rt) })],

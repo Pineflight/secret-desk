@@ -107,6 +107,17 @@ export interface RemoteRepo {
   pushedAt: string | null;
 }
 
+/** A repository the token can see, with owner. Metadata only. */
+export interface VisibleRepo {
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  archived: boolean;
+  defaultBranch: string | null;
+  pushedAt: string | null;
+}
+
 export class GitHubClient {
   readonly #auth: TokenProvider;
   readonly #fetch: FetchLike;
@@ -143,6 +154,59 @@ export class GitHubClient {
       if (!(err instanceof GitHubError && err.status === 404)) throw err;
     }
     return this.#repoPages(`/users/${enc(owner)}/repos`);
+  }
+
+  /**
+   * Repositories the token can see (for team sync discovery), newest push first. `user`: `GET /user/repos` (PAT and own token).
+   * `installation`: `GET /installation/repositories` (GitHub App installation token). Read only, up to 1000; `truncated` says more exist.
+   */
+  async listVisibleRepos(kind: "user" | "installation"): Promise<{ repos: VisibleRepo[]; truncated: boolean }> {
+    type Item = { name: string; owner?: { login?: string }; full_name?: string; private?: boolean; archived?: boolean; default_branch?: string | null; pushed_at?: string | null };
+    const out: VisibleRepo[] = [];
+    let truncated = false;
+    for (let page = 1; page <= 10; page += 1) {
+      const path = kind === "user" ? `/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member&page=${page}` : `/installation/repositories?per_page=100&page=${page}`;
+      const res = await this.#request("GET", path);
+      const body = (await res.json()) as Item[] | { repositories?: Item[] };
+      const items = Array.isArray(body) ? body : (body.repositories ?? []);
+      for (const r of items) {
+        const owner = r.owner?.login ?? r.full_name?.split("/")[0] ?? "";
+        if (!owner || !r.name) continue;
+        out.push({ owner, name: r.name, fullName: `${owner}/${r.name}`, private: r.private === true, archived: r.archived === true, defaultBranch: r.default_branch ?? null, pushedAt: r.pushed_at ?? null });
+      }
+      if (items.length < 100) break;
+      if (page === 10) truncated = true;
+    }
+    out.sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""));
+    return { repos: out, truncated };
+  }
+
+  /** Branch names of a repository (up to 500). Read only. */
+  async listBranches(owner: string, repo: string): Promise<{ names: string[]; truncated: boolean }> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    const names: string[] = [];
+    let truncated = false;
+    for (let page = 1; page <= 5; page += 1) {
+      const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/branches?per_page=100&page=${page}`);
+      const items = (await res.json()) as { name?: string }[];
+      for (const b of items) if (typeof b.name === "string") names.push(b.name);
+      if (items.length < 100) break;
+      if (page === 5) truncated = true;
+    }
+    return { names, truncated };
+  }
+
+  /** File paths on a branch (one recursive tree request). null = branch not found. `truncated`: GitHub cut the tree. Read only. */
+  async listFilePaths(owner: string, repo: string, branch: string): Promise<{ paths: string[]; truncated: boolean } | null> {
+    assertSafeRepoSegment(owner, "owner");
+    assertSafeRepoSegment(repo, "repository");
+    assertValidBranchName(branch);
+    const head = await this.getBranchHead(owner, repo, branch);
+    if (head === null) return null;
+    const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}/git/trees/${enc(head)}?recursive=1`);
+    const j = (await res.json()) as { tree?: { path?: string; type?: string }[]; truncated?: boolean };
+    return { paths: (j.tree ?? []).filter((e) => e.type === "blob" && typeof e.path === "string").map((e) => e.path as string), truncated: j.truncated === true };
   }
 
   async #repoPages(path: string): Promise<RemoteRepo[]> {
@@ -309,13 +373,13 @@ export class GitHubClient {
   }
 
   /** Repository metadata needed before a push: visibility and, for user tokens, the permissions of the caller. Read only. */
-  async getRepo(owner: string, repo: string): Promise<{ private: boolean | null; permissions: { push: boolean | null } | null }> {
+  async getRepo(owner: string, repo: string): Promise<{ private: boolean | null; permissions: { push: boolean | null } | null; defaultBranch?: string | null }> {
     assertSafeRepoSegment(owner, "owner");
     assertSafeRepoSegment(repo, "repository");
     const res = await this.#request("GET", `/repos/${enc(owner)}/${enc(repo)}`);
-    const j = (await res.json()) as { private?: unknown; permissions?: { push?: unknown } | null };
+    const j = (await res.json()) as { private?: unknown; permissions?: { push?: unknown } | null; default_branch?: unknown };
     const perms = j.permissions && typeof j.permissions === "object" ? { push: typeof j.permissions.push === "boolean" ? j.permissions.push : null } : null;
-    return { private: typeof j.private === "boolean" ? j.private : null, permissions: perms };
+    return { private: typeof j.private === "boolean" ? j.private : null, permissions: perms, defaultBranch: typeof j.default_branch === "string" ? j.default_branch : null };
   }
 
   /** Offener Pull Request von `head` nach `base` (gleiches Repository). */
