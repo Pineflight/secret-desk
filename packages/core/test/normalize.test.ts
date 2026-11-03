@@ -135,7 +135,7 @@ describe("planNormalization", () => {
     const { changes } = planOf();
     expect(find(changes, "manual-only:secret:revenuecat")!.reasons[0]!.code).toBe("revenuecat");
     // every other manual secret is listed too, with a reason
-    expect(find(changes, "manual-only:secret:cf-access")!.reasons.map((r) => r.code)).toEqual(["cloudflare-not-yet"]);
+    expect(find(changes, "manual-only:secret:cf-access")!.reasons.map((r) => r.code)).toEqual(["cloudflare-access-companion"]);
   });
 
   it("switches stripe webhook secrets and grafana tokens to their providers and names the missing parameters", () => {
@@ -174,6 +174,35 @@ variables:
     expect(find(changes, "stage:variable:v-url-staging")!.after[0]!.stage).toBe("staging");
     expect(find(changes, "stage:variable:v-url-prod")!.after[0]!.stage).toBe("production");
     expect(find(changes, "stage:secret:cf-access")).toBeUndefined();
+  });
+
+  it("switches the Access client secret to its provider and proposes the single matching client ID entry", async () => {
+    const entry = (id: string, name: string, stage: string, repo: string) => `  - id: ${id}
+    name: ${name}
+    stage: ${stage}
+    service: cloudflare
+    provider: manual
+    expiry: none
+    places: [{ repo: ${repo}, scope: repository }]
+`;
+    const yaml = (extra: string) => YAML.replace("variables:\n", `${extra}variables:\n`);
+    const one = yaml(entry("acc-secret", "CLOUDFLARE_ACCESS_CLIENT_SECRET", "shared", "web") + entry("acc-id", "CLOUDFLARE_ACCESS_CLIENT_ID", "shared", "web"));
+    const c = find(planOf(one).changes, "provider:secret:acc-secret")!;
+    expect(c).toMatchObject({ autoApplicable: true, missingParams: ["accountId"], after: [{ provider: "cloudflare-access-service-token", paramKeys: ["clientIdTarget"] }] });
+    // two candidates, another stage or another repository: nothing is guessed
+    for (const other of [entry("acc-id", "CLOUDFLARE_ACCESS_CLIENT_ID", "production", "web"), entry("acc-id", "CLOUDFLARE_ACCESS_CLIENT_ID", "shared", "other-repo"), entry("acc-id", "CLOUDFLARE_ACCESS_CLIENT_ID", "shared", "web") + entry("acc-id-2", "CLOUDFLARE_ACCESS_CLIENT_ID", "shared", "web")]) {
+      const d = find(planOf(yaml(entry("acc-secret", "CLOUDFLARE_ACCESS_CLIENT_SECRET", "shared", "web") + other)).changes, "provider:secret:acc-secret")!;
+      expect(d.missingParams).toEqual(["accountId", "clientIdTarget"]);
+    }
+    // applying writes the proposal into the params
+    const dir = await mkdtemp(join(tmpdir(), "sd-norm-"));
+    const path = join(dir, "inventory.yaml");
+    await writeFile(path, one);
+    const store = await InventoryStore.open(path);
+    await applyNormalization(store, {}, ["provider:secret:acc-secret"]);
+    expect((await InventoryStore.open(path)).getSecret("acc-secret")).toMatchObject({ provider: "cloudflare-access-service-token", params: { clientIdTarget: "acc-id" } });
+    // the client ID entry itself stays manual with the companion hint
+    expect(find(planOf(one).changes, "manual-only:secret:acc-id")!.reasons[0]!.code).toBe("cloudflare-access-companion");
   });
 
   it("proposes no stage when the places contradict the name", () => {

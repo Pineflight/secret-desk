@@ -7,6 +7,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 |---|---|---|---|
 | `random-hex`, `random-base64`, `random-uuid` | automatic | none | locally |
 | `cloudflare-token` | automatic | `cloudflare` (token with *User > API Tokens > Edit*) | reference read, `expires_on` only from a third-party source |
+| `cloudflare-access-service-token` | automatic | `cloudflare` (same token, no extra permission) | documentation read, **not verified live** |
 | `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
 | `supabase-db-password` | automatic | `supabase` (token with *Database config: Write*) | documentation read, **not verified live** |
@@ -29,6 +30,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `random-hex`, `random-base64` | `bytes`: integer 8 to 128, default 32 |
 | `random-uuid` | none |
 | `cloudflare-token` | `accountId` (string, required, may come from the integration default), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`), `zoneId` (optional, needed for zone-bound permissions) |
+| `cloudflare-access-service-token` | `accountId` (required, may come from the integration default), `clientIdTarget` (required: inventory id of the secret entry that receives the client ID), `duration` (`8760h` default, `720h`, `2160h`, `forever`) |
 | `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |
 | `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
@@ -39,6 +41,30 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `grafana-service-account-token` | `baseUrl` (required, https, no port; host must be `*.grafana.net` or in `providers.grafana.allowedHosts`), `serviceAccountId` (integer, required) |
 | `github-fine-grained-token` (manual) | optional `params.permissions`, a map such as `{ contents: read, metadata: read }`, prefills the GitHub token form (together with `ttlDays`, the description and the configured owner) |
 | other manual providers | none |
+
+### Cloudflare Access service tokens (client ID and secret together)
+
+`cloudflare-access-service-token` issues the pair a workflow needs to reach an app behind Cloudflare Access. Put it on the entry
+`CLOUDFLARE_ACCESS_CLIENT_SECRET`; `clientIdTarget` names the entry `CLOUDFLARE_ACCESS_CLIENT_ID` (a secret entry with its own places).
+Both values come from the same API answer and are written in the same commit; the review lists the client ID entry (name, targets,
+fingerprint, never the value) and rejecting or letting the review expire discards both.
+
+How it works:
+
+1. The `cloudflare` connection (template *Create additional tokens*) cannot call the Access API. The provider therefore creates a
+   **helper token** (permission *Access: Service Tokens Write*, or *Edit* if that is how the account lists it; scoped to the one account;
+   expiry 10 minutes), calls the Access API with it and deletes it right away, also on failure. The helper value stays in memory.
+   If deleting fails, it still expires after ten minutes.
+2. **Renewal** (the entry has an `externalId`): if that service token still exists (`GET .../access/service_tokens/{id}`), its secret is
+   renewed in place (`POST .../service_tokens/{id}/rotate`). The client ID stays, so the client ID entry is not rewritten. The review warns
+   that the old secret is invalid from that call on, and that rejecting does not bring it back. If the token is gone, a new one is created
+   (`POST .../access/service_tokens` with `name` and `duration`) and the old id is deleted after confirm.
+3. `expires` comes from `expires_at` in the answer; without it the `duration` is used (`forever` means no expiry).
+
+Not verified live: the API field names (`client_id`, `client_secret`, `expires_at`, `id`), the exact name of the permission group,
+whether a token with *Create additional tokens* may grant that group, and what happens to the old secret after the in-place renewal.
+The check that an Access policy still references the token is not implemented; the provider only checks that the token exists. The
+client ID entry must be a secret entry (a variable cannot be a companion yet) in the same stage.
 
 ### Parameter specification, discovery and preflight
 
