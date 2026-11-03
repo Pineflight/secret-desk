@@ -25,7 +25,7 @@ function wizard(opts: { banner?: boolean; key?: string } = {}): FakeDriver {
   let custom = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
+    visible: ['css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
@@ -71,7 +71,7 @@ describe("stripe-restricted-key recipe", () => {
     expect(d.calls.join("\n")).not.toContain("Accept all");
     expect(d.calls).toContain('check radio "Custom permissions"');
     expect(d.calls).toContain('fill css input[type="search"]');
-    expect(d.calls).toContain('check radio "Write"');
+    expect(d.calls).toContain('check css role=group[name="Permission level"s] >> role=radio[name="Write"s]');
     expect(d.calls).not.toContain('check radio "Full access—except sensitive operations"');
     expect(d.filled.get('Feld "Name" (exact)')).toBe(VARS.name);
     // The key reaches no screenshot as text, and the screenshots mask the element.
@@ -85,7 +85,7 @@ describe("stripe-restricted-key recipe", () => {
     expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys/create`);
     expect(d.calls).toContain('check radio "Full access—except sensitive operations"');
     expect(d.calls).not.toContain('check radio "Custom permissions"');
-    expect(d.calls).not.toContain('check radio "Write"');
+    expect(d.calls).not.toContain('check css role=group[name="Permission level"s] >> role=radio[name="Write"s]');
   });
 
   it("works without a cookie banner", async () => {

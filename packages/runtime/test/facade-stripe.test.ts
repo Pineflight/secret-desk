@@ -35,7 +35,7 @@ function driverFor(site: Site): FakeDriver {
   let live = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['button "Reject all" (exact)', 'css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"'],
+    visible: ['button "Reject all" (exact)', 'css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"'],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
