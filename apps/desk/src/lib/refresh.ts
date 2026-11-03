@@ -18,3 +18,20 @@ export function refreshCounts(): void {
 export function refreshVersion(): number {
   return version;
 }
+
+/**
+ * Inventory changes made outside the portal (CLI, scripts, team sync). The shell polls a cheap version number and
+ * announces a change here; data hooks reload silently, so no page needs a manual browser reload.
+ */
+const inventoryListeners = new Set<Listener>();
+
+export function subscribeInventoryChange(fn: Listener): () => void {
+  inventoryListeners.add(fn);
+  return () => {
+    inventoryListeners.delete(fn);
+  };
+}
+
+export function notifyInventoryChange(): void {
+  for (const fn of [...inventoryListeners]) fn();
+}

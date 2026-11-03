@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "./api";
 import { translate } from "./i18n";
+import { subscribeInventoryChange } from "./refresh";
 
 export interface QueryState<T> {
   data: T | undefined;
@@ -50,6 +51,9 @@ export function useQuery<T>(key: string | null, fetcher: () => Promise<T>, opts:
       run.current++;
     };
   }, [load]);
+
+  // The inventory changed outside the portal: show the new state without a manual reload.
+  useEffect(() => (key === null ? undefined : subscribeInventoryChange(() => load(true))), [key, load]);
 
   const refreshMs = opts.refreshMs;
   useEffect(() => {
