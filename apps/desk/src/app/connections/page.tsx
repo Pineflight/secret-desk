@@ -15,7 +15,7 @@ import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/component
 import { daysLabel, formatDate } from "@/lib/format";
 import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
 import { createCheckQueue, type CheckPhase, type CheckQueue } from "@/lib/check-queue";
-import { outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome, type CheckResponse, type SignInStatus } from "@/lib/sign-in-check";
+import { checkPathOf, outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome, type CheckResponse, type SignInStatus } from "@/lib/sign-in-check";
 import { daysSince, expiryLevel, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
@@ -72,15 +72,23 @@ export default function ConnectionsPage() {
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, CheckOutcome>>>({});
   const [phases, setPhases] = useState<ReadonlyMap<string, CheckPhase>>(new Map());
   const queue = useRef<CheckQueue<void> | null>(null);
+  // The check route depends on the card (its guided sign-in or its recipe): the queue reads the latest cards and reloads the
+  // server's sign-in memory afterwards, so the badge follows the new answer.
+  const cardsRef = useRef<ProviderCard[] | null>(null);
+  const reloadAutomation = useRef<() => void>(() => undefined);
   if (queue.current === null) {
     queue.current = createCheckQueue<void>(async (id) => {
       let outcome: CheckOutcome;
       try {
-        outcome = outcomeOf(await api<CheckResponse>("POST", `facades/${enc(id)}/check`));
+        const card = cardsRef.current?.find((c) => c.id === id);
+        const path = card ? checkPathOf(card) : null;
+        if (!path) throw new Error("");
+        outcome = outcomeOf(await api<CheckResponse>("POST", path));
       } catch (e) {
         outcome = outcomeOfError(e);
       }
       setOutcomes((o) => ({ ...o, [id]: outcome }));
+      reloadAutomation.current();
     }, setPhases);
   }
   const signedIn = useMemo(() => signedInIds(outcomes), [outcomes]);
@@ -94,13 +102,28 @@ export default function ConnectionsPage() {
   const secrets = useQuery<SecretView[]>("overview-secrets", () => api<SecretView[]>("GET", "secrets"));
   const vars = useQuery<VariableView[]>("overview-variables", () => api<VariableView[]>("GET", "variables"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
+  reloadAutomation.current = auto.reload;
   const cards = useMemo(
     () =>
       vendors.data && conns.data
-        ? buildCards({ catalog: vendors.data, connections: conns.data, providers: provs.data ?? [], recipes: auto.data?.recipes ?? [], facades: facades.data ?? [], secrets: secrets.data ?? [], variables: vars.data ?? [], signedIn })
+        ? buildCards({
+            catalog: vendors.data,
+            connections: conns.data,
+            providers: provs.data ?? [],
+            recipes: auto.data?.recipes ?? [],
+            facades: facades.data ?? [],
+            secrets: secrets.data ?? [],
+            variables: vars.data ?? [],
+            signedIn,
+            automationEnabled: auto.data?.enabled ?? false,
+            signInChecks: auto.data?.signInChecks ?? [],
+            ...(auto.data ? { signInFreshHours: auto.data.signInFreshHours } : {}),
+            now: new Date(),
+          })
         : null,
     [vendors.data, conns.data, provs.data, auto.data, facades.data, secrets.data, vars.data, signedIn],
   );
+  cardsRef.current = cards;
   const used = (cards ?? []).filter(isInUse);
   const groups = cards && vendors.data ? groupByCategory(used, vendors.data.categories) : [];
   const reloadAll = () => { conns.reload(); facades.reload(); };
@@ -144,12 +167,12 @@ export default function ConnectionsPage() {
                   actions={
                     <>
                       {card.signIn.facade ? (
-                        <>
-                          <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
-                          <Button disabled={!card.signIn.facade.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
-                            {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
-                          </Button>
-                        </>
+                        <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
+                      ) : null}
+                      {card.signIn.facade || card.signIn.checkRecipe ? (
+                        <Button disabled={!card.signIn.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
+                          {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
+                        </Button>
                       ) : null}
                       {card.signIn.state === "facade" || card.signIn.state === "recipe" ? (
                         viewer ? <a className="inline-flex items-center rounded-xl border border-line bg-card px-3 py-1.5 text-sm font-medium hover:bg-page" href={viewer} target="_blank" rel="noopener noreferrer">{t("providers.card.openBrowser")}</a> : null

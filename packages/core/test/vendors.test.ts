@@ -15,6 +15,14 @@ describe("vendor catalog", () => {
       }
     }
   });
+  it("counts the OpenAI facade connection, provider and both recipes under the OpenAI card", () => {
+    const o = vendorById("openai")!;
+    expect(o).toMatchObject({ connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] });
+    expect(vendorOfConnection("openai")?.id).toBe("openai");
+    expect(vendorOfProvider("openai")?.id).toBe("openai");
+    expect(vendorOfProvider("openai-admin-key-browser")?.id).toBe("openai");
+    expect(vendorOfRecipe("openai-admin-key")?.id).toBe("openai");
+  });
   it("covers every category from the brief", () => {
     expect(new Set(VENDORS.map((v) => v.category))).toEqual(new Set(["code", "hosting", "database", "payments", "messaging", "observability", "ai", "data", "print"]));
   });

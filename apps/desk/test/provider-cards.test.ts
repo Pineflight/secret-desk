@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCards, cardMatches, connectedKeyCount, earliestExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
+import { browserNote, buildCards, cardMatches, connectedKeyCount, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
 
 const v = (id: string, label: string, category: string, rest: Partial<VendorInfo> = {}): VendorInfo => ({ id, label, category, icon: null, connections: [], connectionPrefixes: [], legacyConnections: [], optionalConnections: [], providers: [], recipes: [], signInPlanned: false, ...rest });
 const catalog: VendorsResponse = {
@@ -193,5 +193,107 @@ describe("earliestExpiry", () => {
   });
   it("reports an expired key as such", () => {
     expect(earliestExpiry(cardWith([conn("stripe:acct_1AbC:live", "stripe", "primary", true, -2)]))?.level).toBe("expired");
+  });
+});
+
+describe("card status for browser-only providers", () => {
+  const NOW = new Date("2026-11-03T12:00:00Z");
+  const ago = (minutes: number): string => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+  const cat: VendorsResponse = {
+    categories: ["data", "print", "ai", "other"],
+    vendors: [
+      v("dataapi", "Data API", "data", { recipes: ["dataapi-key"], providers: [] }),
+      v("printco", "Print Co", "print", { recipes: ["printco-readonly"] }),
+      v("aico", "AI Co", "ai", { connections: ["aico"], providers: ["aico"], recipes: ["aico-admin-key"] }),
+      v("nobrowser", "No Browser", "other", { providers: ["nb-manual"] }),
+    ],
+  };
+  const recipes = [
+    { id: "dataapi-key", label: "Data API Key", host: "dash.dataapi.test", canCheckSignIn: false },
+    { id: "printco-readonly", label: "Print Co", host: "app.printco.test", canCheckSignIn: true },
+    { id: "aico-admin-key", label: "AI Co admin", host: "platform.aico.test", canCheckSignIn: true },
+  ];
+  const base = (extra: Partial<CardInput> = {}): CardInput => ({ catalog: cat, connections: [], providers: [], recipes, facades: [], secrets: [], variables: [], now: NOW, signInFreshHours: 12, automationEnabled: true, ...extra });
+  const managed = (vendor: string, id: string, daysLeft: number | null, expires: string | null = null) => ({ vendor, browser: true, id, daysLeft, expires });
+  const one = (id: string, i: CardInput) => buildCards(i).find((c) => c.id === id)!;
+
+  it("is ready when the recipe host was seen signed in recently, with the age", () => {
+    const c = one("dataapi", base({ signInChecks: [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(180) }] }));
+    expect(c.status).toBe("ready");
+    expect(c.browser?.readiness).toMatchObject({ state: "ready", ageMinutes: 180 });
+    expect(isInUse(c)).toBe(true);
+  });
+  it("needs sign-in when the fresh answer is no", () => {
+    expect(one("printco", base({ signInChecks: [{ host: "app.printco.test", signedIn: false, checkedAt: ago(5) }] })).status).toBe("signout");
+  });
+  it("is unknown (not red, not 'not set up') when the answer is too old and the browser manages entries", () => {
+    const c = one("dataapi", base({ signInChecks: [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(13 * 60) }], secrets: [managed("dataapi", "k1", 40)] }));
+    expect(c.status).toBe("unknown");
+    expect(c.browser?.readiness).toMatchObject({ state: "unknown", stale: true });
+    expect(isInUse(c)).toBe(true);
+  });
+  it("is unknown when never checked but the browser manages entries", () => {
+    expect(one("dataapi", base({ secrets: [managed("dataapi", "k1", 40)] })).status).toBe("unknown");
+  });
+  it("is 'not set up' only without any usable sign-in answer and without managed entries", () => {
+    expect(one("dataapi", base()).status).toBe("none");
+    expect(one("dataapi", base({ signInChecks: [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(13 * 60) }] })).status).toBe("none");
+    expect(isInUse(one("dataapi", base()))).toBe(false);
+  });
+  it("is 'not set up' when browser automation is off, whatever was remembered", () => {
+    const c = one("dataapi", base({ automationEnabled: false, signInChecks: [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(1) }], secrets: [managed("dataapi", "k1", 40)] }));
+    expect(c.status).toBe("none");
+    expect(c.browser).toBeNull();
+  });
+  it("is 'not set up' when the recipe is not loaded", () => {
+    const c = one("dataapi", base({ recipes: [], signInChecks: [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(1) }] }));
+    expect(c.status).toBe("none");
+  });
+  it("a freshly checked host of another vendor does not count", () => {
+    expect(one("dataapi", base({ signInChecks: [{ host: "app.printco.test", signedIn: true, checkedAt: ago(1) }] })).status).toBe("none");
+  });
+  it("counts the entries the browser manages and shows the earliest expiry among them", () => {
+    const c = one("dataapi", base({ secrets: [managed("dataapi", "k1", 40, "2026-12-13"), managed("dataapi", "k2", 12, "2026-11-15"), managed("dataapi", "k3", null), { vendor: "dataapi", browser: false, id: "k4", daysLeft: 2 }, managed("printco", "k5", 1)] }));
+    expect(c.browser?.secrets).toBe(3);
+    expect(c.browser?.expiry).toMatchObject({ keyId: "k2", daysLeft: 12, level: "soon", expires: "2026-11-15" });
+    expect(managedExpiry(c)).toBe(c.browser!.expiry);
+    expect(one("dataapi", base({ secrets: [managed("dataapi", "k1", null)] })).browser?.expiry).toBeNull();
+  });
+  it("an API connection wins over the browser state and the card says it works without the browser", () => {
+    const c = one("aico", base({ connections: [conn("aico", "aico", "primary", true, 30)], facades: [{ id: "aico", label: "AI Co", available: true, connected: true, reason: null, connectionId: "aico" }], signInChecks: [{ host: "platform.aico.test", signedIn: false, checkedAt: ago(1) }] }));
+    expect(c.status).toBe("connected");
+    expect(c.worksWithoutBrowser).toBe(true);
+    expect(browserNote(c)).toEqual({ key: "providers.card.worksWithoutBrowser", age: null });
+    expect(managedExpiry(c)).toMatchObject({ keyId: "aico" });
+  });
+  it("a facade provider without a connection is judged by the browser like any other", () => {
+    const f: FacadeRow = { id: "aico", label: "AI Co", available: true, connected: false, reason: null, connectionId: "aico" };
+    const c = one("aico", base({ facades: [f], signInChecks: [{ host: "platform.aico.test", signedIn: true, checkedAt: ago(2) }] }));
+    expect(c.status).toBe("ready");
+    expect(c.worksWithoutBrowser).toBe(false);
+    expect(c.signIn.checkRecipe).toBeNull();
+  });
+  it("offers the recipe check only for a recipe with a guided sign-in and no facade", () => {
+    expect(one("dataapi", base()).signIn.checkRecipe).toBeNull();
+    expect(one("printco", base()).signIn.checkRecipe).toBe("printco-readonly");
+  });
+  it("describes the browser in one line: fresh yes, fresh no, old answer, never checked", () => {
+    const status = (checks: CardInput["signInChecks"], secrets = [managed("dataapi", "k", 40)]) => browserNote(one("dataapi", base({ signInChecks: checks ?? [], secrets })));
+    expect(status([{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(180) }])).toEqual({ key: "providers.card.browserReadyChecked", age: { unit: "hours", count: 3 } });
+    expect(status([{ host: "dash.dataapi.test", signedIn: false, checkedAt: ago(30) }])).toEqual({ key: "providers.card.browserSignedOutChecked", age: { unit: "minutes", count: 30 } });
+    expect(status([{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(14 * 60) }])).toEqual({ key: "providers.card.browserUnknownChecked", age: { unit: "hours", count: 14 } });
+    expect(status([])).toEqual({ key: "providers.card.browserUnknownNever", age: null });
+    expect(browserNote(one("nobrowser", base()))).toBeNull();
+  });
+  it("uses the configured age and the default of 12 hours", () => {
+    const checks = [{ host: "dash.dataapi.test", signedIn: true, checkedAt: ago(5 * 60) }];
+    expect(one("dataapi", base({ signInChecks: checks, signInFreshHours: 4 })).browser?.readiness.state).toBe("unknown");
+    expect(one("dataapi", base({ signInChecks: checks, signInFreshHours: 6 })).browser?.readiness.state).toBe("ready");
+    const noAge = base({ signInChecks: checks });
+    delete noAge.signInFreshHours;
+    expect(one("dataapi", noAge).browser?.readiness.state).toBe("ready");
+  });
+  it("a check from this page session still counts when the server remembers nothing", () => {
+    expect(one("dataapi", base({ signedIn: new Set(["dataapi"]) })).status).toBe("signin");
   });
 });

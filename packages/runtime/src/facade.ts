@@ -91,6 +91,18 @@ export const FACADES: readonly FacadeDescriptor[] = [
     ],
   },
   {
+    // The Admin API key is created once through the signed-in browser; project keys are issued with it from then on.
+    id: "openai",
+    label: "OpenAI",
+    recipeId: "openai-admin-key",
+    connectionId: "openai",
+    keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
+    keyParams: {},
+    project: null,
+    inputs: [],
+    summary: [{ key: "projects", kind: "openai.project" }],
+  },
+  {
     // One Stripe organization holds several accounts, each with a sandbox and a live mode. The human names the account and the
     // mode; the key is created in that account and stored as the connection of exactly that (account, mode).
     id: "stripe",
@@ -520,6 +532,8 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
       { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal: AbortSignal.any([signal, inner.signal]) },
     );
     value = result.value;
+    // The recipe ran inside the signed-in browser: remember the sign-in at this host.
+    rt.automation.noteSignIn(recipe.host, true);
   } catch (err) {
     if (sessionLost) {
       const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
@@ -624,7 +638,22 @@ export interface FacadeSessionCheck {
 export async function checkFacadeSession(rt: Runtime, actor: Actor, id: string, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
   requireHuman(actor, "Check the provider sign-in");
   const { recipe } = descriptorOf(rt, id);
-  const key = checkKey(id);
+  return checkRecipeHost(rt, checkKey(id), id, recipe, options);
+}
+
+/**
+ * Same check for a browser-only vendor: any loaded recipe with a guided sign-in (`login.form`) can be checked by its recipe id.
+ * The answer is remembered per recipe host, so the vendor card can show "Ready (browser)" for a while.
+ */
+export async function checkRecipeSession(rt: Runtime, actor: Actor, recipeId: string, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
+  requireHuman(actor, "Check the provider sign-in");
+  if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
+  const recipe = rt.automation.recipe(recipeId);
+  if (!recipe?.login?.form) throw new InventoryError(`The recipe ${recipeId} has no guided sign-in, so its browser session cannot be checked.`);
+  return checkRecipeHost(rt, `recipe-check:${recipeId}`, recipeId, recipe, options);
+}
+
+async function checkRecipeHost(rt: Runtime, key: string, id: string, recipe: Recipe, options: { timeoutSeconds?: number }): Promise<FacadeSessionCheck> {
   const checkedAt = (): string => new Date().toISOString();
   if (rt.automation.isBusy()) {
     const text = "A browser run is already in progress. Wait for it or cancel it first.";
@@ -635,6 +664,7 @@ export async function checkFacadeSession(rt: Runtime, actor: Actor, id: string, 
     const driver = await rt.automation.newDriver();
     const r = await checkSession(recipe, driver, { signal, timeoutSeconds: options.timeoutSeconds ?? 15 });
     rt.automation.end(key, { status: "done", text: r.signedIn ? "Signed in." : "Not signed in." });
+    rt.automation.noteSignIn(recipe.host, r.signedIn);
     return { signedIn: r.signedIn, checkedAt: checkedAt() };
   } catch (err) {
     const f = failureOf(err, [], signal.aborted);

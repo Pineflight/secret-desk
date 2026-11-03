@@ -13,8 +13,9 @@ describe("createDefaultRegistry", () => {
   it("all manual providers have a guide with URL", () => {
     const manual = list.filter((p) => p.kind === "manual");
     // Feste Ids muessen dabei sein; neue manuelle Anbieter duerfen dazukommen, ohne dass der Test bricht.
-    expect(manual.map((p) => p.id)).toEqual(expect.arrayContaining(["stripe-restricted-key", "supabase-access-token", "github-fine-grained-token", "telegram-bot", "openai"]));
-    expect(manual.length).toBeGreaterThanOrEqual(5);
+    expect(manual.map((p) => p.id)).toEqual(expect.arrayContaining(["stripe-restricted-key", "supabase-access-token", "github-fine-grained-token", "telegram-bot"]));
+    expect(manual.map((p) => p.id)).not.toContain("openai");
+    expect(manual.length).toBeGreaterThanOrEqual(4);
     for (const p of manual) {
       expect(p.guide?.url).toMatch(/^https:\/\//);
       expect(p.guide!.steps.length).toBeGreaterThanOrEqual(3);

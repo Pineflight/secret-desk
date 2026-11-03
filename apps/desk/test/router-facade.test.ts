@@ -133,6 +133,7 @@ describe("facade routes: access", () => {
       ["POST", "facades/revenuecat/connect", {}],
       ["POST", "facades/revenuecat/cancel"],
       ["POST", "facades/revenuecat/check"],
+      ["POST", "recipes/revenuecat-secret-api-key/check"],
     ] as [string, string, unknown?][]) {
       const res = await route(agent(deps, method, path, body), deps);
       expect(res.status, `${method} ${path}`).toBe(404);
@@ -158,14 +159,14 @@ describe("facade routes: flow", () => {
     const { call, bodies } = recorder(deps);
     const list = await call(ui(deps, "GET", "facades"));
     expect(list.status).toBe(200);
-    expect(list.body).toMatchObject([{ id: "revenuecat", available: true, connected: false }, { id: "stripe", available: true, connected: false }]);
+    expect(list.body).toMatchObject([{ id: "revenuecat", available: true, connected: false }, { id: "openai", available: true, connected: false }, { id: "stripe", available: true, connected: false }]);
     const start = await call(ui(deps, "POST", "facades/revenuecat/sign-in", { ...signIn }));
     expect(start.status).toBe(200);
     expect(start.body).toMatchObject({ status: "running", kind: "signin" });
     await until(async () => ["done", "failed"].includes((await call(ui(deps, "GET", "facades/revenuecat/state"))).body["status"]));
     const end = await call(ui(deps, "GET", "facades/revenuecat/state", undefined, { "x-secret-desk-lang": "en" }));
     expect(end.body).toMatchObject({ status: "done", phase: "connected", result: { connected: true, counts: { projects: 1, apps: 1 } } });
-    expect((await call(ui(deps, "GET", "facades"))).body).toMatchObject([{ connected: true }, { connected: false }]);
+    expect((await call(ui(deps, "GET", "facades"))).body).toMatchObject([{ id: "revenuecat", connected: true }, { id: "openai", connected: false }, { id: "stripe", connected: false }]);
     expectNoLeak("responses", bodies);
     expectNoLeak("logs", spies.flatMap((s) => s.mock.calls.map((c) => JSON.stringify(c))));
     spies.forEach((s) => s.mockRestore());
@@ -233,5 +234,23 @@ describe("facade routes: flow", () => {
     await call(ui(deps, "POST", "facades/revenuecat/cancel"));
     await until(async () => (await call(ui(deps, "GET", "facades/revenuecat/state"))).body["status"] === "cancelled");
     expectNoLeak("responses", bodies);
+  });
+});
+
+describe("recipe routes: check sign-in", () => {
+  it("lists what the server remembers about the browser sign-in and which recipes can be checked", async () => {
+    const { deps } = await setup("ok");
+    const { call } = recorder(deps);
+    const before = await call(ui(deps, "GET", "automation"));
+    expect(before.body["signInChecks"]).toEqual([]);
+    expect(before.body["signInFreshHours"]).toBe(12);
+    expect(before.body["recipes"].find((r: { id: string }) => r.id === "revenuecat-secret-api-key")).toMatchObject({ canCheckSignIn: true });
+    expect(before.body["recipes"].find((r: { id: string }) => r.id === "vesselapi-api-key")).toMatchObject({ canCheckSignIn: false });
+  });
+  it("answers 400 for a recipe without a guided sign-in and for an unknown one", async () => {
+    const { deps } = await setup("ok");
+    const { call } = recorder(deps);
+    expect((await call(ui(deps, "POST", "recipes/vesselapi-api-key/check"))).status).toBe(400);
+    expect((await call(ui(deps, "POST", "recipes/nope/check"))).status).toBe(400);
   });
 });

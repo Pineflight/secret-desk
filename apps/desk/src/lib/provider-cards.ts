@@ -1,4 +1,5 @@
 import { expiryLevel, type ExpiryLevel } from "./connection-health";
+import { ageParts, browserReadiness, newestCheck, DEFAULT_FRESH_HOURS, type AgeParts, type Readiness, type SignInCheckRow } from "./browser-ready";
 
 /**
  * One card per provider (vendor) on the Integrations page. The technical connections, provider definitions and browser recipes
@@ -45,6 +46,10 @@ export interface ProviderRow {
 export interface RecipeRow {
   id: string;
   label: string;
+  /** Host the recipe signs in at; the browser sign-in memory is kept per host. */
+  host?: string;
+  /** The recipe has a guided sign-in, so its browser session can be checked. */
+  canCheckSignIn?: boolean;
 }
 export interface FacadeRow {
   id: string;
@@ -56,6 +61,12 @@ export interface FacadeRow {
 }
 export interface SecretRow {
   vendor: string | null;
+  /** The entry's value is created by a browser recipe. */
+  browser?: boolean;
+  daysLeft?: number | null;
+  /** Day the entry expires (YYYY-MM-DD), null: never. */
+  expires?: string | null;
+  id?: string;
 }
 export interface VariableRow {
   from: { connection: string } | null;
@@ -82,9 +93,24 @@ export interface SignInWay {
   recipes: RecipeRow[];
   /** The recipes or the guided sign-in can run now (browser automation on and the recipe loaded). */
   available: boolean;
+  /** Without a guided sign-in: the recipe whose browser session can be checked instead, if any. */
+  checkRecipe?: string | null;
 }
 
-export type CardStatus = "connected" | "signin" | "none";
+/** What the browser contributes to a card whose keys come from recipes. */
+export interface BrowserWay {
+  readiness: Readiness;
+  /** Inventory entries of this provider whose values the browser creates. */
+  secrets: number;
+  /** The earliest expiry among those entries, like connected keys have. */
+  expiry: EarliestExpiry | null;
+}
+
+/**
+ * `connected`: an API connection exists. `ready`/`signout`/`unknown`: keys come from the browser and the last sign-in answer is
+ * fresh and yes / fresh and no / missing or too old. `signin`: a check in this page session said yes. `none`: nothing usable.
+ */
+export type CardStatus = "connected" | "ready" | "signout" | "unknown" | "signin" | "none";
 
 export interface ProviderCard {
   id: string;
@@ -99,6 +125,10 @@ export interface ProviderCard {
   keys: KeyRow[];
   /** Providers whose value only a human can create (no API, no recipe). */
   byHand: ProviderRow[];
+  /** Browser view of the card; null when the provider has no loaded recipe. */
+  browser: BrowserWay | null;
+  /** An API connection exists, so keys are issued without any browser sign-in. Only for providers with a guided sign-in. */
+  worksWithoutBrowser: boolean;
   secrets: number;
   variables: number;
 }
@@ -113,6 +143,14 @@ export interface CardInput {
   variables?: readonly VariableRow[];
   /** Vendors whose "check sign-in" answered yes in this session. */
   signedIn?: ReadonlySet<string>;
+  /** The server's memory of the last browser sign-in state per recipe host. */
+  signInChecks?: readonly SignInCheckRow[];
+  /** Hours a sign-in answer counts as current (`automation.signInFreshHours`). */
+  signInFreshHours?: number;
+  /** Time source; the caller passes one so the badge is testable. */
+  now?: Date;
+  /** Browser automation is on. Without it no recipe is usable. */
+  automationEnabled?: boolean;
 }
 
 const ROLE_ORDER: Record<ConnectionRole, number> = { primary: 0, optional: 1, legacy: 2 };
@@ -133,6 +171,12 @@ export function buildCards(input: CardInput): ProviderCard[] {
     const state: SignInState = facade ? "facade" : v.recipes.length > 0 ? "recipe" : v.signInPlanned ? "coming" : "none";
     // With a loaded recipe the manual definition is just the recipe's other face; only an unloaded recipe leaves it by hand.
     const covered = v.recipes.some((r) => loaded.has(r));
+    const usable = recipes.length > 0 && (input.automationEnabled ?? true);
+    const hosts = recipes.flatMap((r) => (r.host ? [r.host] : []));
+    const managed = (input.secrets ?? []).filter((s) => s.vendor === v.id && s.browser === true);
+    const browser: BrowserWay | null = usable
+      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), input.now ?? new Date(), input.signInFreshHours ?? DEFAULT_FRESH_HOURS), secrets: managed.length, expiry: earliestAmong(managed) }
+      : null;
     const byHand = input.providers.filter((p) => p.vendor === v.id && p.kind === "manual" && p.guide && !p.browser && !covered);
     cards.push({
       id: v.id,
@@ -140,10 +184,12 @@ export function buildCards(input: CardInput): ProviderCard[] {
       category: v.category,
       icon: v.icon,
       custom: false,
-      status: statusOf(keys, facade, input.signedIn?.has(v.id) ?? false),
-      signIn: { state, facade, recipes, available: facade ? facade.available : recipes.length > 0 },
+      status: statusOf(keys, facade, input.signedIn?.has(v.id) ?? false, browser),
+      signIn: { state, facade, recipes, available: facade ? facade.available : recipes.length > 0, checkRecipe: facade ? null : (recipes.find((r) => r.canCheckSignIn)?.id ?? null) },
       keys,
       byHand,
+      browser,
+      worksWithoutBrowser: state === "facade" && (keys.some((k) => k.connected) || facade?.connected === true),
       secrets: (input.secrets ?? []).filter((s) => s.vendor === v.id).length,
       variables: (input.variables ?? []).filter((x) => x.from && connVendor.get(x.from.connection) === v.id).length,
     });
@@ -163,9 +209,28 @@ export function buildCards(input: CardInput): ProviderCard[] {
   return cards.sort((a, b) => (order.get(a.category) ?? 99) - (order.get(b.category) ?? 99) || (a.custom ? 1 : 0) - (b.custom ? 1 : 0) || a.label.localeCompare(b.label));
 }
 
-function statusOf(keys: readonly KeyRow[], facade: FacadeRow | null, signedIn: boolean): CardStatus {
+function statusOf(keys: readonly KeyRow[], facade: FacadeRow | null, signedIn: boolean, browser: BrowserWay | null): CardStatus {
   if (keys.some((k) => k.connected) || facade?.connected) return "connected";
+  if (browser) {
+    if (browser.readiness.state === "ready") return "ready";
+    if (browser.readiness.state === "signed-out") return "signout";
+    // An old or missing answer is only worth a card when the browser creates values for it: otherwise it is not set up.
+    if (browser.secrets > 0) return "unknown";
+  }
   return signedIn ? "signin" : "none";
+}
+
+/** The entry that runs out first among the browser-managed ones (entries without a known end are skipped). */
+function earliestAmong(rows: readonly SecretRow[]): EarliestExpiry | null {
+  let best: EarliestExpiry | null = null;
+  for (const r of rows) {
+    const daysLeft = r.daysLeft;
+    if (daysLeft === null || daysLeft === undefined) continue;
+    const level = expiryLevel(daysLeft);
+    if (level === null) continue;
+    if (best === null || daysLeft < best.daysLeft) best = { keyId: r.id ?? "", expires: r.expires, daysLeft, level };
+  }
+  return best;
 }
 
 function customCard(id: string, label: string, keys: KeyRow[], byHand: ProviderRow[]): ProviderCard {
@@ -175,10 +240,12 @@ function customCard(id: string, label: string, keys: KeyRow[], byHand: ProviderR
     category: "other",
     icon: null,
     custom: true,
-    status: statusOf(keys, null, false),
+    status: statusOf(keys, null, false, null),
     signIn: { state: "none", facade: null, recipes: [], available: false },
     keys,
     byHand,
+    browser: null,
+    worksWithoutBrowser: false,
     secrets: 0,
     variables: 0,
   };
@@ -243,5 +310,32 @@ export function earliestExpiry(card: Pick<ProviderCard, "keys">): EarliestExpiry
   return best;
 }
 
+/**
+ * What the collapsed card says about expiry: the connected key that runs out first, else the earliest browser-managed entry.
+ * `null` when neither has a known end date.
+ */
+export const managedExpiry = (card: Pick<ProviderCard, "keys" | "browser">): EarliestExpiry | null => earliestExpiry(card) ?? (connectedKeyCount(card) === 0 ? (card.browser?.expiry ?? null) : null);
+
 /** How many connected keys the card has (what the collapsed card counts). */
 export const connectedKeyCount = (card: Pick<ProviderCard, "keys">): number => card.keys.filter((k) => k.connected).length;
+
+export interface BrowserNote {
+  /** Message key of the line under the card summary. */
+  key: string;
+  /** How long ago the sign-in was last seen; the caller turns it into words. Null when there is no answer. */
+  age: AgeParts | null;
+}
+
+/**
+ * The one line a collapsed card says about the browser. A card with an API connection says that it works without any browser
+ * sign-in; a card whose keys come from the browser says how fresh the last sign-in answer is. Null when the browser plays no part.
+ */
+export function browserNote(card: Pick<ProviderCard, "status" | "browser" | "worksWithoutBrowser">): BrowserNote | null {
+  if (card.worksWithoutBrowser) return { key: "providers.card.worksWithoutBrowser", age: null };
+  if (card.status === "connected" || !card.browser) return null;
+  const r = card.browser.readiness;
+  const age = r.ageMinutes === null ? null : ageParts(r.ageMinutes);
+  if (r.state === "ready") return { key: "providers.card.browserReadyChecked", age };
+  if (r.state === "signed-out") return { key: "providers.card.browserSignedOutChecked", age };
+  return { key: r.checkedAt === null ? "providers.card.browserUnknownNever" : "providers.card.browserUnknownChecked", age };
+}
