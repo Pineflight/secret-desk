@@ -106,7 +106,7 @@ export class PlaywrightDriver implements BrowserDriver {
   #loc(s: Selector): Locator {
     const p = this.#p;
     if (s.role !== undefined) return p.getByRole(s.role as Role, s.name !== undefined ? { name: s.name, ...(s.exact ? { exact: true } : {}) } : {});
-    if (s.label !== undefined) return p.getByLabel(s.label);
+    if (s.label !== undefined) return p.getByLabel(s.label, s.exact ? { exact: true } : {});
     if (s.text !== undefined) return p.getByText(s.text);
     if (s.placeholder !== undefined) return p.getByPlaceholder(s.placeholder);
     if (s.testid !== undefined) return p.getByTestId(s.testid);
@@ -165,6 +165,12 @@ export class PlaywrightDriver implements BrowserDriver {
     } catch {
       return (await loc.textContent()) ?? "";
     }
+  }
+
+  async readAttribute(sel: Selector, name: string): Promise<string> {
+    const value = await this.#loc(sel).first().getAttribute(name);
+    if (value === null) throw new Error(`Attribut nicht gefunden: ${describeSelector(sel)}@${name}`);
+    return value;
   }
 
   async screenshot(masks: Selector[]): Promise<Buffer> {

@@ -376,9 +376,11 @@ Every push to `main` publishes a new `:latest` image (see [release workflow](../
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
-Add this service to the same compose file. Two things to know:
+Add this service to the same compose file. Three things to know:
 
 - Access to the Docker socket is root-equivalent on the Pi. Run Watchtower only on a machine you control, and do not add other containers to the label filter that you do not trust.
 - A push to `main` reaches the Pi after about five minutes (the poll interval plus the build time of the workflow). A broken release therefore reaches the Pi too. If you want to decide yourself when to update, pin a tag such as `ghcr.io/pineflight/secret-desk:v0.1.0-12` and drop the Watchtower service.
+
+- **The browser sidecar is not updated on every merge.** Watchtower restarts any container whose `:latest` changed, and a restart of the sidecar cuts off a sign-in a human is typing in the browser window. The release workflow therefore builds and publishes `secret-desk-browser` only when `docker/browser` changed since the previous release tag (or no sidecar image exists yet); otherwise `ghcr.io/pineflight/secret-desk-browser:latest` is not touched at all, not even re-tagged, because an unchanged image with new annotations would still be a new digest. The sidecar's version tag (`:v0.1.0-12`) names the release in which it last changed. The portal image still updates on every merge; its restart does not touch the sidecar's profile or open sign-ins. To force a new sidecar, change a file in `docker/browser`.
 
 After an update the container restarts and prints the launch address again. The secret in it is new unless `SECRET_DESK_LAUNCH_SECRET_FILE` is set, in which case it stays the same.

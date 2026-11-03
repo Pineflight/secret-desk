@@ -13,6 +13,16 @@ import { VARIABLE_SOURCES } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Stripe pro Konto und Modus
+  ["Parameter \"account\" muss eine Konto-Id wie acct_1AbC sein", "Parameter \"account\" must be an account id like acct_1AbC"],
+  ["Eine Stage der Art shared hat keinen Stripe-Modus: den Parameter \"connection\" setzen", "A stage of kind shared has no Stripe mode: set the parameter \"connection\""],
+  ["Die Verbindung gehoert zu einem anderen Stripe-Konto", "The connection belongs to a different Stripe account"],
+  ["Mit \"Mit Anmeldung verbinden\" erzeugt das Portal den Schluessel selbst im Browserfenster.", "With \"Connect with sign-in\" the portal creates the key itself in the browser window."],
+  ["Alle Ressourcen auf \"None\" lassen und nur \"Webhook Endpoints, Event Destinations\" auf \"Write\" setzen.", "Leave all resources on \"None\" and set only \"Webhook Endpoints, Event Destinations\" to \"Write\"."],
+  ["Webhook Endpoints, Event Destinations: Write (schliesst Lesen ein)", "Webhook Endpoints, Event Destinations: Write (includes read)"],
+  ["optional und createsToken schliessen sich aus", "optional and createsToken exclude each other"],
+  ["timeoutSeconds gehoert nur zu optional: true", "timeoutSeconds belongs to optional: true only"],
+  ["exact gehoert nur zu role mit name oder zu label", "exact belongs to role with name, or to label"],
   // Vereinheitlichung (Namen, Anbieter, Quellen)
   ["Der Name ist nicht in GROSSBUCHSTABEN_MIT_UNTERSTRICH", "The name is not in UPPER_SNAKE_CASE"],
   ["Die Stage steht im Namen, sie kommt aus der GitHub-Environment", "The stage is part of the name; it comes from the GitHub environment"],
@@ -653,6 +663,23 @@ type PatternEntry = readonly [RegExp, string];
 
 /** Gruppen: Platzhalter `$1..$n`. Eingesetzte Werte werden rekursiv uebersetzt (Teilmeldungen). */
 const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
+  // Stripe pro Konto und Modus
+  [/^Die Verbindung (\S+) gehoert zum Stripe-Konto (\S+), der Eintrag verlangt (\S+)$/, "The connection $1 belongs to the Stripe account $2, but the entry requires $3"],
+  [/^Die Verbindung (\S+) gehoert zum Stripe-Konto (\S+)$/, "The connection $1 belongs to the Stripe account $2"],
+  [/^Stripe-Konto (\S+)$/, "Stripe account $1"],
+  [/^Das Stripe-Konto ist (\S+)$/, "The Stripe account is $1"],
+  [/^Das Konto des Schluessels liess sich nicht lesen \((.+)\)\. Zuordnung zum Konto (\S+) nicht geprueft\.$/, "The account of the key could not be read ($1). Assignment to the account $2 not checked."],
+  [/^Der Schluessel gehoert zum Konto (\S+), die Verbindung ist fuer (\S+) bestimmt\. Einen Schluessel des Kontos (\S+) verbinden\.$/, "The key belongs to the account $1, but the connection is meant for $2. Connect a key of the account $3."],
+  [/^Der Schluessel gehoert zum Konto (\S+) \((.+)\)\.$/, "The key belongs to the account $1 ($2)."],
+  [/^Der Schluessel gehoert zum Konto (\S+)\.$/, "The key belongs to the account $1."],
+  [/^Legt Webhook-Endpunkte im Live-Modus des Kontos (\S+) an und widerruft sie\. Wird von Eintraegen mit diesem Konto fuer Stages der Art live genutzt\.$/, "Creates webhook endpoints in live mode of the account $1 and revokes them. Used by entries with this account for stages of kind live."],
+  [/^Legt Webhook-Endpunkte in der Sandbox des Kontos (\S+) an und widerruft sie\. Wird von Eintraegen mit diesem Konto fuer Stages der Art test und dev genutzt\.$/, "Creates webhook endpoints in the sandbox of the account $1 and revokes them. Used by entries with this account for stages of kind test and dev."],
+  [/^Von Hand: im Dashboard des Kontos (\S+) \((.+)\) einen eingeschraenkten Schluessel erstellen\.$/, "By hand: create a restricted key in the dashboard of the account $1 ($2)."],
+  [/^Das Portal prueft beim Test, dass der Schluessel zum Konto (\S+) gehoert\.$/, "On the test the portal checks that the key belongs to the account $1."],
+  [/^Das ist ein Live-Schluessel \(rk_live_\)\. Die Verbindung (\S+) \(Sandbox\) braucht einen Sandbox-Schluessel \(rk_test_\)\.$/, "This is a live key (rk_live_). The connection $1 (sandbox) needs a sandbox key (rk_test_)."],
+  [/^Das ist ein Sandbox-Schluessel \(rk_test_\)\. Die Verbindung (\S+) \(Live\) braucht einen Live-Schluessel \(rk_live_\)\.$/, "This is a sandbox key (rk_test_). The connection $1 (live) needs a live key (rk_live_)."],
+  [/^Attribut nicht gefunden: (.+)$/, "Attribute not found: $1"],
+  [/^Unbekannte Variable (\S+)$/, "Unknown variable $1"],
   [/^Der Link oeffnet das Formular mit Name, Eigentuemer(.*), Ablauf \(90 Tage\) und Rechten schon eingetragen: kurz gegenpruefen\.$/s, "The link opens the form with name, owner$1, expiry (90 days) and rights already filled in: check them briefly."],
   [/^Unter Repository access "Only select repositories" waehlen und genau (.+) ankreuzen \(das kann GitHub nicht vorausfuellen\)\.$/s, "Under Repository access choose \"Only select repositories\" and tick exactly $1 (GitHub cannot prefill this)."],
   [/^Rechte: (.+)\.$/s, "Rights: $1."],

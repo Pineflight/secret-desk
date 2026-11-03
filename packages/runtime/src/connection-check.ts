@@ -2,12 +2,14 @@ import {
   GitHubError,
   InventoryError,
   NotConnectedError,
+  parseStripeConnectionId,
   placeToTarget,
   sealForGitHub,
   stageKind,
   type CheckStatus,
   type GitHubTarget,
   type Place,
+  writeConnectionLabel,
 } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
 import type { Runtime } from "./runtime.js";
@@ -172,10 +174,11 @@ async function checkSupabase(rt: Runtime, token: string): Promise<ConnectionChec
 
 async function checkStripe(rt: Runtime, id: string, token: string): Promise<ConnectionCheckItem[]> {
   const out: ConnectionCheckItem[] = [];
+  const bound = parseStripeConnectionId(id);
   const mode = /^[rs]k_(test|live)_/.exec(token)?.[1];
   if (mode) {
     out.push(item("mode", "Modus", "info", mode === "live" ? "Live" : "Sandbox"));
-    if ((id === "stripe-test" && mode === "live") || (id === "stripe-live" && mode === "test")) {
+    if ((id === "stripe-test" && mode === "live") || (id === "stripe-live" && mode === "test") || (bound?.mode === "sandbox" && mode === "live") || (bound?.mode === "live" && mode === "test")) {
       out.push(item("mode-match", "Modus passt zur Verbindung", "fail", mode === "live" ? "Ein Live-Schluessel gehoert nicht in die Sandbox-Verbindung." : "Ein Sandbox-Schluessel gehoert nicht in die Live-Verbindung."));
     }
   }
@@ -184,7 +187,26 @@ async function checkStripe(rt: Runtime, id: string, token: string): Promise<Conn
   else if (r.status === 401) out.push(item("token", "Schluessel gueltig", "fail", "Der Schluessel ist ungueltig oder widerrufen (HTTP 401). Neu verbinden."));
   else if (r.status === 403) out.push(item("token", "Schluessel gueltig", "info", "Der Schluessel hat kein Recht auf Balance (HTTP 403). Bei einem eingeschraenkten Schluessel ist das normal."));
   else out.push(item("token", "Schluessel gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
+  if (bound) out.push(await checkStripeAccount(rt, id, bound.account, token));
   return out;
+}
+
+/** A connection bound to an account must hold a key of that very account (the mistake: a key of another account of the organization). */
+async function checkStripeAccount(rt: Runtime, id: string, account: string, token: string): Promise<ConnectionCheckItem> {
+  const r = await get(rt, token, "https://api.stripe.com/v1/account");
+  const body = rec(r.json);
+  const have = typeof body["id"] === "string" ? body["id"] : undefined;
+  if (r.status !== 200 || !have) {
+    if (r.status === 401) return item("account", "Stripe-Konto", "fail", "Der Schluessel ist ungueltig oder widerrufen (HTTP 401). Neu verbinden.");
+    return item("account", "Stripe-Konto", "warn", `Das Konto des Schluessels liess sich nicht lesen (${httpFail(r.status)}). Zuordnung zum Konto ${account} nicht geprueft.`);
+  }
+  if (have !== account) return item("account", "Stripe-Konto", "fail", `Der Schluessel gehoert zum Konto ${have}, die Verbindung ist fuer ${account} bestimmt. Einen Schluessel des Kontos ${account} verbinden.`);
+  // The account name labels the connection in the portal. A name is no secret.
+  const profile = rec(body["business_profile"]);
+  const dashboard = rec(rec(body["settings"])["dashboard"]);
+  const name = [profile["name"], dashboard["display_name"]].find((v): v is string => typeof v === "string" && v.trim() !== "");
+  if (name) await writeConnectionLabel(rt.connections, id, name).catch(() => undefined);
+  return item("account", "Stripe-Konto", "pass", name ? `Der Schluessel gehoert zum Konto ${account} (${name}).` : `Der Schluessel gehoert zum Konto ${account}.`);
 }
 
 async function checkResend(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
@@ -363,7 +385,7 @@ const KNOWN = KNOWN_CONNECTIONS;
  * Liefert Befunde, nie einen Token-Wert.
  */
 export async function checkConnection(rt: Runtime, id: string, options: ConnectionCheckOptions = {}, now: Date = new Date()): Promise<ConnectionCheckResult> {
-  if (!KNOWN.has(id) && !rt.providers.list().some((p) => p.connection === id)) throw new InventoryError(`Unbekannte Verbindung: ${id}`);
+  if (!KNOWN.has(id) && !parseStripeConnectionId(id) && !rt.providers.list().some((p) => p.connection === id)) throw new InventoryError(`Unbekannte Verbindung: ${id}`);
   if (id === "grafana") {
     const st = await rt.connections.status(id);
     if (!st.connected) return { id, ok: false, checks: [item("connected", "Verbunden", "fail", "Nicht verbunden")] };
@@ -397,7 +419,7 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     if (id === "cloudflare" || id === "cloudflare-turnstile") return await checkCloudflare(rt, id, token, now);
     let checks: ConnectionCheckItem[];
     if (id === "supabase") checks = await checkSupabase(rt, token);
-    else if (id === "stripe" || id === "stripe-test" || id === "stripe-live") checks = await checkStripe(rt, id, token);
+    else if (id === "stripe" || id === "stripe-test" || id === "stripe-live" || parseStripeConnectionId(id)) checks = await checkStripe(rt, id, token);
     else if (id === "resend") checks = await checkResend(rt, token);
     else if (id === "revenuecat") checks = await checkRevenueCat(rt, token);
     else checks = [item("token", "Token", "info", "Fuer diese Verbindung gibt es keinen Test.")];

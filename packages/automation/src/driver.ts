@@ -28,6 +28,8 @@ export interface BrowserDriver {
   hasText(text: string): Promise<boolean>;
   /** Wert eines Eingabefelds oder Text eines Elements. Nur fuer capture. */
   readText(sel: Selector): Promise<string>;
+  /** Value of an attribute of the element (for example `aria-label`). Only for capture. Throws when the element or attribute is missing. */
+  readAttribute(sel: Selector, name: string): Promise<string>;
   /** PNG der Seite; die Bereiche in `masks` sind verdeckt. */
   screenshot(masks: Selector[]): Promise<Buffer>;
   /** Wartet, bis die Bedingung gilt. Wirft WaitTimeoutError oder WaitAbortedError. */

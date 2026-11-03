@@ -5,7 +5,7 @@ export const selectorShape = {
   role: z.string().min(1).optional(),
   /** Zugaenglicher Name, nur zusammen mit role. */
   name: z.string().min(1).optional(),
-  /** Only with role and name: the accessible name must match exactly (default: contains). */
+  /** Only with role and name, or with label: the accessible name or label must match exactly (default: contains). */
   exact: z.boolean().optional(),
   label: z.string().min(1).optional(),
   text: z.string().min(1).optional(),
@@ -33,7 +33,7 @@ export function selectorProblem(s: Selector): string | undefined {
   const used = PRIMARY.filter((k) => s[k] !== undefined);
   if (used.length !== 1) return "Genau eines von role, label, text, placeholder, testid oder css angeben";
   if (s.name !== undefined && s.role === undefined) return "name gehoert nur zu role";
-  if (s.exact !== undefined && s.name === undefined) return "exact gehoert nur zu role mit name";
+  if (s.exact !== undefined && s.name === undefined && s.label === undefined) return "exact gehoert nur zu role mit name oder zu label";
   return undefined;
 }
 
@@ -48,7 +48,7 @@ export const SelectorSchema = z
 /** Kurzbeschreibung fuer Fehlermeldungen und Protokolle. Enthaelt nur das Rezept, nie Seiteninhalt. */
 export function describeSelector(s: Selector): string {
   if (s.role !== undefined) return s.name !== undefined ? `${s.role} "${s.name}"${s.exact ? " (exact)" : ""}` : s.role;
-  if (s.label !== undefined) return `Feld "${s.label}"`;
+  if (s.label !== undefined) return `Feld "${s.label}"${s.exact ? " (exact)" : ""}`;
   if (s.text !== undefined) return `Text "${s.text}"`;
   if (s.placeholder !== undefined) return `Platzhalter "${s.placeholder}"`;
   if (s.testid !== undefined) return `testid ${s.testid}`;

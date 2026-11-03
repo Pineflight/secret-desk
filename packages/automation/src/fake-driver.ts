@@ -14,6 +14,8 @@ export interface FakeDriverOptions {
   visible?: string[];
   /** Text von Elementen fuer readText. */
   texts?: Record<string, string>;
+  /** Attributes of elements for readAttribute, keyed `<describeSelector>@<attribute>`. */
+  attributes?: Record<string, string>;
   pageText?: string[];
   /** Pro Aktion aufgerufen, darf den Zustand aendern oder werfen. */
   on?: (event: FakeEvent, driver: FakeDriver) => void | Promise<void>;
@@ -25,6 +27,7 @@ export class FakeDriver implements BrowserDriver {
   url: string;
   readonly visible: Set<string>;
   readonly texts: Map<string, string>;
+  readonly attributes: Map<string, string>;
   readonly pageText: Set<string>;
   readonly calls: string[] = [];
   readonly filled = new Map<string, string>();
@@ -38,6 +41,7 @@ export class FakeDriver implements BrowserDriver {
     this.url = opts.url ?? "about:blank";
     this.visible = new Set(opts.visible);
     this.texts = new Map(Object.entries(opts.texts ?? {}));
+    this.attributes = new Map(Object.entries(opts.attributes ?? {}));
     this.pageText = new Set(opts.pageText);
     this.#on = opts.on;
     this.#pollMs = opts.pollMs ?? 5;
@@ -93,6 +97,13 @@ export class FakeDriver implements BrowserDriver {
     const text = this.texts.get(key);
     if (text === undefined) throw new Error(`Element nicht gefunden: ${key}`);
     return text;
+  }
+
+  async readAttribute(sel: Selector, name: string): Promise<string> {
+    const key = `${describeSelector(sel)}@${name}`;
+    const value = this.attributes.get(key);
+    if (value === undefined) throw new Error(`Attribut nicht gefunden: ${key}`);
+    return value;
   }
 
   async screenshot(masks: Selector[]): Promise<Buffer> {

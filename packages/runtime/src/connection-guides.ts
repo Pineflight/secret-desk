@@ -1,3 +1,5 @@
+import { parseStripeConnectionId, type StripeAccountMode } from "@secret-desk/core";
+
 /** Beschreibung der Zugaenge, mit denen das Portal arbeitet: Wofuer, wo man ihn anlegt und was er koennen muss. Keine Werte. */
 export interface ConnectionGuide {
   label: string;
@@ -22,7 +24,30 @@ export function grafanaServiceAccountsUrl(baseUrl: string | undefined): string |
   }
 }
 
+/** Guide of a Stripe connection bound to one account and mode (`stripe:<acct_id>:<mode>`). */
+function stripeAccountGuide(account: string, mode: StripeAccountMode): ConnectionGuide {
+  const live = mode === "live";
+  const base = live ? `https://dashboard.stripe.com/${account}/apikeys` : `https://dashboard.stripe.com/${account}/test/apikeys`;
+  return {
+    label: `Stripe ${account} (${live ? "Live" : "Sandbox"})`,
+    description: live
+      ? `Legt Webhook-Endpunkte im Live-Modus des Kontos ${account} an und widerruft sie. Wird von Eintraegen mit diesem Konto fuer Stages der Art live genutzt.`
+      : `Legt Webhook-Endpunkte in der Sandbox des Kontos ${account} an und widerruft sie. Wird von Eintraegen mit diesem Konto fuer Stages der Art test und dev genutzt.`,
+    url: base,
+    steps: [
+      "Mit \"Mit Anmeldung verbinden\" erzeugt das Portal den Schluessel selbst im Browserfenster.",
+      `Von Hand: im Dashboard des Kontos ${account} (${live ? "Live" : "Sandbox"}) einen eingeschraenkten Schluessel erstellen.`,
+      "Alle Ressourcen auf \"None\" lassen und nur \"Webhook Endpoints, Event Destinations\" auf \"Write\" setzen.",
+      live ? "Der Schluessel beginnt mit rk_live_. Ein Sandbox-Schluessel (rk_test_) wird hier abgelehnt." : "Der Schluessel beginnt mit rk_test_. Ein Live-Schluessel (rk_live_) wird hier abgelehnt.",
+      `Das Portal prueft beim Test, dass der Schluessel zum Konto ${account} gehoert.`,
+    ],
+    permissions: ["Webhook Endpoints, Event Destinations: Write (schliesst Lesen ein)", "Optional Balance: Read (Funktionstest des Schluessels, ohne das Recht nur ein Hinweis)"],
+  };
+}
+
 export function connectionGuide(id: string, owner: string, options: { grafanaBaseUrl?: string; teamRepo?: string; teamRights?: string[] } = {}): ConnectionGuide | undefined {
+  const stripeAccount = parseStripeConnectionId(id);
+  if (stripeAccount) return stripeAccountGuide(stripeAccount.account, stripeAccount.mode);
   switch (id) {
     case "github": {
       const q = new URLSearchParams({
@@ -223,6 +248,9 @@ export function tokenPrefixProblem(id: string, token: string): string | undefine
   if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
   if (!mode) return undefined;
+  const account = parseStripeConnectionId(id);
+  if (account && account.mode === "sandbox" && mode === "live") return `Das ist ein Live-Schluessel (rk_live_). Die Verbindung ${account.account} (Sandbox) braucht einen Sandbox-Schluessel (rk_test_).`;
+  if (account && account.mode === "live" && mode === "test") return `Das ist ein Sandbox-Schluessel (rk_test_). Die Verbindung ${account.account} (Live) braucht einen Live-Schluessel (rk_live_).`;
   if (id === "stripe-test" && mode === "live") return "Das ist ein Live-Schluessel (rk_live_). Die Verbindung Stripe (Sandbox) braucht einen Sandbox-Schluessel (rk_test_). Fuer Live die Verbindung Stripe (Live) verwenden.";
   if (id === "stripe-live" && mode === "test") return "Das ist ein Sandbox-Schluessel (rk_test_). Die Verbindung Stripe (Live) braucht einen Live-Schluessel (rk_live_). Fuer die Sandbox die Verbindung Stripe (Sandbox) verwenden.";
   return undefined;

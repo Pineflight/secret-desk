@@ -72,7 +72,7 @@ The overview page shows which integrations are connected, what hangs on them and
 | Local | random hex, base64 and UUID values | n/a | n/a |
 | Cloudflare | API tokens, Turnstile secrets | account id, zone id, Turnstile site key | n/a |
 | Supabase | API keys, service role key (read) | project ref, URL, publishable key | access tokens (scaffold) |
-| Stripe | webhook signing secrets (sandbox and live) | n/a | restricted keys (scaffold) |
+| Stripe | webhook signing secrets (sandbox and live, per account) | n/a | restricted keys (per account and mode) |
 | Resend | domain-limited sending keys | domain id | n/a |
 | Grafana | service account tokens | n/a | n/a |
 | GitHub | n/a (it is where values are written) | n/a | fine-grained tokens (scaffold) |

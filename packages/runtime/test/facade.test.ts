@@ -148,7 +148,7 @@ function expectClean(label: string, text: string): void {
 describe("facade: list", () => {
   it("offers RevenueCat with its verification status and the browser viewer", async () => {
     const { rt } = await setup();
-    const list = await listFacades(rt, human);
+    const list = (await listFacades(rt, human)).filter((f) => f.id === "revenuecat");
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: "revenuecat", available: true, reason: null, connected: false, needsProject: true, host: "app.revenuecat.com", connectionId: "revenuecat" });
     expect(list[0]!.recipeStatus).toMatch(/nicht geprueft/);

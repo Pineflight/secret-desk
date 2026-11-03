@@ -189,6 +189,20 @@ export class ConnectionStore {
     }
   }
 
+  /** Ids of all connections that hold a value (session or vault) or are configured, starting with `prefix`. Internal entries are left out. */
+  async ids(prefix = ""): Promise<string[]> {
+    const out = new Set<string>(this.session.ids());
+    for (const id of Object.keys(this.#specs)) out.add(id);
+    if (this.vault) {
+      try {
+        for (const i of await this.vault.list()) out.add(i.id);
+      } catch {
+        // An unreadable vault lists nothing; the status of single ids still reports the problem.
+      }
+    }
+    return [...out].filter((id) => id.startsWith(prefix) && !id.endsWith("#label")).sort();
+  }
+
   async statuses(ids: string[]): Promise<ConnectionStatus[]> {
     return Promise.all(ids.map((id) => this.status(id)));
   }

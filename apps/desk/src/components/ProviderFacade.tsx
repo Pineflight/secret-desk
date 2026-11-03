@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { CheckList } from "@/components/ConnectionCheck";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, Notice, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, Notice, SelectField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { clock, codeValid, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { clock, codeValid, countsText, elapsedSeconds, failureText, inputsBody, inputsValid, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
 
@@ -68,13 +68,14 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [project, setProject] = useState("");
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [code, setCode] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const notified = useRef(false);
   const base = `facades/${enc(facade.id)}`;
 
-  const signIn = useMutation(async (body: { username: string; password: string; projectId?: string }) => api<FacadeState>("POST", `${base}/sign-in`, body));
-  const connect = useMutation(async (projectId: string) => api<FacadeState>("POST", `${base}/connect`, { projectId }));
+  const signIn = useMutation(async (body: { username: string; password: string; projectId?: string; inputs?: Record<string, string> }) => api<FacadeState>("POST", `${base}/sign-in`, body));
+  const connect = useMutation(async (projectId: string) => api<FacadeState>("POST", `${base}/connect`, { projectId, inputs: inputsBody(facade.inputs, inputValues) }));
   const sendCode = useMutation(async (c: string) => api<FacadeState>("POST", `${base}/code`, { code: c }));
   const cancel = useMutation(async () => api<FacadeState>("POST", `${base}/cancel`));
 
@@ -120,9 +121,9 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
 
   const now = useNow(started && !isFinished(state));
   const submit = useCallback(async () => {
-    if (!signInValid(email, password)) return;
+    if (!signInValid(email, password) || !inputsValid(facade.inputs, inputValues)) return;
     // Copy, then clear: the form never keeps the password after sending.
-    const body = { username: email.trim(), password, ...(project.trim() ? { projectId: project.trim() } : {}) };
+    const body = { username: email.trim(), password, ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}) };
     setEmail("");
     setPassword("");
     notified.current = false;
@@ -133,7 +134,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
       setStarted(true);
       setCancelling(false);
     }
-  }, [email, password, project, signIn]);
+  }, [email, password, project, inputValues, facade.inputs, signIn]);
 
   const run = state && started ? state : null;
   const running = isRunning(run);
@@ -161,9 +162,9 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
           <p className="text-xs">{t("facade.resultKey", { name: r.keyName, where })}</p>
         </Notice>
         <Stepper state={run} />
-        {r.check ? <CheckList result={{ ...r.check, id: facade.connectionId }} /> : null}
+        {r.check ? <CheckList result={{ ...r.check, id: r.connectionId ?? facade.connectionId }} /> : null}
         <p className="text-muted">{t("facade.resultNext")}</p>
-        <ConnectionResourcesPanel id={facade.connectionId} />
+        {facade.inputs.length === 0 ? <ConnectionResourcesPanel id={facade.connectionId} /> : null}
         <div className="flex justify-end"><Button variant="primary" onClick={onDone}>{t("facade.done")}</Button></div>
       </div>
     );
@@ -266,7 +267,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
         <ul className="mt-1 list-disc space-y-1 pl-4">
           <li>{t("facade.promiseTyped", { host: facade.host ?? facade.label })}</li>
           <li>{t("facade.promiseNever")}</li>
-          <li>{t("facade.promiseKey")}</li>
+          <li>{t(facade.inputs.length > 0 ? "facade.promiseKeyScoped" : "facade.promiseKey")}</li>
         </ul>
       </div>
       {!facade.available ? <Notice tone="warn">{t("facade.unavailable", { reason: facade.reason ?? "" })}</Notice> : null}
@@ -278,6 +279,21 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
           void submit();
         }}
       >
+        {facade.inputs.map((i) => {
+          const label = locale === "en" ? i.labelEn : i.label;
+          const value = inputValues[i.param] ?? "";
+          const set = (v: string) => setInputValues((o) => ({ ...o, [i.param]: v }));
+          return i.options ? (
+            <SelectField key={i.param} label={label} value={value} onChange={(e) => set(e.target.value)} required>
+              <option value="">{t("facade.chooseOption")}</option>
+              {i.options.map((o) => (
+                <option key={o} value={o}>{t(`facade.option.${i.param}.${o}`) === `facade.option.${i.param}.${o}` ? o : t(`facade.option.${i.param}.${o}`)}</option>
+              ))}
+            </SelectField>
+          ) : (
+            <TextField key={i.param} label={label} {...(i.help ? { hint: i.help } : {})} value={value} onChange={(e) => set(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
+          );
+        })}
         <TextField label={t("facade.email", { name: facade.label })} type="email" name="facade-email" autoComplete="off" spellCheck={false} data-autofocus data-1p-ignore data-lpignore="true" value={email} onChange={(e) => setEmail(e.target.value)} />
         <TextField label={t("facade.password", { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
         {facade.needsProject ? (
@@ -289,7 +305,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
           </details>
         ) : null}
         {err ? <Notice tone="danger">{err.message}</Notice> : null}
-        <Button type="submit" variant="primary" loading={signIn.pending} disabled={!facade.available || !signInValid(email, password)}>
+        <Button type="submit" variant="primary" loading={signIn.pending} disabled={!facade.available || !signInValid(email, password) || !inputsValid(facade.inputs, inputValues)}>
           {signIn.pending ? t("facade.starting") : t("facade.start")}
         </Button>
       </form>

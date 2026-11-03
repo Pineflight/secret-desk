@@ -1,27 +1,138 @@
-# STATUS: nicht gegen die echte Seite geprueft
-# unverified: Geruest. Stripe legt Restricted Keys mit Rechtematrix an; die Rechte je Ressource sind hier
-# noch nicht abgebildet und muessen je Schluessel (params) ergaenzt werden, bevor das Rezept nutzbar ist.
-# Der Live-Modus braucht zusaetzlich eine Passwortbestaetigung im Fenster.
+# STATUS: sandbox wizard, result view and key expiry checked live on 2026-11-03 in a sandbox with a throwaway key (expired afterwards); the full recipe run, the sign-in form and the live mode are not verified
+# Creates a Stripe restricted key for one account and mode (Stripe has no API that creates keys). The key is shown once in the
+# "Your new secret key" view: the page prints it truncated, the full value sits in the attributes `aria-label` and `data-text`
+# of that element (there is no input), so the token is captured from `data-text`.
+#
+# The wizard (checked in the sandbox on 2026-11-03):
+#   1. "Choose how you'll use this key": cards "Building your own integration" (preselected), ...; button "Continue".
+#   2. "Assign permissions to your key": cards "Start with a template", "Custom permissions", "Full access—except sensitive
+#      operations", "Full access"; button "Continue".
+#   3. (Custom only) "Select permissions": search field, a row per resource with the radios None / Read / Write.
+#   4. "Name and review your key": field "Name", button "Create key".
+#
+# Pages render only in a foreground tab (the driver brings the tab to the front) and the dashboard can take 20 s or more to
+# load, so every step waits for an element, never for a fixed time. A cookie banner ("Accept all" / "Reject all") overlaps the
+# bottom right and intercepts clicks: it is rejected first (never accepted); that step is optional because the banner is
+# shown only once per browser profile.
+#
+# Not verified: the live mode. The live dashboard may show a different key list ("Restricted keys" / "Standard keys" with
+# "Create restricted key") and may ask to confirm the password; the pause step below waits for the human in that case. The
+# live address is assumed to use the same wizard as the sandbox.
 id: stripe-restricted-key
 label: Stripe Restricted Key
 host: dashboard.stripe.com
+params:
+  - key: account
+    label: Stripe-Konto
+    labelEn: Stripe account
+    pattern: "^acct_[A-Za-z0-9]+$"
+    help: "Account id of the Stripe account, for example acct_1AbC. It is part of the dashboard address."
+  # A recipe has no stage, so the mode is a parameter. The connection facade passes the mode of the connection.
+  - key: mode
+    label: Modus
+    labelEn: Mode
+    options: ["sandbox", "live"]
+    help: "sandbox: the sandbox of the account (test keys, rk_test_). live: live mode (rk_live_)."
+  - key: preset
+    label: Rechte
+    labelEn: Permissions
+    options: ["webhooks", "full-except-sensitive"]
+    default: webhooks
+    help: "webhooks: only Webhook Endpoints, Event Destinations with Write. full-except-sensitive: Stripe's full access without sensitive operations."
 login:
-  expect: { url: "^https://dashboard\\.stripe\\.com/(test/)?apikeys" }
-  message: Bei Stripe anmelden und den richtigen Modus (Test/Live) waehlen.
+  # Signed in = a dashboard page of an account. Signed out, the dashboard redirects to /login.
+  expect: { url: "^https://dashboard\\.stripe\\.com/acct_[A-Za-z0-9]+/" }
+  message: Bei Stripe anmelden (Passwort, 2FA).
+  # Guided sign-in (the portal types the email and password the human entered for this run).
+  # STATUS: not verified at all: no step of this form was checked against the real sign-in page. The selectors are generic.
+  form:
+    start: "https://dashboard.stripe.com/login"
+    home: "https://dashboard.stripe.com/"
+    steps:
+      - waitFor: { visible: { css: 'input[type="email"]' }, timeoutSeconds: 30 }
+      - fill: { css: 'input[type="email"]', value: "{{login.username}}" }
+      - waitFor: { visible: { css: 'input[type="password"]' }, timeoutSeconds: 20 }
+      - fill: { css: 'input[type="password"]', value: "{{login.password}}" }
+      - click: { css: 'button[type="submit"]' }
+    # not verified: selectors of the one-time code step.
+    mfa:
+      detect: { visible: { css: 'input[autocomplete="one-time-code"]' } }
+      field: { css: 'input[autocomplete="one-time-code"]' }
+      submit: { css: 'button[type="submit"]' }
+    # not verified: a challenge the human has to solve in the browser window.
+    captcha:
+      detect: { visible: { css: 'iframe[src*="hcaptcha.com/captcha"], iframe[title*="reCAPTCHA challenge"], iframe[src*="challenges.cloudflare.com"]' } }
+      message: Stripe zeigt eine Sicherheitspruefung (CAPTCHA). Bitte im Browserfenster loesen.
+      messageEn: Stripe shows a security check (CAPTCHA). Solve it in the browser window.
+    # not verified: error texts.
+    failure:
+      - detect: { text: "Your email or password is incorrect" }
+        message: Stripe hat E-Mail oder Passwort abgelehnt.
+        messageEn: Stripe rejected the email or password.
 steps:
-  - goto: "https://dashboard.stripe.com/apikeys"
-  - click: { role: button, name: "Create restricted key" }
-  - fill: { label: "Key name", value: "{{name}}" }
+  # Sandbox and live use different addresses; `when` picks the right one.
+  - goto: "https://dashboard.stripe.com/{{account}}/test/apikeys/create"
+    when: { var: mode, equals: sandbox }
+  - goto: "https://dashboard.stripe.com/{{account}}/apikeys/create"
+    when: { var: mode, equals: live }
+  # (Only the start of the heading: the apostrophe of "you'll" may be a typographic one.)
+  - waitFor: { text: "Choose how you", timeoutSeconds: 90 }
+  - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
+  # Step 1: "Building your own integration" is preselected.
+  - click: { role: button, name: "Continue", exact: true }
+  - waitFor: { text: "Assign permissions to your key", timeoutSeconds: 60 }
+  - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 2 }
+  # Step 2: the permission template.
+  - click: { text: "Custom permissions" }
+    when: { var: preset, equals: webhooks }
+  - click: { text: "Full access—except sensitive operations" }
+    when: { var: preset, equals: full-except-sensitive }
+  - click: { role: button, name: "Continue", exact: true }
+  # Step 3 (custom permissions only): narrow the list with the search field, then set the one resource to Write.
+  - waitFor: { text: "Select permissions", timeoutSeconds: 60 }
+    when: { var: preset, equals: webhooks }
+  - fill: { css: 'input[type="search"]', value: "Webhook Endpoints" }
+    when: { var: preset, equals: webhooks }
+  - waitFor: { text: "Webhook Endpoints, Event Destinations", timeoutSeconds: 30 }
+    when: { var: preset, equals: webhooks }
+  # The filter leaves one resource, so the radio is unique; a second match makes the run stop before a key exists.
+  - click: { role: radio, name: "Write" }
+    when: { var: preset, equals: webhooks }
+  - click: { role: button, name: "Continue", exact: true }
+    when: { var: preset, equals: webhooks }
+  # Step 4: name and review.
+  - waitFor: { text: "Name and review your key", timeoutSeconds: 60 }
+  # The page search box above is also a text input: the label must match exactly.
+  - fill: { label: "Name", exact: true, value: "{{name}}" }
+  # The live mode may ask to confirm the password before the key is created.
   - pause:
-      human: Rechte fuer den Schluessel in der Rechtematrix setzen (noch nicht automatisiert), dann im Fenster "Create key" waehlen.
-      until: { text: "Reveal" }
+      human: Stripe verlangt eine Passwortbestaetigung. Im Browserfenster das Passwort bestaetigen, dann geht es hier weiter.
+      until: { hidden: { css: 'input[type="password"]' } }
+    when: { var: mode, equals: live }
   - screenshot: rechte-vorher
-  - click: { role: button, name: "Reveal live key", createsToken: true }
+  - click: { role: button, name: "Create key", createsToken: true }
+  - waitFor: { text: "Your new secret key", timeoutSeconds: 60 }
 capture:
   token:
-    find: { css: "[data-testid=revealed-key]" }
+    # The page shows the key truncated; the whole key is in `data-text` (and `aria-label`).
+    find: { css: '[data-text^="rk_"]' }
+    attribute: data-text
     pattern: "^(rk_(test|live)_[A-Za-z0-9]+)$"
   externalId: { from: name }
 mask:
-  - { css: "[data-testid=revealed-key]" }
-# revoke: nicht automatisiert.
+  - { css: '[data-text^="rk_"]' }
+revoke:
+  # Checked in the sandbox on 2026-11-03: row menu -> "Expire key" -> dialog "Expire API key" -> "Expire" -> row gone.
+  steps:
+    - goto: "https://dashboard.stripe.com/{{account}}/test/apikeys"
+      when: { var: mode, equals: sandbox }
+    - goto: "https://dashboard.stripe.com/{{account}}/apikeys"
+      when: { var: mode, equals: live }
+    - waitFor: { visible: { css: 'tr:has-text("{{externalId}}")' }, timeoutSeconds: 90 }
+    - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
+    # The last menu button of the row belongs to the key.
+    - click: { css: 'tr:has-text("{{externalId}}") a[role=button][aria-haspopup=true] >> nth=-1' }
+    - click: { role: menuitem, name: "Expire key" }
+    - waitFor: { text: "Expire API key", timeoutSeconds: 15 }
+    - click: { role: button, name: "Expire", exact: true }
+    - waitFor: { hidden: { css: 'tr:has-text("{{externalId}}")' }, timeoutSeconds: 30 }

@@ -1,8 +1,14 @@
 name: Release
 
-# Bei jedem Lauf auf main: pruefen, je Plattform nativ zwei Images bauen (amd64 und arm64: das Portal und der
-# Browser-Sidecar docker/browser), daraus je ein Multi-Arch-Manifest nach ghcr.io legen und ein GitHub-Release anlegen.
-# Tag und Image-Version: <package.json>-<Laufnummer> (beide Images gleich).
+# On every run on main: verify, build the portal image natively per platform (amd64 and arm64), put a multi-arch manifest
+# on ghcr.io and create a GitHub release. Tag and image version: <package.json version>-<run number>.
+#
+# The browser sidecar (docker/browser) is built and published only when docker/browser changed since the previous release
+# tag (or no sidecar image exists yet). Reason: Watchtower restarts every container whose :latest changes. If the sidecar were
+# republished on every merge, each merge would cut off a sign-in a human is typing in the browser window. Even unchanged
+# content with new annotations is a new digest, so the sidecar's :latest stays completely untouched while its content is the
+# same. The sidecar tag <version>-<run number> names the release in which the sidecar last changed.
+
 on:
   push:
     branches: [main]
@@ -33,17 +39,51 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      browser_changed: ${{ steps.browser.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The release tags and the history are needed to compare with the previous release.
+          fetch-depth: 0
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Version bestimmen
         id: version
         run: |
           base=$(node -p "require('./package.json').version")
           echo "tag=v${base}-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+      - name: Browser sidecar changed?
+        id: browser
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-browser"
+          # Previous release: the newest v* tag reachable from the parent commit. A failed release does not move it, so the
+          # comparison then covers several commits (conservative).
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          reason=""
+          if [ -z "$prev" ]; then
+            reason="there is no previous release tag yet"
+          elif ! git diff --quiet "$prev" HEAD -- docker/browser; then
+            reason="docker/browser changed since ${prev}"
+          elif ! docker buildx imagetools inspect "${image}:latest" > /dev/null 2>&1; then
+            reason="${image}:latest does not exist yet"
+          fi
+          if [ -n "$reason" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Building the browser sidecar: ${reason}"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Browser sidecar unchanged (docker/browser is the same as at ${prev}): no build, :latest stays"
+          fi
 
   build:
     needs: version
@@ -105,6 +145,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        if: needs.version.outputs.browser_changed == 'true'
         id: meta_browser
         with:
           images: ghcr.io/${{ github.repository }}-browser
@@ -123,6 +164,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: needs.version.outputs.browser_changed == 'true'
         with:
           context: docker/browser
           platforms: ${{ matrix.platform }}
@@ -143,6 +185,7 @@ jobs:
       packages: write
     env:
       TAG: ${{ needs.version.outputs.tag }}
+      BROWSER_CHANGED: ${{ needs.version.outputs.browser_changed }}
       # Annotationen am Index (docker buildx imagetools create unterstuetzt dort den Praefix "index:").
       DOCKER_METADATA_ANNOTATIONS_LEVELS: index
     steps:
@@ -175,6 +218,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        if: needs.version.outputs.browser_changed == 'true'
         id: meta_browser
         with:
           images: ghcr.io/${{ github.repository }}-browser
@@ -203,6 +247,7 @@ jobs:
           while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$METADATA")
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${TAG}-amd64" "${IMAGE}:${TAG}-arm64"
       - name: Multi-Arch-Manifest des Browser-Sidecars anlegen
+        if: needs.version.outputs.browser_changed == 'true'
         env:
           METADATA: ${{ steps.meta_browser.outputs.json }}
         run: |
@@ -212,7 +257,9 @@ jobs:
           docker buildx imagetools create "${args[@]}" "${IMAGE}-browser:${TAG}-amd64" "${IMAGE}-browser:${TAG}-arm64"
       - name: Plattformen im Manifest pruefen
         run: |
-          for ref in "${IMAGE}:${TAG}" "${IMAGE}:latest" "${IMAGE}-browser:${TAG}" "${IMAGE}-browser:latest"; do
+          refs=("${IMAGE}:${TAG}" "${IMAGE}:latest")
+          if [ "$BROWSER_CHANGED" = "true" ]; then refs+=("${IMAGE}-browser:${TAG}" "${IMAGE}-browser:latest"); fi
+          for ref in "${refs[@]}"; do
             manifest=$(docker buildx imagetools inspect "$ref")
             echo "$manifest"
             for platform in linux/amd64 linux/arm64; do
@@ -223,5 +270,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
-            --notes "License: MIT. Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\` and the browser sidecar \`docker pull ${IMAGE}-browser:${TAG}\`"
+          notes="License: MIT. Docker (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${TAG}\`."
+          if [ "$BROWSER_CHANGED" = "true" ]; then
+            notes="${notes} The browser sidecar changed in this release: \`docker pull ${IMAGE}-browser:${TAG}\`."
+          else
+            notes="${notes} The browser sidecar is unchanged (\`docker pull ${IMAGE}-browser:latest\`)."
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes --notes "$notes"

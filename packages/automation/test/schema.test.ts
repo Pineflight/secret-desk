@@ -133,3 +133,36 @@ describe("hostAllowed", () => {
     expect(hostAllowed("a.githubusercontent.com", r)).toBe(true);
   });
 });
+
+describe("when, optional and attribute", () => {
+  const doc = (steps: unknown[], extra: Record<string, unknown> = {}, token: Record<string, unknown> = {}) => ({
+    id: "t",
+    label: "T",
+    host: "example.test",
+    params: [{ key: "mode", label: "Modus", options: ["a", "b"] }],
+    steps: [...steps, { click: { role: "button", name: "Go", createsToken: true } }],
+    capture: { token: { find: { css: "#t" }, ...token } },
+    ...extra,
+  });
+  it("accepts when on every step kind and knows its variable", () => {
+    const when = { var: "mode", equals: "a" };
+    const steps = [{ goto: "https://example.test/x", when }, { fill: { label: "N", value: "v" }, when }, { waitFor: { text: "x" }, when }, { pause: { human: "h", until: { text: "x" } }, when }, { screenshot: "s", when }];
+    expect(() => RecipeSchema.parse(doc(steps))).not.toThrow();
+  });
+  it("rejects an unknown when variable", () => {
+    expect(() => RecipeSchema.parse(doc([{ goto: "https://example.test/x", when: { var: "nope", equals: "a" } }]))).toThrow(/Unbekannte Variable nope/);
+  });
+  it("optional click excludes createsToken and needs optional for a timeout", () => {
+    expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", optional: true, timeoutSeconds: 4 } }]))).not.toThrow();
+    expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", optional: true, createsToken: true } }]))).toThrow(/schliessen sich aus/);
+    expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", timeoutSeconds: 4 } }]))).toThrow(/nur zu optional/);
+  });
+  it("token attribute must look like an attribute name", () => {
+    expect(() => RecipeSchema.parse(doc([], {}, { attribute: "data-text" }))).not.toThrow();
+    expect(() => RecipeSchema.parse(doc([], {}, { attribute: "x y" }))).toThrow();
+  });
+  it("exact belongs to a label too", () => {
+    expect(() => RecipeSchema.parse(doc([{ fill: { label: "Name", exact: true, value: "v" } }]))).not.toThrow();
+    expect(() => RecipeSchema.parse(doc([{ fill: { css: "#x", exact: true, value: "v" } }]))).toThrow();
+  });
+});
