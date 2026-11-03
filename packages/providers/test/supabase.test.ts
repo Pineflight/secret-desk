@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { supabaseKeyName, supabaseProviders } from "../src/supabase.js";
 import { ProviderError } from "../src/http.js";
-import { CONN_TOKEN, ISSUED, LEAK, issueCtx, mockFetch, revokeCtx } from "./helpers.js";
+import { CONN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, secretEntry, verifyCtx } from "./helpers.js";
 
 const apiKey = supabaseProviders.find((p) => p.id === "supabase-api-key")!;
 const serviceRole = supabaseProviders.find((p) => p.id === "supabase-service-role")!;
@@ -56,6 +56,86 @@ describe("supabase-service-role", () => {
     const m = mockFetch({ status: 403, body: CONN_TOKEN });
     const err = await serviceRole.issue!(issueCtx(m.fetch, { projectRef: "abc" }, { conns: ["supabase"] })).catch((e: unknown) => e as Error);
     expect(err.message).not.toContain(CONN_TOKEN);
+  });
+});
+
+describe("supabase-db-password", () => {
+  const p = supabaseProviders.find((x) => x.id === "supabase-db-password")!;
+  const run = (m: ReturnType<typeof mockFetch>, params: Record<string, unknown> = { projectRef: "abc" }) => p.issue!(issueCtx(m.fetch, params, { conns: ["supabase"] }));
+  it("is automatic, uses the supabase connection and has no revoke", () => {
+    expect(p).toMatchObject({ kind: "automatic", connection: "supabase" });
+    expect(p.revoke).toBeUndefined();
+    expect(p.params!.find((s) => s.key === "length")).toMatchObject({ type: "integer", min: 24, max: 64, defaultValue: "40" });
+    expect(p.params!.find((s) => s.key === "projectRef")).toMatchObject({ required: true, discover: "supabase.project" });
+  });
+  it("patches the generated password and returns it", async () => {
+    const m = mockFetch({ body: { message: "ok" } });
+    const r = await run(m);
+    expect(m.calls[0]).toMatchObject({ url: "https://api.supabase.com/v1/projects/abc/database/password", method: "PATCH" });
+    expect(m.calls[0]!.headers).toMatchObject({ Authorization: `Bearer ${CONN_TOKEN}` });
+    const sent = JSON.parse(m.calls[0]!.body!) as { password: string };
+    expect(sent.password).toBe(r.value.reveal());
+    expect(r.externalId).toBe("abc");
+  });
+  it("password has the requested length and only letters and digits", async () => {
+    const lens: number[] = [];
+    for (const length of [undefined, 24, 64]) {
+      const r = await run(mockFetch({ body: {} }), length ? { projectRef: "abc", length } : { projectRef: "abc" });
+      const v = r.value.reveal();
+      expect(v).toMatch(/^[A-Za-z0-9]+$/);
+      lens.push(v.length);
+    }
+    expect(lens).toEqual([40, 24, 64]);
+    const a = (await run(mockFetch({ body: {} }))).value.reveal();
+    const b = (await run(mockFetch({ body: {} }))).value.reveal();
+    expect(a).not.toBe(b);
+  });
+  it("rejects a length outside 24..64", async () => {
+    for (const length of [23, 65, 30.5, "40"]) await expect(run(mockFetch({ body: {} }), { projectRef: "abc", length })).rejects.toThrow(/length/);
+  });
+  for (const [status, hint] of [[401, /database_config_write/], [403, /database_config_write/], [422, /gesund/], [500, /gesund/], [429, /Rate-Limit/]] as const) {
+    it(`error ${status} carries a hint and no values`, async () => {
+      const m = mockFetch({ status, body: JSON.stringify({ message: `denied ${CONN_TOKEN}` }) });
+      const err = await run(m).catch((e: unknown) => e as Error);
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err.message).toMatch(hint);
+      expect(err.message).not.toContain(CONN_TOKEN);
+      const sent = (JSON.parse(m.calls[0]!.body!) as { password: string }).password;
+      expect(err.message).not.toContain(sent);
+    });
+  }
+  it("redacts the new password when the API echoes it", async () => {
+    let echoed = "";
+    const fetchEcho = (async (_u: unknown, init?: RequestInit) => {
+      echoed = (JSON.parse(String(init?.body)) as { password: string }).password;
+      return new Response(`bad password ${echoed}`, { status: 422 });
+    }) as unknown as typeof fetch;
+    const err = await p.issue!(issueCtx(fetchEcho, { projectRef: "abc" }, { conns: ["supabase"] })).catch((e: unknown) => e as Error);
+    expect(echoed.length).toBe(40);
+    expect(err.message).not.toContain(echoed);
+  });
+  it("verify checks the shape and says that no login test happens", async () => {
+    const ok = await p.verify!(verifyCtx(mockFetch().fetch, { projectRef: "abc" }, { value: "a".repeat(40), externalId: "abc" }));
+    expect(byId(ok)).toEqual({ shape: "pass", applied: "pass", login: "info" });
+    const pasted = await p.verify!(verifyCtx(mockFetch().fetch, { projectRef: "abc" }, { value: "a".repeat(40) }));
+    expect(byId(pasted)["applied"]).toBe("info");
+    expect(byId(await p.verify!(verifyCtx(mockFetch().fetch, {}, { value: "short" })))["shape"]).toBe("fail");
+    expect(byId(await p.verify!(verifyCtx(mockFetch().fetch, {}, { value: "a/b@".padEnd(40, "x") })))["shape"]).toBe("fail");
+    expectNoLeak(ok, ["a".repeat(40)]);
+  });
+  it("review checklist says the old password dies at once", () => {
+    const items = p.reviewChecklist!(secretEntry({ stage: "staging", params: { projectRef: "abc" } }));
+    expect(items.join(" ")).toContain("sofort ersetzt");
+  });
+  it("preflight warns when the project is paused and passes when healthy", async () => {
+    const f = () => routeFetch({ url: "/v1/projects", reply: { body: [{ id: "abc", name: "demo-staging", status: "ACTIVE_HEALTHY" }, { id: "def", name: "demo-prod", status: "INACTIVE" }] } });
+    const pctx = (fetch: typeof fetch, params: Record<string, unknown>) => ({ params, stage: "staging" as const, connections: connections("supabase"), fetch, secret: secretEntry({ stage: "staging" }), now: new Date("2026-11-01T10:00:00Z") });
+    const ok = await p.preflight!(pctx(f().fetch, { projectRef: "abc" }));
+    expect(ok.findings.every((x) => x.level === "ok")).toBe(true);
+    const paused = await p.preflight!(pctx(f().fetch, { projectRef: "def" }));
+    expect(paused.findings.find((x) => x.id === "health")).toMatchObject({ level: "warn" });
+    const missing = await p.preflight!(pctx(f().fetch, { projectRef: "zzz" }));
+    expect(missing.findings.find((x) => x.id === "project")).toMatchObject({ level: "fail" });
   });
 });
 

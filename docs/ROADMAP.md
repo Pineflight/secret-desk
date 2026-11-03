@@ -11,7 +11,7 @@ service, not only against mocks; [PROVIDERS.md](PROVIDERS.md) has the per-endpoi
 |---|---|---|---|
 | Local | random hex, base64, UUID | n/a | yes |
 | Cloudflare | API tokens (account and single-zone permissions), Turnstile widget secrets | account id, zone id, Turnstile site key | API tokens and Turnstile secrets: yes (2026-11-02) |
-| Supabase | API keys (secret, publishable), reads the service role key | project ref, project URL, publishable key | secret keys and service role read: yes (2026-11-02) |
+| Supabase | API keys (secret, publishable), reads the service role key, database password | project ref, project URL, publishable key | secret keys and service role read: yes (2026-11-02); database password: no |
 | Stripe | webhook endpoints with their signing secret (sandbox and live) | n/a | sandbox: yes (2026-11-02) |
 | Resend | sending API keys limited to one domain | domain id, domain name | yes (2026-11-02) |
 | Grafana Cloud | service account tokens | n/a | no |

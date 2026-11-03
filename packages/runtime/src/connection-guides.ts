@@ -114,7 +114,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
     case "supabase":
       return {
         label: "Supabase",
-        description: "Liest, erzeugt und loescht API-Keys von Supabase-Projekten ueber die Management-API.",
+        description: "Liest, erzeugt und loescht API-Keys von Supabase-Projekten ueber die Management-API und setzt Datenbank-Passwoerter.",
         url: "https://supabase.com/dashboard/account/tokens",
         steps: [
           "Account, Access Tokens, \"Generate new token\".",
@@ -126,6 +126,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
           "API Keys: Read-write (Keys erzeugen und loeschen)",
           "API Key Secrets: Read (Keys mit Wert lesen)",
           "Optional Project Settings: Read, Projects: Read (Projekt nachschlagen)",
+          "Database config: Write (nur fuer supabase-db-password, das Datenbank-Passwort setzen)",
         ],
       };
     case "stripe-test":

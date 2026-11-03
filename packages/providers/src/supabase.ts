@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { contextKind, SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type StageKind, type VerifyContext } from "@secret-desk/core";
 import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, probe, step, steps } from "./checks.js";
@@ -42,15 +43,38 @@ const apiKeySpecs: ParamSpec[] = [
   },
   PROJECT_URL,
 ];
+const DB_PASSWORD_MIN = 24;
+const DB_PASSWORD_MAX = 64;
+const DB_PASSWORD_DEFAULT = 40;
+const dbPasswordSpecs: ParamSpec[] = [
+  PROJECT_REF,
+  {
+    key: "length",
+    label: "Laenge",
+    labelEn: "Length",
+    type: "integer",
+    required: false,
+    defaultValue: String(DB_PASSWORD_DEFAULT),
+    min: DB_PASSWORD_MIN,
+    max: DB_PASSWORD_MAX,
+    help: "24 bis 64 Zeichen, Standard 40. Nur Buchstaben und Ziffern, damit das Passwort ohne Maskierung in eine Postgres-URL passt.",
+    helpEn: "24 to 64 characters, default 40. Letters and digits only, so the password fits a Postgres URL without escaping.",
+  },
+];
 const serviceRoleSpecs: ParamSpec[] = [PROJECT_REF, PROJECT_URL];
 
 /** Projekte der Verbindung (lesend). Die Verwaltungs-API nennt die Projektkennung als ref (oder id). */
-async function listProjects(id: string, ctx: Pick<DiscoverContext, "connections" | "fetch">): Promise<DiscoveredOption[]> {
+async function listProjectsWithStatus(id: string, ctx: Pick<DiscoverContext, "connections" | "fetch">): Promise<{ option: DiscoveredOption; status: string | undefined }[]> {
   const r = await getJson<unknown>(id, ctx, "supabase", `${API}/v1/projects`);
   return asList(r).flatMap((p) => {
     const ref = str(p["ref"]) ?? str(p["id"]);
-    return ref ? [{ value: ref, label: str(p["name"]) ?? ref, detail: [ref, str(p["region"]), str(p["status"])].filter(Boolean).join(", ") }] : [];
+    const status = str(p["status"]);
+    return ref ? [{ option: { value: ref, label: str(p["name"]) ?? ref, detail: [ref, str(p["region"]), status].filter(Boolean).join(", ") }, status }] : [];
   });
+}
+
+async function listProjects(id: string, ctx: Pick<DiscoverContext, "connections" | "fetch">): Promise<DiscoveredOption[]> {
+  return (await listProjectsWithStatus(id, ctx)).map((p) => p.option);
 }
 
 async function discoverSupabase(id: string, kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]> {
@@ -61,14 +85,19 @@ async function discoverSupabase(id: string, kind: string, ctx: DiscoverContext):
 const STAGING_WORD = /(^|[^a-z0-9])(staging|stage|test|dev)([^a-z0-9]|$)/i;
 const PROD_WORD = /(^|[^a-z0-9])(production|prod|live)([^a-z0-9]|$)/i;
 
-async function preflightSupabase(id: string, ctx: PreflightContext): Promise<PreflightResult> {
+async function preflightSupabase(id: string, ctx: PreflightContext, checkHealth = false): Promise<PreflightResult> {
   const ref = String(ctx.params["projectRef"]);
   const findings: PreflightFinding[] = [];
   let resource: string | null = `Supabase-Projekt ${ref}`;
   try {
-    const projects = await listProjects(id, ctx);
+    const listed = await listProjectsWithStatus(id, ctx);
+    const projects = listed.map((p) => p.option);
     const hit = projects.find((p) => p.value === ref);
     if (hit) {
+      if (checkHealth) {
+        const status = listed.find((p) => p.option.value === ref)?.status;
+        if (status && status !== "ACTIVE_HEALTHY") findings.push({ id: "health", level: "warn", label: `Das Projekt ${hit.label} hat den Status ${status}, nicht ACTIVE_HEALTHY: ein pausiertes Projekt lehnt die Aenderung ab` });
+      }
       resource = `Supabase-Projekt ${hit.label} (ref ${ref})`;
       findings.push({ id: "project", level: "ok", label: `Das Projekt ${hit.label} gehoert zur Verbindung` });
       const kind = contextKind(ctx);
@@ -210,4 +239,72 @@ const serviceRoleProvider: Provider = {
   },
 };
 
-export const supabaseProviders: Provider[] = [apiKeyProvider, serviceRoleProvider];
+/** Letters and digits only: safe in a Postgres connection URL without percent-encoding. */
+const DB_PASSWORD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+function dbPasswordLength(id: string, params: Record<string, unknown>): number {
+  const v = params["length"] ?? DB_PASSWORD_DEFAULT;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < DB_PASSWORD_MIN || v > DB_PASSWORD_MAX) {
+    throw new ProviderError(id, null, 'Parameter "length" muss eine ganze Zahl von 24 bis 64 sein');
+  }
+  return v;
+}
+
+/** CSPRNG, uniform over the alphabet (randomInt avoids modulo bias). */
+function generateDbPassword(length: number): string {
+  let out = "";
+  for (let i = 0; i < length; i++) out += DB_PASSWORD_ALPHABET[randomInt(DB_PASSWORD_ALPHABET.length)];
+  return out;
+}
+
+/** Adds a hint to API failures; the message stays free of the token and the new password. */
+function dbPasswordFailure(id: string, err: unknown): never {
+  if (!(err instanceof ProviderError) || err.status === null) throw err;
+  const body = err.message.replace(/^[^:]*:\s*/, "");
+  let hint: string;
+  if (err.status === 401 || err.status === 403) hint = 'dem Token fehlt die Berechtigung "Database config: write" (database_config_write) oder er gilt nicht fuer dieses Projekt';
+  else if (err.status === 429) hint = "Rate-Limit erreicht, spaeter erneut versuchen";
+  else hint = "das Projekt muss gesund sein (ein pausiertes Projekt lehnt die Aenderung ab)";
+  throw new ProviderError(id, err.status, `${hint}. ${body}`);
+}
+
+const dbPasswordProvider: Provider = {
+  id: "supabase-db-password",
+  label: "Supabase Datenbank-Passwort (nicht live verifiziert)",
+  kind: "automatic",
+  connection: "supabase",
+  params: dbPasswordSpecs,
+  discover: (kind, ctx) => discoverSupabase("supabase-db-password", kind, ctx),
+  preflight: (ctx) => preflightSupabase("supabase-db-password", ctx, true),
+  async issue(ctx) {
+    const id = "supabase-db-password";
+    const ref = requireString(id, ctx.params, "projectRef");
+    const length = dbPasswordLength(id, ctx.params);
+    const password = generateDbPassword(length);
+    try {
+      await callWithToken(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/database/password`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ password }) }, [password]);
+    } catch (err) {
+      dbPasswordFailure(id, err);
+    }
+    return { value: new SecretValue(password), externalId: ref, expiresAt: null };
+  },
+  async verify(ctx) {
+    const v = ctx.value.reveal();
+    const bounds = "24 bis 64 Zeichen, nur Buchstaben und Ziffern";
+    const ok = v.length >= DB_PASSWORD_MIN && v.length <= DB_PASSWORD_MAX && /^[A-Za-z0-9]+$/.test(v);
+    return [
+      check("shape", "Laenge und Zeichen", ok ? "pass" : "fail", { expected: bounds, actual: `${v.length} Zeichen` }),
+      ctx.externalId
+        ? check("applied", "Beim Anbieter gesetzt", "pass", { detail: "Die Supabase-API hat die Aenderung beim Ausstellen mit 2xx bestaetigt" })
+        : check("applied", "Beim Anbieter gesetzt", "info", { detail: "Wert wurde nicht von secret-desk ausgestellt: Anwendung beim Anbieter nicht pruefbar" }),
+      check("login", "Anmeldung an Postgres", "info", { detail: "Nicht geprueft: die API liefert das Passwort nicht zurueck, und secret-desk meldet sich nicht an der Datenbank an" }),
+    ];
+  },
+  reviewChecklist: (secret, ctx) => [
+    ...keyChecklist(secret, ctx).slice(0, 1),
+    "Das bisherige Passwort wird beim Anbieter sofort ersetzt; alles, was es noch nutzt, scheitert, bis es das neue erhaelt",
+    "Alle Verbraucher (CI, supabase db push und link, Verbindungs-URLs) bekommen das neue Passwort",
+  ],
+};
+
+export const supabaseProviders: Provider[] = [apiKeyProvider, serviceRoleProvider, dbPasswordProvider];

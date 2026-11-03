@@ -9,6 +9,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `cloudflare-token` | automatic | `cloudflare` (token with *User > API Tokens > Edit*) | reference read, `expires_on` only from a third-party source |
 | `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
+| `supabase-db-password` | automatic | `supabase` (token with *Database config: Write*) | documentation read, **not verified live** |
 | `stripe-webhook-secret` | automatic | `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified** |
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
@@ -31,6 +32,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |
 | `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
+| `supabase-db-password` | `projectRef` (required), `length`: integer 24 to 64, default 40. The password is generated locally (letters and digits only, safe in a Postgres URL) and set with `PATCH /v1/projects/<ref>/database/password`. The old password stops working at once; there is nothing to revoke, and the API gives no read-back, so the test checks only the shape and that the API answered 2xx (no login to Postgres). |
 | `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `connection` (optional, forces `stripe-test`, `stripe-live` or `stripe`) |
 | `resend-api-key` | `permission`: `sending_access` (default) or `full_access`; `domainId` (required for `sending_access`: the key is limited to this domain; not used for `full_access`) |
 | `revenuecat-secret-key` (manual) | `projectId` (optional, integration default allowed): project that apps and public SDK keys are read from; without it the apps of every project of the connection are listed |
@@ -58,6 +60,7 @@ New read endpoints (all `GET`, with the stored token of the integration). **Not 
 | `GET .../client/v4/accounts?per_page=50` | Cloudflare accounts (needs a read permission such as *Account Settings Read*; without it Cloudflare answers with an empty list and the portal shows a hint to enter the account ID by hand) | not verified |
 | `GET .../client/v4/zones?per_page=50[&account.id=]` | zones | not verified |
 | `GET .../client/v4/accounts/<id>/challenges/widgets` | Turnstile widgets | not verified |
+| `PATCH api.supabase.com/v1/projects/<ref>/database/password` | database password (`password`) | not verified |
 | `GET api.supabase.com/v1/projects` | projects (`ref` or `id`, `name`) | not verified |
 | `GET api.supabase.com/v1/projects/<ref>/api-keys` (without `reveal`) | public key for variables | not verified |
 | `GET api.resend.com/domains` | domains with status | not verified |
