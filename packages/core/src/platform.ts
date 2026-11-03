@@ -8,7 +8,7 @@ import path from "node:path";
  */
 export type Platform = NodeJS.Platform;
 
-export function pathFor(platform: Platform = process.platform): path.PlatformPath {
+export function pathFor(platform: Platform = process.platform): typeof path.posix {
   return platform === "win32" ? path.win32 : path.posix;
 }
 
