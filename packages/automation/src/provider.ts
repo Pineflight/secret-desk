@@ -33,10 +33,15 @@ const hhmm = (d: Date): string => d.toISOString().slice(11, 16).replace(":", "")
 /**
  * Name of a new token at the provider: the secret id, shortened if needed, plus date and time, at most 40 characters.
  * The id is cut, never the date: names must differ between renewals, or the row of the old token cannot be found again.
+ * A long id keeps its start and its end (which usually carries the stage), joined by "~".
  */
 export function tokenName(secretId: string, now: Date): string {
   const suffix = `-${yyyymmdd(now)}-${hhmm(now)}`;
-  return `${secretId.slice(0, 40 - suffix.length).replace(/-+$/, "")}${suffix}`;
+  const room = 40 - suffix.length;
+  if (secretId.length <= room) return `${secretId}${suffix}`;
+  const tail = Math.floor((room - 1) / 2);
+  const head = room - 1 - tail;
+  return `${secretId.slice(0, head).replace(/-+$/, "")}~${secretId.slice(-tail).replace(/^-+/, "")}${suffix}`;
 }
 
 /** Variablen fuer ein Rezept aus einem Inventar-Eintrag. */

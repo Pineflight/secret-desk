@@ -17,8 +17,9 @@ params:
   - key: preset
     label: Rechte
     labelEn: Permissions
-    options: ["Read-only", "Full access"]
+    options: ["Full access"]
     default: Full access
+    help: "Full access to the chosen project only. Read-only tokens are not supported by this recipe yet."
   - key: expiry
     label: Ablauf
     labelEn: Expiry
@@ -42,8 +43,11 @@ steps:
   - click: { css: "button#projectRefs" }
   - click: { role: option, name: "{{project}}", exact: true }
   - press: { key: "Escape" }
-  - click: { css: '[role=dialog] button[role=combobox]:has-text("No access")' }
-  - click: { role: option, name: "{{preset}}" }
+  # The preset list opens with "No access", "Read-only", "Full access". Clicking "Full access" is blocked by its description
+  # tooltip (checked live 2026-11-03), so the recipe selects it with the keyboard: End, then Enter.
+  - click: { role: combobox, name: "Permission preset" }
+  - press: { key: "End" }
+  - press: { key: "Enter" }
   - click: { role: button, name: "Review access" }
   - waitFor: { text: "Token summary" }
   - screenshot: formular-vorher
