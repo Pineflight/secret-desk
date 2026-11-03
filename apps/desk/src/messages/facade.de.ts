@@ -109,4 +109,7 @@ export default {
   "facade.count.apps.other": "{count} Apps",
   "connections.openKeyPage": "Seite des Anbieters öffnen, auf der der Schlüssel angelegt wird",
   "connections.pasteKey": "Schlüssel einfügen",
+  "facade.fail.page": "Die Seite des Anbieters ließ sich nicht öffnen. Der Browser hat sie nicht erreicht; versuche es gleich noch einmal.",
+  "facade.fail.busy": "Der Browser ist gerade mit einem anderen Lauf belegt. Warte, bis er fertig ist, oder brich ihn ab, und prüfe dann erneut.",
+  "facade.checkWaiting": "Wartet …",
 } as Record<string, string>;

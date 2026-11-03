@@ -4,6 +4,8 @@ For providers where a token can only be created through the web interface (GitHu
 Stripe restricted key), secret-desk drives a real browser through the form. It is the same flow as for API providers:
 generate the value, review it, report with evidence, **a human confirms**, and only then is it written to GitHub.
 
+Adding a provider step by step: [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md). The state of the remote browser and the recipes is shown under *Settings*, *Developer*.
+
 ## Principles
 
 1. **The human signs in themselves, or types the sign-in for one run.** The browser is a visible window (not headless) with its own persistent profile
@@ -92,8 +94,8 @@ Flatpak browsers are sandboxed and often cannot be driven. The profile lives und
 
 ## Limits
 
-The bundled recipes have not been verified against the real sites (no account access during development). They are tested against
-local replicas of the forms. The first real run is a trial run with a throwaway token and human supervision;
+Most bundled recipes have been run against the real sites only recently (four on 2026-11-03, see the `# STATUS:` comment of each); the rest is tested against
+local replicas of the forms only. The first real run is a trial run with a throwaway token and human supervision;
 select fields that a provider changes abort the run instead of guessing. Providers may restrict automation of their interface in their
 terms of use: the team decides per provider whether to use the recipe.
 
@@ -114,7 +116,7 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
   AbortSignal, host check before every action, masking in every screenshot (Playwright `mask`, plus an automatic evidence image `nach-erzeugen`), errors without page content,
   `RecipeRunError.createdName` after `createsToken`.
 - `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` fits the `Provider` interface (`kind: "automatic"`, plus `automation.recipeId`).
-- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key`. Each carries a `# STATUS:` comment; `revenuecat-secret-api-key` was partly checked against the live page (2026-11-02, form and list; full run not verified), and `stripe-restricted-key` in the sandbox (2026-11-03: wizard, result view with the key in `data-text`, expiry; full run, sign-in form and live mode not verified), the rest is not verified.
+- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key`. Each carries a `# STATUS:` comment; `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You*) and `revenuecat-secret-api-key` ran end to end against the live pages on 2026-11-03 (the sign-in form steps after the email are not verified), and `stripe-restricted-key` in the sandbox (2026-11-03: wizard, result view with the key in `data-text`, expiry; full run, sign-in form and live mode not verified), the rest is not verified.
 - Recipe `params` (per-entry values such as a project id) become template variables and provider parameter specs; see [RECIPES.md](RECIPES.md#parameters).
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
 - Tests: schema, template, host, fake runs, loading recipes, provider, integration with `PlaywrightDriver` against a local form (only with Chrome, headless, no internet).

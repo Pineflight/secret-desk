@@ -1,21 +1,25 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SecretView, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, Pill, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
+import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
 import { FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderLogo, ProviderPageCard, ProviderTile, CardStatusBadge, usePurpose } from "@/components/ProviderCards";
 import type { FacadeInfo } from "@/lib/facade";
 import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
 import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
-import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
+import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
+import { createCheckQueue, type CheckPhase, type CheckQueue } from "@/lib/check-queue";
+import { outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome, type CheckResponse, type SignInStatus } from "@/lib/sign-in-check";
+import { daysSince, expiryLevel, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
 import type { ReactNode } from "react";
 
 interface Connection {
@@ -37,16 +41,6 @@ interface Connection {
   steps: string[];
   permissions: string[];
 }
-interface AutomationInfo {
-  enabled: boolean;
-  browser: { mode: "local" | "remote"; endpoint: string | null; reachable: boolean | null; browser: string | null; detail: string | null; viewerUrl: string | null };
-  chrome: { found: boolean; path: string | null; hint: string | null };
-  profileDir: string;
-  loginTimeoutMinutes: number;
-  allowExternalRecipes: boolean;
-  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean }[];
-  problems: { file: string; message: string }[];
-}
 interface Provider {
   id: string;
   label: string;
@@ -65,11 +59,31 @@ const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession",
 type Picking = false | { vendor: string | null; key?: string; signIn?: boolean };
 
 export default function ConnectionsPage() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const toast = useToast();
   const [picking, setPicking] = useState<Picking>(false);
   const [adding, setAdding] = useState(false);
-  const [signedIn, setSignedIn] = useState<ReadonlySet<string>>(new Set());
+  // Which cards (and keys) are open. Read after mounting so the server render and the first client render agree.
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [openReady, setOpenReady] = useState(false);
+  useEffect(() => { setOpen(readExpanded()); setOpenReady(true); }, []);
+  useEffect(() => { if (openReady) writeExpanded(open); }, [open, openReady]);
+  // Sign-in checks share the one remote browser: they run one after the other, a click checks one provider only.
+  const [outcomes, setOutcomes] = useState<Readonly<Record<string, CheckOutcome>>>({});
+  const [phases, setPhases] = useState<ReadonlyMap<string, CheckPhase>>(new Map());
+  const queue = useRef<CheckQueue<void> | null>(null);
+  if (queue.current === null) {
+    queue.current = createCheckQueue<void>(async (id) => {
+      let outcome: CheckOutcome;
+      try {
+        outcome = outcomeOf(await api<CheckResponse>("POST", `facades/${enc(id)}/check`));
+      } catch (e) {
+        outcome = outcomeOfError(e);
+      }
+      setOutcomes((o) => ({ ...o, [id]: outcome }));
+    }, setPhases);
+  }
+  const signedIn = useMemo(() => signedInIds(outcomes), [outcomes]);
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
   const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
@@ -80,7 +94,6 @@ export default function ConnectionsPage() {
   const secrets = useQuery<SecretView[]>("overview-secrets", () => api<SecretView[]>("GET", "secrets"));
   const vars = useQuery<VariableView[]>("overview-variables", () => api<VariableView[]>("GET", "variables"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
-  const check = useMutation(async (id: string) => ({ id, ...(await api<{ signedIn: boolean; checkedAt: string }>("POST", `facades/${enc(id)}/check`)) }));
   const cards = useMemo(
     () =>
       vendors.data && conns.data
@@ -107,47 +120,58 @@ export default function ConnectionsPage() {
           <Button variant="primary" onClick={() => setPicking({ vendor: null })}>{t("connections.add")}</Button>
         </EmptyState>
       ) : null}
+      {used.length > 0 ? (
+        <div className="mb-3 flex justify-end">
+          <Button onClick={() => setOpen(allExpanded(open, used.map((c) => c.id)) ? collapseAll() : expandAll(open, used.map((c) => c.id)))}>
+            {allExpanded(open, used.map((c) => c.id)) ? t("providers.collapseAll") : t("providers.expandAll")}
+          </Button>
+        </div>
+      ) : null}
       {groups.map((g) => (
         <CategorySection key={g.category} category={g.category} grid="cards" level="h2">
-          {g.cards.map((card) => (
-            <li key={card.id}>
-              <ProviderPageCard
-                card={card}
-                actions={
-                  <>
-                    {card.signIn.facade ? (
-                      <>
-                        <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
-                        <Button
-                          disabled={!card.signIn.facade.available}
-                          loading={check.pending}
-                          onClick={async () => {
-                            const r = await check.run(card.id);
-                            if (r) setSignedIn((o) => { const n = new Set(o); if (r.signedIn) n.add(r.id); else n.delete(r.id); return n; });
-                          }}
-                        >
-                          {check.pending ? t("facade.checking") : t("facade.checkSignin")}
-                        </Button>
-                      </>
-                    ) : null}
-                    <Button onClick={() => setPicking({ vendor: card.id })}>{t("providers.page.manage")}</Button>
-                  </>
-                }
-              >
-                <SignInLine card={card} signedIn={signedIn} checkError={check.error?.message ?? null} />
-                <div className="mt-3 space-y-3">
-                  {card.keys.filter((k) => k.connected).map((k) => {
-                    const c = (conns.data ?? []).find((x) => x.id === k.id);
-                    return c ? <ConnectionCard key={c.id} c={c} nested onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} /> : null;
-                  })}
-                  {showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
-                </div>
-              </ProviderPageCard>
-            </li>
-          ))}
+          {g.cards.map((card) => {
+            const phase = phases.get(card.id);
+            const outcome = outcomes[card.id];
+            const problem = outcomeProblem(outcome, locale, t);
+            const viewer = auto.data?.browser.viewerUrl ?? null;
+            return (
+              <li key={card.id}>
+                <ProviderPageCard
+                  card={card}
+                  open={open.has(cardKey(card.id))}
+                  onToggle={() => setOpen((o) => toggled(o, cardKey(card.id)))}
+                  signIn={signInStatus(card, phase, outcome)}
+                  actions={
+                    <>
+                      {card.signIn.facade ? (
+                        <>
+                          <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
+                          <Button disabled={!card.signIn.facade.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
+                            {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
+                          </Button>
+                        </>
+                      ) : null}
+                      {card.signIn.state === "facade" || card.signIn.state === "recipe" ? (
+                        viewer ? <a className="inline-flex items-center rounded-xl border border-line bg-card px-3 py-1.5 text-sm font-medium hover:bg-page" href={viewer} target="_blank" rel="noopener noreferrer">{t("providers.card.openBrowser")}</a> : null
+                      ) : null}
+                      <Button onClick={() => setPicking({ vendor: card.id })}>{t("providers.page.manage")}</Button>
+                    </>
+                  }
+                >
+                  <SignInLine card={card} status={signInStatus(card, phase, outcome)} problem={problem} />
+                  <div className="mt-3 space-y-2">
+                    {card.keys.filter((k) => k.connected).map((k) => {
+                      const c = (conns.data ?? []).find((x) => x.id === k.id);
+                      return c ? <ConnectionCard key={c.id} c={c} nested open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} /> : null;
+                    })}
+                    {showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
+                  </div>
+                </ProviderPageCard>
+              </li>
+            );
+          })}
         </CategorySection>
       ))}
-      <BrowserAutomationSection q={auto} />
       {picking !== false && cards && vendors.data ? (
         <IntegrationPicker
           initial={picking}
@@ -167,7 +191,7 @@ export default function ConnectionsPage() {
 }
 
 /** One plain sentence about the provider's browser sign-in, and the result of the last check. */
-function SignInLine({ card, signedIn, checkError }: { card: ProviderCard; signedIn: ReadonlySet<string>; checkError: string | null }) {
+function SignInLine({ card, status, problem }: { card: ProviderCard; status: SignInStatus | null; problem: string | null }) {
   const t = useT();
   const s = card.signIn;
   if (s.state === "none") return null;
@@ -175,8 +199,8 @@ function SignInLine({ card, signedIn, checkError }: { card: ProviderCard; signed
     <div className="mt-3 rounded-xl bg-page p-3 text-xs text-muted">
       <p className="font-medium text-ink">{t("providers.way.signIn")}</p>
       <p className="mt-0.5">{signInSentence(card, t)}</p>
-      {s.facade && signedIn.has(card.id) ? <p className="mt-1" role="status">{t("providers.signIn.signedInYes")}</p> : null}
-      {checkError ? <p className="mt-1 text-danger-text">{checkError}</p> : null}
+      {status === "yes" || status === "no" ? <p className="mt-1" role="status">{t(status === "yes" ? "providers.signIn.signedInYes" : "providers.signIn.signedInNo")}</p> : null}
+      {problem ? <p className="mt-1 text-danger-text" role="alert">{problem}</p> : null}
     </div>
   );
 }
@@ -188,11 +212,11 @@ function signInSentence(card: ProviderCard, t: (k: string, v?: Record<string, st
   return t("providers.signIn.coming", { name: card.label });
 }
 
-/** Eine verbundene Integration: Ablauf-Ampel, Alter des gespeicherten Tokens, Test. */
-function ConnectionCard({ c, onGuide, onDisconnect, disconnecting, nested = false }: { c: Connection; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean; nested?: boolean }) {
+/** One connected key. Nested in a provider card it is a compact row (name, expiry, source) that opens to its details and actions. */
+function ConnectionCard({ c, onGuide, onDisconnect, disconnecting, open = true, onToggle, nested = false }: { c: Connection; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean; open?: boolean; onToggle?: () => void; nested?: boolean }) {
   const t = useT();
   const [checked, setChecked] = useState<CheckResult | null>(null);
-  // Das vom Anbieter genannte Ablaufdatum ersetzt die manuelle Angabe, solange das Testergebnis sichtbar ist.
+  // The expiry date the provider reports replaces the manual one while the test result is visible.
   const expires = checked && checked.expires !== undefined ? checked.expires : c.expires;
   const daysLeft = typeof expires === "string" ? Math.ceil((Date.parse(`${expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
   const level = expiryLevel(daysLeft);
@@ -204,29 +228,53 @@ function ConnectionCard({ c, onGuide, onDisconnect, disconnecting, nested = fals
     : level === "expired" ? { label: t("connections.expExpired"), tone: "danger" as const, icon: "x" as const }
     : null;
   const Shell = nested ? NestedShell : Card;
+  const bodyId = useId();
+  const name = (
+    <>
+      {labelOf(c)}
+      {c.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}
+      {c.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}
+    </>
+  );
+  const sourceBadge = <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />;
   return (
     <Shell>
-      <div className="flex items-start justify-between gap-3">
-        <p className="font-medium">{labelOf(c)}{c.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}{c.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}</p>
-        <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />
+      {onToggle ? (
+        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+          <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
+          <span className="min-w-0 flex-1 text-sm font-medium">{name}</span>
+          {levelBadge ? <Badge info={levelBadge} /> : null}
+          {sourceBadge}
+        </button>
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <p className="font-medium">{name}</p>
+          {sourceBadge}
+        </div>
+      )}
+      <div id={bodyId} hidden={!open}>
+        {open ? (
+          <>
+            {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
+            {c.fingerprint ? <p className="mt-1 text-xs text-muted">{t("connections.fingerprint", { fp: c.fingerprint })}</p> : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className={`text-sm ${level === "critical" || level === "expired" ? "font-medium text-danger" : "text-muted"}`}>
+                {expires === undefined ? t("connections.expiryUnknown") : expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(expires), days: daysLabel(daysLeft) })}
+              </p>
+              {!onToggle && levelBadge ? <Badge info={levelBadge} /> : null}
+            </div>
+            {level === "expired" ? <div className="mt-2"><Notice tone="danger">{t("connections.expExpiredHint")}</Notice></div> : null}
+            {saved !== null ? <p className="mt-1 text-xs text-muted">{saved === 0 ? t("connections.savedToday") : t("connections.savedDaysAgo", { count: saved })}</p> : null}
+            {stale !== null ? <div className="mt-2"><Notice tone="warn">{t("connections.staleNoExpiry", { days: stale })}</Notice></div> : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={onGuide}>{t("connections.guide")}</Button>
+              {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
+            </div>
+            <ConnectionDefaultsSummary id={c.id} />
+            <ConnectionCheckPanel id={c.id} onResult={setChecked} />
+          </>
+        ) : null}
       </div>
-      {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
-      {c.fingerprint ? <p className="mt-1 text-xs text-muted">{t("connections.fingerprint", { fp: c.fingerprint })}</p> : null}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <p className={`text-sm ${level === "critical" || level === "expired" ? "font-medium text-danger" : "text-muted"}`}>
-          {expires === undefined ? t("connections.expiryUnknown") : expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(expires), days: daysLabel(daysLeft) })}
-        </p>
-        {levelBadge ? <Badge info={levelBadge} /> : null}
-      </div>
-      {level === "expired" ? <div className="mt-2"><Notice tone="danger">{t("connections.expExpiredHint")}</Notice></div> : null}
-      {saved !== null ? <p className="mt-1 text-xs text-muted">{saved === 0 ? t("connections.savedToday") : t("connections.savedDaysAgo", { count: saved })}</p> : null}
-      {stale !== null ? <div className="mt-2"><Notice tone="warn">{t("connections.staleNoExpiry", { days: stale })}</Notice></div> : null}
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={onGuide}>{t("connections.guide")}</Button>
-        {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
-      </div>
-      <ConnectionDefaultsSummary id={c.id} />
-      <ConnectionCheckPanel id={c.id} onResult={setChecked} />
     </Shell>
   );
 }
@@ -234,67 +282,6 @@ function ConnectionCard({ c, onGuide, onDisconnect, disconnecting, nested = fals
 /** A key inside its provider card: a bordered block instead of a card of its own. */
 function NestedShell({ children }: { children: ReactNode }) {
   return <div className="rounded-xl border border-line p-3">{children}</div>;
-}
-
-/** Chrome-Status, Profilordner, Rezepte und Probleme der Browser-Automatisierung. */
-function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | undefined; error: Error | null; loading: boolean; reload: () => void } }) {
-  const t = useT();
-  const a = q.data;
-  return (
-    <section className="sd-section" aria-labelledby="browser-automation-title">
-      <h2 id="browser-automation-title" className="text-lg font-semibold tracking-tight">{t("connections.browserTitle")}</h2>
-      <p className="mt-1 max-w-2xl text-sm text-muted">{t(a?.browser.mode === "remote" ? "connections.browserSubtitleRemote" : "connections.browserSubtitle")}</p>
-      {q.error ? <div className="mt-4"><ErrorState error={q.error} onRetry={q.reload} /></div> : null}
-      {q.loading && !a ? <div className="mt-4"><ListSkeleton rows={1} /></div> : null}
-      {a && !a.enabled ? <div className="mt-4"><Notice tone="info">{t("connections.browserOff")}</Notice></div> : null}
-      {a && a.enabled ? (
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <Card>
-            <dl className="divide-y divide-line text-sm">
-              {a.browser.mode === "remote" ? (
-                <>
-                  <div className="flex justify-between gap-4 py-2"><dt className="shrink-0 text-muted-text">{t("connections.browserRemote")}</dt><dd className="min-w-0 text-right font-medium">{a.browser.reachable ? <Badge info={{ label: t("connections.browserRemoteOk"), tone: "success", icon: "check" }} /> : <Badge info={{ label: t("connections.browserRemoteDown"), tone: "warn", icon: "alert" }} />}<span className="mt-1 block break-all font-mono text-xs font-normal text-muted-text">{a.browser.endpoint ?? ""}</span></dd></div>
-                  <div className="py-2 text-xs text-muted">{a.browser.detail ?? t("connections.browserRemoteHint")}</div>
-                  {a.browser.viewerUrl ? <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserViewer")}</dt><dd className="text-right"><a className="font-medium text-primary underline-offset-2 hover:underline" href={a.browser.viewerUrl} target="_blank" rel="noopener noreferrer">{t("connections.browserViewerOpen")}</a></dd></div> : <div className="py-2 text-xs text-muted">{t("connections.browserViewerMissing")}</div>}
-                </>
-              ) : (
-                <>
-              <div className="flex justify-between gap-4 py-2"><dt className="shrink-0 text-muted-text">{t("connections.browserChrome")}</dt><dd className="min-w-0 text-right font-medium">{a.chrome.found ? <><Badge info={{ label: t("connections.browserChromeFoundShort"), tone: "success", icon: "check" }} /><span className="mt-1 block break-all font-mono text-xs font-normal text-muted-text" title={a.chrome.path ?? ""}>{a.chrome.path ?? ""}</span></> : <Badge info={{ label: t("connections.browserChromeMissing"), tone: "warn", icon: "alert" }} />}</dd></div>
-              {!a.chrome.found && a.chrome.hint ? <div className="py-2 text-xs text-muted">{a.chrome.hint}</div> : null}
-                </>
-              )}
-              {a.browser.mode === "local" ? <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserProfile")}</dt><dd className="break-all text-right font-mono text-xs">{a.profileDir}</dd></div> : null}
-              <div className="flex justify-between gap-4 py-2"><dt className="text-muted-text">{t("connections.browserTimeout")}</dt><dd className="text-right font-medium">{t("connections.browserMinutes", { count: a.loginTimeoutMinutes })}</dd></div>
-            </dl>
-          </Card>
-          <Card>
-            <p className="text-sm font-medium">{t("connections.browserRecipes")}</p>
-            <p className="mt-2 text-xs text-muted">{a.allowExternalRecipes ? t("connections.recipeExternalOn") : t("connections.recipeExternalOff")}</p>
-            {a.recipes.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.browserNoRecipes")}</p> : (
-              <ul className="mt-2 divide-y divide-line text-sm">
-                {a.recipes.map((r) => (
-                  <li key={r.providerId} className="py-2">
-                    <p className="flex flex-wrap items-center gap-2 font-medium">{r.label} <span className="font-mono text-xs font-normal text-muted">{r.providerId}</span> <Badge info={r.bundled ? { label: t("connections.recipeBundled"), tone: "success", icon: "shield" } : { label: t("connections.recipeExternal"), tone: "warn", icon: "alert" }} /></p>
-                    <p className="text-xs text-muted">{r.host}: {r.status}</p>
-                    <p className="text-xs text-muted">{t("connections.recipeHosts", { hosts: r.allowHosts.length > 0 ? r.allowHosts.join(", ") : t("connections.recipeHostsNone") })}</p>
-                    <p className="font-mono text-xs text-muted" title={t("connections.recipeShaTitle", { sha: r.sha256 })}>{t("connections.recipeSha", { sha: shortHash(r.sha256) })}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-          <Card className="md:col-span-2">
-            <p className="text-sm font-medium">{t("connections.browserProblems")}</p>
-            {a.problems.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.browserNoProblems")}</p> : (
-              <ul className="mt-2 space-y-2 text-sm">
-                {a.problems.map((p, i) => <li key={i}><Notice tone="warn"><span className="font-mono text-xs">{p.file}</span><br />{p.message}</Notice></li>)}
-              </ul>
-            )}
-          </Card>
-        </div>
-      ) : null}
-    </section>
-  );
 }
 
 function addDays(day: string, n: number): string {

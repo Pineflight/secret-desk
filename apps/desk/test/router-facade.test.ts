@@ -222,4 +222,16 @@ describe("facade routes: flow", () => {
     await call(ui(deps, "POST", "facades/revenuecat/cancel"));
     await until(async () => (await call(ui(deps, "GET", "facades/revenuecat/state"))).body["status"] === "cancelled");
   });
+
+  it("answers a check while the browser is busy with 200 and the code busy, never an English-only error", async () => {
+    const { deps } = await setup("mfa");
+    const { call, bodies } = recorder(deps);
+    await call(ui(deps, "POST", "facades/revenuecat/sign-in", { ...signIn }));
+    const busy = await call(ui(deps, "POST", "facades/revenuecat/check"));
+    expect(busy.status).toBe(200);
+    expect(busy.body).toMatchObject({ signedIn: false, failure: { code: "busy" } });
+    await call(ui(deps, "POST", "facades/revenuecat/cancel"));
+    await until(async () => (await call(ui(deps, "GET", "facades/revenuecat/state"))).body["status"] === "cancelled");
+    expectNoLeak("responses", bodies);
+  });
 });

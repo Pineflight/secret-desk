@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCards, cardMatches, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
+import { buildCards, cardMatches, connectedKeyCount, earliestExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
 
 const v = (id: string, label: string, category: string, rest: Partial<VendorInfo> = {}): VendorInfo => ({ id, label, category, icon: null, connections: [], connectionPrefixes: [], legacyConnections: [], optionalConnections: [], providers: [], recipes: [], signInPlanned: false, ...rest });
 const catalog: VendorsResponse = {
@@ -172,5 +172,26 @@ describe("cardMatches", () => {
   });
   it("also finds a provider by a way in (a manual definition's name)", () => {
     expect(cardMatches(card("telegram"), "telegram-bot", { purpose: "", category: "" })).toBe(true);
+  });
+});
+
+describe("earliestExpiry", () => {
+  const cardWith = (rows: ConnectionRow[]) => buildCards({ catalog, connections: rows, providers: [], recipes: [], facades: [] }).find((c) => c.id === "stripe")!;
+  it("picks the connected key that runs out first, with its end date", () => {
+    const card = cardWith([
+      { ...conn("stripe:acct_1AbC:sandbox", "stripe", "primary", true, 3), expires: "2026-11-06" },
+      { ...conn("stripe:acct_1AbC:live", "stripe", "primary", true, 90), expires: "2027-02-01" },
+      { ...conn("stripe-test", "stripe", "legacy", false, 1), expires: "2026-11-04" },
+    ]);
+    expect(earliestExpiry(card)).toEqual({ keyId: "stripe:acct_1AbC:sandbox", expires: "2026-11-06", daysLeft: 3, level: "critical" });
+    expect(connectedKeyCount(card)).toBe(2);
+  });
+  it("says nothing when no connected key has a known end", () => {
+    expect(earliestExpiry(cardWith([conn("stripe:acct_1AbC:live", "stripe", "primary", true)]))).toBeNull();
+    expect(earliestExpiry(cardWith([conn("stripe:acct_1AbC:live", "stripe", "primary", false, 5)]))).toBeNull();
+    expect(earliestExpiry(cardWith([]))).toBeNull();
+  });
+  it("reports an expired key as such", () => {
+    expect(earliestExpiry(cardWith([conn("stripe:acct_1AbC:live", "stripe", "primary", true, -2)]))?.level).toBe("expired");
   });
 });

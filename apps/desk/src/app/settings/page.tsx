@@ -1,5 +1,6 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
+import { DeveloperPanel } from "@/components/BrowserAutomationPanel";
 import { LanguagePanel, PolicyPanel, StoragePanel } from "@/components/settings/InfoPanels";
 import { StagesPanel } from "@/components/settings/StagesPanel";
 import { ListSkeleton, PageHeader, Tabs } from "@/components/ui";
@@ -7,7 +8,7 @@ import { useT } from "@/lib/i18n";
 import { parseTab } from "@/lib/tabs";
 import { useStages } from "@/lib/use-stages";
 
-const TAB_IDS = ["stages", "policy", "storage", "language"] as const;
+const TAB_IDS = ["stages", "policy", "storage", "language", "developer"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 export default function SettingsPage() {
@@ -32,6 +33,7 @@ export default function SettingsPage() {
         {tab === "policy" ? <PolicyPanel /> : null}
         {tab === "storage" ? <StoragePanel /> : null}
         {tab === "language" ? <LanguagePanel /> : null}
+        {tab === "developer" ? <DeveloperPanel /> : null}
       </div>
     </>
   );

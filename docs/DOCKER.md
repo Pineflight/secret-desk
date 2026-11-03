@@ -326,8 +326,8 @@ Read them later with `cat browser-login` on the host. Never put them into the in
 
 ### First sign-in to a provider
 
-1. Open the portal, go to *Connections*, section *Browser automation*. *Remote browser* should say *Answers*.
-2. Click *Open browser*. The link follows the address you opened the portal with when `SECRET_DESK_BROWSER_VIEWER_URL` is a
+1. Open the portal, go to *Settings*, *Developer*, section *Browser automation*. *Remote browser* should say *Answers*.
+2. Click *Open browser* (the same link is on the Integrations card of every provider with a browser sign-in). The link follows the address you opened the portal with when `SECRET_DESK_BROWSER_VIEWER_URL` is a
    path such as `/browser/vnc.html?...`.
 3. Enter the Caddy user and password, then the VNC password (table above). You now see the Chromium of the sidecar.
 4. Close the notices Chromium shows after a restart (*Restore pages?*: close it, do not restore). The banner about

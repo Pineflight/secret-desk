@@ -127,7 +127,7 @@ export const facadeConnectionForRecipe = (recipeId: string | undefined): string 
 export const FACADE_PHASES = ["opening", "username", "password", "code", "approval", "captcha", "signed-in", "key", "stored", "testing", "connected"] as const;
 export type FacadePhase = (typeof FACADE_PHASES)[number];
 
-export type FacadeFailureCode = "rejected" | "timeout" | "cancelled" | "host" | "step" | "code" | "unsupported" | "browser" | "project-unknown" | "session-lost" | "key" | "store" | "test";
+export type FacadeFailureCode = "rejected" | "timeout" | "cancelled" | "host" | "step" | "page" | "busy" | "code" | "unsupported" | "browser" | "project-unknown" | "session-lost" | "key" | "store" | "test";
 
 export interface FacadeResult {
   /** The key was created, stored and the connection test did not fail. */
@@ -612,22 +612,33 @@ export function cancelFacade(rt: Runtime, actor: Actor, id: string): AutomationR
 export interface FacadeSessionCheck {
   signedIn: boolean;
   checkedAt: string;
+  /** Why the check could not be made (page not opened, browser busy or unreachable). The texts carry no value and no address. */
+  failure?: { code: FacadeFailureCode; message: string; messageEn: string };
 }
 
-/** Is the browser still signed in at the provider? Needs no credentials and types nothing. */
+/**
+ * Is the browser still signed in at the provider? Needs no credentials and types nothing. A check that cannot be made (the
+ * browser is busy with another run, the page does not open, the browser is unreachable) answers with `failure` and a stable code
+ * the portal translates, instead of an error text in one language.
+ */
 export async function checkFacadeSession(rt: Runtime, actor: Actor, id: string, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
   requireHuman(actor, "Check the provider sign-in");
   const { recipe } = descriptorOf(rt, id);
   const key = checkKey(id);
+  const checkedAt = (): string => new Date().toISOString();
+  if (rt.automation.isBusy()) {
+    const text = "A browser run is already in progress. Wait for it or cancel it first.";
+    return { signedIn: false, checkedAt: checkedAt(), failure: { code: "busy", message: text, messageEn: text } };
+  }
   const signal = rt.automation.begin(key, id, { text: "Checking the browser session.", needs: null });
   try {
     const driver = await rt.automation.newDriver();
     const r = await checkSession(recipe, driver, { signal, timeoutSeconds: options.timeoutSeconds ?? 15 });
     rt.automation.end(key, { status: "done", text: r.signedIn ? "Signed in." : "Not signed in." });
-    return { signedIn: r.signedIn, checkedAt: new Date().toISOString() };
+    return { signedIn: r.signedIn, checkedAt: checkedAt() };
   } catch (err) {
     const f = failureOf(err, [], signal.aborted);
     rt.automation.end(key, { status: "failed", text: f.messageEn });
-    throw new IssuanceError(f.messageEn);
+    return { signedIn: false, checkedAt: checkedAt(), failure: { code: f.code, message: f.message, messageEn: f.messageEn } };
   }
 }

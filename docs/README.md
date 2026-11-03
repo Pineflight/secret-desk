@@ -29,6 +29,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 - [REPOSITORIES.md](REPOSITORIES.md): repository selection, local folder links, path rules, search and renames.
 - [INTEGRATIONS.md](INTEGRATIONS.md): permissions per integration, connecting tokens, test connection, write test and the vault.
 - [TEAM.md](TEAM.md): exporting the value-free team file and onboarding new team members.
+- [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md): for people who add a provider: provider module vs. recipe vs. facade vs. vendor entry, exploring a page with the remote browser, dry runs, throwaway runs and cleanup, masking, tests with the fake driver, and the checklist before a pull request.
 - [RECIPES.md](RECIPES.md): writing browser recipes for providers without an API; [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md) explains the design and status.
 
 ## Design

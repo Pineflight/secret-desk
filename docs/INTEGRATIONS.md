@@ -4,11 +4,17 @@ An **integration** is a connection to GitHub or to a provider: an access token t
 
 ![Integrations](images/integrations.png)
 
+![Provider cards opened with Expand all](images/integrations-expanded.png)
+
 ![The Add integration picker](images/integrations-picker.png)
 
 ## One card per provider
 
 The page and the **Add integration** picker show **one card per provider** (GitHub, Stripe, Cloudflare, Supabase, Resend, RevenueCat, Grafana Cloud, OpenAI, VesselAPI, Peecho, Telegram), grouped by category: Code and CI, Hosting and edge, Database and backend, Payments and subscriptions, E-mail and messaging, Observability, AI, Data APIs, Print and fulfilment, Other. The picker is a wide dialog (up to 960 px) with a search over name, category and purpose and a grid of tiles with logo, name, a one-line purpose and the status (*Connected*, *Sign-in active*, *Not set up*). Technical connection ids such as `github-app-key` or `cloudflare-turnstile` are not entries of their own: they sit under the card of their provider.
+
+**Cards are collapsed.** A card on the page shows the logo, the name, one line about its purpose, the status, how many secrets, variables and keys depend on it, the key that **expires first** ("Earliest expiry: 12/12/2026 (in 3 days)", in red when it is under a week away) and, for providers with a guided sign-in, the sign-in state (*Signed in*, *Not signed in*, *Sign-in not checked*, *Check waiting*). Click the card (or press Enter or Space on it) to open it; inside, every connected key is again one compact row (name, expiry badge, source) that opens to its fingerprint, defaults, test and write test. *Expand all* / *Collapse all* sits above the cards. What you opened is remembered in this browser (local storage); without storage everything starts collapsed.
+
+*Check sign-in* checks **only that provider**. The remote browser runs one thing at a time, so checks you start on several cards run one after the other; the others show *Check waiting*. If the browser is busy with a sign-in or a key run, the check says so (*The browser is busy with another run*) and can be repeated. A check that cannot be made says why, in the interface language (the page did not open, the browser is not reachable). On a card with a browser sign-in, *Open browser* opens the remote browser window. The remote browser's own state, the viewer address, the recipe list with status and SHA-256, and recipe problems are not on this page: they are for people who build integrations and are under *Settings*, *Developer* ([DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md)).
 
 Under a card, the provider's **ways in**, each explained in one sentence:
 

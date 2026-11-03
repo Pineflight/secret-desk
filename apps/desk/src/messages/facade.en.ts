@@ -109,4 +109,7 @@ export default {
   "facade.count.apps.other": "{count} apps",
   "connections.openKeyPage": "Open the provider's page where the key is created",
   "connections.pasteKey": "Paste the key",
+  "facade.fail.page": "The provider's page could not be opened. The browser did not reach it; try again in a moment.",
+  "facade.fail.busy": "The browser is busy with another run. Wait for it to finish or cancel it, then check again.",
+  "facade.checkWaiting": "Waiting …",
 } as Record<string, string>;

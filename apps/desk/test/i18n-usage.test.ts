@@ -24,6 +24,8 @@ const FILES = [
   "components/IntegrationsOverview.tsx",
   "components/ProviderFacade.tsx",
   "components/ProviderCards.tsx",
+  "components/BrowserAutomationPanel.tsx",
+  "lib/sign-in-check.ts",
 ];
 
 describe("i18n keys used by the parameter screens", () => {

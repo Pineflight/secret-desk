@@ -23,16 +23,16 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 | Provider | Creates | Status |
 |---|---|---|
 | GitHub | fine-grained personal access tokens | recipe scaffold, not verified |
-| Supabase | personal access tokens | recipe scaffold, not verified |
-| OpenAI | API keys (owner, expiry, permissions) | dialog, value view and revoke checked live 2026-11-03; service account and project choice not verified |
-| VesselAPI | API keys (30 to 90 days on the free plan) | form, value view and delete checked live 2026-11-03; full run not verified |
+| Supabase | personal access tokens with an organization, project and permission preset | verified live: full run 2026-11-03 (five scoped tokens) |
+| OpenAI | API keys (owner, expiry, permissions) | verified live: full run 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
+| VesselAPI | API keys (30 to 90 days on the free plan) | verified live: full run 2026-11-03 (two keys) |
 | Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |
 
 ### Created through a guided sign-in (provider facade)
 
 | Provider | What the facade does | Status |
 |---|---|---|
-| RevenueCat | Signs in through the remote browser, creates a v2 secret key (*Project configuration: Read only*), stores it as the connection `revenuecat`, tests it; projects, apps and public SDK keys are then loaded through the API v2 for several projects | Key form and list checked live on 2026-11-02. Sign-in: only the email step checked; password, one-time code, approval, CAPTCHA and error steps **not verified**. The full flow has not run against the live site. |
+| RevenueCat | Signs in through the remote browser, creates a v2 secret key (*Project configuration: Read only*), stores it as the connection `revenuecat`, tests it; projects, apps and public SDK keys are then loaded through the API v2 for several projects | Verified live: the full key run on 2026-11-03 (two secret keys and one integration key through the guided sign-in, on a browser that was already signed in). Sign-in form: only the email step checked; password, one-time code, approval, CAPTCHA and error steps **not verified**. |
 | Stripe | Signs in through the remote browser, asks for the account (`acct_...`) and the mode, creates a restricted key (*Webhook Endpoints, Event Destinations: Write*), checks that it belongs to that account and mode before storing it, stores it as `stripe:<acct_id>:<mode>` and tests it | Sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key. The sign-in form (every step), the live mode (including a possible password confirmation) and the full flow are **not verified**. |
 
 ### Pasted by a human, verified and written by secret-desk
@@ -44,20 +44,20 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 
 | Item | What it brings |
 |---|---|
-| Live verification of the RevenueCat sign-in | Password, one-time code, approval, CAPTCHA and error steps of the recipe are written defensively and still to be checked against the live site. |
+| Live verification of the RevenueCat sign-in form | Password, one-time code, approval, CAPTCHA and error steps of the recipe are written defensively and still to be checked against the live site (the key run itself is verified). |
 | Live verification of the Stripe key recipe | The full run in the sandbox, the live mode and the sign-in form of the recipe `stripe-restricted-key`; then the first real use of `account` on webhook entries. |
 
 ## Planned
 
 | Item | Approach |
 |---|---|
-| GitHub, Supabase, Peecho, VesselAPI, OpenAI | A facade descriptor and recipes each, behind the same guided sign-in |
+| GitHub, Supabase, Peecho, VesselAPI, OpenAI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase, VesselAPI and OpenAI are verified live) |
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |
 | VAPID key pairs | As a provider that writes the private key as a secret and the public key as a variable |
 | Organization secrets | The `organization` scope exists in the schema; the portal form does not offer it yet |
-| Verified recipes and recipe-driven revocation | Every bundled recipe checked against the live page |
+| Verified recipes and recipe-driven revocation | Every bundled recipe checked against the live page (four of six ran end to end on 2026-11-03; GitHub and the Stripe full run are open) |
 
 Ideas, not promises: order and scope can change.
 

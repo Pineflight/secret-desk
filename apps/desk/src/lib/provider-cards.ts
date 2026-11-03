@@ -32,6 +32,7 @@ export interface ConnectionRow {
   vendor: string | null;
   role: ConnectionRole;
   daysLeft?: number | null;
+  expires?: string | null;
 }
 export interface ProviderRow {
   id: string;
@@ -66,6 +67,8 @@ export interface KeyRow {
   connected: boolean;
   role: ConnectionRole;
   daysLeft: number | null;
+  /** Day the key expires (YYYY-MM-DD), null: never, undefined: not known. */
+  expires?: string | null | undefined;
   level: ExpiryLevel | null;
 }
 
@@ -114,7 +117,7 @@ export interface CardInput {
 
 const ROLE_ORDER: Record<ConnectionRole, number> = { primary: 0, optional: 1, legacy: 2 };
 
-const keyOf = (c: ConnectionRow): KeyRow => ({ id: c.id, label: c.label, connected: c.connected, role: c.role, daysLeft: c.daysLeft ?? null, level: c.connected ? expiryLevel(c.daysLeft) : null });
+const keyOf = (c: ConnectionRow): KeyRow => ({ id: c.id, label: c.label, connected: c.connected, role: c.role, daysLeft: c.daysLeft ?? null, expires: c.expires, level: c.connected ? expiryLevel(c.daysLeft) : null });
 
 export function buildCards(input: CardInput): ProviderCard[] {
   const { catalog } = input;
@@ -219,3 +222,26 @@ export const primaryKeys = (card: ProviderCard): KeyRow[] => card.keys.filter((k
 
 /** A legacy key is only worth a hint while a primary one could replace it. */
 export const showsLegacyHint = (card: ProviderCard): boolean => legacyKeys(card).some((k) => k.connected) && card.signIn.state === "facade";
+
+export interface EarliestExpiry {
+  keyId: string;
+  expires: string | null | undefined;
+  daysLeft: number;
+  level: ExpiryLevel;
+}
+
+/**
+ * The connected key of the card that runs out first, for the collapsed card. `null` when no connected key has a known end date
+ * (never expires or not specified: the card then says nothing about expiry).
+ */
+export function earliestExpiry(card: Pick<ProviderCard, "keys">): EarliestExpiry | null {
+  let best: EarliestExpiry | null = null;
+  for (const k of card.keys) {
+    if (!k.connected || k.daysLeft === null || k.level === null) continue;
+    if (best === null || k.daysLeft < best.daysLeft) best = { keyId: k.id, expires: k.expires, daysLeft: k.daysLeft, level: k.level };
+  }
+  return best;
+}
+
+/** How many connected keys the card has (what the collapsed card counts). */
+export const connectedKeyCount = (card: Pick<ProviderCard, "keys">): number => card.keys.filter((k) => k.connected).length;
