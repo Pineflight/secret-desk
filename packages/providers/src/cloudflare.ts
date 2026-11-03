@@ -3,17 +3,17 @@ import { asList, getJson, needParam, readFailure, str, unknownKind } from "./dis
 import { check, daysApart, day, isRecord, probeWithConnection, probeWithValue, sameSet, step, steps } from "./checks.js";
 import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireString, requireStringArray, revokeIdempotent, seg } from "./http.js";
 
-const API = "https://api.cloudflare.com/client/v4";
+export const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
 interface Envelope<T> {
   result?: T;
 }
 
 const TID = "cloudflare-token";
-const ACCOUNT_SCOPE = "com.cloudflare.api.account";
+export const ACCOUNT_SCOPE = "com.cloudflare.api.account";
 const ZONE_SCOPE = "com.cloudflare.api.account.zone";
 
-const ACCOUNT_ID: ParamSpec = {
+export const CLOUDFLARE_ACCOUNT_ID_SPEC: ParamSpec = {
   key: "accountId",
   label: "Cloudflare-Konto",
   labelEn: "Cloudflare account",
@@ -26,7 +26,7 @@ const ACCOUNT_ID: ParamSpec = {
 };
 
 const tokenSpecs: ParamSpec[] = [
-  ACCOUNT_ID,
+  CLOUDFLARE_ACCOUNT_ID_SPEC,
   {
     key: "permissions",
     label: "Berechtigungen",
@@ -54,7 +54,7 @@ const tokenSpecs: ParamSpec[] = [
 ];
 
 const turnstileSpecs: ParamSpec[] = [
-  ACCOUNT_ID,
+  CLOUDFLARE_ACCOUNT_ID_SPEC,
   {
     key: "sitekey",
     label: "Turnstile-Widget (Sitekey)",
@@ -67,22 +67,22 @@ const turnstileSpecs: ParamSpec[] = [
   },
 ];
 
-async function discoverCloudflare(id: string, connection: string, specs: readonly ParamSpec[], kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]> {
+export async function discoverCloudflare(id: string, connection: string, specs: readonly ParamSpec[], kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]> {
   switch (kind) {
     case "cloudflare.account": {
-      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${API}/accounts?per_page=50`);
+      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/accounts?per_page=50`);
       return asList(r?.result).flatMap((a) => (str(a["id"]) ? [{ value: str(a["id"])!, label: str(a["name"]) ?? str(a["id"])!, detail: str(a["id"])! }] : []));
     }
     case "cloudflare.zone": {
       const account = typeof ctx.params["accountId"] === "string" && ctx.params["accountId"] ? `&account.id=${seg(ctx.params["accountId"])}` : "";
-      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${API}/zones?per_page=50${account}`);
+      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/zones?per_page=50${account}`);
       return asList(r?.result).flatMap((z) => {
         const acc = isRecord(z["account"]) ? str(z["account"]["name"]) : undefined;
         return str(z["id"]) ? [{ value: str(z["id"])!, label: str(z["name"]) ?? str(z["id"])!, detail: acc ? `${str(z["id"])} (${acc})` : str(z["id"])! }] : [];
       });
     }
     case "cloudflare.permissionGroups": {
-      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${API}/user/tokens/permission_groups`);
+      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/user/tokens/permission_groups`);
       // Gleiche Namen gibt es je Geltungsbereich mehrfach (zum Beispiel Konto und Zone): eine Option je Name, Bereiche vereinigt.
       const scopesByName = new Map<string, Set<string>>();
       for (const g of asList(r?.result)) {
@@ -96,7 +96,7 @@ async function discoverCloudflare(id: string, connection: string, specs: readonl
     }
     case "cloudflare.turnstileWidget": {
       const account = needParam(specs, ctx.params, "accountId");
-      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${API}/accounts/${seg(account)}/challenges/widgets`);
+      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/accounts/${seg(account)}/challenges/widgets`);
       return asList(r?.result).flatMap((w) => {
         const domains = Array.isArray(w["domains"]) ? w["domains"].filter((x): x is string => typeof x === "string").join(", ") : "";
         return str(w["sitekey"]) ? [{ value: str(w["sitekey"])!, label: str(w["name"]) ?? str(w["sitekey"])!, detail: domains ? `${str(w["sitekey"])} (${domains})` : str(w["sitekey"])! }] : [];
@@ -115,7 +115,7 @@ function groupScope(scopes: string[]): string {
 }
 
 /** Konto und Berechtigungen gegen das Token der Verbindung pruefen (lesend). */
-async function preflightCloudflare(id: string, connection: string, specs: readonly ParamSpec[], ctx: PreflightContext, withPermissions: boolean): Promise<PreflightResult> {
+export async function preflightCloudflare(id: string, connection: string, specs: readonly ParamSpec[], ctx: PreflightContext, withPermissions: boolean): Promise<PreflightResult> {
   const findings: PreflightFinding[] = [];
   const dctx = { connections: ctx.connections, fetch: ctx.fetch, params: ctx.params, hint: { repos: [] } } satisfies DiscoverContext;
   const accountId = needParam(specs, ctx.params, "accountId");
@@ -181,7 +181,7 @@ function expiryCheck(ctx: VerifyContext, expiresOn: unknown): Check {
 async function verifyToken(ctx: VerifyContext): Promise<Check[]> {
   return steps([
     step(ctx, "active", "Token ist aktiv", async () => {
-      const r = await probeWithValue(TID, ctx, `${API}/user/tokens/verify`);
+      const r = await probeWithValue(TID, ctx, `${CLOUDFLARE_API}/user/tokens/verify`);
       const result = isRecord(r.json) && isRecord(r.json["result"]) ? r.json["result"] : undefined;
       const status = typeof result?.["status"] === "string" ? result["status"] : undefined;
       const active = r.status >= 200 && r.status < 300 && status === "active";
@@ -192,7 +192,7 @@ async function verifyToken(ctx: VerifyContext): Promise<Check[]> {
     }),
     step(ctx, "permissions", "Rechte des Tokens", async () => {
       if (!ctx.externalId) return [check("permissions", "Rechte des Tokens", "warn", { detail: "Keine Token-Kennung, Rechte nicht abrufbar" })];
-      const r = await probeWithConnection(TID, ctx, "cloudflare", `${API}/user/tokens/${seg(ctx.externalId)}`);
+      const r = await probeWithConnection(TID, ctx, "cloudflare", `${CLOUDFLARE_API}/user/tokens/${seg(ctx.externalId)}`);
       const result = isRecord(r.json) && isRecord(r.json["result"]) ? r.json["result"] : undefined;
       if (r.status < 200 || r.status >= 300 || !result) {
         return [check("permissions", "Rechte des Tokens", "warn", { detail: `Token konnte nicht gelesen werden (HTTP ${r.status})` })];
@@ -256,7 +256,7 @@ const tokenProvider: Provider = {
     const accountId = requireString(id, ctx.params, "accountId");
     const permissions = requireStringArray(id, ctx.params, "permissions");
 
-    const groups = await callWithToken<Envelope<{ id: string; name: string; scopes?: string[] }[]>>(id, ctx, "cloudflare", `${API}/user/tokens/permission_groups`, { method: "GET" });
+    const groups = await callWithToken<Envelope<{ id: string; name: string; scopes?: string[] }[]>>(id, ctx, "cloudflare", `${CLOUDFLARE_API}/user/tokens/permission_groups`, { method: "GET" });
     const list = groups?.result;
     if (!Array.isArray(list)) throw badResponse(id);
     // Gleiche Namen gibt es je Geltungsbereich mehrfach: je Richtlinie die Gruppe des passenden Bereichs nehmen.
@@ -291,7 +291,7 @@ const tokenProvider: Provider = {
       policies,
       ...(expiresOn ? { expires_on: expiresOn } : {}),
     };
-    const res = await callWithToken<Envelope<{ id: string; value: string; expires_on?: string }>>(id, ctx, "cloudflare", `${API}/user/tokens`, {
+    const res = await callWithToken<Envelope<{ id: string; value: string; expires_on?: string }>>(id, ctx, "cloudflare", `${CLOUDFLARE_API}/user/tokens`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
@@ -316,7 +316,7 @@ const tokenProvider: Provider = {
     ];
   },
   async revoke(ctx) {
-    await revokeIdempotent(() => callWithToken("cloudflare-token", ctx, "cloudflare", `${API}/user/tokens/${seg(ctx.externalId)}`, { method: "DELETE" }));
+    await revokeIdempotent(() => callWithToken("cloudflare-token", ctx, "cloudflare", `${CLOUDFLARE_API}/user/tokens/${seg(ctx.externalId)}`, { method: "DELETE" }));
   },
 };
 
@@ -359,7 +359,7 @@ const turnstileProvider: Provider = {
     const id = "cloudflare-turnstile";
     const accountId = requireString(id, ctx.params, "accountId");
     const sitekey = requireString(id, ctx.params, "sitekey");
-    const res = await callWithToken<Envelope<{ secret: string }>>(id, ctx, "cloudflare-turnstile", `${API}/accounts/${seg(accountId)}/challenges/widgets/${seg(sitekey)}/${TURNSTILE_ACTION}`, {
+    const res = await callWithToken<Envelope<{ secret: string }>>(id, ctx, "cloudflare-turnstile", `${CLOUDFLARE_API}/accounts/${seg(accountId)}/challenges/widgets/${seg(sitekey)}/${TURNSTILE_ACTION}`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ invalidate_immediately: false }),

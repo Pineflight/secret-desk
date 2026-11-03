@@ -16,7 +16,7 @@ const MAX_MESSAGE = 200;
 export const TIMEOUT_MS = 20_000;
 
 // Sicherheitsnetz fuer Werte, die der Aufrufer nicht kennt: Felder mit Wertnamen und typische Token-Praefixe.
-const FIELD = /("(?:api_key|apikey|token|key|secret|value|password|access_token)"\s*:\s*")[^"]*(")/gi;
+const FIELD = /("(?:api_key|apikey|token|key|secret|value|password|access_token|client_secret)"\s*:\s*")[^"]*(")/gi;
 const PREFIXED = /\b(?:whsec|sk_live|sk_test|rk_live|rk_test|glsa|cfut|sbp|sb_secret)_[A-Za-z0-9_-]{6,}/g;
 
 /** Bereinigt zuerst, kuerzt danach (sonst koennte ein Wert halb abgeschnitten durchrutschen). */
