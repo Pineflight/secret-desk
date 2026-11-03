@@ -96,8 +96,10 @@ steps:
     when: { var: preset, equals: webhooks }
   - waitFor: { text: "Webhook Endpoints, Event Destinations", timeoutSeconds: 30 }
     when: { var: preset, equals: webhooks }
-  # The filter leaves one resource, so the radio is unique; a second match makes the run stop before a key exists.
-  - check: { role: radio, name: "Write" }
+  # The filter leaves the section ("Section permission level") and its one resource row ("Permission level"), each with
+  # None / Read / Write radios. Only the row's radio is set (checked live on 2026-11-03); a second match makes the run stop
+  # before a key exists.
+  - check: { css: 'role=group[name="Permission level"s] >> role=radio[name="Write"s]' }
     when: { var: preset, equals: webhooks }
   - click: { role: button, name: "Continue", exact: true }
     when: { var: preset, equals: webhooks }

@@ -4,7 +4,8 @@ import { Badge, Card } from "@/components/ui";
 import { BRAND_ICONS } from "@/lib/brand-icons.generated";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
-import { earliestExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
+import { browserNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
+import type { AgeParts } from "@/lib/browser-ready";
 import type { ExpiryLevel } from "@/lib/connection-health";
 import { daysLabel, formatDate } from "@/lib/format";
 import type { SignInStatus } from "@/lib/sign-in-check";
@@ -27,8 +28,11 @@ export function ProviderLogo({ icon, label, size = 40 }: { icon: string | null; 
   );
 }
 
-const STATUS: Record<CardStatus, { key: string; tone: "success" | "primary" | "neutral"; icon: "check" | "plug" }> = {
+const STATUS: Record<CardStatus, { key: string; tone: "success" | "primary" | "neutral" | "warn"; icon: "check" | "plug" | "alert" }> = {
   connected: { key: "providers.status.connected", tone: "success", icon: "check" },
+  ready: { key: "providers.status.ready", tone: "success", icon: "check" },
+  signout: { key: "providers.status.signout", tone: "warn", icon: "alert" },
+  unknown: { key: "providers.status.unknown", tone: "neutral", icon: "plug" },
   signin: { key: "providers.status.signin", tone: "primary", icon: "plug" },
   none: { key: "providers.status.none", tone: "neutral", icon: "plug" },
 };
@@ -101,15 +105,28 @@ const EXPIRY_TEXT: Record<ExpiryLevel, string> = {
 };
 
 /** The expiry sentence of a collapsed card: the key that runs out first, or why there is nothing to say. */
-export function expiryLine(card: Pick<ProviderCard, "keys">, t: (key: string, vars?: Record<string, string | number>) => string, now: Date = new Date()): { text: string; level: ExpiryLevel | null } | null {
-  if (connectedKeyCount(card) === 0) return null;
-  const e = earliestExpiry(card);
+export function expiryLine(card: Pick<ProviderCard, "keys" | "browser">, t: (key: string, vars?: Record<string, string | number>) => string, now: Date = new Date()): { text: string; level: ExpiryLevel | null } | null {
+  const managed = card.browser?.secrets ?? 0;
+  if (connectedKeyCount(card) === 0 && managed === 0) return null;
+  const e = managedExpiry(card);
   if (e) {
     const date = e.expires ?? new Date(now.getTime() + e.daysLeft * 86_400_000).toISOString().slice(0, 10);
     return { text: t(EXPIRY_TEXT[e.level], { date: formatDate(date), days: daysLabel(e.daysLeft) }), level: e.level };
   }
   const connected = card.keys.filter((k) => k.connected);
-  return { text: t(connected.every((k) => k.expires === null) ? "providers.card.neverExpires" : "providers.card.expiryUnknown"), level: null };
+  return { text: t(connected.length > 0 && connected.every((k) => k.expires === null) ? "providers.card.neverExpires" : "providers.card.expiryUnknown"), level: null };
+}
+
+const TIME_TEXT: Record<AgeParts["unit"], string> = {
+  now: "providers.time.now",
+  minutes: "providers.time.minutes",
+  hours: "providers.time.hours",
+  days: "providers.time.days",
+};
+
+/** "3 hours ago" in the interface language. */
+export function ageText(age: AgeParts, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  return age.unit === "now" ? t(TIME_TEXT.now) : t(TIME_TEXT[age.unit], { count: age.count });
 }
 
 /** What a collapsed card says: counts, earliest expiry, sign-in state. Plain text lines, no controls. */
@@ -117,12 +134,15 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
   const t = useT();
   const expiry = expiryLine(card, t);
   const keys = connectedKeyCount(card);
+  const managed = card.browser?.secrets ?? 0;
+  const note = browserNote(card);
   const bad = expiry?.level === "critical" || expiry?.level === "expired";
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
       <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</span>
-      <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>
+      {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
+      {note ? <span>{t(note.key, { when: note.age ? ageText(note.age, t) : "" })}</span> : null}
       {signIn ? <span role={signIn === "waiting" || signIn === "checking" ? "status" : undefined}>{t(SIGN_IN_TEXT[signIn])}</span> : null}
     </span>
   );

@@ -71,7 +71,7 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
 - Bundled recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key` (per account and mode; sandbox wizard checked, live mode and sign-in form not verified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
-- Configuration: `automation: { enabled?, chromePath?, cdpEndpoint?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
+- Configuration: `automation: { enabled?, chromePath?, cdpEndpoint?, profileDir?, loginTimeoutMinutes?, signInFreshHours?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
 
 ## Remote browser (headless host)
 
@@ -117,14 +117,14 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
   AbortSignal, host check before every action, masking in every screenshot (Playwright `mask`, plus an automatic evidence image `nach-erzeugen`), errors without page content,
   `RecipeRunError.createdName` after `createsToken`.
 - `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` fits the `Provider` interface (`kind: "automatic"`, plus `automation.recipeId`).
-- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key`. Each carries a `# STATUS:` comment; `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You*) and `revenuecat-secret-api-key` ran end to end against the live pages on 2026-11-03 (the sign-in form steps after the email are not verified), and `stripe-restricted-key` in the sandbox (2026-11-03: wizard, result view with the key in `data-text`, expiry; full run, sign-in form and live mode not verified), the rest is not verified.
+- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key`, `openai-admin-key` (facade, not verified live). Each carries a `# STATUS:` comment; `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You*) and `revenuecat-secret-api-key` ran end to end against the live pages on 2026-11-03 (the sign-in form steps after the email are not verified), and `stripe-restricted-key` in the sandbox (2026-11-03: wizard, result view with the key in `data-text`, expiry; full run, sign-in form and live mode not verified), the rest is not verified.
 - Recipe `params` (per-entry values such as a project id) become template variables and provider parameter specs; see [RECIPES.md](RECIPES.md#parameters).
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
 - Tests: schema, template, host, fake runs, loading recipes, provider, integration with `PlaywrightDriver` against a local form (only with Chrome, headless, no internet).
 
 ### Wiring in runtime and portal (built)
 
-- **Configuration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), slowMoMs?, recipesDirs?: string[], allowExternalRecipes (false) }`. Recipes outside the bundled folder (`<inventory folder>/recipes`, `recipesDirs`) load only with `allowExternalRecipes: true`; a recipe never overrides a bundled id.
+- **Configuration** (`packages/core/src/config.ts`): `automation: { enabled (true), chromePath?, profileDir? (~/.secret-desk/browser-profile), loginTimeoutMinutes (10), signInFreshHours (12), slowMoMs?, recipesDirs?: string[], allowExternalRecipes (false) }`. Recipes outside the bundled folder (`<inventory folder>/recipes`, `recipesDirs`) load only with `allowExternalRecipes: true`; a recipe never overrides a bundled id.
   Relative paths are resolved from the configuration file, `~` is expanded. Example: `examples/secret-desk.config.example.yaml`.
 - **Runtime** (`packages/runtime/src/automation.ts`): `rt.automation` (`AutomationManager`). `createRuntime` loads the recipes (bundled from `<repo>/recipes` via
   `bundledRecipesDir()`, plus `<inventory folder>/recipes` and `recipesDirs`; later folders override equal ids) and registers the provider `<id>-browser` per recipe.

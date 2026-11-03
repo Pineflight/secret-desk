@@ -15,11 +15,16 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
 | `revenuecat-secret-key` | manual (carries the discovery for variable sources) | `revenuecat` | API reference read (list endpoints, field names, permissions); public key prefixes **not verified** |
-| `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `openai`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
+| `openai` | automatic | `openai` (the organization **Admin API key**, created once by the guided sign-in) | issues a service account key per project (`POST /v1/organization/projects/{projectId}/service_accounts`, the key value is in the answer, shown once), revokes it with `DELETE .../service_accounts/{id}`; verifies it with `GET /v1/models?limit=1`; **not verified live yet** |
+| `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
 
 **Before the first real use**, test every `automatic` provider with a throwaway entry in dev or staging.
 
 Provider ids are used as `provider` of a secret in the inventory; the connection column is the integration whose token the provider uses ([INTEGRATIONS.md](INTEGRATIONS.md)).
+
+## OpenAI
+
+OpenAI works like RevenueCat: a facade (the guided sign-in) with the recipe `openai-admin-key` creates an organization Admin API key in the signed-in browser, stores it as the `openai` connection and tests it (`GET https://api.openai.com/v1/organization/projects?limit=1`: 200 connected, 401/403 rejected). The projects it can see are discoverable (`openai.project`). From then on the provider `openai` issues keys **through the API**: it creates a service account named after the entry (`tokenName`) in the project given by the parameter `projectId` (`proj_...`, selectable from the discovered projects) and stores the key value from the answer. OpenAI keys never expire, so the entry gets its own `ttlDays` as expiry, or **90 days** as the rotation horizon when it has none; the expiry date is always filled. The per-entry recipe `openai-api-key` stays as the browser fallback for entries that name it. Nothing of the OpenAI facade, the admin-key recipe or the Admin API calls is verified against the live service yet.
 
 ## Parameters per provider
 
@@ -32,6 +37,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `cloudflare-token` | `accountId` (string, required, may come from the integration default), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`), `zoneId` (optional, needed for zone-bound permissions) |
 | `cloudflare-access-service-token` | `accountId` (required, may come from the integration default), `clientIdTarget` (required: inventory id of the secret entry that receives the client ID), `duration` (`8760h` default, `720h`, `2160h`, `forever`) |
 | `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |
+| `openai` | `projectId` (required, `^proj_[A-Za-z0-9]+$`, selectable from the discovered `openai.project` resources) |
 | `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
 | `supabase-db-password` | `projectRef` (required), `length`: integer 24 to 64, default 40. The password is generated locally (letters and digits only, safe in a Postgres URL) and set with `PATCH /v1/projects/<ref>/database/password`. The old password stops working at once; there is nothing to revoke, and the API gives no read-back, so the test checks only the shape and that the API answered 2xx (no login to Postgres). |

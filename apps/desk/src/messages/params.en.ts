@@ -123,6 +123,7 @@ export default {
   "params.kind.cloudflare.turnstileWidget": "Turnstile widgets",
   "params.kind.supabase.project": "Supabase projects",
   "params.kind.resend.domain": "Resend domains",
+  "params.kind.openai.project": "OpenAI projects",
   "params.kind.revenuecat.project": "RevenueCat projects",
   "params.kind.revenuecat.app": "RevenueCat apps",
   "params.kind.revenuecat.publicApiKey": "RevenueCat apps (SDK keys)",

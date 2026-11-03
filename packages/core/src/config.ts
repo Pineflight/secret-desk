@@ -157,6 +157,8 @@ export const ConfigSchema = z.object({
       profileDir: z.string().min(1).optional(),
       /** Wie lange auf Anmeldung, 2FA oder CAPTCHA im Fenster gewartet wird. */
       loginTimeoutMinutes: z.number().min(1).max(120).default(10),
+      /** How many hours a browser sign-in check (or a successful recipe run) counts as current. Provider sessions are short-lived. */
+      signInFreshHours: z.number().min(1).max(168).default(12),
       /** Verlangsamt jede Browseraktion (Millisekunden), zum Zuschauen. */
       slowMoMs: z.number().int().min(0).max(5000).optional(),
       /** Zusaetzliche Ordner mit Rezepten (*.yaml). Zusaetzlich immer <Ordner des Inventars>/recipes. */
@@ -164,7 +166,7 @@ export const ConfigSchema = z.object({
       /** Rezepte aus anderen Ordnern als den mitgelieferten laden. Rezepte sind ausfuehrbare Browserskripte: nur fuer Quellen, denen du vertraust. */
       allowExternalRecipes: z.boolean().default(false),
     })
-    .default({ enabled: true, loginTimeoutMinutes: 10, allowExternalRecipes: false }),
+    .default({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, allowExternalRecipes: false }),
   /** Stage-Vergleich. */
   compare: z
     .object({

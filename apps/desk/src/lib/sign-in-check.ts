@@ -37,15 +37,21 @@ export function outcomeProblem(o: CheckOutcome | undefined, locale: "de" | "en",
 export type SignInStatus = CheckPhase | "yes" | "no" | "failed" | "unchecked";
 
 /**
- * The sign-in state a collapsed card shows. Only providers with a guided sign-in can be checked, so only they have one; for the
- * others the browser state cannot be known and the card says nothing.
+ * The sign-in state a collapsed card shows. Only providers with a guided sign-in (their own or a recipe's) can be checked, so only
+ * they have one; for the others the browser state cannot be known and the card says nothing.
  */
 export function signInStatus(card: Pick<ProviderCard, "signIn">, phase: CheckPhase | undefined, outcome: CheckOutcome | undefined): SignInStatus | null {
-  if (!card.signIn.facade) return null;
+  if (!card.signIn.facade && !card.signIn.checkRecipe) return null;
   if (phase) return phase;
   if (!outcome) return "unchecked";
   if (outcome.signedIn === null) return "failed";
   return outcome.signedIn ? "yes" : "no";
+}
+
+/** The route that checks the browser sign-in of a card: its guided sign-in, else the first recipe that has one. Null: not checkable. */
+export function checkPathOf(card: Pick<ProviderCard, "id" | "signIn">): string | null {
+  if (card.signIn.facade) return `facades/${encodeURIComponent(card.id)}/check`;
+  return card.signIn.checkRecipe ? `recipes/${encodeURIComponent(card.signIn.checkRecipe)}/check` : null;
 }
 
 /** The providers whose last check answered "signed in" (feeds the card status). */

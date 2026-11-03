@@ -1,0 +1,76 @@
+# STATUS: not verified: nothing of this recipe has been run against the live site yet (steps, selectors and the sign-in form are best guesses)
+# Creates an organization Admin API key on platform.openai.com/settings/organization/admin-keys. The portal stores it as the
+# `openai` connection and creates project keys through the Admin API from then on. The key is shown once in a dialog
+# ("Save your key") in a read-only field. Every selector below is a best guess; each step waits for its element, so a
+# wrong guess fails visibly instead of clicking something else. Needs the organization owner role.
+id: openai-admin-key
+label: OpenAI Admin API Key
+host: platform.openai.com
+params: []
+login:
+  # Signed in = any organization settings or dashboard page.
+  expect: { url: "^https://platform\\.openai\\.com/(settings|api-keys|home|chat|usage|dashboard)" }
+  message: Bei OpenAI anmelden (platform.openai.com).
+  # Guided sign-in (the portal types the email and password the human entered for this run).
+  # STATUS: not verified: nothing of this form has been run against the live site yet (every selector below is a best guess).
+  form:
+    start: "https://platform.openai.com/login"
+    home: "https://platform.openai.com/"
+    steps:
+      # not verified: the email field and the continue button.
+      - waitFor: { visible: { css: 'input[name="email"], input[type="email"]' }, timeoutSeconds: 20 }
+      - fill: { css: 'input[name="email"], input[type="email"]', value: "{{login.username}}" }
+      - click: { role: button, name: "Continue" }
+      # not verified: the password field appears only after the email step.
+      - waitFor: { visible: { css: 'input[type="password"]' }, timeoutSeconds: 20 }
+      - fill: { css: 'input[type="password"]', value: "{{login.password}}" }
+      - click: { css: 'button[type="submit"]' }
+    # not verified: selectors of the one-time code step.
+    mfa:
+      detect: { visible: { css: 'input[autocomplete="one-time-code"], input[name="code"]' } }
+      field: { css: 'input[autocomplete="one-time-code"], input[name="code"]' }
+      submit: { css: 'button[type="submit"]' }
+    # not verified: wording of the e-mail/device approval page.
+    approval:
+      detect: { text: "Check your email" }
+      message: OpenAI wartet auf eine Bestaetigung (E-Mail oder Geraet). Bitte dort bestaetigen, dann geht es hier weiter.
+      messageEn: OpenAI is waiting for an approval (email or device). Approve it there and the sign-in continues here.
+    # not verified: a challenge the human has to solve in the browser window.
+    captcha:
+      detect: { visible: { css: 'iframe[src*="challenges.cloudflare.com"], iframe[title*="reCAPTCHA challenge"], iframe[src*="hcaptcha.com/captcha"]' } }
+      message: OpenAI zeigt eine Sicherheitspruefung (CAPTCHA). Bitte im Browserfenster loesen.
+      messageEn: OpenAI shows a security check (CAPTCHA). Solve it in the browser window.
+    # not verified: error texts.
+    failure:
+      - detect: { text: "Wrong email or password" }
+        message: OpenAI hat E-Mail oder Passwort abgelehnt.
+        messageEn: OpenAI rejected the email or password.
+      - detect: { text: "Too many" }
+        message: OpenAI hat das Konto vorerst gesperrt (zu viele Versuche). Spaeter erneut versuchen.
+        messageEn: OpenAI has locked the account for now (too many attempts). Try again later.
+steps:
+  - goto: "https://platform.openai.com/settings/organization/admin-keys"
+  # not verified: button text, name field and dialog.
+  - waitFor: { text: "Create new admin key" }
+  - click: { text: "Create new admin key" }
+  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
+  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
+  - screenshot: formular-vorher
+  - click: { css: '[role=dialog] button:has-text("Create")', createsToken: true }
+  - waitFor: { visible: { css: "[role=dialog] input[readonly]" } }
+capture:
+  token:
+    find: { css: "[role=dialog] input[readonly]" }
+    pattern: "^(sk-admin-[A-Za-z0-9_-]+)$"
+  externalId: { from: name }
+mask:
+  - { css: "[role=dialog] input[readonly]" }
+revoke:
+  # not verified: the row is found by the key's name; the menu and the confirm button are guesses.
+  steps:
+    - goto: "https://platform.openai.com/settings/organization/admin-keys"
+    - waitFor: { visible: { css: '[role=row]:has-text("{{externalId}}")' } }
+    - click: { css: '[role=row]:has-text("{{externalId}}") button[aria-label="More"]' }
+    - click: { role: menuitem, name: "Delete" }
+    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - waitFor: { hidden: { css: '[role=row]:has-text("{{externalId}}")' } }

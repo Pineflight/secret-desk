@@ -78,7 +78,7 @@ export const VENDORS: readonly VendorDef[] = [
   vendor({ id: "resend", label: "Resend", category: "messaging", icon: "resend", connections: ["resend"], providers: ["resend-api-key"] }),
   vendor({ id: "telegram", label: "Telegram", category: "messaging", icon: "telegram", providers: ["telegram-bot"] }),
   vendor({ id: "grafana", label: "Grafana Cloud", category: "observability", icon: "grafana", connections: ["grafana"], providers: ["grafana-service-account-token"] }),
-  vendor({ id: "openai", label: "OpenAI", category: "ai", icon: null, providers: ["openai"], recipes: ["openai-api-key"] }),
+  vendor({ id: "openai", label: "OpenAI", category: "ai", icon: null, connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] }),
   vendor({ id: "vesselapi", label: "VesselAPI", category: "data", icon: null, recipes: ["vesselapi-api-key"] }),
   vendor({ id: "peecho", label: "Peecho", category: "print", icon: null, signInPlanned: true }),
 ];

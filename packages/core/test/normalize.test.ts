@@ -37,6 +37,12 @@ secrets:
     service: revenuecat
     expiry: none
     places: [{ repo: web, scope: environment, environment: production }]
+  - id: openai-key
+    name: OPENAI_API_KEY
+    stage: production
+    service: openai
+    expiry: none
+    places: [{ repo: web, scope: environment, environment: production }]
   - id: cf-access
     name: CF_ACCESS_CLIENT_ID
     stage: shared
@@ -134,6 +140,10 @@ describe("planNormalization", () => {
   it("leaves providers without an API as manual-only with the reason", () => {
     const { changes } = planOf();
     expect(find(changes, "manual-only:secret:revenuecat")!.reasons[0]!.code).toBe("revenuecat");
+    const openai = find(changes, "manual-only:secret:openai-key")!.reasons[0]!;
+    expect(openai.code).toBe("openai-admin");
+    expect(openai.text).toMatch(/Admin-API/);
+    expect(openai.text).not.toMatch(/nur von Hand/);
     // every other manual secret is listed too, with a reason
     expect(find(changes, "manual-only:secret:cf-access")!.reasons.map((r) => r.code)).toEqual(["cloudflare-access-companion"]);
   });

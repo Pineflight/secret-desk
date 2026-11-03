@@ -3,6 +3,7 @@ import { cloudflareAccessProviders } from "./cloudflare-access.js";
 import { cloudflareProviders } from "./cloudflare.js";
 import { grafanaProviders } from "./grafana.js";
 import { manualProviders } from "./manual.js";
+import { openaiProviders } from "./openai.js";
 import { randomProviders } from "./random.js";
 import { resendProviders } from "./resend.js";
 import { revenueCatProviders } from "./revenuecat.js";
@@ -17,6 +18,7 @@ export * from "./supabase.js";
 export * from "./stripe.js";
 export * from "./resend.js";
 export * from "./revenuecat.js";
+export * from "./openai.js";
 export * from "./grafana.js";
 export * from "./manual.js";
 
@@ -30,6 +32,7 @@ export function createDefaultRegistry(): ProviderRegistry {
     ...stripeProviders,
     ...resendProviders,
     ...revenueCatProviders,
+    ...openaiProviders,
     ...grafanaProviders,
     ...manualProviders,
   ]) {
