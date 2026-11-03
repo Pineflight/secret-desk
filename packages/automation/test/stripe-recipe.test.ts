@@ -25,14 +25,14 @@ function wizard(opts: { banner?: boolean; key?: string } = {}): FakeDriver {
   let custom = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'Text "Custom permissions"', 'Text "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
+    visible: ['css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
         drv.pageText.add("Choose how you"); // the recipe waits for the start of the heading
         return;
       }
-      if (e.action === "click" && e.key === 'Text "Custom permissions"') custom = true;
+      if (e.action === "check" && e.key === 'radio "Custom permissions"') custom = true;
       if (e.action === "click" && e.key === CONTINUE) {
         stage += 1;
         // The permission list is shown only for custom permissions; otherwise step 2 leads straight to the review.
@@ -69,10 +69,10 @@ describe("stripe-restricted-key recipe", () => {
     expect(banner).toBeGreaterThan(0);
     expect(banner).toBeLessThan(firstContinue);
     expect(d.calls.join("\n")).not.toContain("Accept all");
-    expect(d.calls).toContain('click Text "Custom permissions"');
+    expect(d.calls).toContain('check radio "Custom permissions"');
     expect(d.calls).toContain('fill css input[type="search"]');
-    expect(d.calls).toContain('click radio "Write"');
-    expect(d.calls).not.toContain('click Text "Full access—except sensitive operations"');
+    expect(d.calls).toContain('check radio "Write"');
+    expect(d.calls).not.toContain('check radio "Full access—except sensitive operations"');
     expect(d.filled.get('Feld "Name" (exact)')).toBe(VARS.name);
     // The key reaches no screenshot as text, and the screenshots mask the element.
     for (const s of d.shots) expect(s.masks).toContain('css [data-text^="rk_"]');
@@ -83,9 +83,9 @@ describe("stripe-restricted-key recipe", () => {
     const d = wizard();
     await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live", preset: "full-except-sensitive" }), d, { onWaitingForHuman: () => undefined }, { pollMs: 2 });
     expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys/create`);
-    expect(d.calls).toContain('click Text "Full access—except sensitive operations"');
-    expect(d.calls).not.toContain('click Text "Custom permissions"');
-    expect(d.calls).not.toContain('click radio "Write"');
+    expect(d.calls).toContain('check radio "Full access—except sensitive operations"');
+    expect(d.calls).not.toContain('check radio "Custom permissions"');
+    expect(d.calls).not.toContain('check radio "Write"');
   });
 
   it("works without a cookie banner", async () => {

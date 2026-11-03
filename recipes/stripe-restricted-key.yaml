@@ -82,10 +82,11 @@ steps:
   - click: { role: button, name: "Continue", exact: true }
   - waitFor: { text: "Assign permissions to your key", timeoutSeconds: 60 }
   - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 2 }
-  # Step 2: the permission template.
-  - click: { text: "Custom permissions" }
+  # Step 2: the permission template. Each card is a label over a visually hidden radio input that intercepts pointer
+  # events, so a click on the card text times out; the radio is checked directly (checked live on 2026-11-03).
+  - check: { role: radio, name: "Custom permissions" }
     when: { var: preset, equals: webhooks }
-  - click: { text: "Full access—except sensitive operations" }
+  - check: { role: radio, name: "Full access—except sensitive operations" }
     when: { var: preset, equals: full-except-sensitive }
   - click: { role: button, name: "Continue", exact: true }
   # Step 3 (custom permissions only): narrow the list with the search field, then set the one resource to Write.
@@ -96,7 +97,7 @@ steps:
   - waitFor: { text: "Webhook Endpoints, Event Destinations", timeoutSeconds: 30 }
     when: { var: preset, equals: webhooks }
   # The filter leaves one resource, so the radio is unique; a second match makes the run stop before a key exists.
-  - click: { role: radio, name: "Write" }
+  - check: { role: radio, name: "Write" }
     when: { var: preset, equals: webhooks }
   - click: { role: button, name: "Continue", exact: true }
     when: { var: preset, equals: webhooks }

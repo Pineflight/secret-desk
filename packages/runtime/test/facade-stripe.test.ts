@@ -35,7 +35,7 @@ function driverFor(site: Site): FakeDriver {
   let live = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['button "Reject all" (exact)', 'css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'Text "Custom permissions"'],
+    visible: ['button "Reject all" (exact)', 'css input[type="search"]', 'radio "Write"', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"'],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
@@ -61,7 +61,7 @@ function driverFor(site: Site): FakeDriver {
         drv.url = `https://dashboard.stripe.com/${ACCT}/dashboard`;
         return;
       }
-      if (e.action === "click" && e.key === 'Text "Custom permissions"') custom = true;
+      if (e.action === "check" && e.key === 'radio "Custom permissions"') custom = true;
       if (e.action === "click" && e.key === CONTINUE) {
         stage += 1;
         drv.pageText.add(stage === 1 ? "Assign permissions to your key" : stage === 2 ? (custom ? "Select permissions" : "Name and review your key") : "Name and review your key");
