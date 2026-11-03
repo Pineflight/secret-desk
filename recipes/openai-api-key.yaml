@@ -1,0 +1,54 @@
+# STATUS: Dialog (Besitzer "You", Ablauf, Rechte "Read only"), Wertanzeige und Widerruf am 2026-11-03 gegen die echte Seite geprueft (Wegwerf-Schluessel, danach widerrufen); "Service account" und die Projektauswahl sind nicht geprueft
+# Creates an OpenAI API key on platform.openai.com/api-keys for the project that is active in the dashboard. The key is
+# shown once ("Save your key") in a read-only field. Revoked keys stay in the list with the status "Revoked".
+id: openai-api-key
+label: OpenAI API Key
+host: platform.openai.com
+params:
+  - key: ownedBy
+    label: Besitzer
+    labelEn: Owned by
+    options: ["You", "Service account"]
+    default: "You"
+    help: "A service account key is not tied to a person and survives when they leave the organization (not verified yet)."
+  - key: expiry
+    label: Ablauf
+    labelEn: Expiration
+    options: ["1 day", "7 days", "30 days", "Never"]
+    default: "30 days"
+  - key: access
+    label: Rechte
+    labelEn: Permissions
+    options: ["All", "Restricted", "Read only"]
+    default: "All"
+login:
+  expect: { url: "^https://platform\\.openai\\.com/(api-keys|settings|home)" }
+  message: Bei OpenAI anmelden (platform.openai.com).
+steps:
+  - goto: "https://platform.openai.com/api-keys"
+  - waitFor: { text: "Create new secret key" }
+  - click: { text: "Create new secret key" }
+  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
+  - click: { role: radio, name: "{{ownedBy}}", exact: true }
+  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
+  - click: { text: "Select an expiration" }
+  - click: { role: option, name: "{{expiry}}", exact: true }
+  - click: { role: radio, name: "{{access}}", exact: true }
+  - screenshot: formular-vorher
+  - click: { role: button, name: "Create secret key", createsToken: true }
+  - waitFor: { text: "Save your key" }
+capture:
+  token:
+    find: { css: "[role=dialog] input[readonly]" }
+    pattern: "^(sk-[A-Za-z0-9_-]+)$"
+  externalId: { from: name }
+mask:
+  - { css: "[role=dialog] input[readonly]" }
+revoke:
+  steps:
+    - goto: "https://platform.openai.com/api-keys"
+    - waitFor: { visible: { role: button, name: "Revoke {{externalId}}", exact: true } }
+    - click: { role: button, name: "Revoke {{externalId}}", exact: true }
+    - click: { role: button, name: "Revoke key", exact: true }
+    # The revoked key stays listed (status "Revoked"); waiting for the dialog to close is enough.
+    - waitFor: { hidden: { css: "[role=dialog]" } }
