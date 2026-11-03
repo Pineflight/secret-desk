@@ -200,7 +200,7 @@ export class ConnectionStore {
         // An unreadable vault lists nothing; the status of single ids still reports the problem.
       }
     }
-    return [...out].filter((id) => id.startsWith(prefix) && !id.endsWith("#label")).sort();
+    return [...out].filter((id) => id.startsWith(prefix) && !id.endsWith("#label") && !id.endsWith("#meta")).sort();
   }
 
   async statuses(ids: string[]): Promise<ConnectionStatus[]> {

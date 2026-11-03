@@ -10,6 +10,7 @@ import { loadStages } from "@/lib/use-stages";
 import type { PushPlan, SyncCheck, SyncStatus } from "@/lib/team-sync";
 import { Button, Card, Notice, SectionLabel } from "./ui";
 import { SyncDiff } from "./SyncDiff";
+import { TeamTokenControl } from "./TeamTokenControl";
 
 export function TeamSyncPanel() {
   const t = useT();
@@ -78,6 +79,11 @@ export function TeamSyncPanel() {
             <dt className="text-muted-text">{t("teamSync.neededRights")}</dt><dd>{s.neededRights.join(", ")}</dd>
             <dt className="text-muted-text">{t("teamSync.lastSync")}</dt><dd>{s.lastSyncAt ?? t("teamSync.never")}</dd>
           </dl>
+          {s.repo && s.mode ? (
+            <div className="mt-4">
+              <TeamTokenControl repo={s.repo} {...(s.branch ? { branch: s.branch } : {})} mode={s.mode} strategy={s.pushStrategy ?? "pull-request"} onCreated={() => status.reload()} />
+            </div>
+          ) : null}
           {s.lastError ? <div className="mt-3"><Notice tone="warn" title={t("teamSync.error")}>{s.lastError}</Notice></div> : null}
           {s.pendingPullUrl ? <p className="mt-3 text-sm">{t("teamSync.push.pending", { url: s.pendingPullUrl })}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">

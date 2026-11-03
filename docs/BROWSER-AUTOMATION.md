@@ -67,6 +67,7 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
   masking, login waiting with a timeout, abort.
 - A provider that runs `issue` through a recipe and returns `IssuedSecret` (evidence PNGs go to the `EvidenceStore`). The runtime
   (`createRuntime`) registers recipes from `recipes/` (bundled), `<inventory folder>/recipes/` and `automation.recipesDirs` as provider `<recipe-id>-browser`.
+- The `github-fine-grained-token` recipe also serves the **team token** of team sync ([TEAM.md](TEAM.md#team-sync)): the portal starts it without an inventory entry (variables `owner`, `repos`, `permissionsQuery`, `days` 90, name `secret-desk-team-<repo>`), tests the new token itself and stores it as the connection `team-sync`. The recipe and its selectors are unchanged and still not verified against the live page.
 - Bundled recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key` (per account and mode; sandbox wizard checked, live mode and sign-in form not verified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
