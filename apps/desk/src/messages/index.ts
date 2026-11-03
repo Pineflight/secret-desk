@@ -39,10 +39,12 @@ import paramsDe from "./params.de";
 import paramsEn from "./params.en";
 import facadeDe from "./facade.de";
 import facadeEn from "./facade.en";
+import providersDe from "./providers.de";
+import providersEn from "./providers.en";
 import normalizeDe from "./normalize.de";
 import normalizeEn from "./normalize.en";
 
 export const messages: Record<"de" | "en", Record<string, string>> = {
-  de: { ...commonDe, ...homeDe, ...entriesDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...normalizeDe, ...aboutDe, ...paletteDe, ...facadeDe },
-  en: { ...commonEn, ...homeEn, ...entriesEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...normalizeEn, ...aboutEn, ...paletteEn, ...facadeEn },
+  de: { ...commonDe, ...homeDe, ...entriesDe, ...secretsDe, ...secretDetailDe, ...variablesDe, ...metaDe, ...reviewsDe, ...approvalsDe, ...devDe, ...connectionsDe, ...teamDe, ...teamSyncDe, ...reposDe, ...settingsDe, ...compareDe, ...paramsDe, ...normalizeDe, ...aboutDe, ...paletteDe, ...facadeDe, ...providersDe },
+  en: { ...commonEn, ...homeEn, ...entriesEn, ...secretsEn, ...secretDetailEn, ...variablesEn, ...metaEn, ...reviewsEn, ...approvalsEn, ...devEn, ...connectionsEn, ...teamEn, ...teamSyncEn, ...reposEn, ...settingsEn, ...compareEn, ...paramsEn, ...normalizeEn, ...aboutEn, ...paletteEn, ...facadeEn, ...providersEn },
 };

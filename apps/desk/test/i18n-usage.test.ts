@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { VENDORS, VENDOR_CATEGORIES } from "@secret-desk/core";
 import { messages } from "../src/messages";
 
 /** Jeder in den Parameter-Oberflaechen benutzte Textschluessel existiert in Deutsch und Englisch. */
@@ -22,6 +23,7 @@ const FILES = [
   "app/page.tsx",
   "components/IntegrationsOverview.tsx",
   "components/ProviderFacade.tsx",
+  "components/ProviderCards.tsx",
 ];
 
 describe("i18n keys used by the parameter screens", () => {
@@ -48,6 +50,12 @@ describe("i18n keys used by the parameter screens", () => {
     for (const key of ["params.conn.empty.cloudflare.account", "params.conn.empty.cloudflare.zone"]) {
       expect(messages.de[key]).toBeTruthy();
       expect(messages.en[key]).toBeTruthy();
+    }
+  });
+  it("has a name and a purpose for every category and vendor in both languages", () => {
+    for (const l of ["de", "en"] as const) {
+      for (const c of [...VENDOR_CATEGORIES]) expect(messages[l][`category.${c}`], `${l} category.${c}`).toBeTruthy();
+      for (const v of VENDORS) expect(messages[l][`vendor.${v.id}.purpose`], `${l} vendor.${v.id}.purpose`).toBeTruthy();
     }
   });
 });

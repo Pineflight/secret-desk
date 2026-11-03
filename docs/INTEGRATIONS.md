@@ -4,6 +4,28 @@ An **integration** is a connection to GitHub or to a provider: an access token t
 
 ![Integrations](images/integrations.png)
 
+![The Add integration picker](images/integrations-picker.png)
+
+## One card per provider
+
+The page and the **Add integration** picker show **one card per provider** (GitHub, Stripe, Cloudflare, Supabase, Resend, RevenueCat, Grafana Cloud, OpenAI, VesselAPI, Peecho, Telegram), grouped by category: Code and CI, Hosting and edge, Database and backend, Payments and subscriptions, E-mail and messaging, Observability, AI, Data APIs, Print and fulfilment, Other. The picker is a wide dialog (up to 960 px) with a search over name, category and purpose and a grid of tiles with logo, name, a one-line purpose and the status (*Connected*, *Sign-in active*, *Not set up*). Technical connection ids such as `github-app-key` or `cloudflare-turnstile` are not entries of their own: they sit under the card of their provider.
+
+Under a card, the provider's **ways in**, each explained in one sentence:
+
+| Way in | What it is | Example |
+|---|---|---|
+| **Sign-in (browser)** | The remote browser is signed in at the provider. Recipes create keys that have no API; for providers with a [guided sign-in](#guided-sign-in-provider-facade) the sign-in also creates the integration keys itself. | Stripe: per account and mode. RevenueCat: per project. |
+| **API keys** | The keys secret-desk uses to call the provider's API (webhooks, account checks, discovery). For a provider with a guided sign-in they are **created and renewed by the sign-in** and listed as rows; pasting a key stays available under a collapsed *I already have a key*. | *Stripe Acme Studio (Sandbox)*, *Stripe Acme Studio (Live)* |
+| **By hand** | Only what no API and no recipe can produce, for example an account password or a value the provider sends by e-mail. | Telegram bot token |
+
+**Why Stripe has no separate sandbox, live and general connections any more:** you sign in once; secret-desk creates the restricted keys it needs for each account and mode and keeps them as `stripe:<acct_id>:<mode>`. You do not manage *Stripe (Sandbox)*, *Stripe (Live)* and *Stripe* separately. The older connections `stripe`, `stripe-test` and `stripe-live` stay readable and appear under the Stripe card as *older connection*, with a hint to replace them by the per-account ones. Nothing is deleted automatically.
+
+The page lists the providers that are set up or have secrets or variables attached; the counts include secrets that a browser recipe creates for that provider. *Check sign-in* asks the remote browser whether it is still signed in (no credentials, nothing typed). A provider whose recipe does not exist yet (Peecho) shows *Recipe coming* as its sign-in way.
+
+Which connection, provider definition or recipe belongs to which card, and which category it is shown under, is defined in one place, [`vendors.ts`](../packages/core/src/vendors.ts) (served by `GET vendors`); the texts are in the interface catalogs (`vendor.<id>.purpose`, `category.<id>`).
+
+**Logos** come from the [`simple-icons`](https://simpleicons.org) package (CC0-1.0; the brands themselves are trademarks of their owners and are shown only to mark the provider). `node scripts/brand-icons.mjs` copies the few icons the catalog uses into `apps/desk/src/lib/brand-icons.generated.ts`, so the page bundles them and loads nothing from outside (the CSP allows no foreign images). A provider without an icon there (OpenAI, VesselAPI, Peecho, providers you add yourself) gets a neutral monogram. A logo keeps its brand color only where that color has at least 3:1 contrast on both a light and a dark surface; otherwise it follows the text color.
+
 Create every token with **no more than** the permissions below, with a short expiry. Guides are in [`connection-guides.ts`](../packages/runtime/src/connection-guides.ts); the **Guide** button on each card shows the same.
 
 ## Connecting a token

@@ -38,8 +38,9 @@ Types come from `@secret-desk/runtime` and `@secret-desk/core` (`import type` on
 | GET `approvals` / `approvals/:id` / POST `approvals/:id/approve` or `deny` | `Approval[]` / `Approval` |
 | GET `dev-templates` | Dev templates: `{ id, repo, stage, file, entries: [{ key, source, description, value? (defaults only), variable?, secret? }] }` |
 | POST `env-templates`, POST `env-templates/:id/entries` | Create or extend a template |
-| POST `providers` / GET `providers` | Add a guide-only provider / providers (`kind`, `connection`, `guide`) |
-| GET `connections` | `ConnectionStatus[]` (yes or no, never tokens) |
+| POST `providers` / GET `providers` | Add a guide-only provider / providers (`kind`, `connection`, `vendor`, `guide`) |
+| GET `vendors` | `{ categories, vendors }`: the provider cards of the Integrations page with the connections, provider definitions and recipes that belong to each (static, no state) |
+| GET `connections` | `ConnectionStatus[]` (yes or no, never tokens), each with `vendor` and `role` (`primary`, `optional`, `legacy`) |
 | POST `connections/:id/token` `{ token, expires \| neverExpires, remember? }` / DELETE | Set the token for this session, or (`remember`) in the vault; delete |
 | POST `connections/:id/check` `{ deep?, targets? }` | Test connection (read-only); `deep` adds the GitHub write test for the listed targets |
 | GET `connections/github/write-targets` | Targets selectable for the write test |
