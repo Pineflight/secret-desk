@@ -7,6 +7,13 @@ export interface AboutInfo {
   /** Release-Tag oder null (nur im Docker-Image per SECRET_DESK_BUILD_TAG gesetzt). */
   buildTag: string | null;
   commit: string | null;
+  /**
+   * What the portal shows as its version: the GitHub release tag of the running image (e.g. "v0.1.0-29"), otherwise
+   * "v" + version. Matches the tag on the GitHub releases page.
+   */
+  displayVersion: string;
+  /** Release page of that tag, or null outside a release build. */
+  releaseUrl: string | null;
   description: string;
   createdBy: string;
   license: string;
@@ -46,10 +53,16 @@ export function readAbout(options: { rootDir: string; thirdPartyFile: string; en
   }
   const text = (v: string | undefined): string | null => (v && v.trim() ? v.trim() : null);
   const source = "https://github.com/Pineflight/secret-desk";
+  const version = text(env["SECRET_DESK_VERSION"]) ?? pkg.version ?? "0.0.0";
+  const buildTag = text(env["SECRET_DESK_BUILD_TAG"]);
+  // Only a plain tag name becomes part of a link.
+  const safeTag = buildTag && /^v?[0-9A-Za-z.+-]{1,60}$/.test(buildTag) ? buildTag : null;
   return {
     name: "secret-desk",
-    version: text(env["SECRET_DESK_VERSION"]) ?? pkg.version ?? "0.0.0",
-    buildTag: text(env["SECRET_DESK_BUILD_TAG"]),
+    version,
+    buildTag,
+    displayVersion: safeTag ?? `v${version}`,
+    releaseUrl: safeTag ? `${source}/releases/tag/${encodeURIComponent(safeTag)}` : null,
     commit: text(env["SECRET_DESK_COMMIT"])?.slice(0, 12) ?? null,
     description: pkg.description ?? "",
     createdBy: "Pineflight",

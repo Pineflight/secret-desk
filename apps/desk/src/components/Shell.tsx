@@ -64,7 +64,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, []);
   const dq = useDebounced(q, 250);
   const overview = useQuery<Overview>("shell-overview", () => api<Overview>("GET", "overview"), { refreshMs: 15000 });
-  const about = useQuery<{ version: string }>("shell-about", () => api<{ version: string }>("GET", "about"));
+  const about = useQuery<{ version: string; displayVersion: string; releaseUrl: string | null }>("shell-about", () => api<{ version: string; displayVersion: string; releaseUrl: string | null }>("GET", "about"));
   const reloadOverview = overview.reload;
   useEffect(() => subscribeRefresh(reloadOverview), [reloadOverview]);
 
@@ -167,7 +167,16 @@ export function Shell({ children }: { children: ReactNode }) {
             {t("about.footer")}
             <br />
             <Link href="/about" className="underline hover:text-ink">{t("about.footerAbout")}</Link>
-            {about.data ? <span className="tabular"> · v{about.data.version}</span> : null}
+            {about.data ? (
+              <>
+                {" · "}
+                {about.data.releaseUrl ? (
+                  <a href={about.data.releaseUrl} target="_blank" rel="noopener noreferrer" className="tabular underline hover:text-ink">{about.data.displayVersion}</a>
+                ) : (
+                  <span className="tabular">{about.data.displayVersion}</span>
+                )}
+              </>
+            ) : null}
             {" · "}
             <a href="https://github.com/Pineflight/secret-desk" target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">{t("about.footerSource")}</a>
           </p>
