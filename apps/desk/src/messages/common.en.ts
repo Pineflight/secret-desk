@@ -29,6 +29,7 @@ export default {
   "common.missingConnection": "The connection “{name}” is missing.",
   "common.toIntegrations": "Go to integrations",
   "common.retry": "Try again",
+  "common.inventoryUnreadable": "The inventory file on disk cannot be read right now; the last valid state stays in use. Reason: {message}",
   "common.unknownError": "Unknown error",
   "common.err.session": "Could not start the session.",
   "common.err.launch": "Paste the launch address with ?launch=… from the terminal where secret-desk was started. In a container: docker compose logs secret-desk",

@@ -6,6 +6,7 @@ import type { Overview } from "@secret-desk/runtime";
 import { ApiError, api, ensureSession, type SessionInfo } from "@/lib/api";
 import { useDebounced, useQuery } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
+import { useInventorySync } from "@/lib/inventory-sync";
 import { subscribeRefresh } from "@/lib/refresh";
 import { CommandPalette } from "./CommandPalette";
 import { Icon } from "./Icons";
@@ -67,6 +68,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const about = useQuery<{ version: string; displayVersion: string; releaseUrl: string | null }>("shell-about", () => api<{ version: string; displayVersion: string; releaseUrl: string | null }>("GET", "about"));
   const reloadOverview = overview.reload;
   useEffect(() => subscribeRefresh(reloadOverview), [reloadOverview]);
+  const inventoryProblem = useInventorySync(session !== null);
 
   useEffect(() => {
     ensureSession().then(setSession).catch((err: unknown) => { setSession(null); setLaunchRequired(err instanceof ApiError && err.code === "launch-required"); });
@@ -211,7 +213,9 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
 
       {paletteOpen ? <CommandPalette shortcut={touch ? "" : shortcutLabel(platform, locale)} onClose={() => setPaletteOpen(false)} /> : null}
-      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{launchRequired ? <div className="mx-auto max-w-2xl py-8 sm:py-16"><LaunchForm onSession={() => window.location.reload()} /></div> : children}</main>
+      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
+        {inventoryProblem ? <p role="alert" className="mb-4 rounded-xl border border-line bg-card px-4 py-3 text-sm text-danger">{t("common.inventoryUnreadable", { message: inventoryProblem.message })}</p> : null}
+        {launchRequired ? <div className="mx-auto max-w-2xl py-8 sm:py-16"><LaunchForm onSession={() => window.location.reload()} /></div> : children}</main>
     </div>
   );
 }
