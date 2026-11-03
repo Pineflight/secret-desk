@@ -5,7 +5,7 @@ import { Icon } from "./Icons";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ title, onClose, children, wide = false, description }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; description?: string }) {
+export function Dialog({ title, onClose, children, wide = false, size, description }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; size?: "xl"; description?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const t = useT();
@@ -48,7 +48,7 @@ export function Dialog({ title, onClose, children, wide = false, description }: 
 
   return (
     <div className="sd-fade fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`sd-slide flex max-h-[calc(100dvh-1.5rem)] w-full flex-col sm:max-h-[calc(100dvh-3rem)] ${wide ? "max-w-3xl" : "max-w-xl"} rounded-2xl border border-line bg-card shadow-xl`}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`sd-slide flex max-h-[calc(100dvh-1.5rem)] w-full flex-col sm:max-h-[calc(100dvh-3rem)] ${size === "xl" ? "max-w-[960px]" : wide ? "max-w-3xl" : "max-w-xl"} rounded-2xl border border-line bg-card shadow-xl`}>
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-6 pb-4 pt-5">
           <div>
             <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
