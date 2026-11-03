@@ -282,7 +282,7 @@ describe("run", () => {
     await expect(requestIssuance(rt, human, "sample-a")).rejects.toThrow(AutomationError);
     const st = rt.automation.state("sample-a");
     expect(st.status).toBe("failed");
-    expect(st.createdName).toMatch(/^sample-a-\d{8}$/);
+    expect(st.createdName).toMatch(/^sample-a-\d{8}-\d{4}$/);
     expect(st.text).toMatch(/dort pruefen und loeschen/);
     expect(drivers[0]?.closed).toBe(true);
     expect(rt.issuances.list()).toHaveLength(0);

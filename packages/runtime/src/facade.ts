@@ -66,6 +66,10 @@ export const FACADES: readonly FacadeDescriptor[] = [
 
 export const facadeById = (id: string): FacadeDescriptor | undefined => FACADES.find((f) => f.id === id);
 
+/** Integration a browser recipe belongs to (its facade's connection), so its secrets count for that integration. */
+export const facadeConnectionForRecipe = (recipeId: string | undefined): string | null =>
+  (recipeId ? FACADES.find((f) => f.recipeId === recipeId)?.connectionId : undefined) ?? null;
+
 /** Phases of a facade run in the order the portal shows them. `code`, `approval` and `captcha` appear only when the provider asks. */
 export const FACADE_PHASES = ["opening", "username", "password", "code", "approval", "captcha", "signed-in", "key", "stored", "testing", "connected"] as const;
 export type FacadePhase = (typeof FACADE_PHASES)[number];

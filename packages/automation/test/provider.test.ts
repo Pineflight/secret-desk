@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SecretSchema, type IssueContext, type RevokeContext } from "@secret-desk/core";
-import { FakeDriver, createBrowserProvider, recipeVars } from "../src/index.js";
+import { FakeDriver, createBrowserProvider, recipeVars, tokenName } from "../src/index.js";
 import { FORM_VISIBLE, TOKEN, sampleRecipe } from "./helpers.js";
 
 const secret = SecretSchema.parse({
@@ -16,10 +16,19 @@ const secret = SecretSchema.parse({
 });
 const now = new Date("2026-10-27T10:00:00Z");
 
+describe("tokenName", () => {
+  it("cuts the id, never the date and time, and stays within 40 characters", () => {
+    const n = tokenName("revenuecat-api-key-wake-miles-production", now);
+    expect(n).toBe("revenuecat-api-key-wake-mi-20261027-1000");
+    expect(n.length).toBeLessThanOrEqual(40);
+    expect(tokenName("revenuecat-api-key-wake-miles-production", new Date("2026-10-27T10:01:00Z"))).not.toBe(n);
+  });
+});
+
 describe("recipeVars", () => {
   it("builds variables from the entry", () => {
     expect(recipeVars(secret, "dev", now)).toMatchObject({
-      name: "demo-20261027",
+      name: "demo-20261027-1000",
       owner: "acme",
       days: "30",
       date: "2026-10-27",
@@ -54,7 +63,7 @@ describe("createBrowserProvider", () => {
     expect(p).toMatchObject({ id: "sample-token", kind: "automatic", automation: { recipeId: "sample-token" } });
     const issued = await p.issue?.({ secret, params: secret.params, stage: "dev", now, label: "x" } as unknown as IssueContext);
     expect(issued?.value.reveal()).toBe(TOKEN);
-    expect(issued?.externalId).toBe("demo-20261027");
+    expect(issued?.externalId).toBe("demo-20261027-1000");
     expect(issued?.expiresAt).toBe("2026-11-26");
     expect(p.takeScreenshots("demo").map((s) => s.name)).toEqual(["vorher", "nach-erzeugen"]);
     expect(p.takeScreenshots("demo")).toEqual([]);

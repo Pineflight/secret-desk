@@ -58,6 +58,7 @@ import type { z } from "zod";
 import type { Approval } from "./approvals.js";
 import type { AutomationInfo, AutomationRunState } from "./automation.js";
 import { linkedFolder } from "./repos.js";
+import { facadeConnectionForRecipe } from "./facade.js";
 import { paramStatus } from "./params.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
@@ -153,7 +154,8 @@ function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): Secr
     ttlDays: s.ttlDays ?? null,
     places: s.places,
     guide: provider?.guide ? { url: provider.guide.url, steps: provider.guide.steps, openUrl: provider.guide.openUrl?.(s, { owner: rt.owner, now: today }) ?? provider.guide.url } : null,
-    connection: provider?.connection ?? null,
+    // Browser recipes need no connection token, but a recipe behind a facade belongs to that integration (overview counts).
+    connection: provider?.connection ?? facadeConnectionForRecipe((provider as { automation?: { recipeId?: string } } | undefined)?.automation?.recipeId),
     notes: s.notes ?? null,
     params: paramStatus(rt, s),
     ...(liveErrors.length > 0 ? { liveErrors: [...new Set(liveErrors)] } : {}),

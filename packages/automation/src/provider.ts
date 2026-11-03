@@ -28,6 +28,16 @@ const pick = <T>(v: PerRun<T> | undefined, secretId: string, fallback: T): T =>
   v === undefined ? fallback : typeof v === "function" ? (v as (id: string) => T)(secretId) : v;
 
 const yyyymmdd = (d: Date): string => d.toISOString().slice(0, 10).replaceAll("-", "");
+const hhmm = (d: Date): string => d.toISOString().slice(11, 16).replace(":", "");
+
+/**
+ * Name of a new token at the provider: the secret id, shortened if needed, plus date and time, at most 40 characters.
+ * The id is cut, never the date: names must differ between renewals, or the row of the old token cannot be found again.
+ */
+export function tokenName(secretId: string, now: Date): string {
+  const suffix = `-${yyyymmdd(now)}-${hhmm(now)}`;
+  return `${secretId.slice(0, 40 - suffix.length).replace(/-+$/, "")}${suffix}`;
+}
 
 /** Variablen fuer ein Rezept aus einem Inventar-Eintrag. */
 export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: { externalId?: string } = {}): Record<string, string> {
@@ -37,7 +47,7 @@ export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: 
   const permEntries = typeof perms === "object" && perms !== null && !Array.isArray(perms) ? Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string") : [];
   const repos = [...new Set(secret.places.map((p) => p.repo.split("/").pop() ?? p.repo))];
   return {
-    name: `${secret.id}-${yyyymmdd(now)}`.slice(0, 40),
+    name: tokenName(secret.id, now),
     // GitHub-Konto bzw. Organisation: params.owner, sonst der Verantwortliche des Eintrags.
     owner: typeof ownerParam === "string" ? ownerParam : (secret.owner ?? ""),
     days: String(days),
