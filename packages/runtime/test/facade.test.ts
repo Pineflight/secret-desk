@@ -408,3 +408,12 @@ describe("facade: input and policy", () => {
     await expect(checkFacadeSession(rt, agent, "revenuecat")).rejects.toThrow(PolicyError);
   });
 });
+
+describe("facadeConnectionForRecipe", () => {
+  it("maps the RevenueCat recipe to the revenuecat integration and nothing else", async () => {
+    const { facadeConnectionForRecipe } = await import("../src/facade.js");
+    expect(facadeConnectionForRecipe("revenuecat-secret-api-key")).toBe("revenuecat");
+    expect(facadeConnectionForRecipe("github-fine-grained-token")).toBeNull();
+    expect(facadeConnectionForRecipe(undefined)).toBeNull();
+  });
+});

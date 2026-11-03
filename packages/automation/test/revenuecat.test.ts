@@ -5,7 +5,7 @@ import { FakeDriver, RecipeRunError, createBrowserProvider, dryRunRecipe, loadRe
 import { TOKEN, VARS, sampleRecipe } from "./helpers.js";
 
 const FILE = resolve(import.meta.dirname, "../../../recipes/revenuecat-secret-api-key.yaml");
-const NAME = "rc-key-20261102";
+const NAME = "rc-key-20261102-1000";
 const KEY = "sk_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6";
 const LIST = "https://app.revenuecat.com/projects/proj1a2b3c/api-keys";
 const ROW = `[role=row]:has-text("${NAME}")`;
