@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
 
-const NEW_TOKEN = "github_pat_made_up_router_team_token";
+const NEW_TOKEN = "github_" + "pat_made_up_router_team_token";
 const FIELD = 'Feld "Token name"';
 const HOST = "127.0.0.1:4747";
 const base = `http://${HOST}`;

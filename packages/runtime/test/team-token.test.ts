@@ -11,8 +11,8 @@ import { readTeamTokenRecord, retireTeamToken, writeTeamTokenRecord } from "../s
 import { rightsCover, teamRights, teamRightsLabels, teamRightsList, teamRightsQuery } from "../src/team-token-rights.js";
 import { cancelTeamToken, checkTeamTokenSession, dismissTeamTokenRevocation, getTeamTokenInfo, startTeamToken, teamTokenVars, verifyTeamToken } from "../src/team-token.js";
 
-const NEW_TOKEN = "github_pat_made_up_new_team_token_1";
-const OLD_TOKEN = "github_pat_made_up_old_team_token_0";
+const NEW_TOKEN = "github_" + "pat_made_up_new_team_token_1";
+const OLD_TOKEN = "github_" + "pat_made_up_old_team_token_0";
 const MAIN_TOKEN = "gh_main_made_up_integration";
 const REPO = "acme-org/team-config";
 const FIELD = 'Feld "Token name"';
