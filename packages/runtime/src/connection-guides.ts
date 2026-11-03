@@ -216,6 +216,18 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         ],
         permissions: ["Project configuration: Read only (Projekte, Apps und oeffentliche Schluessel lesen)", "Alle anderen Bereiche: None"],
       };
+    case "openai":
+      return {
+        label: "OpenAI",
+        description: "Der Admin-Key der Organisation. Damit legt secret-desk Service-Accounts mit eigenem Schluessel in einem Projekt an und widerruft sie wieder.",
+        url: "https://platform.openai.com/settings/organization/admin-keys",
+        steps: [
+          "In der OpenAI-Plattform unter Settings, Organization, Admin keys \"Create new admin key\" waehlen (nur Organisationsinhaber).",
+          "Admin-Key kopieren (er beginnt mit sk-admin-) und unten einfuegen. Er wird nur einmal angezeigt.",
+          "Einfacher geht es ueber \"Mit OpenAI verbinden\": der angemeldete Browser legt den Key an.",
+        ],
+        permissions: ["Admin-Key der Organisation (Projekte und Service-Accounts verwalten)"],
+      };
     case "grafana":
       return {
         label: "Grafana Cloud",
@@ -245,6 +257,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
  * Gibt eine Fehlermeldung zurueck oder undefined. Unbekannte Praefixe werden nicht beanstandet.
  */
 export function tokenPrefixProblem(id: string, token: string): string | undefined {
+  if (id === "openai") return /^sk-admin-/.test(token.trim()) ? undefined : "Das ist kein OpenAI-Admin-Key (er beginnt mit sk-admin-). Normale Schluessel koennen keine Schluessel erzeugen.";
   if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
   if (!mode) return undefined;

@@ -10,7 +10,17 @@ const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 describe("bundled recipes", () => {
   it("load and are valid", async () => {
     const recipes = await loadRecipes([RECIPES]);
-    expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "openai-api-key", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
+    expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "openai-admin-key", "openai-api-key", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
+  });
+  it("openai-admin-key has a guided sign-in, captures only an admin key and says it is unverified", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "openai-admin-key")!;
+    expect(r.host).toBe("platform.openai.com");
+    expect(r.login?.form?.start).toBe("https://platform.openai.com/login");
+    expect(r.login?.form?.home).toBe("https://platform.openai.com/");
+    expect(r.capture.token.pattern).toBe("^(sk-admin-[A-Za-z0-9_-]+)$");
+    expect(r.revoke?.steps.length).toBeGreaterThan(0);
+    expect(new RegExp(r.capture.token.pattern!).test("sk-proj-abc")).toBe(false);
+    expect((await readFile(join(RECIPES, "openai-admin-key.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: not verified/);
   });
   it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));

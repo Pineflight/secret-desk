@@ -228,6 +228,18 @@ async function checkRevenueCat(rt: Runtime, token: string): Promise<ConnectionCh
   return out;
 }
 
+/** Admin key of OpenAI: `GET /v1/organization/projects?limit=1` (200 = connected, 401/403 = rejected). */
+async function checkOpenai(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
+  const out: ConnectionCheckItem[] = [];
+  if (!token.startsWith("sk-admin-")) out.push(item("prefix", "Schluesselart", "fail", "Das ist kein Admin-Key (er beginnt mit sk-admin-). Normale Projekt-Schluessel koennen keine Schluessel erzeugen."));
+  const r = await get(rt, token, "https://api.openai.com/v1/organization/projects?limit=1");
+  if (r.status === 200) out.push(item("token", "Schluessel gueltig", "pass", "Projekte lassen sich lesen."));
+  else if (r.status === 401 || r.status === 403) out.push(item("token", "Schluessel gueltig", "fail", `OpenAI lehnt den Admin-Key ab (${httpFail(r.status)}). Er ist ungueltig, widerrufen oder gehoert nicht zur Organisation. Neu verbinden.`));
+  else if (r.status === 429) out.push(item("token", "Schluessel gueltig", "warn", "OpenAI begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
+  else out.push(item("token", "Schluessel gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GitHub
 // ---------------------------------------------------------------------------
@@ -377,7 +389,7 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
 // ---------------------------------------------------------------------------
 
 /** Verbindungen, die das Portal selbst anbietet (auch ohne registrierten Anbieter, zum Beispiel bei ausgeschalteter Automatisierung). */
-export const KNOWN_CONNECTIONS: ReadonlySet<string> = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "revenuecat", "grafana"]);
+export const KNOWN_CONNECTIONS: ReadonlySet<string> = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "revenuecat", "openai", "grafana"]);
 const KNOWN = KNOWN_CONNECTIONS;
 
 /**
@@ -422,6 +434,7 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     else if (id === "stripe" || id === "stripe-test" || id === "stripe-live" || parseStripeConnectionId(id)) checks = await checkStripe(rt, id, token);
     else if (id === "resend") checks = await checkResend(rt, token);
     else if (id === "revenuecat") checks = await checkRevenueCat(rt, token);
+    else if (id === "openai") checks = await checkOpenai(rt, token);
     else checks = [item("token", "Token", "info", "Fuer diese Verbindung gibt es keinen Test.")];
     return { id, ok: !checks.some((c) => c.status === "fail"), checks };
   } catch (err) {

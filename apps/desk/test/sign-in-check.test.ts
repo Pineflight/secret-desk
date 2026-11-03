@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "../src/messages";
 import { translate } from "../src/lib/i18n";
-import { outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome } from "../src/lib/sign-in-check";
+import { checkPathOf, outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome } from "../src/lib/sign-in-check";
 
 const card = (facade: boolean) => ({ signIn: { state: facade ? ("facade" as const) : ("recipe" as const), facade: facade ? { id: "stripe", label: "Stripe", available: true, connected: false, reason: null, connectionId: "stripe" } : null, recipes: [], available: true } });
 const t = (key: string): string => translate(key, undefined, "de");
@@ -46,5 +46,18 @@ describe("sign-in check results", () => {
     expect(outcomeProblem(outcomeOf({ signedIn: false, checkedAt: "x" }), "de", t)).toBeNull();
     expect(outcomeProblem(outcomeOfError(new Error("Keine Verbindung")), "de", t)).toBe("Keine Verbindung");
     expect(outcomeProblem(outcomeOfError("odd"), "de", t)).toBe(messages.de["common.unknownError"]);
+  });
+});
+
+describe("checkPathOf", () => {
+  const sign = (facade: unknown, checkRecipe: string | null) => ({ id: "ai co", signIn: { state: "x", facade, recipes: [], available: true, checkRecipe } }) as never;
+  it("uses the guided sign-in first, then the recipe, else nothing", () => {
+    expect(checkPathOf(sign({ id: "ai co" }, "ignored"))).toBe("facades/ai%20co/check");
+    expect(checkPathOf(sign(null, "dash-key"))).toBe("recipes/dash-key/check");
+    expect(checkPathOf(sign(null, null))).toBeNull();
+  });
+  it("a recipe check makes the card checkable", () => {
+    expect(signInStatus(sign(null, "dash-key"), undefined, undefined)).toBe("unchecked");
+    expect(signInStatus(sign(null, null), undefined, undefined)).toBeNull();
   });
 });

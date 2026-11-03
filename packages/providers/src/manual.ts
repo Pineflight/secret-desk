@@ -107,15 +107,6 @@ async function verifySupabaseToken(ctx: VerifyContext): Promise<Check[]> {
   });
 }
 
-async function verifyOpenai(ctx: VerifyContext): Promise<Check[]> {
-  return step(ctx, "works", "Schluessel funktioniert", async () => {
-    const r = await probeWithValue("openai", ctx, "https://api.openai.com/v1/models?limit=1");
-    if (r.status >= 200 && r.status < 300) return [check("works", "Schluessel funktioniert", "pass", { actual: "HTTP 200" })];
-    if (r.status === 401) return [check("works", "Schluessel funktioniert", "fail", { actual: "HTTP 401", detail: "OpenAI lehnt den Schluessel ab" })];
-    return [check("works", "Schluessel funktioniert", "warn", { actual: `HTTP ${r.status}` })];
-  });
-}
-
 export const manualProviders: Provider[] = [
   manual("stripe-restricted-key", "Stripe Restricted Key", "https://dashboard.stripe.com/apikeys", [
     "Im Stripe-Dashboard oben das richtige Konto waehlen.",
@@ -153,15 +144,5 @@ export const manualProviders: Provider[] = [
     "Im Portal einfuegen und alle Ziele des Secrets zuegig aktualisieren.",
   ], {
     reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Bot hat", ["Der Token gehoert zum richtigen Bot, bei Staging nicht zum Produktions-Bot"]),
-  }),
-  manual("openai", "OpenAI API-Key", "https://platform.openai.com/api-keys", [
-    "Im richtigen Projekt der OpenAI-Plattform \"Create new secret key\" waehlen.",
-    "Namen mit Datum vergeben und Rechte auf das Noetige begrenzen.",
-    "Schluessel sofort kopieren, er wird nur einmal angezeigt.",
-    "Im Portal einfuegen und den alten Schluessel in der Liste widerrufen.",
-    "Kostenlimit des Projekts pruefen.",
-  ], {
-    verify: verifyOpenai,
-    reviewChecklist: (secret, ctx) => checklist(secret, ctx, "Der Schluessel hat", ["Das Projekt ist das richtige und hat ein Kostenlimit"]),
   }),
 ];

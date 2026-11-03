@@ -160,7 +160,7 @@ const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
   { test: /PEECHO/i, code: "peecho", text: "Peecho hat keine API, die Schluessel erzeugt: nur von Hand" },
   { test: /VESSEL_?API/i, code: "vesselapi", text: "VesselAPI hat keine API, die Schluessel erzeugt: nur von Hand" },
   { test: /^DIP(_|$)/i, code: "dip", text: "Der DIP-Schluessel wird beantragt, es gibt keine API dafuer: nur von Hand" },
-  { test: /OPENAI/i, code: "openai-admin", text: "OpenAI erzeugt Schluessel nur im Dashboard (keine API fuer Admin-Keys): nur von Hand" },
+  { test: /OPENAI/i, code: "openai-admin", text: "OpenAI stellt Schluessel ueber die Admin-API aus, sobald die Integration OpenAI verbunden ist (ein Browserschritt)" },
   { test: /^STRIPE_SECRET_KEY$/, code: "stripe-restricted-key", text: "Restricted Keys erzeugt Stripe nur im Dashboard: nur von Hand" },
   { test: /^CLOUDFLARE_ACCESS_CLIENT_ID$/, code: "cloudflare-access-companion", text: T.switchAccessIdOnly },
   { test: /^CLOUDFLARE_R2_/, code: "cloudflare-not-yet", text: "Cloudflare koennte das per API, secret-desk hat dafuer noch keinen Anbieter: vorerst von Hand" },

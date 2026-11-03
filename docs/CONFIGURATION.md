@@ -103,6 +103,7 @@ Browser automation, see [RECIPES.md](RECIPES.md) and [BROWSER-AUTOMATION.md](BRO
 | `viewerUrl` | string: a path on the portal host (`/browser/vnc.html?...`) or an http(s) URL without credentials | unset | Where a human sees the remote browser, usually the sidecar's noVNC page behind the reverse proxy. A path follows whichever address the portal was opened with. The portal shows it as *Open browser* on *Connections*. Also settable with `SECRET_DESK_BROWSER_VIEWER_URL`, which wins. |
 | `profileDir` | string | `~/.secret-desk/browser-profile` | Persistent browser profile (mode 700). |
 | `loginTimeoutMinutes` | number, 1 to 120 | `10` | How long to wait for sign-in, 2FA or CAPTCHA in the window. |
+| `signInFreshHours` | number, 1 to 168 | `12` | How long a browser sign-in answer (a *Check sign-in* or a successful recipe run for the recipe host) counts as current. Provider sessions are short-lived, so an older answer is shown as *Sign-in unknown*, never as *Ready*. The answers are kept in memory only and are gone after a restart. |
 | `slowMoMs` | integer, 0 to 5000 | unset | Slows every browser action down (milliseconds), so you can watch. |
 | `recipesDirs` | string[] | unset | Additional folders with recipes (`*.yaml`). `<inventory folder>/recipes` is always read as well. |
 | `allowExternalRecipes` | boolean | `false` | Load recipes from folders other than the bundled one. Recipes are executable browser scripts: enable this only for sources you trust. A recipe with the id of a bundled recipe never overrides it. |

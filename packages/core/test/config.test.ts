@@ -9,16 +9,17 @@ const BASE = { inventory: "./inventory.yaml", github: { owner: "acme", auth: { t
 describe("configuration: automation", () => {
   it("has safe defaults without input", () => {
     const c = ConfigSchema.parse(BASE);
-    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10, allowExternalRecipes: false });
+    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, allowExternalRecipes: false });
   });
 
   it("accepts all fields", () => {
-    const c = ConfigSchema.parse({ ...BASE, automation: { enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true } });
-    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true });
+    const c = ConfigSchema.parse({ ...BASE, automation: { enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, signInFreshHours: 6, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true } });
+    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, signInFreshHours: 6, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true });
   });
 
   it("rejects nonsensical values", () => {
     expect(ConfigSchema.safeParse({ ...BASE, automation: { loginTimeoutMinutes: 0 } }).success).toBe(false);
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { signInFreshHours: 0 } }).success).toBe(false);
     expect(ConfigSchema.safeParse({ ...BASE, automation: { slowMoMs: -1 } }).success).toBe(false);
     expect(ConfigSchema.safeParse({ ...BASE, automation: { chromePath: "" } }).success).toBe(false);
     expect(ConfigSchema.safeParse({ ...BASE, automation: { recipesDirs: [""] } }).success).toBe(false);

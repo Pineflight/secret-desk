@@ -85,6 +85,16 @@ export interface AutomationRecipeInfo {
   allowHosts: string[];
   /** Mitgeliefert (true) oder extern (false). */
   bundled: boolean;
+  /** The recipe has a guided sign-in (`login.form`), so the portal can check the browser session for its host. */
+  canCheckSignIn: boolean;
+}
+
+/** The last time the browser was seen signed in or out at a host (checked, or a recipe run succeeded). Kept in memory. */
+export interface SignInCheck {
+  host: string;
+  signedIn: boolean;
+  /** ISO time of the check. */
+  checkedAt: string;
 }
 
 /** Which browser runs the recipes. In remote mode the endpoint is shown without credentials, query or fragment. */
@@ -107,6 +117,10 @@ export interface AutomationInfo {
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
+  /** Hours a sign-in check counts as current (`automation.signInFreshHours`). */
+  signInFreshHours: number;
+  /** Last known browser sign-in state per recipe host. */
+  signInChecks: SignInCheck[];
   recipes: AutomationRecipeInfo[];
   /** Ob Rezepte aus eigenen Ordnern geladen werden (automation.allowExternalRecipes). */
   allowExternalRecipes: boolean;
@@ -192,6 +206,8 @@ export class AutomationManager {
   readonly enabled: boolean;
   readonly profileDir: string;
   readonly loginTimeoutMinutes: number;
+  readonly signInFreshHours: number;
+  readonly #signIn = new Map<string, SignInCheck>();
   readonly problems: { file: string; message: string }[] = [];
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
@@ -212,6 +228,7 @@ export class AutomationManager {
     this.#viewerUrl = viewerUrlFrom(c.viewerUrl, opts.env ?? process.env);
     this.profileDir = path(c.profileDir ?? PROFILE_DEFAULT, opts.configDir);
     this.loginTimeoutMinutes = c.loginTimeoutMinutes;
+    this.signInFreshHours = c.signInFreshHours;
     this.#now = opts.now ?? (() => new Date());
   }
 
@@ -251,12 +268,29 @@ export class AutomationManager {
         },
         evidence: this.opts.evidence,
       });
-      const provider: BrowserProvider = { ...base, id: `${recipe.id}-browser`, label: `${recipe.label} (Browser)` };
+      const issueRun = base.issue;
+      // A recipe run that created a key proves the browser was signed in at the recipe's host just now.
+      const provider: BrowserProvider = {
+        ...base,
+        id: `${recipe.id}-browser`,
+        label: `${recipe.label} (Browser)`,
+        ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); this.noteSignIn(recipe.host, true); return issued; } } : {}),
+      };
       providers.register(provider);
       this.#providers.set(provider.id, provider);
       this.#recipes.set(recipe.id, recipe);
-      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled });
+      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled, canCheckSignIn: Boolean(recipe.login?.form) });
     }
+  }
+
+  /** Remembers that the browser was signed in (or out) at a host just now. Never stores values. */
+  noteSignIn(host: string, signedIn: boolean): void {
+    this.#signIn.set(host, { host, signedIn, checkedAt: this.#now().toISOString() });
+  }
+
+  /** The last known sign-in state of every host seen in this process. */
+  signInChecks(): SignInCheck[] {
+    return [...this.#signIn.values()];
   }
 
   /** A loaded recipe by id (the guided sign-in and its key recipe live in one recipe). */
@@ -440,6 +474,6 @@ export class AutomationManager {
         chrome = { found: false, path: null, hint: (err as Error).message };
       }
     }
-    return { enabled: this.enabled, browser: this.#browserInfo(), chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
+    return { enabled: this.enabled, browser: this.#browserInfo(), chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, signInFreshHours: this.signInFreshHours, signInChecks: this.signInChecks(), recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
   }
 }

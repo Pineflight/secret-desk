@@ -11,8 +11,12 @@ export interface AutomationInfo {
   chrome: { found: boolean; path: string | null; hint: string | null };
   profileDir: string;
   loginTimeoutMinutes: number;
+  /** Hours a browser sign-in answer counts as current. */
+  signInFreshHours: number;
+  /** The last known browser sign-in state per recipe host (kept in memory by the server). */
+  signInChecks: { host: string; signedIn: boolean; checkedAt: string }[];
   allowExternalRecipes: boolean;
-  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean }[];
+  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean; canCheckSignIn: boolean }[];
   problems: { file: string; message: string }[];
 }
 /** Chrome status, profile folder, recipes and problems of the browser automation. For people who build integrations: shown under Settings, Developer. */
