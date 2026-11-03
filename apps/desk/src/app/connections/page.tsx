@@ -7,7 +7,7 @@ import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Chec
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
 import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
-import { FacadeFlow } from "@/components/ProviderFacade";
+import { FacadeCheckContext, FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderLogo, ProviderPageCard, ProviderTile, CardStatusBadge, usePurpose } from "@/components/ProviderCards";
 import type { FacadeInfo } from "@/lib/facade";
 import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
@@ -71,13 +71,13 @@ export default function ConnectionsPage() {
   // Sign-in checks share the one remote browser: they run one after the other, a click checks one provider only.
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, CheckOutcome>>>({});
   const [phases, setPhases] = useState<ReadonlyMap<string, CheckPhase>>(new Map());
-  const queue = useRef<CheckQueue<void> | null>(null);
+  const queue = useRef<CheckQueue<CheckOutcome> | null>(null);
   // The check route depends on the card (its guided sign-in or its recipe): the queue reads the latest cards and reloads the
   // server's sign-in memory afterwards, so the badge follows the new answer.
   const cardsRef = useRef<ProviderCard[] | null>(null);
   const reloadAutomation = useRef<() => void>(() => undefined);
   if (queue.current === null) {
-    queue.current = createCheckQueue<void>(async (id) => {
+    queue.current = createCheckQueue<CheckOutcome>(async (id) => {
       let outcome: CheckOutcome;
       try {
         const card = cardsRef.current?.find((c) => c.id === id);
@@ -89,9 +89,12 @@ export default function ConnectionsPage() {
       }
       setOutcomes((o) => ({ ...o, [id]: outcome }));
       reloadAutomation.current();
+      return outcome;
     }, setPhases);
   }
   const signedIn = useMemo(() => signedInIds(outcomes), [outcomes]);
+  // The connect dialog runs its sign-in check through the same queue, so it never overlaps another check in the one browser.
+  const checkContext = useMemo(() => ({ check: (id: string) => queue.current?.enqueue(id) ?? Promise.resolve(undefined) }), []);
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
   const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
@@ -128,7 +131,7 @@ export default function ConnectionsPage() {
   const groups = cards && vendors.data ? groupByCategory(used, vendors.data.categories) : [];
   const reloadAll = () => { conns.reload(); facades.reload(); };
   return (
-    <>
+    <FacadeCheckContext.Provider value={checkContext}>
       <PageHeader
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
@@ -156,7 +159,6 @@ export default function ConnectionsPage() {
             const phase = phases.get(card.id);
             const outcome = outcomes[card.id];
             const problem = outcomeProblem(outcome, locale, t);
-            const viewer = auto.data?.browser.viewerUrl ?? null;
             return (
               <li key={card.id}>
                 <ProviderPageCard
@@ -173,9 +175,6 @@ export default function ConnectionsPage() {
                         <Button disabled={!card.signIn.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
                           {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
                         </Button>
-                      ) : null}
-                      {card.signIn.state === "facade" || card.signIn.state === "recipe" ? (
-                        viewer ? <a className="inline-flex items-center rounded-xl border border-line bg-card px-3 py-1.5 text-sm font-medium hover:bg-page" href={viewer} target="_blank" rel="noopener noreferrer">{t("providers.card.openBrowser")}</a> : null
                       ) : null}
                       <Button onClick={() => setPicking({ vendor: card.id })}>{t("providers.page.manage")}</Button>
                     </>
@@ -209,7 +208,7 @@ export default function ConnectionsPage() {
         />
       ) : null}
       {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking({ vendor: null }); }} /> : null}
-    </>
+    </FacadeCheckContext.Provider>
   );
 }
 

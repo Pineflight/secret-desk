@@ -1,13 +1,20 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckList } from "@/components/ConnectionCheck";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, Notice, SelectField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { clock, codeValid, countsText, elapsedSeconds, failureText, inputsBody, inputsValid, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { IDP_NAMES, browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
+
+/**
+ * How the dialog asks for the browser sign-in check. The connections page provides its check queue, so the check never overlaps
+ * another one in the single remote browser; without a provider the dialog checks directly.
+ */
+export const FacadeCheckContext = createContext<{ check: (id: string) => Promise<CheckOutcome | undefined> } | null>(null);
 
 /** A ticking clock (once a second) while `active`, for elapsed time and the time limit. */
 function useNow(active: boolean): number {
@@ -71,13 +78,19 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [code, setCode] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [methodId, setMethodId] = useState("");
+  const [pickedUp, setPickedUp] = useState(false);
+  const [outcome, setOutcome] = useState<CheckOutcome | undefined>(undefined);
+  const [checkRound, setCheckRound] = useState(0);
+  const checks = useContext(FacadeCheckContext);
   const notified = useRef(false);
   const base = `facades/${enc(facade.id)}`;
 
-  const signIn = useMutation(async (body: { username: string; password: string; projectId?: string; inputs?: Record<string, string> }) => api<FacadeState>("POST", `${base}/sign-in`, body));
+  const signIn = useMutation(async (body: { username: string; password: string; method?: string; projectId?: string; inputs?: Record<string, string> }) => api<FacadeState>("POST", `${base}/sign-in`, body));
   const connect = useMutation(async (projectId: string) => api<FacadeState>("POST", `${base}/connect`, { projectId, inputs: inputsBody(facade.inputs, inputValues) }));
   const sendCode = useMutation(async (c: string) => api<FacadeState>("POST", `${base}/code`, { code: c }));
   const cancel = useMutation(async () => api<FacadeState>("POST", `${base}/cancel`));
+  const confirm = useMutation(async (accept: boolean) => api<FacadeState>("POST", `${base}/confirm`, { accept }));
 
   // Pick up a run that is already going (the page was reloaded).
   useEffect(() => {
@@ -88,11 +101,34 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
         setState(s);
         setStarted(true);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stop) setPickedUp(true);
+      });
     return () => {
       stop = true;
     };
   }, [base]);
+
+  // First thing when the dialog opens (and no run is going): is the browser signed in at the provider?
+  useEffect(() => {
+    if (!pickedUp || started) return;
+    let stop = false;
+    setOutcome(undefined);
+    if (!facade.available) {
+      setOutcome({ signedIn: null, failure: null, error: null });
+      return;
+    }
+    const check = checks ? checks.check(facade.id) : api<CheckResponse>("POST", `${base}/check`).then(outcomeOf, outcomeOfError);
+    void check.then((o) => {
+      if (!stop) setOutcome(o ?? { signedIn: null, failure: null, error: "" });
+    });
+    return () => {
+      stop = true;
+    };
+    // `started` is read once: a run that starts later must not trigger another check.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedUp, checkRound, facade.id, facade.available, base, checks]);
 
   // Follow the run once a second until it ends.
   const following = started && !isFinished(state);
@@ -121,9 +157,9 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
 
   const now = useNow(started && !isFinished(state));
   const submit = useCallback(async () => {
-    if (!signInValid(email, password) || !inputsValid(facade.inputs, inputValues)) return;
+    if (signInButtonState(facade, email, password, inputValues, false) !== "ready") return;
     // Copy, then clear: the form never keeps the password after sending.
-    const body = { username: email.trim(), password, ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}) };
+    const body = { username: email.trim(), password, method: chosenMethod(facade, methodId), ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}) };
     setEmail("");
     setPassword("");
     notified.current = false;
@@ -134,13 +170,13 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
       setStarted(true);
       setCancelling(false);
     }
-  }, [email, password, project, inputValues, facade.inputs, signIn]);
+  }, [email, password, project, inputValues, facade, methodId, signIn]);
 
   const run = state && started ? state : null;
   const running = isRunning(run);
   const failed = run !== null && (run.status === "failed" || run.status === "cancelled");
   const connectedOk = run?.status === "done" && run.result?.connected === true;
-  const err = signIn.error ?? connect.error ?? sendCode.error ?? cancel.error;
+  const err = signIn.error ?? connect.error ?? sendCode.error ?? cancel.error ?? confirm.error;
 
   const reset = () => {
     setStarted(false);
@@ -197,19 +233,24 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
             <Button type="submit" variant="primary" loading={sendCode.pending} disabled={!codeValid(code)}>{t("facade.codeSend")}</Button>
           </form>
         ) : null}
-        {running && run.needs === "approval" ? <Notice tone="info" title={t("facade.approvalTitle")}>{t("facade.approvalHint", { name: facade.label })}</Notice> : null}
-        {running && run.needs === "captcha" ? (
-          <Notice tone="warn" title={t("facade.captchaTitle")}>
-            <p>{t("facade.captchaHint", { name: facade.label })}</p>
-            {facade.viewerUrl ? (
-              <a className="mt-2 inline-flex items-center gap-1 font-medium underline" href={facade.viewerUrl} target="_blank" rel="noopener noreferrer">
-                {t("facade.openBrowser")}
-                <Icon name="external" className="h-3.5 w-3.5" />
-              </a>
-            ) : (
-              <p className="mt-1 text-xs">{t("facade.noViewer")}</p>
-            )}
+        {running && run.needs === "approval" ? (
+          <Notice tone="info" title={t("facade.approvalTitle")}>
+            <p>{t("facade.approvalHint", { name: facade.label })}</p>
+            {run.detail ? <p className="mt-1 font-medium">{t("facade.approvalNumber", { number: run.detail })}</p> : null}
           </Notice>
+        ) : null}
+        {running && run.needs === "consent" ? (
+          <div className="space-y-2 rounded-xl border border-line p-3">
+            <p className="font-medium">{t("facade.consentTitle")}</p>
+            <p className="text-xs text-muted">{t("facade.consentHint", { idp: IDP_NAMES[chosenMethod(facade, methodId)], name: facade.label })}</p>
+            <ul className="list-disc space-y-0.5 pl-5">
+              {consentItems(run.detail).map((item) => <li key={item}>{item}</li>)}
+            </ul>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" loading={confirm.pending} onClick={() => void confirm.run(true).then((s) => s && setState(s))}>{t("facade.consentAccept")}</Button>
+              <Button disabled={confirm.pending} onClick={() => void confirm.run(false).then((s) => s && setState(s))}>{t("facade.consentDecline")}</Button>
+            </div>
+          </div>
         ) : null}
         {failed && run.failure ? (
           <Notice tone={run.status === "cancelled" ? "info" : "danger"} {...(run.status === "cancelled" ? {} : { title: t("facade.failedTitle") })}>
@@ -259,6 +300,71 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
     );
   }
 
+  const browser = browserSignInOf(outcome);
+  const view = dialogView(browser, false);
+  const methods = methodsOf(facade);
+  const method = chosenMethod(facade, methodId);
+  const sso = method !== "email";
+  const idpName = IDP_NAMES[method];
+
+  const inputFields = facade.inputs.map((i) => {
+    const label = locale === "en" ? i.labelEn : i.label;
+    const value = inputValues[i.param] ?? "";
+    const set = (v: string) => setInputValues((o) => ({ ...o, [i.param]: v }));
+    return i.options ? (
+      <SelectField key={i.param} label={label} value={value} onChange={(e) => set(e.target.value)} required>
+        <option value="">{t("facade.chooseOption")}</option>
+        {i.options.map((o) => (
+          <option key={o} value={o}>{t(`facade.option.${i.param}.${o}`) === `facade.option.${i.param}.${o}` ? o : t(`facade.option.${i.param}.${o}`)}</option>
+        ))}
+      </SelectField>
+    ) : (
+      <TextField key={i.param} label={label} {...(i.help ? { hint: i.help } : {})} value={value} onChange={(e) => set(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
+    );
+  });
+  const projectField = facade.needsProject ? (
+    <details>
+      <summary className="cursor-pointer text-xs font-medium text-muted">{t("facade.advanced")}</summary>
+      <div className="mt-2">
+        <TextField label={t("facade.projectLabel")} hint={t("facade.projectHint")} value={project} onChange={(e) => setProject(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
+      </div>
+    </details>
+  ) : null;
+  const connectState = connectButtonState(facade, inputValues, connect.pending);
+  const signInState = signInButtonState(facade, email, password, inputValues, signIn.pending);
+
+  const signInForm = (
+    <form
+      autoComplete="off"
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      {methods.length > 1 ? (
+        <fieldset className="space-y-1.5">
+          <legend className="text-sm font-medium">{t("facade.chooseMethod", { name: facade.label })}</legend>
+          {methods.map((m) => (
+            <label key={m.id} className="flex items-center gap-2">
+              <input type="radio" name="facade-method" value={m.id} checked={method === m.id} onChange={() => setMethodId(m.id)} />
+              <span>{m.label && locale === "de" ? m.label : m.labelEn && locale === "en" ? m.labelEn : t(`facade.method.${m.id}`)}</span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      {sso ? <p className="text-xs text-muted">{t("facade.methodHint.sso", { name: facade.label, idp: idpName })}</p> : null}
+      {inputFields}
+      <TextField label={t(`facade.methodEmail.${method}`, { name: facade.label })} type="email" name="facade-email" autoComplete="off" spellCheck={false} data-autofocus data-1p-ignore data-lpignore="true" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <TextField label={t(`facade.methodPassword.${method}`, { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {projectField}
+      {err ? <Notice tone="danger">{err.message}</Notice> : null}
+      <Button type="submit" variant="primary" loading={signIn.pending} disabled={signInState === "disabled"}>
+        {signIn.pending ? t("facade.starting") : t("facade.start")}
+      </Button>
+    </form>
+  );
+
   return (
     <div className="space-y-4 text-sm">
       <p className="text-muted">{t("facade.intro", { name: facade.label })}</p>
@@ -267,48 +373,53 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
         <ul className="mt-1 list-disc space-y-1 pl-4">
           <li>{t("facade.promiseTyped", { host: facade.host ?? facade.label })}</li>
           <li>{t("facade.promiseNever")}</li>
-          <li>{t(facade.inputs.length > 0 ? "facade.promiseKeyScoped" : "facade.promiseKey")}</li>
+          {facade.promise ? <li>{t(facade.promise)}</li> : null}
         </ul>
       </div>
       {!facade.available ? <Notice tone="warn">{t("facade.unavailable", { reason: facade.reason ?? "" })}</Notice> : null}
-      <form
-        autoComplete="off"
-        className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        {facade.inputs.map((i) => {
-          const label = locale === "en" ? i.labelEn : i.label;
-          const value = inputValues[i.param] ?? "";
-          const set = (v: string) => setInputValues((o) => ({ ...o, [i.param]: v }));
-          return i.options ? (
-            <SelectField key={i.param} label={label} value={value} onChange={(e) => set(e.target.value)} required>
-              <option value="">{t("facade.chooseOption")}</option>
-              {i.options.map((o) => (
-                <option key={o} value={o}>{t(`facade.option.${i.param}.${o}`) === `facade.option.${i.param}.${o}` ? o : t(`facade.option.${i.param}.${o}`)}</option>
-              ))}
-            </SelectField>
-          ) : (
-            <TextField key={i.param} label={label} {...(i.help ? { hint: i.help } : {})} value={value} onChange={(e) => set(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
-          );
-        })}
-        <TextField label={t("facade.email", { name: facade.label })} type="email" name="facade-email" autoComplete="off" spellCheck={false} data-autofocus data-1p-ignore data-lpignore="true" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <TextField label={t("facade.password", { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
-        {facade.needsProject ? (
-          <details>
-            <summary className="cursor-pointer text-xs font-medium text-muted">{t("facade.advanced")}</summary>
-            <div className="mt-2">
-              <TextField label={t("facade.projectLabel")} hint={t("facade.projectHint")} value={project} onChange={(e) => setProject(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
-            </div>
+      {view === "checking" ? <p className="text-muted" role="status" aria-live="polite">{t("facade.checkingBrowser")}</p> : null}
+      {view === "connect" ? (
+        <div className="space-y-3">
+          <Notice tone="success">{t("facade.signedInHint", { name: facade.label })}</Notice>
+          {inputFields}
+          {projectField}
+          {err ? <Notice tone="danger">{err.message}</Notice> : null}
+          <Button
+            variant="primary"
+            loading={connect.pending}
+            disabled={connectState === "disabled"}
+            onClick={() => {
+              notified.current = false;
+              void connect.run(project.trim()).then((s) => {
+                if (s) {
+                  setState(s);
+                  setStarted(true);
+                  setCancelling(false);
+                }
+              });
+            }}
+          >
+            {connect.pending ? t("facade.starting") : t("facade.connectSignedIn")}
+          </Button>
+          <details className="rounded-xl border border-line p-3">
+            <summary className="cursor-pointer text-sm font-medium">{t("facade.otherWay")}</summary>
+            <div className="mt-3">{signInForm}</div>
           </details>
-        ) : null}
-        {err ? <Notice tone="danger">{err.message}</Notice> : null}
-        <Button type="submit" variant="primary" loading={signIn.pending} disabled={!facade.available || !signInValid(email, password) || !inputsValid(facade.inputs, inputValues)}>
-          {signIn.pending ? t("facade.starting") : t("facade.start")}
-        </Button>
-      </form>
+        </div>
+      ) : null}
+      {view === "sign-in" ? (
+        <div className="space-y-3">
+          {browser === "unknown" ? (
+            <Notice tone="info">
+              <p>{outcomeProblem(outcome, locale, t) ?? t("facade.checkFailed")}</p>
+              <button type="button" className="mt-1 text-xs font-medium underline" onClick={() => setCheckRound((n) => n + 1)}>{t("facade.checkAgain")}</button>
+            </Notice>
+          ) : (
+            <p className="text-muted">{t("facade.signedOutHint", { name: facade.label })}</p>
+          )}
+          {signInForm}
+        </div>
+      ) : null}
       {fallback ? <FallbackBox>{fallback}</FallbackBox> : null}
     </div>
   );

@@ -53,6 +53,8 @@ export interface AutomationRunState {
   kind?: "signin" | "connect";
   /** What the provider waits for from the human right now. */
   needs?: LoginNeed | null;
+  /** The number an approval shows, or the scopes an authorization asks for (consent). Never a credential. */
+  detail?: string;
   /** Current phase of the run. */
   phase?: string;
   /** Phases reached so far, with their state, oldest first. */

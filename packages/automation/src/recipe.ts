@@ -148,13 +148,32 @@ export const LoginFormSchema = z
     mfa: z.object({ detect: ConditionSchema, field: SelectorSchema, submit: SelectorSchema }).strict().optional(),
     /** The provider waits for an approval elsewhere (push, e-mail link). The portal says so and waits. */
     approval: z.object({ detect: ConditionSchema, ...Message }).strict().optional(),
-    /** A CAPTCHA or other bot check. The human solves it in the browser window; nothing is circumvented. */
+    /** A CAPTCHA or other bot check. The script cannot solve it: a challenge that stays ends the run with a message, nothing is circumvented. */
     captcha: z.object({ detect: ConditionSchema, message: z.string().min(1).optional(), messageEn: z.string().min(1).optional() }).strict().optional(),
     /** Page states that mean the sign-in was refused (wrong password, locked account). */
     failure: z.array(z.object({ detect: ConditionSchema, ...Message }).strict()).default([]),
   })
   .strict();
 export type LoginForm = z.infer<typeof LoginFormSchema>;
+
+/** The ways a human can sign in at a provider. `email` is the provider's own form; the others go through an identity provider. */
+export const LOGIN_METHOD_IDS = ["email", "google", "apple", "microsoft", "github"] as const;
+export type LoginMethodId = (typeof LOGIN_METHOD_IDS)[number];
+
+/**
+ * One sign-in method of a recipe. `email` needs no entry (it is `login.form`). Every other method declares only the
+ * provider-side steps up to the identity provider (for example clicking "Continue with Apple"); the built-in flow of that
+ * identity provider (see idp.ts) does the rest. The steps may click and wait, nothing else, and use no variables.
+ */
+export const LoginMethodSchema = z
+  .object({
+    id: z.enum(LOGIN_METHOD_IDS),
+    label: z.string().min(1).optional(),
+    labelEn: z.string().min(1).optional(),
+    steps: z.array(StepSchema).optional(),
+  })
+  .strict();
+export type LoginMethod = z.infer<typeof LoginMethodSchema>;
 
 const Ident = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Kennung in kleinbuchstaben-mit-bindestrich");
 const Hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname ohne Schema und Pfad");
@@ -202,7 +221,7 @@ export const RecipeSchema = z
     allowHosts: z.array(Hostname).default([]),
     /** Per-entry parameters, read from `params` of the inventory entry. Each key is usable as {{key}}. */
     params: z.array(RecipeParamSchema).default([]),
-    login: z.object({ expect: ConditionSchema, message: z.string().optional(), form: LoginFormSchema.optional() }).strict().optional(),
+    login: z.object({ expect: ConditionSchema, message: z.string().optional(), form: LoginFormSchema.optional(), methods: z.array(LoginMethodSchema).optional() }).strict().optional(),
     steps: z.array(StepSchema).min(1),
     capture: z
       .object({
@@ -253,6 +272,7 @@ export const RecipeSchema = z
     check(r.steps, "steps");
     if (r.revoke) check(r.revoke.steps, "revoke");
     if (r.login?.form) loginFormProblems(r.login.form, r).forEach((p) => ctx.addIssue({ code: "custom", path: ["login", "form", ...p.path], message: p.message }));
+    if (r.login?.methods) loginMethodProblems(r.login.methods, r.login.form !== undefined).forEach((p) => ctx.addIssue({ code: "custom", path: ["login", "methods", ...p.path], message: p.message }));
     const creates = r.steps.some((s) => "click" in s && s.click.createsToken === true);
     if (!creates) ctx.addIssue({ code: "custom", path: ["steps"], message: "Ein click-Schritt braucht createsToken: true (der Punkt, ab dem beim Anbieter etwas entsteht)" });
   });
@@ -292,6 +312,49 @@ function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: strin
   for (const [name, value] of others) {
     if (value !== undefined && stringsOf(value).some((t) => placeholdersOf(t).length > 0)) add([name], "No variables allowed here");
   }
+  return out;
+}
+
+/** Static checks of `login.methods`: unique ids, the provider-side steps of a single-sign-on method, no steps for email. */
+function loginMethodProblems(methods: LoginMethod[], hasForm: boolean): { path: (string | number)[]; message: string }[] {
+  const out: { path: (string | number)[]; message: string }[] = [];
+  const add = (path: (string | number)[], message: string): void => void out.push({ path, message });
+  const seen = new Set<string>();
+  if (methods.length > 0 && !hasForm) add([], "login.methods needs login.form (its start page, and the email method)");
+  methods.forEach((m, i) => {
+    if (seen.has(m.id)) add([i, "id"], `Method ${m.id} is declared twice`);
+    seen.add(m.id);
+    if (m.id === "email") {
+      if (m.steps) add([i, "steps"], "The email method is login.form and has no steps of its own");
+      return;
+    }
+    if (!m.steps || m.steps.length === 0) return add([i, "steps"], `Method ${m.id} needs the provider-side steps (for example clicking its button)`);
+    m.steps.forEach((step, j) => {
+      const kind = Object.keys(step).find((k) => k !== "each" && k !== "when");
+      if (kind !== "click" && kind !== "waitFor") return add([i, "steps", j], "A single-sign-on step is click or waitFor");
+      if ("each" in step && step.each) add([i, "steps", j, "each"], "A sign-in step must not repeat per item");
+      if ("when" in step && step.when) add([i, "steps", j, "when"], "A sign-in step must not be conditional");
+      if ("click" in step && step.click.createsToken) add([i, "steps", j], "A sign-in step must not create a token");
+      if (stringsOf(step).some((t) => placeholdersOf(t).length > 0)) add([i, "steps", j], "No variables allowed in single-sign-on steps");
+    });
+  });
+  return out;
+}
+
+export interface LoginMethodInfo {
+  id: LoginMethodId;
+  label: string | null;
+  labelEn: string | null;
+}
+
+/** The sign-in methods a recipe offers: `email` when it has `login.form`, then the declared single-sign-on methods. */
+export function loginMethodsOf(recipe: Pick<Recipe, "login">): LoginMethodInfo[] {
+  const login = recipe.login;
+  if (!login?.form) return [];
+  const declared = login.methods ?? [];
+  const email = declared.find((m) => m.id === "email");
+  const out: LoginMethodInfo[] = [{ id: "email", label: email?.label ?? null, labelEn: email?.labelEn ?? email?.label ?? null }];
+  for (const m of declared) if (m.id !== "email") out.push({ id: m.id, label: m.label ?? null, labelEn: m.labelEn ?? m.label ?? null });
   return out;
 }
 

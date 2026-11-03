@@ -59,11 +59,11 @@ login:
       detect: { visible: { css: 'input[autocomplete="one-time-code"]' } }
       field: { css: 'input[autocomplete="one-time-code"]' }
       submit: { css: 'button[type="submit"]' }
-    # not verified: a challenge the human has to solve in the browser window.
+    # not verified: a challenge the script cannot solve; the portal says so and the human tries again later.
     captcha:
       detect: { visible: { css: 'iframe[src*="hcaptcha.com/captcha"], iframe[title*="reCAPTCHA challenge"], iframe[src*="challenges.cloudflare.com"]' } }
-      message: Stripe zeigt eine Sicherheitspruefung (CAPTCHA). Bitte im Browserfenster loesen.
-      messageEn: Stripe shows a security check (CAPTCHA). Solve it in the browser window.
+      message: Stripe zeigt eine Sicherheitspruefung (CAPTCHA). Bitte spaeter erneut versuchen.
+      messageEn: Stripe shows a security check (CAPTCHA). Try again later.
     # not verified: error texts.
     failure:
       - detect: { text: "Your email or password is incorrect" }

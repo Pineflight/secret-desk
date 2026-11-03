@@ -98,7 +98,6 @@ export default {
   "providers.time.hours.other": "vor {count} Stunden",
   "providers.time.days.one": "vor {count} Tag",
   "providers.time.days.other": "vor {count} Tagen",
-  "providers.card.openBrowser": "Browser öffnen",
   "providers.key.show": "Details von {name} anzeigen",
   "providers.key.hide": "Details von {name} ausblenden",
 } satisfies Record<string, string>;

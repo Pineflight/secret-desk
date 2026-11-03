@@ -197,12 +197,17 @@ describe("signIn", () => {
     expect(needs).toMatchObject({ message: "Bitte bestaetigen", messageEn: "Please approve" });
   });
 
-  it("reports a CAPTCHA and waits for the human", async () => {
+  it("fails on a CAPTCHA that stays, without sending the human to the browser", async () => {
+    const e = await error(signIn(recipe(), creds(), site("captcha"), {}, { ...fast, captchaGraceMs: 20 }));
+    expect(e.kind).toBe("captcha");
+    expect(e.messageEn).toBe("Solve the CAPTCHA");
+  });
+
+  it("does not fail on a challenge frame that goes away again", async () => {
     const d = site("captcha");
-    const events: LoginEvent[] = [];
-    const run = signIn(recipe(), creds(), d, { onEvent: (e) => events.push(e) }, fast);
+    const run = signIn(recipe(), creds(), d, {}, { ...fast, captchaGraceMs: 500 });
     await new Promise((r) => setTimeout(r, 40));
-    expect(events.find((e) => e.type === "needs")).toMatchObject({ need: "captcha", messageEn: "Solve the CAPTCHA" });
+    d.visible.delete("css #challenge");
     d.url = APP;
     await run;
   });

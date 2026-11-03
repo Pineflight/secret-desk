@@ -24,7 +24,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 |---|---|---|
 | GitHub | fine-grained personal access tokens | recipe scaffold, not verified |
 | Supabase | personal access tokens with an organization, project and permission preset | verified live: full run 2026-11-03 (five scoped tokens) |
-| OpenAI (facade) | one browser step creates the organization Admin API key (`openai-admin-key`), after that project keys are issued through the Admin API (service accounts) | API-based after one browser step; **not verified live yet** (recipe selectors are guesses) |
+| OpenAI (facade) | one browser step creates the organization Admin API key (`openai-admin-key`), after that project keys are issued through the Admin API (service accounts) | API-based after one browser step; **verified live 2026-11-03**: admin key created, stored and tested through the signed-in browser (sign-in form, single-sign-on methods and revoke not verified) |
 | OpenAI (recipe) | API keys (owner, expiry, permissions) | verified live: full run 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | VesselAPI | API keys (30 to 90 days on the free plan) | verified live: full run 2026-11-03 (two keys) |
 | Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |
@@ -52,7 +52,7 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 
 | Item | Approach |
 |---|---|
-| GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live). OpenAI has its facade now (not verified live). |
+| GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live). OpenAI has its facade now (key creation verified live 2026-11-03). |
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |

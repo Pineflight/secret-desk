@@ -2,6 +2,9 @@ import {
   LoginError,
   RecipeRunError,
   checkSession,
+  loginMethodsOf,
+  type LoginMethodInfo,
+  type LoginMethodId,
   paramValueProblem,
   recipeParamVars,
   runRecipe,
@@ -55,6 +58,8 @@ export interface FacadeDescriptor {
   keyParams: Record<string, string>;
   /** The recipe parameter that names the provider project, and how to read it from a dashboard address. */
   project: { param: string; fromUrl: RegExp } | null;
+  /** Catalog key of the sentence that says what kind of key this is (shown in the connect dialog). Without it nothing is shown. */
+  promise?: string;
   /** Discovery kinds whose option counts are reported after the connection test ("1 project, 3 apps"). */
   summary: { key: string; kind: string }[];
 }
@@ -83,6 +88,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     // v2 secret key, Project configuration: Read only, every other section stays "No access" (the recipe default).
     keyParams: { projectConfiguration: "Read only" },
+    promise: "facade.promise.revenuecat",
     project: { param: "projectId", fromUrl: /^https:\/\/app\.revenuecat\.com\/projects\/([a-z0-9]+)(?:\/|$)/ },
     inputs: [],
     summary: [
@@ -98,6 +104,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     connectionId: "openai",
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     keyParams: {},
+    promise: "facade.promise.openai",
     project: null,
     inputs: [],
     summary: [{ key: "projects", kind: "openai.project" }],
@@ -112,6 +119,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     keyName: (now, inputs) => `secret-desk-${inputs["mode"] === "live" ? "live" : "test"}-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     // Only webhook endpoints: that is all the portal needs from Stripe.
     keyParams: { preset: "webhooks" },
+    promise: "facade.promise.stripe",
     inputs: ["account", "mode"],
     connectionFor: (inputs) => stripeConnectionId(inputs["account"] ?? "", inputs["mode"] === "live" ? "live" : "sandbox"),
     connectionPrefix: "stripe:",
@@ -135,11 +143,11 @@ export const facadeById = (id: string): FacadeDescriptor | undefined => FACADES.
 export const facadeConnectionForRecipe = (recipeId: string | undefined): string | null =>
   (recipeId ? FACADES.find((f) => f.recipeId === recipeId)?.connectionId : undefined) ?? null;
 
-/** Phases of a facade run in the order the portal shows them. `code`, `approval` and `captcha` appear only when the provider asks. */
-export const FACADE_PHASES = ["opening", "username", "password", "code", "approval", "captcha", "signed-in", "key", "stored", "testing", "connected"] as const;
+/** Phases of a facade run in the order the portal shows them. `code`, `approval` and `consent` appear only when the provider asks. */
+export const FACADE_PHASES = ["opening", "username", "password", "code", "approval", "consent", "signed-in", "key", "stored", "testing", "connected"] as const;
 export type FacadePhase = (typeof FACADE_PHASES)[number];
 
-export type FacadeFailureCode = "rejected" | "timeout" | "cancelled" | "host" | "step" | "page" | "busy" | "code" | "unsupported" | "browser" | "project-unknown" | "session-lost" | "key" | "store" | "test";
+export type FacadeFailureCode = "rejected" | "timeout" | "cancelled" | "host" | "step" | "page" | "busy" | "code" | "unsupported" | "browser" | "project-unknown" | "session-lost" | "key" | "store" | "test" | "captcha";
 
 export interface FacadeResult {
   /** The key was created, stored and the connection test did not fail. */
@@ -182,8 +190,10 @@ export interface FacadeInfo {
   /** Recipe parameters the human chooses for each run, with their specification (account, mode ...). */
   inputs: FacadeInput[];
   timeoutMinutes: number;
-  /** Where a human sees the remote browser (CAPTCHA, approvals), if configured. */
-  viewerUrl: string | null;
+  /** The ways to sign in: the provider's own form (email) and the identity providers the recipe offers. */
+  methods: LoginMethodInfo[];
+  /** Catalog key of the sentence about the key this flow creates, or null. */
+  promise: string | null;
 }
 
 const stateKey = (id: string): string => `facade:${id}`;
@@ -191,6 +201,9 @@ const checkKey = (id: string): string => `facade-check:${id}`;
 
 /** One pending one-time code request per facade run. */
 const codeWaiters = new Map<string, { resolve: (code: string) => void; reject: (err: Error) => void }>();
+
+/** One pending authorization (OAuth consent) question per facade run. */
+const confirmWaiters = new Map<string, { resolve: (accepted: boolean) => void; reject: (err: Error) => void }>();
 
 const MAX_TEXT = 400;
 
@@ -227,7 +240,8 @@ export async function listFacades(rt: Runtime, actor: Actor): Promise<FacadeInfo
         return spec ? [{ param, label: spec.label, labelEn: spec.labelEn ?? spec.label, options: spec.options ?? null, pattern: spec.pattern ?? null, help: spec.help ?? null }] : [];
       }),
       timeoutMinutes: rt.automation.loginTimeoutMinutes,
-      viewerUrl: rt.automation.viewerUrl,
+      methods: recipe ? loginMethodsOf(recipe) : [],
+      promise: d.promise ?? null,
     });
   }
   return out;
@@ -260,6 +274,14 @@ function credentialsFrom(body: Record<string, unknown>): LoginCredentials {
   if (!password) throw new InventoryError("The password is missing.");
   if (password.length > 1024 || CONTROL.test(password)) throw new InventoryError("The password is not valid.");
   return { username, password };
+}
+
+/** The chosen sign-in method (default: email). It must be one the recipe offers. */
+function methodFrom(recipe: Recipe, body: Record<string, unknown>): LoginMethodId {
+  const raw = typeof body["method"] === "string" && body["method"] ? body["method"] : "email";
+  const offered = loginMethodsOf(recipe).find((m) => m.id === raw);
+  if (!offered) throw new InventoryError(`This provider does not offer the sign-in method ${String(raw)}.`);
+  return offered.id;
 }
 
 function projectFrom(d: FacadeDescriptor, recipe: Recipe, body: Record<string, unknown>): string | undefined {
@@ -360,11 +382,11 @@ function mapSignInEvent(t: Tracker, rt: Runtime, e: LoginEvent, timeoutAt: strin
       return rt.automation.update(t.key, { text: "Sign-in submitted. Waiting for the provider." });
     case "needs": {
       const phase = e.need === "mfa-code" ? "code" : e.need;
-      const text = e.need === "mfa-code" ? "Waiting for the one-time code." : e.need === "approval" ? (e.messageEn ?? "Waiting for an approval in the app or by email.") : (e.messageEn ?? "A security check needs the browser window.");
-      return t.phase(phase, { status: "waiting-human", needs: e.need, text: text.slice(0, MAX_TEXT) });
+      const text = e.need === "mfa-code" ? "Waiting for the one-time code." : e.need === "approval" ? (e.messageEn ?? "Approve the sign-in on your device ...") : "Waiting for your confirmation of the authorization.";
+      return t.phase(phase, { status: "waiting-human", needs: e.need, text: text.slice(0, MAX_TEXT), detail: (e.detail ?? "").slice(0, MAX_TEXT) });
     }
     case "resumed":
-      return rt.automation.update(t.key, { status: "running", needs: null, text: "Continuing." });
+      return rt.automation.update(t.key, { status: "running", needs: null, detail: "", text: "Continuing." });
     case "signed-in":
       return t.phase("signed-in", { status: "running", needs: null, text: "Signed in." });
   }
@@ -382,6 +404,7 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
   const { d, recipe } = descriptorOf(rt, id);
   const projectId = projectFrom(d, recipe, body);
   const inputs = inputsFrom(d, recipe, body);
+  const method = methodFrom(recipe, body);
   const creds = credentialsFrom(body);
   const key = stateKey(id);
   rt.automation.forget(key);
@@ -395,11 +418,11 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
     throw err;
   }
   const state = rt.automation.state(key);
-  void runSignIn(rt, actor, d, recipe, creds, projectId, inputs, key, signal, minutes);
+  void runSignIn(rt, actor, d, recipe, creds, projectId, inputs, key, signal, minutes, method);
   return state;
 }
 
-async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number): Promise<void> {
+async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
   const known = [creds.username, creds.password];
   const t = new Tracker(rt, key);
   const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(Date.now() + minutes * 60_000).toISOString();
@@ -416,8 +439,13 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
             codeWaiters.set(key, { resolve, reject });
             signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
           }),
+        requestConfirm: () =>
+          new Promise<boolean>((resolve, reject) => {
+            confirmWaiters.set(key, { resolve, reject });
+            signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+          }),
       },
-      { timeoutMinutes: minutes, signal },
+      { timeoutMinutes: minutes, signal, method },
     );
     // The credentials are not needed any more.
     creds.username = "";
@@ -429,6 +457,7 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
     creds.username = "";
     creds.password = "";
     codeWaiters.delete(key);
+    confirmWaiters.delete(key);
   }
 }
 
@@ -507,6 +536,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
   };
   // A recipe that wants the human to sign in again means the browser did not keep the session: stop instead of waiting.
   let sessionLost = false;
+  let challenged = false;
   const inner = new AbortController();
   const driver = await rt.automation.newDriver();
   let value: SecretValue;
@@ -518,8 +548,10 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
       {
         onWaitingForHuman: (w) => {
           if (w.kind === "pause") {
-            // The recipe asks for the human (for example a password confirmation): wait, do not give up.
-            rt.automation.update(key, { status: "waiting-human", needs: "captcha", text: "Waiting for you in the browser window (for example a password confirmation)." });
+            // The recipe asks for the human in the browser (for example a password confirmation): the portal does not send the
+            // human to the browser, so the run ends with a message and the human tries again.
+            challenged = true;
+            inner.abort();
             return;
           }
           sessionLost = true;
@@ -535,6 +567,10 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     // The recipe ran inside the signed-in browser: remember the sign-in at this host.
     rt.automation.noteSignIn(recipe.host, true);
   } catch (err) {
+    if (challenged) {
+      const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
+      return finishFailed(rt, key, t, { code: "captcha", message: "Der Anbieter verlangt eine Pruefung, die das Skript nicht loesen kann.", messageEn: "The provider asks for a check the script cannot do.", ...(createdName ? { createdName } : {}) });
+    }
     if (sessionLost) {
       const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
       return finishFailed(rt, key, t, { code: "session-lost", message: "The browser is not signed in (the session was not kept). Sign in again.", messageEn: "The browser is not signed in (the session was not kept). Sign in again.", ...(createdName ? { createdName } : {}) });
@@ -612,6 +648,19 @@ export function submitFacadeCode(rt: Runtime, actor: Actor, id: string, body: Re
   return rt.automation.state(key);
 }
 
+/** The human confirmed or declined the authorization the identity provider asks for (the scopes were shown in the portal). */
+export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Confirm the authorization");
+  if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
+  const key = stateKey(id);
+  const waiter = confirmWaiters.get(key);
+  if (!waiter || rt.automation.state(key).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
+  if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
+  confirmWaiters.delete(key);
+  waiter.resolve(body["accept"]);
+  return rt.automation.state(key);
+}
+
 export function cancelFacade(rt: Runtime, actor: Actor, id: string): AutomationRunState {
   requireHuman(actor, "Cancel the provider sign-in");
   if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
@@ -620,6 +669,8 @@ export function cancelFacade(rt: Runtime, actor: Actor, id: string): AutomationR
   if (cur.status !== "running" && cur.status !== "waiting-human") throw new IssuanceError("No sign-in is running.");
   codeWaiters.get(key)?.reject(new Error("cancelled"));
   codeWaiters.delete(key);
+  confirmWaiters.get(key)?.reject(new Error("cancelled"));
+  confirmWaiters.delete(key);
   return rt.automation.cancel(key);
 }
 
