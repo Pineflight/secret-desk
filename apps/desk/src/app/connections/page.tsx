@@ -1,18 +1,22 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import type { SecretView, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Checkbox, PageHeader, Pill, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
-import { FacadeFlow, FacadeSection } from "@/components/ProviderFacade";
+import { FacadeFlow } from "@/components/ProviderFacade";
+import { CategorySection, ProviderLogo, ProviderPageCard, ProviderTile, CardStatusBadge, usePurpose } from "@/components/ProviderCards";
 import type { FacadeInfo } from "@/lib/facade";
+import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
 import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { daysSince, expiryLevel, shortHash, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
+import type { ReactNode } from "react";
 
 interface Connection {
   id: string;
@@ -25,6 +29,8 @@ interface Connection {
   fingerprint?: string;
   canRemember?: boolean;
   label: string;
+  vendor: string | null;
+  role: "primary" | "legacy" | "optional";
   description: string | null;
   url: string | null;
   openUrl: string | null;
@@ -45,6 +51,8 @@ interface Provider {
   id: string;
   label: string;
   kind: string;
+  browser: boolean;
+  vendor: string | null;
   connection: string | null;
   guide: { url: string; steps: string[] } | null;
 }
@@ -53,57 +61,135 @@ const NAMES: Record<string, string> = { github: "GitHub", cloudflare: "Cloudflar
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", github: "connections.srcGithub", none: "connections.srcNone" };
 
+/** Where the picker opens: a provider (or the full list), optionally straight into one of its ways in. */
+type Picking = false | { vendor: string | null; key?: string; signIn?: boolean };
+
 export default function ConnectionsPage() {
   const t = useT();
   const toast = useToast();
-  const [picking, setPicking] = useState<string | null | false>(false);
+  const [picking, setPicking] = useState<Picking>(false);
   const [adding, setAdding] = useState(false);
+  const [signedIn, setSignedIn] = useState<ReadonlySet<string>>(new Set());
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
   const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
-  // Providers with a guided sign-in. Failing to load them only hides the section.
+  const vendors = useQuery<VendorsResponse>("vendors", () => api<VendorsResponse>("GET", "vendors"));
+  // Providers with a guided sign-in. Failing to load them only hides the sign-in way.
   const facades = useQuery<FacadeInfo[]>("facades", () => api<FacadeInfo[]>("GET", "facades"));
+  // Counts of what depends on a provider. Failing to load them only hides the counts.
+  const secrets = useQuery<SecretView[]>("overview-secrets", () => api<SecretView[]>("GET", "secrets"));
+  const vars = useQuery<VariableView[]>("overview-variables", () => api<VariableView[]>("GET", "variables"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
-  const connected = (conns.data ?? []).filter((c) => c.connected);
+  const check = useMutation(async (id: string) => ({ id, ...(await api<{ signedIn: boolean; checkedAt: string }>("POST", `facades/${enc(id)}/check`)) }));
+  const cards = useMemo(
+    () =>
+      vendors.data && conns.data
+        ? buildCards({ catalog: vendors.data, connections: conns.data, providers: provs.data ?? [], recipes: auto.data?.recipes ?? [], facades: facades.data ?? [], secrets: secrets.data ?? [], variables: vars.data ?? [], signedIn })
+        : null,
+    [vendors.data, conns.data, provs.data, auto.data, facades.data, secrets.data, vars.data, signedIn],
+  );
+  const used = (cards ?? []).filter(isInUse);
+  const groups = cards && vendors.data ? groupByCategory(used, vendors.data.categories) : [];
+  const reloadAll = () => { conns.reload(); facades.reload(); };
   return (
     <>
       <PageHeader
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
-        actions={<Button variant="primary" onClick={() => setPicking(null)}><Icon name="plus" className="h-4 w-4" />{t("connections.add")}</Button>}
+        actions={<Button variant="primary" onClick={() => setPicking({ vendor: null })}><Icon name="plus" className="h-4 w-4" />{t("connections.add")}</Button>}
       />
       {conns.error ? <ErrorState error={conns.error} onRetry={conns.reload} /> : null}
-      {conns.loading && !conns.data ? <ListSkeleton rows={2} /> : null}
-      {conns.data && connected.length === 0 ? (
+      {vendors.error ? <ErrorState error={vendors.error} onRetry={vendors.reload} /> : null}
+      {(conns.loading || vendors.loading) && !cards ? <ListSkeleton rows={2} /> : null}
+      {cards && used.length === 0 ? (
         <EmptyState title={t("connections.emptyTitle")} icon="plug">
-          <Button variant="primary" onClick={() => setPicking(null)}>{t("connections.add")}</Button>
+          <p className="mb-3 text-sm text-muted">{t("providers.page.emptyHint")}</p>
+          <Button variant="primary" onClick={() => setPicking({ vendor: null })}>{t("connections.add")}</Button>
         </EmptyState>
       ) : null}
-      <FacadeSection facades={facades.data ?? []} onOpen={(id) => { const f = facades.data?.find((x) => x.id === id); if (f) setPicking(f.connectionId); }} />
-      <div className="grid gap-4 md:grid-cols-2">
-        {connected.map((c) => (
-          <ConnectionCard key={c.id} c={c} onGuide={() => setPicking(c.id)} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} />
-        ))}
-      </div>
+      {groups.map((g) => (
+        <CategorySection key={g.category} category={g.category} grid="cards" level="h2">
+          {g.cards.map((card) => (
+            <li key={card.id}>
+              <ProviderPageCard
+                card={card}
+                actions={
+                  <>
+                    {card.signIn.facade ? (
+                      <>
+                        <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
+                        <Button
+                          disabled={!card.signIn.facade.available}
+                          loading={check.pending}
+                          onClick={async () => {
+                            const r = await check.run(card.id);
+                            if (r) setSignedIn((o) => { const n = new Set(o); if (r.signedIn) n.add(r.id); else n.delete(r.id); return n; });
+                          }}
+                        >
+                          {check.pending ? t("facade.checking") : t("facade.checkSignin")}
+                        </Button>
+                      </>
+                    ) : null}
+                    <Button onClick={() => setPicking({ vendor: card.id })}>{t("providers.page.manage")}</Button>
+                  </>
+                }
+              >
+                <SignInLine card={card} signedIn={signedIn} checkError={check.error?.message ?? null} />
+                <div className="mt-3 space-y-3">
+                  {card.keys.filter((k) => k.connected).map((k) => {
+                    const c = (conns.data ?? []).find((x) => x.id === k.id);
+                    return c ? <ConnectionCard key={c.id} c={c} nested onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} /> : null;
+                  })}
+                  {showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
+                </div>
+              </ProviderPageCard>
+            </li>
+          ))}
+        </CategorySection>
+      ))}
       <BrowserAutomationSection q={auto} />
-      {picking !== false ? (
+      {picking !== false && cards && vendors.data ? (
         <IntegrationPicker
           initial={picking}
+          cards={cards}
           conns={conns.data ?? []}
-          provs={provs.data ?? []}
           facades={facades.data ?? []}
+          categories={vendors.data.categories}
+          signedIn={signedIn}
           onClose={() => setPicking(false)}
-          onChanged={() => { conns.reload(); facades.reload(); }}
+          onChanged={reloadAll}
           onNewProvider={() => { setPicking(false); setAdding(true); }}
         />
       ) : null}
-      {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking(null); }} /> : null}
+      {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking({ vendor: null }); }} /> : null}
     </>
   );
 }
 
+/** One plain sentence about the provider's browser sign-in, and the result of the last check. */
+function SignInLine({ card, signedIn, checkError }: { card: ProviderCard; signedIn: ReadonlySet<string>; checkError: string | null }) {
+  const t = useT();
+  const s = card.signIn;
+  if (s.state === "none") return null;
+  return (
+    <div className="mt-3 rounded-xl bg-page p-3 text-xs text-muted">
+      <p className="font-medium text-ink">{t("providers.way.signIn")}</p>
+      <p className="mt-0.5">{signInSentence(card, t)}</p>
+      {s.facade && signedIn.has(card.id) ? <p className="mt-1" role="status">{t("providers.signIn.signedInYes")}</p> : null}
+      {checkError ? <p className="mt-1 text-danger-text">{checkError}</p> : null}
+    </div>
+  );
+}
+
+function signInSentence(card: ProviderCard, t: (k: string, v?: Record<string, string | number>) => string): string {
+  const s = card.signIn;
+  if (s.state === "facade") return t(s.facade && s.facade.id === "stripe" ? "providers.signIn.facadeScoped" : "providers.signIn.facade");
+  if (s.state === "recipe") return t(s.available ? "providers.signIn.recipe" : "providers.signIn.recipeOff", { name: card.label });
+  return t("providers.signIn.coming", { name: card.label });
+}
+
 /** Eine verbundene Integration: Ablauf-Ampel, Alter des gespeicherten Tokens, Test. */
-function ConnectionCard({ c, onGuide, onDisconnect, disconnecting }: { c: Connection; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean }) {
+function ConnectionCard({ c, onGuide, onDisconnect, disconnecting, nested = false }: { c: Connection; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean; nested?: boolean }) {
   const t = useT();
   const [checked, setChecked] = useState<CheckResult | null>(null);
   // Das vom Anbieter genannte Ablaufdatum ersetzt die manuelle Angabe, solange das Testergebnis sichtbar ist.
@@ -117,10 +203,11 @@ function ConnectionCard({ c, onGuide, onDisconnect, disconnecting }: { c: Connec
     : level === "critical" ? { label: t("connections.expCritical"), tone: "danger" as const, icon: "alert" as const }
     : level === "expired" ? { label: t("connections.expExpired"), tone: "danger" as const, icon: "x" as const }
     : null;
+  const Shell = nested ? NestedShell : Card;
   return (
-    <Card>
+    <Shell>
       <div className="flex items-start justify-between gap-3">
-        <p className="font-medium">{labelOf(c)}</p>
+        <p className="font-medium">{labelOf(c)}{c.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}{c.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}</p>
         <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />
       </div>
       {c.description ? <p className="mt-1 text-sm text-muted">{c.description}</p> : null}
@@ -140,8 +227,13 @@ function ConnectionCard({ c, onGuide, onDisconnect, disconnecting }: { c: Connec
       </div>
       <ConnectionDefaultsSummary id={c.id} />
       <ConnectionCheckPanel id={c.id} onResult={setChecked} />
-    </Card>
+    </Shell>
   );
+}
+
+/** A key inside its provider card: a bordered block instead of a card of its own. */
+function NestedShell({ children }: { children: ReactNode }) {
+  return <div className="rounded-xl border border-line p-3">{children}</div>;
 }
 
 /** Chrome-Status, Profilordner, Rezepte und Probleme der Browser-Automatisierung. */
@@ -221,65 +313,123 @@ function withExpiry(url: string, days: number | null): string {
 
 const labelOf = (c: Connection) => c.label || NAMES[c.id] || c.id;
 
-function IntegrationPicker({ initial, conns, provs, facades, onClose, onChanged, onNewProvider }: { initial: string | null; conns: Connection[]; provs: Provider[]; facades: FacadeInfo[]; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
+/** The picker: all providers as tiles by category; a provider opens its ways in. */
+function IntegrationPicker({ initial, cards, conns, facades, categories, signedIn, onClose, onChanged, onNewProvider }: { initial: { vendor: string | null; key?: string; signIn?: boolean }; cards: ProviderCard[]; conns: Connection[]; facades: FacadeInfo[]; categories: string[]; signedIn: ReadonlySet<string>; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
   const t = useT();
-  const [selected, setSelected] = useState<string | null>(initial);
+  const purposeOf = usePurpose();
+  const [vendor, setVendor] = useState<string | null>(initial.vendor);
+  const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin" } : null);
   const [q, setQ] = useState("");
-  const manual = provs.filter((p) => p.kind === "manual" && p.guide);
-  const sel = selected ? (conns.find((c) => c.id === selected) ?? null) : null;
-  const selProv = selected?.startsWith("provider:") ? (manual.find((p) => `provider:${p.id}` === selected) ?? null) : null;
-  const facade = sel ? facades.find((f) => f.connectionId === sel.id) : undefined;
-  const needle = q.trim().toLowerCase();
-  const connItems = conns.filter((c) => !needle || `${labelOf(c)} ${c.description ?? ""} ${c.id}`.toLowerCase().includes(needle));
-  const provItems = manual.filter((p) => !needle || `${p.label} ${p.id}`.toLowerCase().includes(needle));
+  const card = vendor ? (cards.find((c) => c.id === vendor) ?? null) : null;
 
-  if (sel || selProv) {
+  if (card) {
     return (
-      <Dialog title={sel ? labelOf(sel) : selProv!.label} onClose={onClose} wide>
-        <button type="button" onClick={() => setSelected(null)} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{t("connections.back")}</button>
-        {sel && facade ? (
-          // Providers with a guided sign-in start with the sign-in; pasting a key is only the collapsed way out.
-          <FacadeFlow facade={facade} onChanged={onChanged} onDone={onClose} fallback={<ConnectionDetail c={sel} onChanged={onChanged} onDone={onClose} noExpiry />} />
-        ) : sel ? (
-          <ConnectionDetail c={sel} onChanged={onChanged} onDone={onClose} />
-        ) : (
-          <ProviderDetail p={selProv!} />
-        )}
+      <Dialog title={card.label} description={purposeOf(card)} onClose={onClose} size="xl">
+        <button type="button" onClick={() => (sub ? setSub(null) : setVendor(null))} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{sub ? t("connections.back") : t("providers.back")}</button>
+        <VendorDetail card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={onChanged} onDone={onClose} />
       </Dialog>
     );
   }
+  const needle = q.trim();
+  const shown = cards.filter((c) => cardMatches(c, needle, { purpose: purposeOf(c), category: t(`category.${c.category}`) }));
+  const groups = groupByCategory(shown, categories);
   return (
-    <Dialog title={t("connections.add")} description={t("connections.pickDesc")} onClose={onClose}>
-      <input type="search" autoComplete="off" placeholder={t("connections.search")} aria-label={t("connections.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-4`} />
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">{t("connections.withConnection")}</p>
-      <ul className="divide-y divide-line rounded-xl border border-line">
-        {connItems.map((c) => (
-          <li key={c.id}>
-            <button type="button" onClick={() => setSelected(c.id)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-page">
-              <span><span className="block text-sm font-medium">{labelOf(c)}{facades.some((f) => f.connectionId === c.id) ? <span className="ml-2 align-middle"><Badge info={{ label: t("facade.badge"), tone: "primary", icon: "plug" }} /></span> : null}</span>{c.description ? <span className="block text-xs text-muted">{c.description}</span> : null}</span>
-              {c.connected ? <span className="shrink-0 text-xs text-success">{t("connections.connected")}</span> : <Icon name="plug" className="h-4 w-4 shrink-0 text-muted" />}
-            </button>
-          </li>
-        ))}
-        {connItems.length === 0 ? <li className="px-4 py-3 text-sm text-muted">{t("connections.noMatches")}</li> : null}
-      </ul>
-      <p className="mb-2 mt-5 text-xs font-medium uppercase tracking-wide text-muted">{t("connections.noApi")}</p>
-      <ul className="divide-y divide-line rounded-xl border border-line">
-        {provItems.map((p) => (
-          <li key={p.id}>
-            <button type="button" onClick={() => setSelected(`provider:${p.id}`)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-page">
-              <span className="font-medium">{p.label}</span><Icon name="external" className="h-4 w-4 shrink-0 text-muted" />
-            </button>
-          </li>
-        ))}
-        {provItems.length === 0 ? <li className="px-4 py-3 text-sm text-muted">{t("connections.noMatches")}</li> : null}
-      </ul>
-      <button type="button" onClick={onNewProvider} className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary"><Icon name="plus" className="h-4 w-4" />{t("connections.addCustom")}</button>
+    <Dialog title={t("providers.pickTitle")} description={t("providers.pickDesc")} onClose={onClose} size="xl">
+      <input type="search" autoComplete="off" placeholder={t("providers.search")} aria-label={t("providers.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-5 w-full`} />
+      {groups.map((g) => (
+        <CategorySection key={g.category} category={g.category}>
+          {g.cards.map((c) => (
+            <li key={c.id}><ProviderTile card={c} onOpen={() => { setVendor(c.id); setSub(null); }} /></li>
+          ))}
+        </CategorySection>
+      ))}
+      {groups.length === 0 ? <p className="rounded-xl border border-line px-4 py-3 text-sm text-muted" role="status">{t("providers.noMatches")}</p> : null}
+      <button type="button" onClick={onNewProvider} className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary"><Icon name="plus" className="h-4 w-4" />{t("connections.addCustom")}</button>
     </Dialog>
   );
 }
 
-function ProviderDetail({ p }: { p: Provider }) {
+type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin" };
+
+/** A provider's ways in, each with one plain sentence. */
+function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, onDone }: { card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onDone: () => void }) {
+  const t = useT();
+  const facade = card.signIn.facade ? facades.find((f) => f.id === card.signIn.facade!.id) : undefined;
+  const paste = facade ? conns.find((c) => c.id === facade.connectionId) : undefined;
+  const fallback = paste ? <ConnectionDetail c={paste} onChanged={onChanged} onDone={onDone} noExpiry /> : undefined;
+
+  if (sub?.kind === "key") {
+    const c = conns.find((x) => x.id === sub.id);
+    return c ? <ConnectionDetail c={c} onChanged={onChanged} onDone={onDone} /> : null;
+  }
+  if (sub?.kind === "hand") {
+    const p = card.byHand.find((x) => x.id === sub.id);
+    return p ? <ProviderDetail p={p} /> : null;
+  }
+  if (sub?.kind === "signin" && facade) {
+    // The guided sign-in: pasting a key is only the collapsed way out.
+    return <FacadeFlow facade={facade} onChanged={onChanged} onDone={onDone} {...(fallback ? { fallback } : {})} />;
+  }
+  const keys = card.keys.filter((k) => k.connected || (k.role !== "legacy" && !card.signIn.facade));
+  return (
+    <div className="space-y-5 text-sm">
+      <h3 className="sr-only">{t("providers.ways")}</h3>
+      {card.signIn.state !== "none" ? (
+        <section aria-labelledby={`way-signin-${card.id}`} className="rounded-xl border border-line p-4">
+          <h4 id={`way-signin-${card.id}`} className="font-medium">{t("providers.way.signIn")}</h4>
+          <p className="mt-1 text-muted">{signInSentence(card, t)}</p>
+          {card.signIn.recipes.length > 0 ? <p className="mt-1 text-xs text-muted">{t("providers.signIn.recipes", { names: card.signIn.recipes.map((r) => r.label).join(", ") })}</p> : null}
+          {facade ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button variant="primary" disabled={!facade.available} onClick={() => setSub({ kind: "signin" })}>{facade.connected ? t("facade.reconnect") : t("providers.signIn.start")}</Button>
+              {signedIn.has(card.id) ? <span className="text-xs text-muted" role="status">{t("providers.signIn.signedInYes")}</span> : null}
+              {!facade.available ? <span className="text-xs text-warn-text">{t("facade.unavailable", { reason: facade.reason ?? "" })}</span> : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+      <section aria-labelledby={`way-keys-${card.id}`} className="rounded-xl border border-line p-4">
+        <h4 id={`way-keys-${card.id}`} className="font-medium">{t("providers.way.keys")}</h4>
+        <p className="mt-1 text-muted">{card.signIn.facade ? t("providers.keys.hintFacade") : t("providers.keys.hint", { name: card.label })}</p>
+        {keys.length === 0 ? <p className="mt-2 text-xs text-muted">{t("providers.keys.none")}</p> : (
+          <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
+            {keys.map((k) => (
+              <li key={k.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span className="min-w-0">
+                  <span className="text-sm font-medium">{k.label}</span>
+                  {k.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}
+                  {k.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}
+                </span>
+                <span className="flex items-center gap-2">
+                  {k.connected ? <Badge info={{ label: t("connections.connected"), tone: "success", icon: "check" }} /> : null}
+                  {!card.signIn.facade ? <Button onClick={() => setSub({ kind: "key", id: k.id })}>{k.connected ? t("providers.keys.edit") : t("providers.keys.setUp")}</Button> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {showsLegacyHint(card) ? <div className="mt-3"><Notice tone="info">{t("providers.keys.legacyHint")}</Notice></div> : null}
+      </section>
+      {card.byHand.length > 0 ? (
+        <section aria-labelledby={`way-hand-${card.id}`} className="rounded-xl border border-line p-4">
+          <h4 id={`way-hand-${card.id}`} className="font-medium">{t("providers.way.byHand")}</h4>
+          <p className="mt-1 text-muted">{t("providers.byHand.hint")}</p>
+          <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
+            {card.byHand.map((p) => (
+              <li key={p.id}>
+                <button type="button" onClick={() => setSub({ kind: "hand", id: p.id })} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-page">
+                  <span className="font-medium">{p.label}</span><Icon name="external" className="h-4 w-4 shrink-0 text-muted" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ProviderDetail({ p }: { p: Pick<Provider, "guide"> }) {
   const t = useT();
   return (
     <div className="text-sm">

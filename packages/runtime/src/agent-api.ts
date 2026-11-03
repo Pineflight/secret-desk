@@ -22,6 +22,13 @@ import {
   VariableAgentCreateSchema,
   parseInput,
   parseStripeConnectionId,
+  VENDORS,
+  connectionRole,
+  vendorOfConnection,
+  vendorOfProvider,
+  VENDOR_CATEGORIES,
+  type VendorCategory,
+  type VendorDef,
   readConnectionLabel,
   secretApprovalSnapshot,
   variableApprovalSnapshot,
@@ -118,6 +125,8 @@ export interface SecretView {
   places: Place[];
   guide: { url: string; steps: string[]; openUrl: string } | null;
   connection: string | null;
+  /** Vendor (provider card) the entry counts for: its provider definition or browser recipe belongs to it. Null for generators and unknown providers. */
+  vendor: string | null;
   notes: string | null;
   /** Stand der Anbieter-Parameter: ok, missing (Pflichtparameter fehlen), invalid, none (der Anbieter braucht keine). Nur Schluessel, nie Werte. */
   params: { status: "ok" | "missing" | "invalid" | "none"; missing: string[] };
@@ -158,6 +167,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): Secr
     guide: provider?.guide ? { url: provider.guide.url, steps: provider.guide.steps, openUrl: provider.guide.openUrl?.(s, { owner: rt.owner, now: today }) ?? provider.guide.url } : null,
     // Browser recipes need no connection token, but a recipe behind a facade belongs to that integration (overview counts).
     connection: provider?.connection ?? facadeConnectionForRecipe((provider as { automation?: { recipeId?: string } } | undefined)?.automation?.recipeId),
+    vendor: vendorOfProvider(s.provider)?.id ?? null,
     notes: s.notes ?? null,
     params: paramStatus(rt, s),
     ...(liveErrors.length > 0 ? { liveErrors: [...new Set(liveErrors)] } : {}),
@@ -229,8 +239,13 @@ export async function overview(rt: Runtime, today = new Date()): Promise<Overvie
   };
 }
 
+/** The vendors (one card each on the Integrations page) with the ids that belong to them. No values, no state. */
+export function listVendors(): { categories: VendorCategory[]; vendors: VendorDef[] } {
+  return { categories: [...VENDOR_CATEGORIES], vendors: VENDORS.map((v) => ({ ...v })) };
+}
+
 export function listProviders(rt: Runtime) {
-  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), connection: p.connection ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
+  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), connection: p.connection ?? null, vendor: vendorOfProvider(p.id)?.id ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
 }
 
 /** Stack-Adresse fuer den Direktlink: Standardwert der Integration, sonst die erste baseUrl eines Grafana-Eintrags. */
@@ -271,7 +286,8 @@ export async function listConnections(rt: Runtime) {
   return statuses.map((s) => {
     const g = connectionGuide(s.id, rt.owner, s.id === "grafana" ? { grafanaBaseUrl: grafanaBase(rt) } : s.id === "team-sync" && rt.config.teamSync ? { teamRepo: rt.config.teamSync.repo, teamRights: neededRights(rt.config.teamSync) } : {});
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
-    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: stripeLabel(s.id, stripeNames.get(s.id)) ?? g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+    const v = vendorOfConnection(s.id);
+    return { ...s, vendor: v?.id ?? null, role: v ? connectionRole(v, s.id) : "primary", canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: stripeLabel(s.id, stripeNames.get(s.id)) ?? g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
 }
 
