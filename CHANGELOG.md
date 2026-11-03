@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Browser recipes name a new token with the secret id shortened and date plus time kept (at most 40 characters). Before, a long id cut the date off, so the next renewal produced a token with the same name and the old one could not be told apart for revocation.
 - Secrets created by a recipe behind a facade (RevenueCat) count for that integration on the overview instead of showing 0 secrets.
+- Browser sidecar: a small window manager (Openbox) gives Chromium the keyboard focus. Without it, typing in the noVNC window could stop working after the container restarted.
+- The version in the sidebar and on *About* is the GitHub release tag of the running image (for example `v0.1.0-29`) and links to that release, instead of the package version `v0.1.0` that never changes between releases.
 - Guided sign-in: a browser that is already signed in is recognised even when the provider redirects from its sign-in page only after a few seconds. The run then skips the form instead of failing on the missing email field.
 - The *Open browser* link can be a path on the portal host (`/browser/vnc.html?...`), so it works under every address of the portal instead of one fixed host name.
 - An external recipe folder that does not exist or holds no recipes is no longer reported as skipped.
