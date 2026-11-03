@@ -75,6 +75,8 @@ const T = {
   switchApiKey: "Der Schluessel laesst sich ueber die Supabase-API erzeugen",
   switchDbPassword: "Das Datenbank-Passwort laesst sich ueber die Supabase-API setzen",
   switchStripeWebhook: "Das Webhook-Secret entsteht beim Anlegen des Endpunkts ueber die Stripe-API",
+  switchAccess: "Client-ID und Secret des Access-Service-Tokens entstehen zusammen ueber die Cloudflare-API",
+  switchAccessIdOnly: "Die Client-ID kommt zusammen mit CLOUDFLARE_ACCESS_CLIENT_SECRET aus einer Ausstellung: dort als Begleiteintrag eintragen",
   switchGrafana: "Das Token laesst sich fuer den Service-Account ueber die Grafana-API erzeugen",
   paramsNeeded: "Danach die Parameter vervollstaendigen (Projekt)",
   paramsNeededGeneric: "Danach die Parameter vervollstaendigen",
@@ -127,6 +129,16 @@ interface ProviderSwitch {
   required: string[];
   reason: { code: string; text: string };
   paramsText: string;
+  /** Parameters taken from other entries when exactly one candidate exists (never guessed otherwise). */
+  propose?: (inv: Inventory, entry: SecretEntry) => Record<string, string>;
+}
+
+/** The only CLOUDFLARE_ACCESS_CLIENT_ID secret with the same repositories and stage, if there is exactly one. */
+function accessClientIdOf(inv: Inventory, entry: SecretEntry): Record<string, string> {
+  const repos = new Set(entry.places.map((p) => p.repo));
+  const sameRepos = (o: SecretEntry): boolean => o.places.length > 0 && o.places.every((p) => repos.has(p.repo)) && [...repos].every((r) => o.places.some((p) => p.repo === r));
+  const hits = inv.secrets.filter((o) => o.name === "CLOUDFLARE_ACCESS_CLIENT_ID" && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
+  return hits.length === 1 ? { clientIdTarget: hits[0]!.id } : {};
 }
 const supabaseKey = (type: "secret" | "publishable"): ProviderSwitch => ({ provider: "supabase-api-key", fixed: { type }, required: ["projectRef"], reason: { code: "supabase-api-key", text: T.switchApiKey }, paramsText: T.paramsNeeded });
 const supabaseDbPassword: ProviderSwitch = { provider: "supabase-db-password", fixed: {}, required: ["projectRef"], reason: { code: "supabase-db-password", text: T.switchDbPassword }, paramsText: T.paramsNeeded };
@@ -136,6 +148,7 @@ const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
   SUPABASE_PUBLISHABLE_KEY: supabaseKey("publishable"),
   SUPABASE_DB_PASSWORD: supabaseDbPassword,
   STRIPE_WEBHOOK_SECRET: { provider: "stripe-webhook-secret", fixed: {}, required: ["url", "events"], reason: { code: "stripe-webhook-secret", text: T.switchStripeWebhook }, paramsText: T.paramsNeededGeneric },
+  CLOUDFLARE_ACCESS_CLIENT_SECRET: { provider: "cloudflare-access-service-token", fixed: {}, required: ["accountId", "clientIdTarget"], reason: { code: "cloudflare-access-service-token", text: T.switchAccess }, paramsText: T.paramsNeededGeneric, propose: accessClientIdOf },
   GRAFANA_SERVICE_ACCOUNT_TOKEN: grafanaToken,
   GRAFANA_READ_TOKEN: grafanaToken,
 };
@@ -149,7 +162,8 @@ const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
   { test: /^DIP(_|$)/i, code: "dip", text: "Der DIP-Schluessel wird beantragt, es gibt keine API dafuer: nur von Hand" },
   { test: /OPENAI/i, code: "openai-admin", text: "OpenAI erzeugt Schluessel nur im Dashboard (keine API fuer Admin-Keys): nur von Hand" },
   { test: /^STRIPE_SECRET_KEY$/, code: "stripe-restricted-key", text: "Restricted Keys erzeugt Stripe nur im Dashboard: nur von Hand" },
-  { test: /^CLOUDFLARE_(ACCESS_CLIENT|R2_)/, code: "cloudflare-not-yet", text: "Cloudflare koennte das per API, secret-desk hat dafuer noch keinen Anbieter: vorerst von Hand" },
+  { test: /^CLOUDFLARE_ACCESS_CLIENT_ID$/, code: "cloudflare-access-companion", text: T.switchAccessIdOnly },
+  { test: /^CLOUDFLARE_R2_/, code: "cloudflare-not-yet", text: "Cloudflare koennte das per API, secret-desk hat dafuer noch keinen Anbieter: vorerst von Hand" },
 ];
 /** Jeder andere Eintrag mit provider manual: in der Liste, damit sichtbar ist, was von Hand bleibt. */
 const MANUAL_FALLBACK = { code: "no-provider", text: "Fuer diesen Wert hat secret-desk keinen Anbieter: von Hand" };
@@ -302,7 +316,7 @@ export function planNormalization(inv: Inventory, config: { naming?: Partial<Nam
     if (row.stageTarget) {
       changes.push(change({ kind: "stage", entryKind: kind, entryIds: [entry.id], before: [before], after: [{ ...before, stage: row.stageTarget }], reasons: [{ code: "stage-from-name", text: T.stageFromName }] }, `stage:${kind}:${entry.id}`));
     }
-    if (kind === "secret") changes.push(...secretChanges(row, before as NormalizationEntryState));
+    if (kind === "secret") changes.push(...secretChanges(inv, row, before as NormalizationEntryState));
     else changes.push(...variableChanges(inv, row, before));
   }
 
@@ -313,13 +327,14 @@ export function planNormalization(inv: Inventory, config: { naming?: Partial<Nam
   return { changes };
 }
 
-function secretChanges(row: Row, before: NormalizationEntryState): NormalizationChange[] {
+function secretChanges(inv: Inventory, row: Row, before: NormalizationEntryState): NormalizationChange[] {
   const s = row.entry as SecretEntry;
   if (s.provider !== "manual") return [];
   const sw = PROVIDER_SWITCHES[row.target];
   if (sw) {
-    const keys = [...new Set([...Object.keys(s.params), ...Object.keys(sw.fixed)])].sort();
-    const missing = sw.required.filter((k) => s.params[k] === undefined);
+    const proposed = sw.propose?.(inv, s) ?? {};
+    const keys = [...new Set([...Object.keys(s.params), ...Object.keys(sw.fixed), ...Object.keys(proposed)])].sort();
+    const missing = sw.required.filter((k) => s.params[k] === undefined && proposed[k] === undefined);
     return [change({ kind: "provider", entryKind: "secret", entryIds: [s.id], before: [before], after: [{ ...before, provider: sw.provider, paramKeys: keys }], reasons: [sw.reason, ...(missing.length > 0 ? [{ code: "params-needed", text: sw.paramsText }] : [])], missingParams: missing }, `provider:secret:${s.id}`)];
   }
   const subject = `${row.target} ${s.service}`;
@@ -377,7 +392,10 @@ export async function applyNormalization(inventory: InventoryStore, config: { na
     else if (c.kind === "provider") {
       e.provider = after.provider!;
       const sw = PROVIDER_SWITCHES[analyzeName(after.name, namingOf(config)).suggested];
-      if (sw) e.params = { ...e.params, ...sw.fixed };
+      const entry = inventory.data.secrets.find((x) => x.id === after.id);
+      // Params the entry already has are never overwritten by a proposal.
+      const proposed = sw && entry ? Object.fromEntries(Object.entries(sw.propose?.(inventory.data, entry) ?? {}).filter(([k]) => entry.params[k] === undefined)) : {};
+      if (sw) e.params = { ...e.params, ...sw.fixed, ...proposed };
     } else if (c.kind === "source") e.from = after.source as VariableSource;
   }
 

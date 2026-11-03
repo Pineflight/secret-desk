@@ -18,6 +18,11 @@ Provider API ──> value in memory ──> verification ──> review report 
    Then: write to all targets, re-check (name exists, just changed), revoke the old value at the provider, record `rotatedAt`, `expires`,
    `verifiedAt` and `verifiedBy` in the inventory, and store the report with the confirmation. If a target fails, the old value stays valid and
    the review stays open.
+   **Companion values:** a provider may return values for other inventory entries from the same answer (`IssuedSecret.companions`, for
+   example the client ID next to the client secret). Only entries the provider names in its params (`companionParams`) can receive one, in
+   the same stage; this is checked before anything is issued. The report lists them (name, targets, fingerprint), confirm writes them in
+   the same commit and records `rotatedAt` and `externalId` on them, and reject, expiry or a changed target discard them with the main value.
+   When the provider renews in place (new id equals old id), nothing is deleted on confirm or discard.
 3. **Discard** (`discardIssuance`): on rejection or timeout the new value is deleted at the provider again. Nothing was written.
 
 ## Data

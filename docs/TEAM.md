@@ -18,6 +18,20 @@ The `.env` is created on your machine with mode 600. The portal does not store i
 ## Team sync with a private GitHub repository
 Instead of passing the team file around by hand, a team can keep it in a private GitHub repository (any `owner/name`, path and branch) and let the portal sync with it. Configure `teamSync` ([Configuration](CONFIGURATION.md#teamsync)) or use the first-start wizard. The file is the same team file as above: structure only, no values.
 
+### Choose the repository from lists
+Nothing is typed. On the welcome page (empty inventory) *Load the team configuration from a GitHub repo* shows lists that are read from GitHub with the GitHub integration (the same token resolution as above; discovery uses the connection `github` or the GitHub App):
+
+1. **Repository.** A searchable list of the repositories the integration can see (owner and name, private or public, last push). It is preselected when the name contains `team-config` or `secret-desk` (the most recently pushed first). If no name matches, the portal looks for `secret-desk.team.yaml` in the few most recently pushed private repositories (at most five requests) and preselects one that has it. **Public repositories are listed but cannot be chosen**, with the reason: team sync needs a private repository.
+2. **Branch.** All branches; the default branch is preselected.
+3. **File.** The matching files on that branch (`secret-desk.team.yaml`, `*.team.yaml`, `secret-desk/*.yaml`), read with one tree request. The conventional name is preselected. If nothing matches, the list offers *New file secret-desk.team.yaml*: the file is created with the current configuration by the **first push** (*Team*, *Push to repo*), so this needs *read and write*. The portal says so; nothing is written during setup.
+4. **Mode.** *Read only* or *read and write*, each with the rights it needs shown next to it (*Contents: Read*; *Contents: Read and write*, plus *Pull requests: Read and write* for the pull-request strategy). Each mode is checked against the integration with the same checks as the *Team repository* connection test (repository readable, private, team file, rights granted to a GitHub App installation, push permission). A mode the integration cannot do is marked with what is missing. For *read and write* you also choose pull request or direct commit.
+
+Then *Load preview* saves the setting and shows the preview as before; nothing is taken over until you confirm.
+
+**No token field.** If GitHub is not connected, or the connection lacks a right, the page names what is missing (and the rights needed) and links to *Integrations* instead of asking for a token. A token you type yourself stays available only under *Use a different token* (collapsed): it is kept for this session and used instead of the integration.
+
+**Routes.** The lists come from `GET /api/ui/team-sync/discovery/repos`, `.../branches?repo=`, `.../files?repo=&branch=` and `.../access?repo=&branch=&path=&mode=&strategy=`. They only read, answer without any token and are **human routes only**: agents get 404, because listing the repositories of the integration is a human decision. GitHub's rate limit is respected (one retry after `Retry-After`, otherwise the page asks you to wait); lists are capped (1000 repositories, 500 branches). *Team* shows the saved setting; changing it later is done by setting `teamSync` again through this page or the configuration file, the *Team* page has no typed fields of its own.
+
 **Roles.** Everyone reads. In `mode: pull-push` the people who may change the team structure also push. The repository decides who may merge: with `push.strategy: pull-request` (the default) a push only opens or updates a pull request, and your normal review and branch protection apply.
 
 **Token.** By default team sync **uses the GitHub integration**; no extra token is needed. Resolution order: an own `team-sync` token (session, vault, `connections.team-sync`, `SECRET_DESK_TEAM_TOKEN`) wins, otherwise the connection `github`.

@@ -34,6 +34,13 @@ export interface Attachment {
   addedAt: string;
 }
 
+export interface CompanionSummary {
+  entryId: string;
+  name: string;
+  targets: string[];
+  fingerprint: string;
+}
+
 /** Was ueber eine Ausstellung oder Eingabe bekannt ist, damit ein Mensch sie beurteilen kann. */
 export interface VerificationReport {
   id: string;
@@ -52,6 +59,8 @@ export interface VerificationReport {
   checklist: ChecklistItem[];
   /** Erste Zeichen eines SHA-256 des Wertes: erlaubt spaeteren Abgleich, verraet den Wert nicht. */
   fingerprint: string;
+  /** Companion values of the same issuance (name, targets, fingerprint; never the value). */
+  companions?: CompanionSummary[];
   attachments: Attachment[];
   confirmation?: Confirmation;
 }

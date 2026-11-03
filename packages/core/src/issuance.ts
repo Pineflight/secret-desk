@@ -3,7 +3,7 @@ import { assertPreflight, entryParamsState, preflightEntry } from "./preflight.j
 import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
-import { issuanceSnapshot } from "./snapshot.js";
+import { hashOf, issuanceSnapshot } from "./snapshot.js";
 import type { SecretEntry } from "./types.js";
 import type { EvidenceStore } from "./evidence.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
@@ -12,7 +12,7 @@ import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
 import type { SecretValue } from "./secret.js";
-import { fingerprintOf, overallStatus, type Check, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
+import { fingerprintOf, overallStatus, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
 
 export interface IssuanceDeps {
   inventory: InventoryStore;
@@ -35,6 +35,8 @@ export interface PendingIssuance {
   id: string;
   secretId: string;
   value: SecretValue;
+  /** Companion values for other entries; in memory only, written on confirm, dropped on reject or expiry. */
+  companions: PendingCompanion[];
   report: VerificationReport;
   oldExternalId?: string;
   /** Hash ueber Ziele, Anbieter, Parameter, Stage und alte Kennung zum Zeitpunkt der Pruefung (siehe snapshot.ts). */
@@ -44,6 +46,20 @@ export interface PendingIssuance {
   newExpires: string | null;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface PendingCompanion {
+  entryId: string;
+  value: SecretValue;
+  /** Hash of the receiving entry's places and stage at review time; a change before confirm makes the issuance stale. */
+  snapshot: string;
+}
+
+const companionSnapshot = (e: SecretEntry): string => hashOf({ places: e.places, stage: e.stage });
+
+/** Inventory ids a provider names in its `companionParams` for these effective params. */
+function companionTargets(provider: { companionParams?: string[] } | undefined, params: Record<string, unknown>): string[] {
+  return [...new Set((provider?.companionParams ?? []).map((k) => params[k]).filter((v): v is string => typeof v === "string" && v !== ""))];
 }
 
 export class IssuanceError extends Error {
@@ -101,6 +117,8 @@ export async function prepareIssuance(
   let kind: VerificationReport["kind"];
   let params = secret.params;
   const preChecks: Check[] = [];
+  const companions: PendingCompanion[] = [];
+  const companionSummaries: CompanionSummary[] = [];
   if (options.manualValue) {
     value = options.manualValue;
     kind = "manual";
@@ -116,11 +134,29 @@ export async function prepareIssuance(
     assertPreflight(pre);
     if (pre.resource) preChecks.push({ id: "preflight-resource", label: "Ressource beim Anbieter", status: "pass", actual: pre.resource });
     for (const f of pre.findings) if (f.level !== "ok") preChecks.push({ id: `preflight:${f.id}`, label: f.label, status: "warn", ...(f.detail ? { detail: f.detail } : {}) });
+    // Companion targets are checked before anything is created at the provider, so a bad target never leaves an orphan.
+    for (const id of companionTargets(provider, params)) {
+      const target = deps.inventory.getSecret(id);
+      if (!target) throw new IssuanceError(`Secret nicht gefunden: ${id}`);
+      if (id === secret.id) throw new IssuanceError("Der Eintrag darf nicht sein eigener Begleiter sein.");
+      if (target.stage !== secret.stage) throw new IssuanceError(`Der Begleiter ${id} liegt in einer anderen Stage (${target.stage}).`);
+      if (target.places.length === 0) throw new IssuanceError(`Der Begleiter ${id} hat kein Ziel (places).`);
+    }
     const issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
     kind = "issued";
+    const allowed = companionTargets(provider, params);
+    for (const c of issued.companions ?? []) {
+      const target = allowed.includes(c.entryId) ? deps.inventory.getSecret(c.entryId) : undefined;
+      if (!target) {
+        // The provider returned a value for an entry nobody named: undo what was created, write nothing.
+        if (externalId && externalId !== secret.externalId && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
+        throw new IssuanceError("Der Anbieter lieferte einen Begleitwert fuer einen nicht benannten Eintrag. Nichts wurde geschrieben.");
+      }
+      companions.push({ entryId: c.entryId, value: c.value, snapshot: companionSnapshot(target) });
+    }
   }
 
   const checks: Check[] = [...preChecks];
@@ -135,6 +171,19 @@ export async function prepareIssuance(
       checks.push({ id: `target:${describePlace(place)}`, label: `Ziel erreichbar mit Schreibrecht: ${describePlace(place)}`, status: "pass" });
     } catch (err) {
       checks.push({ id: `target:${describePlace(place)}`, label: `Ziel nicht erreichbar: ${describePlace(place)}`, status: "fail", detail: (err as Error).message });
+    }
+  }
+  for (const c of companions) {
+    const target = deps.inventory.getSecret(c.entryId)!;
+    const targets = target.places.map(describePlace);
+    companionSummaries.push({ entryId: c.entryId, name: target.name, targets, fingerprint: fingerprintOf(c.value) });
+    for (const place of target.places) {
+      try {
+        await deps.github.publicKey(placeToTarget(deps.owner, place));
+        checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts erreichbar mit Schreibrecht: ${describePlace(place)}`, status: "pass" });
+      } catch (err) {
+        checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts nicht erreichbar: ${describePlace(place)}`, status: "fail", detail: (err as Error).message });
+      }
     }
   }
   if (provider?.verify) {
@@ -170,6 +219,7 @@ export async function prepareIssuance(
     checks,
     checklist,
     fingerprint: fingerprintOf(value),
+    ...(companionSummaries.length ? { companions: companionSummaries } : {}),
     attachments: [],
   };
   await deps.evidence?.save(report);
@@ -178,6 +228,7 @@ export async function prepareIssuance(
     id: report.id,
     secretId,
     value,
+    companions,
     report,
     ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
     snapshot,
@@ -250,14 +301,28 @@ async function commitIssuanceOnce(
   const missing = pending.report.checklist.filter((c) => !confirmation.ticks.includes(c.id));
   if (missing.length > 0) throw new IssuanceError(`Nicht alle Pruefpunkte bestaetigt: ${missing.map((m) => m.id).join(", ")}`);
 
+  // Companions only go to the entries the provider named, and only while their places are what the review showed.
+  const companionEntries: { entry: SecretEntry; value: SecretValue }[] = [];
+  for (const c of pending.companions) {
+    const entry = deps.inventory.getSecret(c.entryId);
+    if (!entry || companionSnapshot(entry) !== c.snapshot) {
+      await discardIssuanceNow(pending, deps, { by: confirmation.by, why: "stale" });
+      throw new StaleIssuanceError();
+    }
+    companionEntries.push({ entry, value: c.value });
+  }
+
   const outcomes: PlaceOutcome[] = [];
-  for (const place of secret.places) {
-    const label = describePlace(place);
+  const writes = [
+    ...secret.places.map((place) => ({ place, name: place.name ?? secret.name, label: describePlace(place), value: pending.value })),
+    ...companionEntries.flatMap(({ entry, value }) => entry.places.map((place) => ({ place, name: place.name ?? entry.name, label: `${entry.name}: ${describePlace(place)}`, value }))),
+  ];
+  for (const w of writes) {
     try {
-      const outcome = await deps.github.putSecret(placeToTarget(deps.owner, place), place.name ?? secret.name, pending.value);
-      outcomes.push({ place: label, outcome });
+      const outcome = await deps.github.putSecret(placeToTarget(deps.owner, w.place), w.name, w.value);
+      outcomes.push({ place: w.label, outcome });
     } catch (err) {
-      outcomes.push({ place: label, outcome: "failed", error: (err as Error).message });
+      outcomes.push({ place: w.label, outcome: "failed", error: (err as Error).message });
     }
   }
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
@@ -267,10 +332,10 @@ async function commitIssuanceOnce(
 
   // Nachpruefung: Der Name steht jetzt in jedem Ziel und wurde eben geaendert.
   const since = Date.parse(pending.createdAt) - 5_000;
-  for (const place of secret.places) {
-    const label = describePlace(place);
+  for (const w of writes) {
+    const { place, label } = w;
     try {
-      const live = (await deps.github.listSecrets(placeToTarget(deps.owner, place))).find((s) => s.name === (place.name ?? secret.name));
+      const live = (await deps.github.listSecrets(placeToTarget(deps.owner, place))).find((s) => s.name === w.name);
       const fresh = live !== undefined && Date.parse(live.updatedAt) >= since;
       pending.report.checks.push({ id: `written:${label}`, label: `In GitHub geschrieben: ${label}`, status: fresh ? "pass" : "warn", ...(live ? { actual: `geaendert ${live.updatedAt}` } : { detail: "Name nicht gefunden" }) });
     } catch (err) {
@@ -280,7 +345,8 @@ async function commitIssuanceOnce(
 
   const provider = deps.providers.get(secret.provider);
   let revokedOld = false;
-  if (pending.oldExternalId && provider?.revoke) {
+  // A rotation keeps the provider id: the "old" value is the same object and must not be deleted.
+  if (pending.oldExternalId && pending.oldExternalId !== pending.report.externalId && provider?.revoke) {
     try {
       await provider.revoke({ externalId: pending.oldExternalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedOld = true;
@@ -303,6 +369,16 @@ async function commitIssuanceOnce(
       ...(unknownExpiry ? { expiry: "unknown" as const } : {}),
       ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
     });
+    for (const { entry } of companionEntries) {
+      deps.inventory.patchSecret(entry.id, {
+        rotatedAt: day,
+        verifiedAt: day,
+        verifiedBy: confirmation.by,
+        // An entry that never expires keeps no expiry date.
+        ...(entry.expiry === "none" ? {} : { expires: pending.newExpires }),
+        ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
+      });
+    }
     await deps.inventory.save();
   } catch (err) {
     warnings.push(revokedOld ? "Der alte Token ist bereits widerrufen, aber das Inventar wurde nicht gespeichert." : "Der neue Wert ist in allen Zielen geschrieben, aber das Inventar wurde nicht gespeichert.");
@@ -338,7 +414,9 @@ async function discardIssuanceNow(
   const secret = pending.issuedSecret ?? deps.inventory.getSecret(pending.secretId);
   const provider = secret ? deps.providers.get(secret.provider) : undefined;
   let revokedNew = false;
-  if (secret && pending.report.externalId && provider?.revoke) {
+  // Same id as before means the provider rotated in place: nothing new exists that could be deleted.
+  const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
+  if (secret && pending.report.externalId && !rotatedInPlace && provider?.revoke) {
     try {
       await provider.revoke({ externalId: pending.report.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedNew = true;
