@@ -32,7 +32,7 @@ export default function AboutPage() {
             </div>
           </div>
           <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-            <dt className="text-muted-text">{t("about.version")}</dt><dd className="tabular">{a.version}</dd>
+            <dt className="text-muted-text">{t("about.version")}</dt><dd className="tabular">{a.releaseUrl ? <a href={a.releaseUrl} target="_blank" rel="noopener noreferrer" className="underline">{a.displayVersion}</a> : a.displayVersion}</dd>
             {a.buildTag || a.commit ? <><dt className="text-muted-text">{t("about.build")}</dt><dd className="tabular break-all">{[a.buildTag, a.commit].filter(Boolean).join(" · ")}</dd></> : null}
             <dt className="text-muted-text">{t("about.createdBy")}</dt><dd>{t("about.createdByValue")}</dd>
             <dt className="text-muted-text">{t("about.license")}</dt><dd>{a.license}</dd>
