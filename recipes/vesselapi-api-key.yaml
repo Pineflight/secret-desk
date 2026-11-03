@@ -1,0 +1,43 @@
+# STATUS: Formular, Wertanzeige und Loeschen am 2026-11-03 gegen die echte Seite geprueft (Wegwerf-Schluessel, danach geloescht); der volle Rezeptlauf ist noch nicht geprueft
+# Creates a VesselAPI key in the dashboard at dashboard.vesselapi.com. The free plan offers 30, 60 or 90 days; "never" and a
+# custom date need a paid plan. The new key is shown once below "Your new API key:" and appears in the key list only after
+# a reload. Every key row exists twice in the page (desktop and mobile layout), so selectors take the visible one.
+id: vesselapi-api-key
+label: VesselAPI API Key
+host: dashboard.vesselapi.com
+params:
+  - key: expiry
+    label: Ablauf (Tage)
+    labelEn: Expiry (days)
+    options: ["30", "60", "90"]
+    default: "90"
+    help: "Lifetime of the key. Keep it equal to the entry's ttlDays so the portal shows the right expiry."
+login:
+  # Signed in = the dashboard itself; signed out redirects to /login.
+  expect: { visible: { css: "#description" } }
+  message: Bei VesselAPI anmelden (dashboard.vesselapi.com).
+steps:
+  - goto: "https://dashboard.vesselapi.com/"
+  - waitFor: { visible: { css: "#description" } }
+  - fill: { css: "#description", value: "{{name}}" }
+  - select: { css: "#expiry", value: "{{expiry}}" }
+  - screenshot: formular-vorher
+  - click: { role: button, name: "Generate API Key", createsToken: true }
+  - waitFor: { visible: { css: ".copy-content" } }
+capture:
+  token:
+    find: { css: ".copy-content >> visible=true" }
+    pattern: "^([A-Za-z0-9_-]{32,})$"
+  externalId: { from: name }
+  expires: { from: days }
+mask:
+  - { css: ".copy-content" }
+revoke:
+  steps:
+    - goto: "https://dashboard.vesselapi.com/"
+    - waitFor: { text: "{{externalId}}" }
+    - click: { css: ':has(> span:text-is("{{externalId}}")) button[title="Delete API key"] >> visible=true' }
+    # Confirmation dialog: "Delete API Key" (capital K) next to "Cancel"; the row icons are titled "Delete API key".
+    - click: { role: button, name: "Delete API Key", exact: true }
+    - goto: "https://dashboard.vesselapi.com/"
+    - waitFor: { hidden: { css: 'span:text-is("{{externalId}}") >> visible=true' } }

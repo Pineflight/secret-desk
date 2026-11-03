@@ -24,6 +24,8 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 |---|---|---|
 | GitHub | fine-grained personal access tokens | recipe scaffold, not verified |
 | Supabase | personal access tokens | recipe scaffold, not verified |
+| OpenAI | API keys (owner, expiry, permissions) | dialog, value view and revoke checked live 2026-11-03; service account and project choice not verified |
+| VesselAPI | API keys (30 to 90 days on the free plan) | form, value view and delete checked live 2026-11-03; full run not verified |
 | Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |
 
 ### Created through a guided sign-in (provider facade)

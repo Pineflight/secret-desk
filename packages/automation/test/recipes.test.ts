@@ -10,7 +10,7 @@ const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 describe("bundled recipes", () => {
   it("load and are valid", async () => {
     const recipes = await loadRecipes([RECIPES]);
-    expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token"]);
+    expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "openai-api-key", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
   });
   it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));
