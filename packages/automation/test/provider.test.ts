@@ -18,10 +18,16 @@ const now = new Date("2026-10-27T10:00:00Z");
 
 describe("tokenName", () => {
   it("cuts the id, never the date and time, and stays within 40 characters", () => {
-    const n = tokenName("revenuecat-api-key-wake-miles-production", now);
-    expect(n).toBe("revenuecat-api-key-wake-mi-20261027-1000");
+    const n = tokenName("acme-api-key-example-app-production", now);
     expect(n.length).toBeLessThanOrEqual(40);
-    expect(tokenName("revenuecat-api-key-wake-miles-production", new Date("2026-10-27T10:01:00Z"))).not.toBe(n);
+    expect(n.startsWith("acme-api-key~")).toBe(true);
+    expect(n.endsWith("production-20261027-1000")).toBe(true);
+    expect(tokenName("acme-api-key-example-app-production", new Date("2026-10-27T10:01:00Z"))).not.toBe(n);
+  });
+  it("keeps the stage apart when two long ids share their start", () => {
+    expect(tokenName("acme-api-key-example-app-staging", now)).not.toBe(tokenName("acme-api-key-example-app-production", now).replace("production", "staging"));
+    expect(tokenName("acme-api-key-example-app-staging", now).includes("staging")).toBe(true);
+    expect(tokenName("short-id", now)).toBe("short-id-20261027-1000");
   });
 });
 

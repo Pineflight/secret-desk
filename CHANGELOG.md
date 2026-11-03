@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Recipe token names keep the start and the end of a long secret id (joined by `~`), so names of two stages no longer differ only by the time.
+- The Supabase access token recipe selects the permission preset with the keyboard; a click on *Full access* is blocked by its description tooltip.
 - Browser recipes name a new token with the secret id shortened and date plus time kept (at most 40 characters). Before, a long id cut the date off, so the next renewal produced a token with the same name and the old one could not be told apart for revocation.
 - Secrets created by a recipe behind a facade (RevenueCat) count for that integration on the overview instead of showing 0 secrets.
 - Browser sidecar: a small window manager (Openbox) gives Chromium the keyboard focus. Without it, typing in the noVNC window could stop working after the container restarted.
