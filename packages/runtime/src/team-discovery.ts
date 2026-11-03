@@ -1,5 +1,5 @@
 import { GitHubError, GitHubInputError, InventoryError, TeamSyncSchema, isSafeRepoSlug, isValidBranchName, type TeamSyncConfig, type VisibleRepo } from "@secret-desk/core";
-import { checkTeamSyncAccessFor, neededRights, openScopedSession, split, teamTokenSource, type TeamAccessCheck, type TeamTokenSource } from "./team-sync.js";
+import { checkTeamSyncAccessFor, neededRights, openScopedSession, scopeOf, split, teamTokenSource, type TeamAccessCheck, type TeamTokenSource } from "./team-sync.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -185,7 +185,7 @@ export async function listTeamRepos(rt: Runtime): Promise<RepoDiscovery> {
 /** The branches of a repository, the default branch first choice. */
 export async function listTeamBranches(rt: Runtime, repo: string): Promise<BranchDiscovery> {
   const [owner, name] = parseRepo(repo);
-  const source = await teamTokenSource(rt);
+  const source = await teamTokenSource(rt, { repo });
   const empty = { branches: [], defaultBranch: null, truncated: false };
   if (source === "none") return { ...noIntegration(source), ...empty };
   try {
@@ -202,7 +202,7 @@ export async function listTeamBranches(rt: Runtime, repo: string): Promise<Branc
 export async function listTeamFiles(rt: Runtime, repo: string, branch: string): Promise<FileDiscovery> {
   const [owner, name] = parseRepo(repo);
   parseBranch(branch);
-  const source = await teamTokenSource(rt);
+  const source = await teamTokenSource(rt, { repo });
   const base = { files: [], preselected: null, canCreate: false, createPath: CONVENTIONAL_TEAM_FILE, truncated: false };
   if (source === "none") return { ...noIntegration(source), ...base };
   try {
@@ -225,7 +225,7 @@ export async function checkTeamModeAccess(rt: Runtime, input: { repo: string; br
   const parsed = TeamSyncSchema.safeParse({ repo: input.repo, branch: input.branch, path: input.path, mode: input.mode, push: { strategy: input.strategy ?? "pull-request" } });
   if (!parsed.success) throw new InventoryError(`Team-Sync ungueltig: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const c = parsed.data;
-  const source = await teamTokenSource(rt);
+  const source = await teamTokenSource(rt, scopeOf(c));
   const rights = neededRights(c);
   if (source === "none") return { ...noIntegration(source), mode: c.mode, strategy: c.push.strategy, neededRights: rights, checks: [], ok: false };
   const checks = await checkTeamSyncAccessFor(rt, c);

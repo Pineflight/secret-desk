@@ -25,7 +25,10 @@ import {
   type TeamMode,
   type TeamSelection,
 } from "@/lib/team-picker";
+import { readyTokenExpiry, type TeamTokenInfo } from "@/lib/team-token";
+import { formatDate } from "@/lib/format";
 import { Button, Notice, SelectField, TextField } from "./ui";
+import { TeamTokenControl } from "./TeamTokenControl";
 
 const enc = encodeURIComponent;
 
@@ -79,6 +82,9 @@ export function TeamConfigPicker({ onChange }: Props) {
   const [mode, setMode] = useState<TeamMode>("pull");
   const [strategy, setStrategy] = useState<PushStrategy>("pull-request");
   const [token, setToken] = useState("");
+  // Bumped when a team token was created: the mode checks run again with it.
+  const [accessNonce, setAccessNonce] = useState(0);
+  const tokenInfo = useQuery<TeamTokenInfo>("team-token-info-picker", () => api<TeamTokenInfo>("GET", "team-sync/token"));
 
   const repos = useQuery<RepoDiscovery>(`team-discovery-repos-${nonce}`, () => api<RepoDiscovery>("GET", "team-sync/discovery/repos"));
   const branches = useQuery<BranchDiscovery>(repo ? `team-discovery-branches-${nonce}-${repo}` : null, () => api<BranchDiscovery>("GET", `team-sync/discovery/branches?repo=${enc(repo)}`));
@@ -109,7 +115,7 @@ export function TeamConfigPicker({ onChange }: Props) {
   const shownMode = effectiveMode(mode, createFile);
   const ready = Boolean(repo && branch && path);
 
-  const accessKey = (m: TeamMode) => (ready ? `team-discovery-access-${nonce}-${repo}-${branch}-${path}-${m}-${strategy}` : null);
+  const accessKey = (m: TeamMode) => (ready ? `team-discovery-access-${nonce}-${accessNonce}-${repo}-${branch}-${path}-${m}-${strategy}` : null);
   const accessPath = (m: TeamMode) => `team-sync/discovery/access?repo=${enc(repo)}&branch=${enc(branch)}&path=${enc(path)}&mode=${m}&strategy=${strategy}`;
   const readAccess = useQuery<ModeAccess>(accessKey("pull"), () => api<ModeAccess>("GET", accessPath("pull")));
   const writeAccess = useQuery<ModeAccess>(accessKey("pull-push"), () => api<ModeAccess>("GET", accessPath("pull-push")));
@@ -136,6 +142,7 @@ export function TeamConfigPicker({ onChange }: Props) {
   const modeOption = (m: TeamMode, access: ModeAccess | undefined, loading: boolean) => {
     const disabledByFile = m === "pull" && createFile;
     const status = modeStatus(access, loading, disabledByFile);
+    const tokenExpiry = readyTokenExpiry(access, tokenInfo.data, repo);
     return (
       <label key={m} className={`block cursor-pointer rounded-xl border p-4 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${disabledByFile ? "opacity-60" : ""}`}>
         <span className="flex items-start gap-3">
@@ -144,7 +151,7 @@ export function TeamConfigPicker({ onChange }: Props) {
             <span className="block font-medium">{t(`teamSync.mode.${m}`)}</span>
             <span className="block text-muted-text">{t(`teamPicker.mode.${m}.text`)}</span>
             <span className={`block text-xs ${status === "ready" ? "text-success-text" : status === "needs" ? "text-warn-text" : "text-muted-text"}`}>
-              {status === "ready" ? `✓ ${t("teamPicker.mode.ready")}` : null}
+              {status === "ready" ? `✓ ${tokenExpiry === null ? t("teamPicker.mode.ready") : tokenExpiry ? t("teamToken.ready", { date: formatDate(tokenExpiry) }) : t("teamToken.readyNoDate")}` : null}
               {status === "needs" ? `⚠ ${t("teamPicker.mode.needs", { rights: neededRightsLine(access) || "…" })}` : null}
               {status === "checking" ? t("teamPicker.mode.checking") : null}
               {status === "create-needs-write" ? t("teamPicker.mode.createNeedsWrite") : null}
@@ -230,6 +237,10 @@ export function TeamConfigPicker({ onChange }: Props) {
           {modeOption("pull", readAccess.data, readAccess.loading)}
           {modeOption("pull-push", writeAccess.data, writeAccess.loading)}
         </div>
+      ) : null}
+
+      {ready ? (
+        <TeamTokenControl repo={repo} branch={branch} mode={shownMode} strategy={strategy} onCreated={() => { setAccessNonce((n) => n + 1); tokenInfo.reload(); }} />
       ) : null}
 
       {ready ? (

@@ -12,6 +12,7 @@ import {
   PreflightError,
   RotationError,
   StageError,
+  TEAM_SYNC_CONNECTION,
   VaultUnavailableError,
   TeamBundleError,
   TeamSyncError,
@@ -47,7 +48,13 @@ import {
   tokenPrefixProblem,
   cancelAutomationRun,
   cancelFacade,
+  cancelTeamToken,
   checkFacadeSession,
+  checkTeamTokenSession,
+  dismissTeamTokenRevocation,
+  getTeamTokenInfo,
+  retireTeamToken,
+  startTeamToken,
   checkRecipeSession,
   getFacadeState,
   listFacades,
@@ -263,6 +270,13 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["GET", /^team-sync\/discovery\/branches$/, ({ rt, query }) => listTeamBranches(rt, queryText(query, "repo"))],
   ["GET", /^team-sync\/discovery\/files$/, ({ rt, query }) => listTeamFiles(rt, queryText(query, "repo"), queryText(query, "branch"))],
   ["GET", /^team-sync\/discovery\/access$/, ({ rt, query }) => checkTeamModeAccess(rt, { repo: queryText(query, "repo"), branch: queryText(query, "branch"), path: queryText(query, "path"), mode: queryText(query, "mode"), ...(optQ(query, "strategy") ? { strategy: optQ(query, "strategy")! } : {}) })],
+  // Team token: a separate GitHub token for team sync, created through the browser (see docs/TEAM.md). Human routes only: agents
+  // get 404, and no response carries the token or the sign-in.
+  ["GET", /^team-sync\/token$/, ({ rt, actor }) => getTeamTokenInfo(rt, actor)],
+  ["POST", /^team-sync\/token$/, ({ rt, actor, body }) => startTeamToken(rt, actor, body)],
+  ["POST", /^team-sync\/token\/cancel$/, ({ rt, actor }) => cancelTeamToken(rt, actor)],
+  ["POST", /^team-sync\/token\/check$/, ({ rt, actor }) => checkTeamTokenSession(rt, actor)],
+  ["POST", /^team-sync\/token\/revocation-done$/, ({ rt, actor }) => dismissTeamTokenRevocation(rt, actor)],
   ["POST", /^team-sync\/push-plan$/, ({ rt }) => planTeamPush(rt)],
   ["POST", /^team-sync\/push$/, ({ rt, req, body }) => pushTeamSync(rt, { confirm: body.confirm === true, expectLocalHash: str(body, "expectLocalHash"), expectRemoteSha: typeof body["expectRemoteSha"] === "string" ? (body["expectRemoteSha"] as string) : null, lang: req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de" })],
   ["PUT", /^team-sync\/config$/, async ({ rt, body }) => ({ config: await setupTeamSync(rt, body.teamSync), status: await teamSyncStatus(rt) })],
@@ -306,6 +320,8 @@ const humanOnly: [string, RegExp, Handler][] = [
     } else {
       rt.connections.session.set(id, str(body, "token"), expires);
     }
+    // A typed-in token replaces the team token the portal made: it is then listed as one to delete at GitHub.
+    if (id === TEAM_SYNC_CONNECTION) await retireTeamToken(rt);
     return rt.connections.status(id);
   }],
   ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => {
@@ -313,6 +329,7 @@ const humanOnly: [string, RegExp, Handler][] = [
     rt.connections.session.delete(id);
     await rt.connections.vault?.delete(id);
     await deleteConnectionLabel(rt.connections, id);
+    if (id === TEAM_SYNC_CONNECTION) await retireTeamToken(rt);
     return rt.connections.status(id);
   }],
   // Parameter der Anbieter: Spezifikation, Entdeckung beim verbundenen Konto, Vorschlaege (nur Vorschlaege), Vorabcheck. Siehe API.md.
