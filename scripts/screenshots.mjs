@@ -220,6 +220,12 @@ try {
     }
   }, validUntil);
   await shot("integrations", "/connections");
+  // The picker: one tile per provider, grouped by category.
+  await shot("integrations-picker", "/connections", async () => {
+    await page.getByRole("button", { name: "Add integration" }).first().click();
+    await page.getByRole("dialog").waitFor();
+    await page.waitForTimeout(400);
+  });
   await shot("settings", "/settings");
 
   const bad = taken.filter((f) => statSync(f).size < 10_000);

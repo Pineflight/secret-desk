@@ -29,3 +29,4 @@ export * from "./variable-sources.js";
 export * from "./naming.js";
 export * from "./normalize.js";
 export * from "./stripe-accounts.js";
+export * from "./vendors.js";

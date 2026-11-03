@@ -722,6 +722,13 @@
       "status": "allowed"
     },
     {
+      "name": "simple-icons",
+      "version": "16.36.0",
+      "license": "CC0-1.0",
+      "source": "ssh://git@github.com/simple-icons/simple-icons",
+      "status": "allowed"
+    },
+    {
       "name": "source-map-js",
       "version": "1.2.2",
       "license": "BSD-3-Clause",

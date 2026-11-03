@@ -23,6 +23,8 @@
     "demo": "node scripts/demo.mjs",
     "licenses": "node scripts/licenses.mjs",
     "licenses:check": "node scripts/licenses.mjs --check",
+    "icons": "node scripts/brand-icons.mjs",
+    "icons:check": "node scripts/brand-icons.mjs --check",
     "docs:screenshots": "node scripts/screenshots.mjs",
     "build:libs": "pnpm --filter @secret-desk/core --filter @secret-desk/providers --filter @secret-desk/automation --filter @secret-desk/runtime --filter @secret-desk/cli --filter @secret-desk/mcp run build"
   },
