@@ -1,28 +1,66 @@
-# STATUS: nicht gegen die echte Seite geprueft
-# Selektoren sind aus der Oberflaeche von Supabase abgeleitet und noch nie gegen ein echtes Konto gelaufen.
-# Supabase zeigt den Token nur einmal an. Das Ablauf-Auswahlfeld kennt feste Werte; passt {{days}} nicht,
-# bricht der Lauf ab, statt zu raten.
+# STATUS: Formular, beide Schritte, Token-Anzeige und Loeschen am 2026-11-03 gegen die echte Seite geprueft (zwei Wegwerf-Tokens, danach geloescht); der volle Rezeptlauf ist noch nicht geprueft
+# Creates a scoped Supabase access token: one organization, one project, a permission preset and an expiry. Supabase shows
+# the token only once, in a read-only field of the "Token created" dialog. A scoped token reaches only the chosen project,
+# unlike the legacy token with full account access.
 id: supabase-access-token
 label: Supabase Access Token
 host: supabase.com
+params:
+  - key: organization
+    label: Organisation
+    labelEn: Organization
+    help: "Name of the Supabase organization as the token form lists it, for example WakeMiles."
+  - key: project
+    label: Projekt
+    labelEn: Project
+    help: "Project name as the token form lists it, for example wake-miles-staging."
+  - key: preset
+    label: Rechte
+    labelEn: Permissions
+    options: ["Read-only", "Full access"]
+    default: Full access
+  - key: expiry
+    label: Ablauf
+    labelEn: Expiry
+    options: ["24 hours", "30 days", "90 days", "Never"]
+    default: 90 days
 login:
-  expect: { url: "^https://supabase\\.com/dashboard/account/tokens" }
+  expect: { url: "^https://supabase\\.com/dashboard/" }
   message: Bei Supabase anmelden (Passwort, 2FA).
 steps:
   - goto: "https://supabase.com/dashboard/account/tokens"
+  - waitFor: { visible: { role: button, name: "Generate new token" } }
   - click: { role: button, name: "Generate new token" }
-  - fill: { label: "Name", value: "{{name}}" }
-  # UNGEPRUEFT: Bezeichnung des Ablauf-Felds und seiner Werte ("30 days" o. ae.).
-  - select: { label: "Expires", value: "{{days}} days" }
+  - waitFor: { visible: { css: 'input[name="tokenName"]' } }
+  - fill: { css: 'input[name="tokenName"]', value: "{{name}}" }
+  # The expiry is the first combobox of the dialog.
+  - click: { css: "[role=dialog] button[role=combobox] >> nth=0" }
+  - click: { role: option, name: "{{expiry}}" }
+  # Resource access stays on "Project" (the default): one organization, then its projects.
+  - click: { css: "button#organizationSlugs" }
+  - click: { role: option, name: "{{organization}}", exact: true }
+  - click: { css: "button#projectRefs" }
+  - click: { role: option, name: "{{project}}", exact: true }
+  - press: { key: "Escape" }
+  - click: { css: '[role=dialog] button[role=combobox]:has-text("No access")' }
+  - click: { role: option, name: "{{preset}}" }
+  - click: { role: button, name: "Review access" }
+  - waitFor: { text: "Token summary" }
   - screenshot: formular-vorher
-  - click: { role: button, name: "Generate token", createsToken: true }
+  - click: { role: button, name: "Create token", createsToken: true }
+  - waitFor: { visible: { css: "#scoped-access-token-value" } }
 capture:
   token:
-    # UNGEPRUEFT: Der Token steht in einem schreibgeschuetzten Feld des Dialogs.
-    find: { css: "input[readonly]" }
-    pattern: "^(sbp_[A-Za-z0-9]+)$"
+    find: { css: "#scoped-access-token-value" }
+    pattern: "^(sbp_[A-Za-z0-9_]+)$"
   externalId: { from: name }
-  expires: { from: days }
 mask:
-  - { css: "input[readonly]" }
-# revoke: nicht automatisiert. Alten Token unter dashboard/account/tokens von Hand loeschen.
+  - { css: "#scoped-access-token-value" }
+revoke:
+  steps:
+    - goto: "https://supabase.com/dashboard/account/tokens"
+    - waitFor: { visible: { css: 'tr:has(p[title="{{externalId}}"])' } }
+    - click: { css: 'tr:has(p[title="{{externalId}}"]) >> role=button[name="More options"]' }
+    - click: { role: menuitem, name: "Delete token" }
+    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - waitFor: { hidden: { css: 'tr:has(p[title="{{externalId}}"])' } }
