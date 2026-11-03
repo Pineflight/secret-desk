@@ -77,6 +77,11 @@ export interface LoginOptions {
   settleMs?: number;
   /** Codes the human may type in one run, default 3. */
   maxCodeAttempts?: number;
+  /**
+   * How long to wait after opening the sign-in page until it shows either the signed-in state or the form, default 30 s.
+   * Providers often load the sign-in page first and redirect a signed-in browser a few seconds later.
+   */
+  landingMs?: number;
 }
 
 export interface LoginResult {
@@ -195,8 +200,22 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
     await hostGuard();
     const vars = { "login.username": creds.username, "login.password": creds.password };
 
+    // A signed-in browser is often redirected from the sign-in page only after a few seconds. Wait until the page shows
+    // either the signed-in state or the form (the first step's condition), so a session is never mistaken for a broken form.
+    const first = form.steps[0];
+    const formReady = first && "waitFor" in first ? (first.waitFor as Condition) : null;
+    const landingUntil = Date.now() + (options.landingMs ?? 30_000);
+    let signedIn = await met(expect);
+    while (!signedIn && Date.now() < landingUntil) {
+      aborted();
+      if (formReady && (await met(formReady))) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, landingUntil - Date.now()))));
+      signedIn = await met(expect);
+    }
+    await hostGuard();
+
     // Already signed in (the browser profile keeps the session): nothing is typed.
-    if (!(await met(expect))) {
+    if (!signedIn) {
       for (const [i, step] of form.steps.entries()) {
         aborted();
         await hostGuard();
