@@ -72,12 +72,54 @@ export interface TeamSelection {
   strategy: PushStrategy;
 }
 
-/** Search over owner/name; case-insensitive, every word must match. Selectable repositories are not moved: the server already sorted by push. */
+/** Search over owner/name; case-insensitive, every word must match. The order is kept (the server sorted by push). */
 export function filterRepos(repos: readonly RepoChoice[], query: string): RepoChoice[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [...repos];
   return repos.filter((r) => words.every((w) => r.fullName.toLowerCase().includes(w)));
 }
+
+/** A repository the integration can use for team sync: private, selectable, not archived. */
+export const isUsableRepo = (r: RepoChoice): boolean => r.selectable && !r.archived;
+
+/** Rows shown at first; the rest sits behind "show more". */
+export const REPO_ROWS = 8;
+
+/** The matching repositories split into usable ones (order kept) and the ones that cannot be chosen (public, archived). */
+export function groupRepos(repos: readonly RepoChoice[], query: string): { usable: RepoChoice[]; unusable: RepoChoice[] } {
+  const matching = filterRepos(repos, query);
+  return { usable: matching.filter(isUsableRepo), unusable: matching.filter((r) => !isUsableRepo(r)) };
+}
+
+/** The rows to show: the first `limit`, plus the chosen repository when it lies further down, so the choice never disappears. */
+export function limitRepos(usable: readonly RepoChoice[], limit: number, selected: string, showAll: boolean): RepoChoice[] {
+  if (showAll || usable.length <= limit) return [...usable];
+  const head = usable.slice(0, limit);
+  const chosen = usable.find((r) => r.fullName === selected);
+  return chosen && !head.includes(chosen) ? [...head, chosen] : head;
+}
+
+/** Short reason code for a repository that cannot be chosen (the portal translates it). */
+export const unusableReason = (r: RepoChoice): "public" | "archived" => (r.selectable ? "archived" : "public");
+
+/** The repository to preselect: the server's pick, but only when it is an accessible private repository in the list. Else nothing. */
+export function initialRepo(data: Pick<RepoDiscovery, "repos" | "preselected"> | undefined): string {
+  const pick = data?.preselected;
+  if (!data || !pick) return "";
+  const found = data.repos.find((r) => r.fullName === pick);
+  return found && isUsableRepo(found) ? found.fullName : "";
+}
+
+/** The single status of a mode, shown as one compact line. */
+export type ModeStatus = "checking" | "ready" | "needs" | "create-needs-write";
+export function modeStatus(access: ModeAccess | undefined, loading: boolean, disabledByFile: boolean): ModeStatus {
+  if (disabledByFile) return "create-needs-write";
+  if (loading || !access) return "checking";
+  return modeAllowed(access) ? "ready" : "needs";
+}
+
+/** The rights to name in a "needs" line, short: what the mode needs from the integration. */
+export const neededRightsLine = (access: ModeAccess | undefined): string => (access?.neededRights ?? []).join(", ");
 
 /** A mode can be chosen when its check found no failure. Without a check result yet it cannot. */
 export const modeAllowed = (access: ModeAccess | undefined): boolean => Boolean(access && !access.problem && access.ok);

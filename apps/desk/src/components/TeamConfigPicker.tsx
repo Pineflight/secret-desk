@@ -8,8 +8,14 @@ import {
   CREATE_FILE,
   effectiveMode,
   failedChecks,
-  filterRepos,
+  groupRepos,
+  initialRepo,
+  limitRepos,
   modeAllowed,
+  modeStatus,
+  neededRightsLine,
+  REPO_ROWS,
+  unusableReason,
   type BranchDiscovery,
   type DiscoveryProblem,
   type FileDiscovery,
@@ -44,6 +50,19 @@ function ProblemNotice({ problem, onRetry }: { problem: DiscoveryProblem; onRetr
   );
 }
 
+/** One short line for transient failures (rate limit, network) with a retry; nothing else to do for the person. */
+function ShortNotice({ text, onRetry }: { text: string; onRetry: () => void }) {
+  const t = useT();
+  return (
+    <Notice tone="warn">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span>{text}</span>
+        <Button onClick={onRetry}>{t("teamPicker.retry")}</Button>
+      </div>
+    </Notice>
+  );
+}
+
 /**
  * Repository, branch, file and mode chosen from lists. The token is the GitHub integration; a manually typed token is only the
  * collapsed fallback. Nothing is saved here: the page uses the selection to save the settings and show the preview.
@@ -54,6 +73,7 @@ export function TeamConfigPicker({ onChange }: Props) {
   const [search, setSearch] = useState("");
   const [repo, setRepo] = useState("");
   const [repoTouched, setRepoTouched] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [branch, setBranch] = useState("");
   const [file, setFile] = useState("");
   const [mode, setMode] = useState<TeamMode>("pull");
@@ -64,9 +84,9 @@ export function TeamConfigPicker({ onChange }: Props) {
   const branches = useQuery<BranchDiscovery>(repo ? `team-discovery-branches-${nonce}-${repo}` : null, () => api<BranchDiscovery>("GET", `team-sync/discovery/branches?repo=${enc(repo)}`));
   const files = useQuery<FileDiscovery>(repo && branch ? `team-discovery-files-${nonce}-${repo}-${branch}` : null, () => api<FileDiscovery>("GET", `team-sync/discovery/files?repo=${enc(repo)}&branch=${enc(branch)}`));
 
-  // Preselect the repository once the list arrives (unless the person already chose one).
+  // Preselect the repository once the list arrives (unless the person already chose one). Only an accessible private repository qualifies.
   useEffect(() => {
-    if (!repoTouched && repos.data?.preselected && !repo) setRepo(repos.data.preselected);
+    if (!repoTouched && !repo) setRepo(initialRepo(repos.data));
   }, [repos.data, repoTouched, repo]);
   // Default branch of the chosen repository.
   useEffect(() => {
@@ -100,7 +120,8 @@ export function TeamConfigPicker({ onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, repo, branch, path, createFile, shownMode, strategy, current]);
 
-  const shown = useMemo(() => filterRepos(repos.data?.repos ?? [], search), [repos.data, search]);
+  const groups = useMemo(() => groupRepos(repos.data?.repos ?? [], search), [repos.data, search]);
+  const shown = useMemo(() => limitRepos(groups.usable, REPO_ROWS, repo, showAll || search.trim() !== ""), [groups, repo, showAll, search]);
   const saveToken = useMutation(async () => {
     await api("POST", "connections/team-sync/token", { token });
     setToken("");
@@ -110,51 +131,84 @@ export function TeamConfigPicker({ onChange }: Props) {
   });
   const retry = () => setNonce((n) => n + 1);
   const problem = repos.data?.problem ?? branches.data?.problem ?? files.data?.problem ?? null;
+  const networkError = repos.error ?? branches.error ?? files.error ?? null;
 
   const modeOption = (m: TeamMode, access: ModeAccess | undefined, loading: boolean) => {
     const disabledByFile = m === "pull" && createFile;
-    const allowed = modeAllowed(access) && !disabledByFile;
-    const failed = failedChecks(access);
+    const status = modeStatus(access, loading, disabledByFile);
     return (
-      <label key={m} className={`flex gap-3 rounded-xl border p-3 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${allowed || loading ? "" : "opacity-70"}`}>
-        <input type="radio" name="team-mode" className="mt-1" checked={shownMode === m} disabled={disabledByFile} onChange={() => setMode(m)} />
-        <span className="space-y-1">
-          <span className="block font-medium">{t(`teamSync.mode.${m}`)}</span>
-          <span className="block text-xs text-muted-text">{t("teamPicker.mode.needs", { rights: (access?.neededRights ?? []).join(", ") || "…" })}</span>
-          {disabledByFile ? <span className="block text-xs text-muted-text">{t("teamPicker.mode.createNeedsWrite")}</span> : null}
-          {!disabledByFile && loading ? <span className="block text-xs text-muted-text">{t("teamPicker.mode.checking")}</span> : null}
-          {!disabledByFile && !loading && access && allowed ? <span className="block text-xs text-success-text">{t("teamPicker.mode.ok")}</span> : null}
-          {!disabledByFile && !loading && access && !allowed ? (
-            <span className="block text-xs text-danger-text">
-              {t("teamPicker.mode.missing")} {failed.map((c) => c.detail ?? c.label).join(" ")}
+      <label key={m} className={`block cursor-pointer rounded-xl border p-4 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${disabledByFile ? "opacity-60" : ""}`}>
+        <span className="flex items-start gap-3">
+          <input type="radio" name="team-mode" className="mt-1" checked={shownMode === m} disabled={disabledByFile} onChange={() => setMode(m)} />
+          <span className="min-w-0 flex-1 space-y-1">
+            <span className="block font-medium">{t(`teamSync.mode.${m}`)}</span>
+            <span className="block text-muted-text">{t(`teamPicker.mode.${m}.text`)}</span>
+            <span className={`block text-xs ${status === "ready" ? "text-success-text" : status === "needs" ? "text-warn-text" : "text-muted-text"}`}>
+              {status === "ready" ? `✓ ${t("teamPicker.mode.ready")}` : null}
+              {status === "needs" ? `⚠ ${t("teamPicker.mode.needs", { rights: neededRightsLine(access) || "…" })}` : null}
+              {status === "checking" ? t("teamPicker.mode.checking") : null}
+              {status === "create-needs-write" ? t("teamPicker.mode.createNeedsWrite") : null}
+              {status === "needs" ? <> · <Link href="/connections" className="text-primary underline">{t("teamPicker.mode.fix")}</Link></> : null}
             </span>
-          ) : null}
+          </span>
         </span>
       </label>
     );
   };
 
+  const modeDetails = (m: TeamMode, access: ModeAccess | undefined) => {
+    const failed = failedChecks(access);
+    return (
+      <div key={m}>
+        <p className="font-medium">{t(`teamSync.mode.${m}`)}</p>
+        <p className="text-muted-text">{t("teamPicker.mode.rights", { rights: neededRightsLine(access) || "…" })}</p>
+        {failed.length > 0 ? <ul className="mt-1 list-disc space-y-0.5 pl-5">{failed.map((c) => <li key={c.id}>{c.detail ?? c.label}</li>)}</ul> : null}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
-      {problem ? <ProblemNotice problem={problem} onRetry={retry} /> : null}
+      {problem?.code === "rate-limit" ? <ShortNotice text={t("teamPicker.problem.rate-limit.title")} onRetry={retry} /> : null}
+      {problem && problem.code !== "rate-limit" ? <ProblemNotice problem={problem} onRetry={retry} /> : null}
+      {!problem && networkError ? <ShortNotice text={t("teamPicker.problem.network")} onRetry={retry} /> : null}
 
       <div className="space-y-2">
-        <TextField label={t("teamPicker.repo.search")} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="acme/team-config" autoComplete="off" disabled={!repos.data || Boolean(repos.data.problem)} />
+        <TextField label={t("teamPicker.repo.search")} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="acme-org/team-config" autoComplete="off" disabled={!repos.data || Boolean(repos.data.problem)} />
         {repos.loading ? <p className="text-sm text-muted-text">{t("common.loading")}</p> : null}
-        {repos.error ? <Notice tone="danger">{repos.error.message}</Notice> : null}
-        {repos.data && !repos.data.problem && shown.length === 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.none")}</p> : null}
-        <div role="radiogroup" aria-label={t("teamSync.repo")} className="max-h-56 space-y-1 overflow-y-auto">
+        {repos.data && !repos.data.problem && !repo && !repoTouched && groups.usable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.choose")}</p> : null}
+        {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length === 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.none")}</p> : null}
+        {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.noneUsable")}</p> : null}
+        <div role="radiogroup" aria-label={t("teamSync.repo")} className="space-y-2">
           {shown.map((r) => (
-            <label key={r.fullName} className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${repo === r.fullName ? "border-primary" : "border-line"} ${r.selectable ? "cursor-pointer" : "opacity-60"}`}>
-              <input type="radio" name="team-repo" checked={repo === r.fullName} disabled={!r.selectable} onChange={() => { setRepo(r.fullName); setRepoTouched(true); }} />
+            <label key={r.fullName} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm ${repo === r.fullName ? "border-primary" : "border-line"}`}>
+              <input type="radio" name="team-repo" className="mt-1" checked={repo === r.fullName} onChange={() => { setRepo(r.fullName); setRepoTouched(true); }} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono">{r.fullName}</span>
-                {r.reason === "public" ? <span className="block text-xs text-danger-text">{t("teamPicker.repo.public")}</span> : null}
+                <span className="block break-all font-mono">{r.fullName}</span>
+                <span className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-text">
+                  <span className="rounded-full border border-line px-2 py-0.5">{t("teamPicker.repo.private")}</span>
+                  {r.pushedAt ? <span>{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
+                </span>
               </span>
-              <span className="shrink-0 text-xs text-muted-text">{r.private ? t("teamPicker.repo.private") : t("teamPicker.repo.publicTag")}{r.pushedAt ? ` · ${t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}` : ""}</span>
             </label>
           ))}
         </div>
+        {groups.usable.length > REPO_ROWS && !showAll && search.trim() === "" ? (
+          <Button onClick={() => setShowAll(true)}>{t("teamPicker.repo.showMore", { count: groups.usable.length - REPO_ROWS })}</Button>
+        ) : null}
+        {groups.unusable.length > 0 ? (
+          <details className="rounded-xl border border-line p-3 text-sm">
+            <summary className="cursor-pointer text-muted-text">{t("teamPicker.repo.unusable", { count: groups.unusable.length })}</summary>
+            <ul className="mt-2 space-y-2">
+              {groups.unusable.map((r) => (
+                <li key={r.fullName} className="text-muted-text opacity-70">
+                  <span className="block break-all font-mono">{r.fullName}</span>
+                  <span className="block text-xs">{t(`teamPicker.repo.reason.${unusableReason(r)}`)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {repos.data?.truncated ? <p className="text-xs text-muted-text">{t("teamPicker.repo.truncated")}</p> : null}
       </div>
 
@@ -176,6 +230,17 @@ export function TeamConfigPicker({ onChange }: Props) {
           {modeOption("pull", readAccess.data, readAccess.loading)}
           {modeOption("pull-push", writeAccess.data, writeAccess.loading)}
         </div>
+      ) : null}
+
+      {ready ? (
+        <details className="rounded-xl border border-line p-3 text-sm">
+          <summary className="cursor-pointer font-medium">{t("teamPicker.mode.details")}</summary>
+          <div className="mt-3 space-y-3 text-xs">
+            <p className="text-muted-text">{t("teamPicker.mode.detailsText")}</p>
+            {modeDetails("pull", readAccess.data)}
+            {modeDetails("pull-push", writeAccess.data)}
+          </div>
+        </details>
       ) : null}
 
       {ready && shownMode === "pull-push" ? (
