@@ -28,7 +28,7 @@
     "@types/react-dom": "^19.2.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^5.0.5"
   },
   "optionalDependencies": {
     "playwright-core": "^1.55.0"
