@@ -5,6 +5,8 @@ export const selectorShape = {
   role: z.string().min(1).optional(),
   /** Zugaenglicher Name, nur zusammen mit role. */
   name: z.string().min(1).optional(),
+  /** Only with role and name: the accessible name must match exactly (default: contains). */
+  exact: z.boolean().optional(),
   label: z.string().min(1).optional(),
   text: z.string().min(1).optional(),
   placeholder: z.string().min(1).optional(),
@@ -18,6 +20,7 @@ const PRIMARY = ["role", "label", "text", "placeholder", "testid", "css"] as con
 export interface Selector {
   role?: string | undefined;
   name?: string | undefined;
+  exact?: boolean | undefined;
   label?: string | undefined;
   text?: string | undefined;
   placeholder?: string | undefined;
@@ -30,6 +33,7 @@ export function selectorProblem(s: Selector): string | undefined {
   const used = PRIMARY.filter((k) => s[k] !== undefined);
   if (used.length !== 1) return "Genau eines von role, label, text, placeholder, testid oder css angeben";
   if (s.name !== undefined && s.role === undefined) return "name gehoert nur zu role";
+  if (s.exact !== undefined && s.name === undefined) return "exact gehoert nur zu role mit name";
   return undefined;
 }
 
@@ -43,7 +47,7 @@ export const SelectorSchema = z
 
 /** Kurzbeschreibung fuer Fehlermeldungen und Protokolle. Enthaelt nur das Rezept, nie Seiteninhalt. */
 export function describeSelector(s: Selector): string {
-  if (s.role !== undefined) return s.name !== undefined ? `${s.role} "${s.name}"` : s.role;
+  if (s.role !== undefined) return s.name !== undefined ? `${s.role} "${s.name}"${s.exact ? " (exact)" : ""}` : s.role;
   if (s.label !== undefined) return `Feld "${s.label}"`;
   if (s.text !== undefined) return `Text "${s.text}"`;
   if (s.placeholder !== undefined) return `Platzhalter "${s.placeholder}"`;
@@ -58,5 +62,6 @@ export function pickSelector(o: Record<string, unknown>): Selector {
     const v = o[k];
     if (typeof v === "string") out[k] = v;
   }
+  if (typeof o["exact"] === "boolean") out.exact = o["exact"];
   return out;
 }

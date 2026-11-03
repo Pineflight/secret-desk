@@ -488,6 +488,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["nach-erzeugen", "after-create"],
   ["Genau eines von role, label, text, placeholder, testid oder css angeben", "Specify exactly one of role, label, text, placeholder, testid or css"],
   ["name gehoert nur zu role", "name only belongs to role"],
+  ["exact gehoert nur zu role mit name", "exact only belongs to role with name"],
   ["Ungueltiger regulaerer Ausdruck", "Invalid regular expression"],
   ["Abgebrochen", "Aborted"],
   ["Abgebrochen.", "Aborted."],

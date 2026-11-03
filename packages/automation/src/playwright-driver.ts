@@ -105,7 +105,7 @@ export class PlaywrightDriver implements BrowserDriver {
 
   #loc(s: Selector): Locator {
     const p = this.#p;
-    if (s.role !== undefined) return p.getByRole(s.role as Role, s.name !== undefined ? { name: s.name } : {});
+    if (s.role !== undefined) return p.getByRole(s.role as Role, s.name !== undefined ? { name: s.name, ...(s.exact ? { exact: true } : {}) } : {});
     if (s.label !== undefined) return p.getByLabel(s.label);
     if (s.text !== undefined) return p.getByText(s.text);
     if (s.placeholder !== undefined) return p.getByPlaceholder(s.placeholder);
