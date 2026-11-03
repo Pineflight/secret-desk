@@ -42,14 +42,26 @@ interface I18nValue {
 
 const Ctx = createContext<I18nValue>({ locale: "de", setLocale: () => undefined, t: (k, v) => translate(k, v, "de") });
 
+/** German when the system/browser prefers German, English otherwise. */
+export function systemLocale(languages: readonly string[]): Locale {
+  return languages[0]?.toLowerCase().startsWith("de") ? "de" : "en";
+}
+
+/** The stored choice; without one, the system language, which is then stored so the choice stays put. */
 function detect(): Locale {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (isLocale(stored)) return stored;
   } catch {
-    /* Speicher gesperrt */
+    /* storage blocked */
   }
-  return navigator.language?.toLowerCase().startsWith("de") ? "de" : "en";
+  const l = systemLocale(navigator.languages?.length ? navigator.languages : [navigator.language ?? ""]);
+  try {
+    window.localStorage.setItem(STORAGE_KEY, l);
+  } catch {
+    /* storage blocked: detect again next time */
+  }
+  return l;
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
