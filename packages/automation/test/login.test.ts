@@ -119,6 +119,27 @@ describe("signIn", () => {
     expect(events.map((e) => e.type)).toEqual(["opening", "signed-in"]);
   });
 
+  it("waits for a delayed redirect of a signed-in browser instead of failing on the missing form", async () => {
+    const d = new FakeDriver({
+      pollMs: 2,
+      on: (e, drv) => {
+        if (e.action === "goto") setTimeout(() => (drv.url = APP), 20);
+      },
+    });
+    const events: LoginEvent[] = [];
+    await signIn(recipe(), creds(), d, { onEvent: (e) => events.push(e) }, { ...fast, landingMs: 2000 });
+    expect(d.filled.size).toBe(0);
+    expect(events.map((e) => e.type)).toEqual(["opening", "signed-in"]);
+  });
+
+  it("goes on with the form as soon as it shows up, without waiting for the landing time", async () => {
+    const d = site("ok");
+    const started = Date.now();
+    await signIn(recipe(), creds(), d, {}, { ...fast, landingMs: 5000 });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(d.filled.size).toBe(2);
+  });
+
   it("reports the provider's refusal with its own text and no credentials", async () => {
     const e = await error(signIn(recipe(), creds(), site("wrong"), {}, fast));
     expect(e.kind).toBe("rejected");
