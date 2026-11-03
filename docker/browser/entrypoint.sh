@@ -51,6 +51,11 @@ done
 [ -S /tmp/.X11-unix/X99 ] || fail "the virtual display did not start."
 
 # VNC on loopback only; noVNC (websockify) is the only way in.
+# A window manager gives the browser window the keyboard focus. Without one, X sends keys only to the window under the
+# pointer, and after a container restart typing in the noVNC window can stop working altogether.
+DISPLAY=:99 openbox >/dev/null 2>&1 &
+pids+=($!)
+
 x11vnc -display :99 -localhost -rfbport 5900 -passwdfile "$vnc_file" -forever -shared -noxdamage -quiet >/dev/null 2>&1 &
 pids+=($!)
 
