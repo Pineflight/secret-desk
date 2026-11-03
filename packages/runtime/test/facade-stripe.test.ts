@@ -197,16 +197,11 @@ describe("facade: stripe per account and mode", () => {
     expect(JSON.stringify(end)).not.toContain(KEY_TEST);
   });
 
-  it("the live mode waits for a password confirmation instead of giving up", async () => {
-    const { rt, drivers } = await setup({ signedIn: true, passwordPrompt: true });
+  it("the live mode ends with a portal message when it needs a confirmation only the browser can give", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true });
     startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
-    await until(() => getFacadeState(rt, human, "stripe").status === "waiting-human");
-    expect(getFacadeState(rt, human, "stripe")).toMatchObject({ status: "waiting-human", needs: "captcha" });
-    // The human confirms in the browser window: the field disappears.
-    const keyDriver = drivers.find((d) => d.visible.has('css input[type="password"]'))!;
-    keyDriver.visible.delete('css input[type="password"]');
     await until(() => finished(rt));
-    expect(getFacadeState(rt, human, "stripe")).toMatchObject({ status: "done", needs: null });
+    expect(getFacadeState(rt, human, "stripe")).toMatchObject({ status: "failed", failure: { code: "captcha" } });
   });
 
   it("refuses missing or malformed inputs before any browser opens", async () => {

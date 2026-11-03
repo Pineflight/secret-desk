@@ -1,4 +1,4 @@
-# STATUS: not verified: nothing of this recipe has been run against the live site yet (steps, selectors and the sign-in form are best guesses)
+# STATUS: key creation verified live on 2026-11-03 with the signed-in browser (admin key created, stored, tested: projects readable); the sign-in form, the single-sign-on methods and revoke are not verified
 # Creates an organization Admin API key on platform.openai.com/settings/organization/admin-keys. The portal stores it as the
 # `openai` connection and creates project keys through the Admin API from then on. The key is shown once in a dialog
 # ("Save your key") in a read-only field. Every selector below is a best guess; each step waits for its element, so a
@@ -6,8 +6,25 @@
 id: openai-admin-key
 label: OpenAI Admin API Key
 host: platform.openai.com
+# not verified: the sign-in is served by this host before it hands over to the identity provider.
+allowHosts: [auth.openai.com]
 params: []
 login:
+  # Sign-in methods besides the form below (the email method). The identity-provider part is built in; the recipe declares only
+  # the button on OpenAI's sign-in page. not verified: the button names.
+  methods:
+    - id: google
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Google" }
+    - id: apple
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Apple" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Apple" }
+    - id: microsoft
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Microsoft Account" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Microsoft Account" }
   # Signed in = any organization settings or dashboard page.
   expect: { url: "^https://platform\\.openai\\.com/(settings|api-keys|home|chat|usage|dashboard)" }
   message: Bei OpenAI anmelden (platform.openai.com).
@@ -35,11 +52,11 @@ login:
       detect: { text: "Check your email" }
       message: OpenAI wartet auf eine Bestaetigung (E-Mail oder Geraet). Bitte dort bestaetigen, dann geht es hier weiter.
       messageEn: OpenAI is waiting for an approval (email or device). Approve it there and the sign-in continues here.
-    # not verified: a challenge the human has to solve in the browser window.
+    # not verified: a challenge the script cannot solve; the portal says so and the human tries again later.
     captcha:
       detect: { visible: { css: 'iframe[src*="challenges.cloudflare.com"], iframe[title*="reCAPTCHA challenge"], iframe[src*="hcaptcha.com/captcha"]' } }
-      message: OpenAI zeigt eine Sicherheitspruefung (CAPTCHA). Bitte im Browserfenster loesen.
-      messageEn: OpenAI shows a security check (CAPTCHA). Solve it in the browser window.
+      message: OpenAI zeigt eine Sicherheitspruefung (CAPTCHA). Bitte spaeter erneut versuchen.
+      messageEn: OpenAI shows a security check (CAPTCHA). Try again later.
     # not verified: error texts.
     failure:
       - detect: { text: "Wrong email or password" }
@@ -50,13 +67,13 @@ login:
         messageEn: OpenAI has locked the account for now (too many attempts). Try again later.
 steps:
   - goto: "https://platform.openai.com/settings/organization/admin-keys"
-  # not verified: button text, name field and dialog.
-  - waitFor: { text: "Create new admin key" }
-  - click: { text: "Create new admin key" }
-  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
-  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
+  # verified live 2026-11-03: the page button reads exactly "Create new Admin key"; the dialog title reads "Create new admin key".
+  - waitFor: { visible: { role: button, name: "Create new Admin key", exact: true } }
+  - click: { role: button, name: "Create new Admin key", exact: true }
+  - waitFor: { visible: { placeholder: "My Test Key" } }
+  - fill: { placeholder: "My Test Key", value: "{{name}}" }
   - screenshot: formular-vorher
-  - click: { css: '[role=dialog] button:has-text("Create")', createsToken: true }
+  - click: { role: button, name: "Create admin key", exact: true, createsToken: true }
   - waitFor: { visible: { css: "[role=dialog] input[readonly]" } }
 capture:
   token:

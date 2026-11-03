@@ -32,10 +32,14 @@ For the vendor entry also add:
 
 ## 2. Explore the page with the remote browser
 
+> The remote browser and its viewer exist so you can **write recipes**. A person who connects a provider never leaves the
+> portal: the sign-in runs through the recipe's script, and email, password, codes and approvals are handled in the portal.
+
 You need a browser that is signed in. The Docker setup runs one next to the portal ([DOCKER.md](DOCKER.md#browser-on-the-pi));
 on a desktop `secret-desk browser run` opens a local Chrome.
 
-1. Open the browser window: *Open browser* on a provider card of *Integrations*, or *Settings*, *Developer*. You see the
+1. Open the browser window: *Settings*, *Developer*, *Open browser*. The viewer is a tool for **recipe authors** only; it is
+   not part of the normal portal (provider cards and the connect dialog never send anyone there). You see the
    Chromium that secret-desk drives (the noVNC window). It is a normal Chromium; open its developer tools there.
 2. Sign in to the provider yourself, including 2FA. The session stays in the browser's profile. Never type a password
    into a recipe, a chat or a file.
@@ -174,3 +178,33 @@ pnpm run verify                                  # build + typecheck + all tests
 - [ ] `pnpm run verify` exits 0 (check the exit code, not the last line of the output).
 - [ ] `CHANGELOG.md` under *Unreleased*; no real account names, hosts or values in code, tests, docs or the pull request text. Use neutral examples such as `acme-app`.
 - [ ] Checked the provider's terms of use on automating its interface (a team decision per provider).
+
+## Sign-in methods and single sign-on
+
+A recipe's `login.form` is its `email` method. A provider that also offers "Sign in with Apple / Google / Microsoft /
+GitHub" declares that in `login.methods`; the identity-provider part is **built in** (`packages/automation/src/idp.ts`),
+so the recipe declares only the provider-side buttons:
+
+```yaml
+login:
+  expect: { url: "^https://platform\\.openai\\.com/(settings|home)" }
+  methods:
+    - id: apple                      # google | apple | microsoft | github (email is login.form)
+      steps:                         # click and waitFor only, no variables, on the provider's own sign-in page
+        - waitFor: { visible: { role: button, name: "Continue with Apple" } }
+        - click: { role: button, name: "Continue with Apple" }
+  form: { ... }                      # needed for any methods: its `start` page and the email method
+```
+
+What the built-in flow does once the browser stands on the identity provider: types the identity-provider account and
+password the human entered in the portal (only on that provider's hosts), asks the portal for the two-factor code,
+shows "Approve the sign-in on your device ..." (with the number the page shows, if any), takes the code fallback of a
+passkey prompt, clicks "trust this browser" where there is one, and hands back to the provider. GitHub's first-use
+**OAuth consent** ("Authorize ...") is never clicked silently: the portal shows the requested access and the human confirms
+or declines there (`POST facades/:id/confirm`). A CAPTCHA fails the run with a message and *Try again*.
+
+Hosts: credentials are typed only on the recipe's `host`/`allowHosts` (method `email`) or on the identity provider's
+hosts (Apple `appleid.apple.com`, `idmsa.apple.com`; Google `accounts.google.com`; Microsoft `login.microsoftonline.com`,
+`login.live.com`; GitHub `github.com`). Add the provider's own sign-in host (for example an `auth.` host) to `allowHosts`
+when it serves the hand-over. Every identity-provider selector and text is **not verified** until a live run; verify them
+with the viewer (above), never by typing real credentials into a recipe.

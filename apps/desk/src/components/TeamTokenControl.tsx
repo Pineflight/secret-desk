@@ -28,17 +28,6 @@ interface Props {
   onCreated?: () => void;
 }
 
-function OpenBrowser({ url }: { url: string | null }) {
-  const { t } = useI18n();
-  if (!url) return <p className="mt-1 text-xs">{t("facade.noViewer")}</p>;
-  return (
-    <a className="mt-2 inline-flex items-center gap-1 font-medium underline" href={url} target="_blank" rel="noopener noreferrer">
-      {t("facade.openBrowser")}
-      <Icon name="external" className="h-3.5 w-3.5" />
-    </a>
-  );
-}
-
 /**
  * Creates a separate GitHub token for team sync: limited to this repository and to the rights of the chosen mode. The browser
  * does the work; GitHub's sign-in and "Confirm access" are done by the person in the browser window. Shows the run like the
@@ -128,7 +117,6 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
       {view === "waiting" ? (
         <Notice tone="warn" title={t("teamToken.waitingTitle")}>
           <p>{run.phase === "signin" ? t("teamToken.waiting.signin") : t("teamToken.waiting.confirm")}</p>
-          <OpenBrowser url={data.viewerUrl} />
         </Notice>
       ) : null}
 
@@ -143,7 +131,6 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
       {signedIn && !signedIn.signedIn && !signedIn.failure ? (
         <Notice tone="warn">
           <p>{t("teamToken.signedOut")}</p>
-          <OpenBrowser url={data.viewerUrl} />
         </Notice>
       ) : null}
       {signedIn?.signedIn ? <Notice tone="success">{t("teamToken.signedIn")}</Notice> : null}

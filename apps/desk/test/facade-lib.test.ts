@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clock, codeValid, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeState } from "../src/lib/facade";
+import { browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
 import { messages } from "../src/messages";
 
 const base: FacadeState = { secretId: "facade:revenuecat", providerId: "revenuecat", status: "running", text: "", startedAt: "2026-11-02T10:00:00.000Z", updatedAt: "2026-11-02T10:00:00.000Z" };
@@ -83,10 +83,10 @@ describe("texts", () => {
   });
 
   it("has a German and English catalog text for every failure code, phase and count the server can report", () => {
-    const codes = ["rejected", "timeout", "cancelled", "host", "step", "code", "unsupported", "browser", "project-unknown", "session-lost", "key", "store", "test"];
+    const codes = ["rejected", "timeout", "cancelled", "host", "step", "code", "unsupported", "browser", "project-unknown", "session-lost", "key", "store", "test", "captcha"];
     for (const lang of ["de", "en"] as const) {
       for (const c of codes) expect(messages[lang][`facade.fail.${c}`], `${lang} fail ${c}`).toBeTruthy();
-      for (const p of ["opening", "username", "password", "code", "approval", "captcha", "signed-in", "key", "stored", "testing", "connected"]) {
+      for (const p of ["opening", "username", "password", "code", "approval", "consent", "signed-in", "key", "stored", "testing", "connected"]) {
         for (const kind of ["step", "active", "done"]) expect(messages[lang][`facade.${kind}.${p}`], `${lang} ${kind} ${p}`).toBeTruthy();
       }
       for (const k of ["projects", "apps"]) {
@@ -113,5 +113,91 @@ describe("input shape", () => {
   });
   it("needs an email and a password", () => {
     expect([signInValid("a@b.c", "x"), signInValid(" ", "x"), signInValid("a@b.c", ""), signInValid("a@b.c", "x".repeat(1025))]).toEqual([true, false, false, false]);
+  });
+});
+
+const facade = (over: Partial<FacadeInfo> = {}): FacadeInfo => ({
+  id: "openai",
+  label: "OpenAI",
+  recipeId: "openai-admin-key",
+  connectionId: "openai",
+  available: true,
+  reason: null,
+  recipeStatus: null,
+  host: "platform.openai.com",
+  connected: false,
+  needsProject: false,
+  inputs: [],
+  timeoutMinutes: 10,
+  methods: [{ id: "email", label: null, labelEn: null }, { id: "apple", label: null, labelEn: null }],
+  promise: "facade.promise.openai",
+  ...over,
+});
+
+describe("connect dialog state", () => {
+  it("is checking until the check answered, then follows the answer", () => {
+    expect(browserSignInOf(undefined)).toBe("checking");
+    expect(browserSignInOf({ signedIn: true })).toBe("signed-in");
+    expect(browserSignInOf({ signedIn: false })).toBe("signed-out");
+    expect(browserSignInOf({ signedIn: null })).toBe("unknown");
+  });
+
+  it("shows the checking text, the direct connect for a signed-in browser, else the sign-in methods; a run wins over all", () => {
+    expect(dialogView("checking", false)).toBe("checking");
+    expect(dialogView("signed-in", false)).toBe("connect");
+    expect(dialogView("signed-out", false)).toBe("sign-in");
+    expect(dialogView("unknown", false)).toBe("sign-in");
+    for (const b of ["checking", "signed-in", "signed-out", "unknown"] as const) expect(dialogView(b, true)).toBe("run");
+  });
+
+  it("offers email first, falls back to email without methods and ignores an unknown choice", () => {
+    expect(methodsOf(facade()).map((m) => m.id)).toEqual(["email", "apple"]);
+    expect(methodsOf(facade({ methods: [] })).map((m) => m.id)).toEqual(["email"]);
+    expect(defaultMethod(facade())).toBe("email");
+    expect(chosenMethod(facade(), "apple")).toBe("apple");
+    expect(chosenMethod(facade(), "github")).toBe("email");
+    expect(chosenMethod(facade(), "")).toBe("email");
+  });
+
+  it("derives the button states: busy, disabled and ready", () => {
+    const stripe = facade({ inputs: [{ param: "mode", label: "Modus", labelEn: "Mode", options: ["sandbox", "live"], pattern: null, help: null }] });
+    expect(connectButtonState(stripe, {}, false)).toBe("disabled");
+    expect(connectButtonState(stripe, { mode: "live" }, false)).toBe("ready");
+    expect(connectButtonState(stripe, { mode: "live" }, true)).toBe("busy");
+    expect(connectButtonState(facade({ available: false }), {}, false)).toBe("disabled");
+    expect(signInButtonState(facade(), "a@b.test", "", {}, false)).toBe("disabled");
+    expect(signInButtonState(facade(), "a@b.test", "pw", {}, false)).toBe("ready");
+    expect(signInButtonState(facade(), "a@b.test", "pw", {}, true)).toBe("busy");
+    expect(signInButtonState(facade({ available: false }), "a@b.test", "pw", {}, false)).toBe("disabled");
+  });
+
+  it("lists the access of an authorization", () => {
+    expect(consentItems("Repository access (read); Email addresses (read)")).toEqual(["Repository access (read)", "Email addresses (read)"]);
+    expect(consentItems(undefined)).toEqual([]);
+  });
+
+  it("has catalog texts (German and English) for every method, promise and dialog state", () => {
+    for (const lang of ["de", "en"] as const) {
+      for (const m of ["email", "google", "apple", "microsoft", "github"]) {
+        for (const k of ["method", "methodEmail", "methodPassword"]) expect(messages[lang][`facade.${k}.${m}`], `${lang} ${k} ${m}`).toBeTruthy();
+      }
+      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "checkingBrowser", "connectSignedIn", "otherWay", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
+        expect(messages[lang][`facade.${k}`], `${lang} ${k}`).toBeTruthy();
+      }
+    }
+    expect(messages.en["facade.checkingBrowser"]).toBe("Checking the browser sign-in …");
+    expect(messages.de["facade.connectSignedIn"]).toBe("Mit angemeldetem Browser verbinden");
+    expect(messages.en["facade.promise.stripe"]).toBe("Restricted key with only the permissions of the chosen preset, for one account and mode.");
+    expect(messages.en["facade.promise.openai"]).toBe("Organization admin key; secret-desk uses it only to create and delete project keys.");
+  });
+
+  it("has no viewer or browser-window text left in the normal user catalogs", () => {
+    for (const lang of ["de", "en"] as const) {
+      for (const [k, v] of Object.entries(messages[lang])) {
+        if (!k.startsWith("facade.") && !k.startsWith("providers.")) continue;
+        expect(k, lang).not.toMatch(/openBrowser|noViewer/);
+        expect(v, `${lang} ${k}`).not.toMatch(/browser window|Browserfenster/i);
+      }
+    }
   });
 });

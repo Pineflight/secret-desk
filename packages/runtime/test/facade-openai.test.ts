@@ -27,20 +27,18 @@ function driverFor(site: Site): FakeDriver {
         else if (e.key.includes("/admin-keys")) {
           if (!site.signedIn) drv.url = "https://platform.openai.com/login";
           else {
-            drv.pageText.add("Create new admin key");
-            drv.visible.add('Text "Create new admin key"');
+            drv.visible.add('button "Create new Admin key" (exact)');
           }
         }
         return;
       }
-      if (e.action === "click" && e.key.includes("Create new admin key")) {
-        drv.visible.add("css [role=dialog] input[type=text]");
-        drv.visible.add("css [role=dialog] input[type=text] >> nth=0");
-        drv.visible.add('css [role=dialog] button:has-text("Create")');
+      if (e.action === "click" && e.key.includes("Create new Admin key")) {
+        drv.visible.add('Platzhalter "My Test Key"');
+        drv.visible.add('button "Create admin key" (exact)');
         return;
       }
-      if (e.action === "click" && e.key.includes('button:has-text("Create")')) {
-        site.keyName = drv.filled.get("css [role=dialog] input[type=text] >> nth=0") ?? "";
+      if (e.action === "click" && e.key.includes("Create admin key")) {
+        site.keyName = drv.filled.get('Platzhalter "My Test Key"') ?? "";
         drv.visible.add("css [role=dialog] input[readonly]");
         drv.texts.set("css [role=dialog] input[readonly]", ADMIN_KEY);
       }
@@ -86,7 +84,9 @@ describe("facade: openai", () => {
     const { rt } = await setup();
     const f = (await listFacades(rt, human)).find((x) => x.id === "openai")!;
     expect(f).toMatchObject({ id: "openai", recipeId: "openai-admin-key", connectionId: "openai", available: true, connected: false, needsProject: false, host: "platform.openai.com", inputs: [] });
-    expect(f.recipeStatus).toMatch(/not verified/);
+    expect(f.recipeStatus).toMatch(/verified live on 2026-11-03/);
+    expect(f.promise).toBe("facade.promise.openai");
+    expect(f.methods.map((m) => m.id)).toEqual(["email", "google", "apple", "microsoft"]);
   });
 
   it("creates the admin key in the signed-in browser, stores it as the openai connection and tests it", async () => {

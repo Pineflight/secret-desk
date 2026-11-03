@@ -1,6 +1,6 @@
 /** Pure helpers for the guided sign-in (provider facade). No network, no React. */
 
-export type FacadeNeed = "mfa-code" | "approval" | "captcha";
+export type FacadeNeed = "mfa-code" | "approval" | "consent";
 export type FacadeStatus = "idle" | "running" | "waiting-human" | "done" | "failed" | "cancelled";
 
 /** A recipe parameter the human chooses for each run (Stripe: account and mode). */
@@ -26,7 +26,17 @@ export interface FacadeInfo {
   needsProject: boolean;
   inputs: FacadeInput[];
   timeoutMinutes: number;
-  viewerUrl: string | null;
+  /** The ways to sign in: the provider's own form (email) first, then the identity providers its recipe offers. */
+  methods: FacadeMethod[];
+  /** Catalog key of the sentence about the key this flow creates, or null (nothing is shown). */
+  promise: string | null;
+}
+
+export type FacadeMethodId = "email" | "google" | "apple" | "microsoft" | "github";
+export interface FacadeMethod {
+  id: FacadeMethodId;
+  label: string | null;
+  labelEn: string | null;
 }
 
 export interface FacadeTimelineEntry {
@@ -69,6 +79,8 @@ export interface FacadeState {
   updatedAt: string;
   kind?: "signin" | "connect";
   needs?: FacadeNeed | null;
+  /** The number an approval shows, or the access an authorization asks for (consent). Never a credential. */
+  detail?: string;
   phase?: string;
   timeline?: FacadeTimelineEntry[];
   timeoutAt?: string | null;
@@ -78,9 +90,9 @@ export interface FacadeState {
 }
 
 /** The order the portal shows the phases in. */
-export const PHASES = ["opening", "username", "password", "code", "approval", "captcha", "signed-in", "key", "stored", "testing", "connected"] as const;
+export const PHASES = ["opening", "username", "password", "code", "approval", "consent", "signed-in", "key", "stored", "testing", "connected"] as const;
 /** Shown only when the provider asks for them. */
-const OPTIONAL = new Set<string>(["code", "approval", "captcha"]);
+const OPTIONAL = new Set<string>(["code", "approval", "consent"]);
 /** A connect run starts after the sign-in. */
 const SIGN_IN_ONLY = new Set<string>(["opening", "username", "password"]);
 
@@ -182,4 +194,69 @@ export function inputsValid(inputs: readonly FacadeInput[], values: Record<strin
 /** The inputs to send: trimmed, only the ones the facade asks for. */
 export function inputsBody(inputs: readonly FacadeInput[], values: Record<string, string>): Record<string, string> {
   return Object.fromEntries(inputs.map((i) => [i.param, (values[i.param] ?? "").trim()]));
+}
+
+// ------------------------------------------------------------------------------------------ connect dialog
+
+/** What the dialog knows about the browser sign-in at the provider. */
+export type BrowserSignIn = "checking" | "signed-in" | "signed-out" | "unknown";
+
+/** The answer of a finished check (`signedIn` null: the check could not be made), or undefined while it is still queued or running. */
+export function browserSignInOf(outcome: { signedIn: boolean | null } | undefined): BrowserSignIn {
+  if (!outcome) return "checking";
+  if (outcome.signedIn === null) return "unknown";
+  return outcome.signedIn ? "signed-in" : "signed-out";
+}
+
+export type DialogView = "run" | "checking" | "connect" | "sign-in";
+
+/**
+ * Which part of the dialog is shown. A run in progress (or just finished) always wins. Otherwise the sign-in check decides:
+ * while it runs the dialog only says so; a signed-in browser connects directly; a signed-out one (or one that could not be
+ * checked) offers the sign-in methods.
+ */
+export function dialogView(browser: BrowserSignIn, hasRun: boolean): DialogView {
+  if (hasRun) return "run";
+  if (browser === "checking") return "checking";
+  return browser === "signed-in" ? "connect" : "sign-in";
+}
+
+/** Names of the sign-in methods as the providers write them (not translated). */
+export const IDP_NAMES: Readonly<Record<FacadeMethodId, string>> = { email: "email", google: "Google", apple: "Apple", microsoft: "Microsoft", github: "GitHub" };
+
+/** The methods to offer: the recipe's list, never empty (email is the provider's own form). */
+export function methodsOf(facade: Pick<FacadeInfo, "methods">): FacadeMethod[] {
+  return facade.methods.length > 0 ? facade.methods : [{ id: "email", label: null, labelEn: null }];
+}
+
+/** The method the form starts with: the first one offered. */
+export function defaultMethod(facade: Pick<FacadeInfo, "methods">): FacadeMethodId {
+  return methodsOf(facade)[0]!.id;
+}
+
+/** The chosen method if the facade offers it, else the first one. */
+export function chosenMethod(facade: Pick<FacadeInfo, "methods">, id: string | null | undefined): FacadeMethodId {
+  return methodsOf(facade).find((m) => m.id === id)?.id ?? defaultMethod(facade);
+}
+
+/** Every state of the connect button: it is busy while the request runs, disabled when the provider is unusable or inputs are missing. */
+export type ConnectButton = "ready" | "busy" | "disabled";
+export function connectButtonState(facade: Pick<FacadeInfo, "available" | "inputs">, values: Record<string, string>, busy: boolean): ConnectButton {
+  if (busy) return "busy";
+  return facade.available && inputsValid(facade.inputs, values) ? "ready" : "disabled";
+}
+
+/** The sign-in form can be sent: provider usable, credentials and inputs present, nothing running. */
+export function signInButtonState(facade: Pick<FacadeInfo, "available" | "inputs">, email: string, password: string, values: Record<string, string>, busy: boolean): ConnectButton {
+  if (busy) return "busy";
+  return facade.available && signInValid(email, password) && inputsValid(facade.inputs, values) ? "ready" : "disabled";
+}
+
+/** The access an authorization asks for, as list items (the portal shows them before the human confirms). */
+export function consentItems(detail: string | undefined): string[] {
+  return (detail ?? "")
+    .split(/\n|;/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }

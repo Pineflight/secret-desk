@@ -1,6 +1,7 @@
 import { redact } from "@secret-desk/core";
 import type { BrowserDriver } from "./driver.js";
-import { hostAllowed, type Condition, type LoginForm, type Recipe } from "./recipe.js";
+import { IDP_FLOWS, idpHostAllowed, type IdpFlow } from "./idp.js";
+import { hostAllowed, type Condition, type LoginForm, type LoginMethodId, type Recipe } from "./recipe.js";
 import { resolveCondition } from "./run.js";
 import { describeSelector, pickSelector } from "./selector.js";
 import { renderTemplate } from "./template.js";
@@ -14,7 +15,7 @@ import { WaitAbortedError, WaitTimeoutError, conditionMet, pollCondition } from 
  */
 
 /** What the provider waits for from the human. */
-export type LoginNeed = "mfa-code" | "approval" | "captcha";
+export type LoginNeed = "mfa-code" | "approval" | "consent";
 
 export type LoginErrorKind =
   /** Cancelled by the human. */
@@ -31,6 +32,8 @@ export type LoginErrorKind =
   | "rejected"
   /** The one-time code was asked for too often. */
   | "code"
+  /** The provider shows a CAPTCHA or other bot check that stays: the script cannot solve it and the human is not sent to the browser. */
+  | "captcha"
   /** The recipe cannot do this (no login.form, no way to ask for a code). */
   | "unsupported";
 
@@ -56,7 +59,7 @@ export type LoginEvent =
   | { type: "opening" }
   | { type: "entered"; field: "username" | "password" }
   | { type: "submitted" }
-  | { type: "needs"; need: LoginNeed; message?: string; messageEn?: string }
+  | { type: "needs"; need: LoginNeed; message?: string; messageEn?: string; /** The number an approval shows, or the scopes of a consent. */ detail?: string }
   | { type: "resumed"; need: LoginNeed }
   | { type: "signed-in"; url: string };
 
@@ -67,9 +70,15 @@ export interface LoginHooks {
    * The code is typed once and dropped.
    */
   requestCode?(): Promise<string>;
+  /** The provider asks for an authorization (OAuth consent). Resolves true when the human confirmed it in the portal, false when declined. */
+  requestConfirm?(scopes: string): Promise<boolean>;
 }
 
 export interface LoginOptions {
+  /** The sign-in method: `email` (login.form, default) or an identity provider declared in login.methods. */
+  method?: LoginMethodId;
+  /** How long a CAPTCHA may stay before the run fails, default 4 s. */
+  captchaGraceMs?: number;
   /** Whole run including waits for a code or an approval. Default 10. */
   timeoutMinutes?: number;
   signal?: AbortSignal;
@@ -136,12 +145,23 @@ function guard<T>(work: Promise<T>, deadline: number, signal: AbortSignal | unde
   });
 }
 
+/** A step of any sign-in sequence (recipe form, provider-side single-sign-on steps, built-in identity-provider flow). */
+type AnyStep = { fill: Record<string, unknown> & { value: string } } | { click: Record<string, unknown> } | { waitFor: Condition & { timeoutSeconds?: number } } | Record<string, unknown>;
+
 /**
- * Signs in with the recipe's `login.form`. Opens and closes the driver itself. Resolves once `login.expect` holds.
- * Throws LoginError; messages never contain the credentials or a code.
+ * Signs in with the recipe's `login.form` (method `email`) or through an identity provider (`options.method`: the recipe's
+ * provider-side steps, then the built-in flow of that provider). Opens and closes the driver itself. Resolves once
+ * `login.expect` holds. Throws LoginError; messages never contain the credentials or a code.
+ *
+ * Credentials are typed only on the recipe's hosts (email) or on the identity provider's hosts (single sign-on). Codes, device
+ * approvals and the first-use consent are asked of the human in the portal; a CAPTCHA fails the run (the script cannot solve it).
  */
 export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: BrowserDriver, hooks: LoginHooks = {}, options: LoginOptions = {}): Promise<LoginResult> {
   const form = formOf(recipe);
+  const methodId: LoginMethodId = options.method ?? "email";
+  const idp: IdpFlow | null = methodId === "email" ? null : IDP_FLOWS[methodId];
+  const methodDef = idp ? recipe.login!.methods?.find((m) => m.id === methodId) : undefined;
+  if (idp && !methodDef?.steps?.length) throw new LoginError("unsupported", `Recipe ${recipe.id} does not offer the sign-in method ${methodId}.`);
   const expect = recipe.login!.expect;
   const known: string[] = [creds.username, creds.password];
   const minutes = options.timeoutMinutes ?? 10;
@@ -149,6 +169,7 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
   const pollMs = options.pollMs ?? 500;
   const settleMs = options.settleMs ?? 2500;
   const maxCodes = options.maxCodeAttempts ?? 3;
+  const captchaGraceMs = options.captchaGraceMs ?? 4000;
   const { signal } = options;
   const emit = (e: LoginEvent): void => hooks.onEvent?.(e);
 
@@ -159,30 +180,46 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
     if (signal?.aborted) fail("abort", "Cancelled.");
   };
   const met = (c: Condition): Promise<boolean> => conditionMet(driver, resolveCondition(c, {})).catch(() => false);
+  const sleep = (ms: number): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const t = setTimeout(done, Math.max(1, ms));
+      function done(): void {
+        clearTimeout(t);
+        signal?.removeEventListener("abort", done);
+        resolve();
+      }
+      signal?.addEventListener("abort", done, { once: true });
+    });
 
-  /** Typing happens only on pages of the recipe's hosts. */
-  async function hostGuard(): Promise<void> {
+  const hostNow = async (): Promise<string | null> => {
     const url = await driver.currentUrl().catch(() => "");
-    let host: string;
     try {
       const u = new URL(url);
-      if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("protocol");
-      host = u.hostname;
+      return u.protocol === "https:" || u.protocol === "http:" ? u.hostname : null;
     } catch {
-      return fail("host", "The page in the browser is not a web page the recipe allows: sign-in aborted, nothing was typed.");
+      return null;
     }
-    if (!hostAllowed(host, recipe)) fail("host", `The browser is on ${host}, outside ${recipe.host}: sign-in aborted, nothing was typed there.`);
+  };
+  const onIdp = (host: string | null): boolean => idp !== null && host !== null && idpHostAllowed(idp.id, host);
+
+  /** Typing happens only on the recipe's hosts (email) or on the identity provider's hosts (single sign-on); browsing also on the recipe's. */
+  async function hostGuard(typing = false): Promise<void> {
+    const host = await hostNow();
+    if (host === null) return fail("host", "The page in the browser is not a web page the recipe allows: sign-in aborted, nothing was typed.");
+    const ok = idp ? (typing ? onIdp(host) : onIdp(host) || hostAllowed(host, recipe)) : hostAllowed(host, recipe);
+    if (!ok) fail("host", `The browser is on ${host}, outside ${idp ? `${recipe.host} and ${idp.id}` : recipe.host}: sign-in aborted, nothing was typed there.`);
   }
 
+  const failures = [...(idp?.failure ?? []), ...form.failure];
   async function refused(): Promise<void> {
-    for (const f of form.failure) if (await met(f.detect)) fail("rejected", f.message, f.messageEn ?? f.message);
+    for (const f of failures) if (await met(f.detect)) fail("rejected", f.message, f.messageEn ?? f.message);
   }
 
   let need: LoginNeed | null = null;
-  const setNeed = (n: LoginNeed, message?: string, messageEn?: string): void => {
+  const setNeed = (n: LoginNeed, message?: string, messageEn?: string, detail?: string): void => {
     if (need === n) return;
     need = n;
-    emit({ type: "needs", need: n, ...(message ? { message } : {}), ...(messageEn ? { messageEn } : {}) });
+    emit({ type: "needs", need: n, ...(message ? { message } : {}), ...(messageEn ? { messageEn } : {}), ...(detail ? { detail } : {}) });
   };
   const clearNeed = (): void => {
     if (need === null) return;
@@ -190,6 +227,48 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
     need = null;
     emit({ type: "resumed", need: was });
   };
+
+  const vars = { "login.username": creds.username, "login.password": creds.password };
+
+  /** Runs sign-in steps. Steps that fill credentials run only on the hosts that may receive them. */
+  async function runSteps(steps: readonly AnyStep[]): Promise<void> {
+    for (const [i, raw] of steps.entries()) {
+      const step = raw as Record<string, any>;
+      aborted();
+      await hostGuard("fill" in step);
+      try {
+        if ("fill" in step) {
+          const f = step["fill"] as Record<string, unknown>;
+          // Recipe steps carry the value inside `fill`, built-in steps next to it.
+          const value = String(step["value"] ?? f["value"]);
+          const field = value.includes("{{login.password}}") ? "password" : value.includes("{{login.username}}") ? "username" : null;
+          await driver.fill(pickSelector(f), renderTemplate(value, vars));
+          if (field) emit({ type: "entered", field });
+        } else if ("click" in step) {
+          await driver.click(pickSelector(step["click"]));
+          emit({ type: "submitted" });
+        } else if ("waitFor" in step) {
+          const w = step["waitFor"] as Condition & { timeoutSeconds?: number };
+          const cond = resolveCondition({ ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}) }, {});
+          await driver.waitFor(cond, (w.timeoutSeconds ?? step["timeoutSeconds"] ?? STEP_TIMEOUT_S) * 1000, signal);
+        }
+      } catch (err) {
+        if (err instanceof LoginError) throw err;
+        if (err instanceof WaitAbortedError) return fail("abort", "Cancelled.");
+        // The provider may have answered with an error page: report that instead of a generic step failure.
+        await refused();
+        const timedOut = err instanceof WaitTimeoutError || (err as Error).name === "TimeoutError";
+        return fail("step", `Sign-in step ${i + 1} (${describeStep(step as LoginForm["steps"][number])}) failed: ${timedOut ? "the page did not look as expected" : "the action was not possible"}.`);
+      }
+      // A wrong password usually shows right after the click; a later step would only fail confusingly.
+      await refused();
+    }
+  }
+
+  async function firstMet<T>(items: readonly T[], detect: (item: T) => Condition): Promise<T | undefined> {
+    for (const item of items) if (await met(detect(item))) return item;
+    return undefined;
+  }
 
   await driver.open();
   try {
@@ -200,56 +279,46 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
       return fail("step", "The sign-in page could not be opened.");
     }
     await hostGuard();
-    const vars = { "login.username": creds.username, "login.password": creds.password };
 
     // A signed-in browser is often redirected from the sign-in page only after a few seconds. Wait until the page shows
     // either the signed-in state or the form (the first step's condition), so a session is never mistaken for a broken form.
-    const first = form.steps[0];
+    const first = (idp ? methodDef!.steps![0] : form.steps[0]) as { waitFor?: Condition } | undefined;
     const formReady = first && "waitFor" in first ? (first.waitFor as Condition) : null;
     const landingUntil = Date.now() + (options.landingMs ?? 30_000);
     let signedIn = await met(expect);
     while (!signedIn && Date.now() < landingUntil) {
       aborted();
       if (formReady && (await met(formReady))) break;
-      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, landingUntil - Date.now()))));
+      await sleep(Math.min(pollMs, landingUntil - Date.now()));
       signedIn = await met(expect);
     }
     await hostGuard();
 
     // Already signed in (the browser profile keeps the session): nothing is typed.
     if (!signedIn) {
-      for (const [i, step] of form.steps.entries()) {
-        aborted();
-        await hostGuard();
-        try {
-          if ("fill" in step) {
-            const field = step.fill.value.includes("{{login.password}}") ? "password" : step.fill.value.includes("{{login.username}}") ? "username" : null;
-            await driver.fill(pickSelector(step.fill), renderTemplate(step.fill.value, vars));
-            if (field) emit({ type: "entered", field });
-          } else if ("click" in step) {
-            await driver.click(pickSelector(step.click));
-            emit({ type: "submitted" });
-          } else if ("waitFor" in step) {
-            const w = step.waitFor;
-            const cond = resolveCondition({ ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}) }, {});
-            await driver.waitFor(cond, (w.timeoutSeconds ?? STEP_TIMEOUT_S) * 1000, signal);
-          }
-        } catch (err) {
-          if (err instanceof LoginError) throw err;
-          if (err instanceof WaitAbortedError) return fail("abort", "Cancelled.");
-          // The provider may have answered with an error page: report that instead of a generic step failure.
+      if (idp) {
+        // Provider side: only clicks, up to the identity provider's page.
+        await runSteps(methodDef!.steps as readonly AnyStep[]);
+        const handoverUntil = Date.now() + (options.landingMs ?? 30_000);
+        while (!onIdp(await hostNow()) && !(await met(expect))) {
+          aborted();
+          await hostGuard();
           await refused();
-          const timedOut = err instanceof WaitTimeoutError || (err as Error).name === "TimeoutError";
-          return fail("step", `Sign-in step ${i + 1} (${describeStep(step)}) failed: ${timedOut ? "the page did not look as expected" : "the action was not possible"}.`);
+          if (Date.now() >= handoverUntil) return fail("step", `The provider did not hand over to the ${idp.id} sign-in.`);
+          await sleep(pollMs);
         }
-        // A wrong password usually shows right after the click; a later step would only fail confusingly.
-        await refused();
+        if (onIdp(await hostNow())) await runSteps(idp.steps as readonly AnyStep[]);
+      } else {
+        await runSteps(form.steps as readonly AnyStep[]);
       }
     }
 
     // Wait for the result: signed in, refused, or something the human has to do.
+    const mfas = [idp?.mfa, form.mfa].filter((m): m is NonNullable<typeof m> => m !== undefined);
+    const approvals = [idp?.approval, form.approval].filter((m): m is NonNullable<typeof m> => m !== undefined);
     let settleUntil = 0;
     let codes = 0;
+    let captchaSince = 0;
     for (;;) {
       aborted();
       await hostGuard();
@@ -260,7 +329,40 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
         return { url };
       }
       await refused();
-      if (form.mfa && Date.now() >= settleUntil && (await met(form.mfa.detect))) {
+      const onIdpNow = onIdp(await hostNow());
+      // Identity-provider pages: a passkey prompt (take the code fallback), the first-use consent (the human confirms in the portal).
+      if (idp && onIdpNow && Date.now() >= settleUntil) {
+        if (idp.passkey && (await met(idp.passkey.detect)) && (await driver.isVisible(idp.passkey.fallback).catch(() => false))) {
+          await hostGuard(false);
+          await driver.click(idp.passkey.fallback).catch(() => undefined);
+          settleUntil = Date.now() + settleMs;
+          continue;
+        }
+        if (idp.consent && (await met(idp.consent.detect))) {
+          const scopes = (await driver.readText(idp.consent.scopes).catch(() => "")).split(/\n+/).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("; ").slice(0, 600);
+          if (!hooks.requestConfirm) return fail("unsupported", "The provider asks for an authorization, but this run cannot ask for it.");
+          setNeed("consent", undefined, undefined, scopes);
+          const yes = await guard(hooks.requestConfirm(scopes), deadline, signal, "the authorization");
+          if (!yes) return fail("rejected", "Die Autorisierung wurde abgelehnt.", "The authorization was declined.");
+          await hostGuard(false);
+          try {
+            await driver.click(idp.consent.approve);
+          } catch {
+            return fail("step", "The authorization could not be confirmed.");
+          }
+          clearNeed();
+          emit({ type: "submitted" });
+          settleUntil = Date.now() + settleMs;
+          continue;
+        }
+        if (idp.trust && (await driver.isVisible(idp.trust).catch(() => false))) {
+          await driver.click(idp.trust).catch(() => undefined);
+          settleUntil = Date.now() + settleMs;
+          continue;
+        }
+      }
+      const mfa = Date.now() >= settleUntil ? await firstMet(mfas, (m) => m.detect) : undefined;
+      if (mfa) {
         if (codes >= maxCodes) return fail("code", `The provider did not accept ${maxCodes} codes: sign-in stopped.`);
         if (!hooks.requestCode) return fail("unsupported", "The provider asks for a one-time code, but this run cannot ask for one.");
         setNeed("mfa-code");
@@ -268,9 +370,9 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
         codes += 1;
         known.push(code);
         try {
-          await hostGuard();
-          await driver.fill(form.mfa.field, code);
-          await driver.click(form.mfa.submit);
+          await hostGuard(true);
+          await driver.fill(mfa.field, code);
+          await driver.click(mfa.submit);
         } catch (err) {
           if (err instanceof LoginError) throw err;
           return fail("step", "The one-time code could not be entered.");
@@ -281,26 +383,27 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
         emit({ type: "submitted" });
         settleUntil = Date.now() + settleMs;
         continue;
-      } else if (form.approval && (await met(form.approval.detect))) {
-        setNeed("approval", form.approval.message, form.approval.messageEn ?? form.approval.message);
+      }
+      const approval = await firstMet(approvals, (a) => a.detect);
+      if (approval) {
+        // The number some providers show next to "approve on your device" (read from the page, shown in the portal).
+        const number = idp && approval === idp.approval && idp.approval.number ? (await driver.readText(idp.approval.number).catch(() => "")).trim().slice(0, 20) : "";
+        setNeed("approval", approval.message, approval.messageEn ?? approval.message, number);
+        captchaSince = 0;
       } else if (form.captcha && (await met(form.captcha.detect))) {
         // Lowest priority: an always-present invisible challenge frame must not hide the code or approval step.
-        setNeed("captcha", form.captcha.message, form.captcha.messageEn ?? form.captcha.message);
+        // The script cannot solve it and the human is not sent to the browser: a challenge that stays ends the run.
+        captchaSince ||= Date.now();
+        if (Date.now() - captchaSince >= captchaGraceMs) return fail("captcha", form.captcha.message ?? "Der Anbieter zeigt eine Sicherheitspruefung.", form.captcha.messageEn ?? form.captcha.message ?? "The provider shows a security check.");
+        clearNeed();
       } else {
+        captchaSince = 0;
         clearNeed();
       }
       if (Date.now() >= deadline) {
         return fail("timeout", `The sign-in did not finish within ${minutes} minutes.`);
       }
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(done, Math.min(pollMs, Math.max(1, deadline - Date.now())));
-        function done(): void {
-          clearTimeout(t);
-          signal?.removeEventListener("abort", done);
-          resolve();
-        }
-        signal?.addEventListener("abort", done, { once: true });
-      });
+      await sleep(Math.min(pollMs, deadline - Date.now()));
     }
   } finally {
     creds.username = "";

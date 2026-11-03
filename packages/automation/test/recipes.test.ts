@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadRecipes, loadRecipesDetailed } from "../src/index.js";
+import { loadRecipes, loadRecipesDetailed, loginMethodsOf } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 
@@ -19,8 +19,11 @@ describe("bundled recipes", () => {
     expect(r.login?.form?.home).toBe("https://platform.openai.com/");
     expect(r.capture.token.pattern).toBe("^(sk-admin-[A-Za-z0-9_-]+)$");
     expect(r.revoke?.steps.length).toBeGreaterThan(0);
+    expect(r.steps.find((s) => "click" in s && s.click.createsToken)).toMatchObject({ click: { role: "button", name: "Create admin key", exact: true } });
+    expect(r.steps.find((s) => "fill" in s)).toMatchObject({ fill: { placeholder: "My Test Key", value: "{{name}}" } });
+    expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google", "apple", "microsoft"]);
     expect(new RegExp(r.capture.token.pattern!).test("sk-proj-abc")).toBe(false);
-    expect((await readFile(join(RECIPES, "openai-admin-key.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: not verified/);
+    expect((await readFile(join(RECIPES, "openai-admin-key.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: key creation verified live on 2026-11-03/);
   });
   it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));
