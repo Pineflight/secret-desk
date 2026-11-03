@@ -27,7 +27,7 @@
     "build:libs": "pnpm --filter @secret-desk/core --filter @secret-desk/providers --filter @secret-desk/automation --filter @secret-desk/runtime --filter @secret-desk/cli --filter @secret-desk/mcp run build"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.5",
     "@types/node": "^26.6.6"
   }

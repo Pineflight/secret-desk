@@ -13,6 +13,7 @@ the project. The packages below are separate programs started side by side; secr
 | noVNC | `novnc` | VNC client in a normal web browser | MPL-2.0 (some files under other free licenses) |
 | websockify | `websockify` | WebSocket bridge between noVNC and the VNC server | LGPL-3.0 |
 | socat | `socat` | Forwards the DevTools port into the compose network | GPL-2.0 |
+| Openbox | `openbox` | Window manager, gives the browser window the keyboard focus | GPL-2.0-or-later |
 | dumb-init | `dumb-init` | Init process (signals, child reaping) | MIT |
 | curl | `curl` | Health check | curl license (MIT-like) |
 | CA certificates | `ca-certificates` | TLS trust store | MPL-2.0 / GPL-2.0-or-later |

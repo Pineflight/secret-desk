@@ -26,7 +26,13 @@ describe("readAbout", () => {
   it("build arguments override the version and add tag and commit (short)", async () => {
     const f = await fixture({ SECRET_DESK_VERSION: "1.2.3", SECRET_DESK_BUILD_TAG: "v1.2.3-45", SECRET_DESK_COMMIT: "0123456789abcdef0123" });
     const a = readAbout({ rootDir: f.dir, thirdPartyFile: f.tp, env: f.env });
-    expect(a).toMatchObject({ version: "1.2.3", buildTag: "v1.2.3-45", commit: "0123456789ab" });
+    expect(a).toMatchObject({ version: "1.2.3", buildTag: "v1.2.3-45", commit: "0123456789ab", displayVersion: "v1.2.3-45", releaseUrl: "https://github.com/Pineflight/secret-desk/releases/tag/v1.2.3-45" });
+  });
+  it("shows the package version when the image has no release tag, and never links an odd tag", async () => {
+    const plain = await fixture({});
+    expect(readAbout({ rootDir: plain.dir, thirdPartyFile: plain.tp, env: plain.env })).toMatchObject({ displayVersion: "v9.8.7", releaseUrl: null });
+    const odd = await fixture({ SECRET_DESK_BUILD_TAG: "v1/../../evil" });
+    expect(readAbout({ rootDir: odd.dir, thirdPartyFile: odd.tp, env: odd.env })).toMatchObject({ displayVersion: "v9.8.7", releaseUrl: null });
   });
   it("missing files give defaults instead of an error", () => {
     const a = readAbout({ rootDir: "/nonexistent-dir", thirdPartyFile: "/nonexistent/x.json", env: {} as NodeJS.ProcessEnv });
