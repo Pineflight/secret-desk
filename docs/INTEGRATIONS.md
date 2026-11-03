@@ -15,7 +15,7 @@ Create every token with **no more than** the permissions below, with a short exp
    - **Store encrypted on this machine** ([vault](#vault)): kept across restarts.
 4. Click **Test connection**.
 
-For Stripe the key's prefix is checked: the sandbox connection takes `rk_test_`, the live connection `rk_live_`; a mismatch is rejected.
+For Stripe the key's prefix is checked: the sandbox connection takes `rk_test_`, the live connection `rk_live_` (also `stripe:<acct_id>:sandbox` / `:live`); a mismatch is rejected.
 
 Instead of pasting, the configuration can point to an environment variable or a 1Password reference ([CONFIGURATION.md](CONFIGURATION.md#connection-sources)). **Resolution order** when a token is needed: session, then vault, then the configured source. An expired session or vault token is reported instead of silently falling back.
 
@@ -61,11 +61,11 @@ Why: reads, creates and deletes API keys of Supabase projects and sets their dat
 
 Access token with *API Keys* Read-write and *API Key Secrets* Read; optionally *Project Settings* Read and *Projects* Read, and *Database config* Write (fine-grained permission `database_config_write`), needed only for `supabase-db-password`. Limit the token to the organization or projects to manage. A token never exceeds your own role (Owner or Admin needed). A full-access ("legacy") token works but is not recommended. The token is shown only once.
 
-### Stripe (`stripe-test`, `stripe-live`, `stripe`)
+### Stripe (`stripe:<acct_id>:<mode>`, `stripe-test`, `stripe-live`, `stripe`)
 
 Why: creates and revokes webhook endpoints and reads their signing secrets.
 
-Restricted key with all resources `None` and only *Webhook Endpoints* `Write`. Optionally *Balance* `Read`, so the test can confirm the key. One key per mode: `stripe-test` (sandbox, `rk_test_`) is preferred for stages of kind `test`, `stripe-live` (`rk_live_`) for kind `live`, if connected; the general `stripe` connection is the fallback, and `dev` and `shared` stages always use it. An entry's parameter `connection` overrides the choice.
+Restricted key with all resources `None` and only *Webhook Endpoints, Event Destinations* `Write`. Optionally *Balance* `Read`, so the test can confirm the key. One key per mode: `stripe-test` (sandbox, `rk_test_`) is preferred for stages of kind `test`, `stripe-live` (`rk_live_`) for kind `live`, if connected; the general `stripe` connection is the fallback, and `dev` and `shared` stages always use it. An entry's parameter `connection` overrides the choice. For several products in one Stripe organization use one connection per account and mode, `stripe:<acct_id>:sandbox` and `stripe:<acct_id>:live`, and set `account` on the entry (see [PROVIDERS.md](PROVIDERS.md#stripe-one-connection-per-account-and-mode)); the connection then verifies that its key belongs to that account.
 
 ### Resend (`resend`)
 
@@ -89,7 +89,7 @@ The card links to `https://grafana.com/profile/org` (forwards signed-in users to
 
 ## Guided sign-in (provider facade)
 
-For providers whose keys exist only with a user account, *Integrations* has *Connect with sign-in* (RevenueCat today). Flow: enter the provider email and password (this run only, never stored); the portal signs in through the remote browser (`automation.cdpEndpoint`) and shows each step with elapsed time and time limit; a one-time code is typed in the portal, an approval is awaited, a CAPTCHA is solved by you via *Open browser*; then the facade creates the integration key (RevenueCat: v2, *Project configuration: Read only*, no expiry, name `secret-desk-integration-<date>-<time>`), stores it as the connection (vault, else this session), runs *Test connection* and reports e.g. "1 project, 3 apps". The project is read from the dashboard address after sign-in; if that fails, enter the project id and connect (the browser stays signed in). *Check sign-in* needs no credentials. Pasting a key stays available as the collapsed *I already have a key*. Adding a provider means a descriptor in `packages/runtime/src/facade.ts` plus a recipe with `login.form`. Verification: see [ROADMAP.md](ROADMAP.md).
+For providers whose keys exist only with a user account, *Integrations* has *Connect with sign-in* (RevenueCat and Stripe today). Flow: enter the provider email and password (this run only, never stored); the portal signs in through the remote browser (`automation.cdpEndpoint`) and shows each step with elapsed time and time limit; a one-time code is typed in the portal, an approval is awaited, a CAPTCHA is solved by you via *Open browser*; then the facade creates the integration key (RevenueCat: v2, *Project configuration: Read only*, no expiry, name `secret-desk-integration-<date>-<time>`), stores it as the connection (vault, else this session), runs *Test connection* and reports e.g. "1 project, 3 apps". The project is read from the dashboard address after sign-in; if that fails, enter the project id and connect (the browser stays signed in). *Check sign-in* needs no credentials. Pasting a key stays available as the collapsed *I already have a key*. **Stripe** also asks for the account id (`acct_...`) and the mode (`sandbox` or `live`), because one Stripe organization holds several accounts: the facade creates the restricted key (*Webhook Endpoints, Event Destinations: Write*, named `secret-desk-<test|live>-<date>-<time>`) with the recipe `stripe-restricted-key`, checks with `GET /v1/account` that the key belongs to that account and mode **before** storing it, stores it as `stripe:<acct_id>:<mode>` and tests it. A wrong key is not stored and the portal names the key to expire. The live mode may ask for the password again; the portal then says it waits for you in the browser window. The recipe for the sign-in form itself is not verified. Adding a provider means a descriptor in `packages/runtime/src/facade.ts` plus a recipe with `login.form`; `inputs` lists the recipe parameters the human chooses per run. Verification: see [ROADMAP.md](ROADMAP.md).
 
 ## Resources and defaults
 
@@ -116,7 +116,7 @@ A button on every connected card (`POST /api/ui/connections/<id>/check`, portal 
 | GitHub | `GET /user`, then a public-key read for every target in the inventory, and a workflow-files read | login, token expiry (header `github-authentication-token-expiration`), missing permissions per target, whether Contents is readable |
 | Cloudflare | `GET /user/tokens/verify` | status, expiry (`expires_on`); more than 7 days for the creating token gets a recommendation |
 | Supabase | `GET /v1/organizations` | token valid |
-| Stripe | `GET /v1/balance` | key valid and mode; a 403 on a restricted key is normal (information) |
+| Stripe | `GET /v1/balance`; for `stripe:<acct_id>:<mode>` also `GET /v1/account` | key valid and mode; a 403 on a restricted key is normal (information); the key belongs to the account of the connection id (and its name becomes the label) |
 | Resend | `GET /api-keys` | 401 or 403 means the key lacks Full access |
 | RevenueCat | `GET /v2/projects?limit=1` | 401 invalid key, 403 lacks *Project configuration: Read only*, 429 rate limit (60 requests per minute), a key not starting with `sk_` is flagged |
 | Grafana | none | Cannot be tested without a stack address; checked when issuing |

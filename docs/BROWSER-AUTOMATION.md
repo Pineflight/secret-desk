@@ -65,7 +65,7 @@ Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check
   masking, login waiting with a timeout, abort.
 - A provider that runs `issue` through a recipe and returns `IssuedSecret` (evidence PNGs go to the `EvidenceStore`). The runtime
   (`createRuntime`) registers recipes from `recipes/` (bundled), `<inventory folder>/recipes/` and `automation.recipesDirs` as provider `<recipe-id>-browser`.
-- Bundled recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`; `stripe-restricted-key` as a scaffold (marked unverified).
+- Bundled recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key` (per account and mode; sandbox wizard checked, live mode and sign-in form not verified).
 - Portal: a "Browser" provider chip; during a run the status "Browser running, please sign in/confirm in the window" with Cancel and a timeout.
 - CLI: `secret-desk browser doctor` (Chrome found, profile, recipes valid), `secret-desk browser run <recipe> --dry` (only up to just before "generate").
 - Configuration: `automation: { enabled?, chromePath?, cdpEndpoint?, profileDir?, loginTimeoutMinutes?, slowMoMs?, recipesDirs?, allowExternalRecipes? }` (see [CONFIGURATION.md](CONFIGURATION.md#automation)).
@@ -114,7 +114,7 @@ Built (package `packages/automation`, recipes in `recipes/`, CLI `packages/cli/s
   AbortSignal, host check before every action, masking in every screenshot (Playwright `mask`, plus an automatic evidence image `nach-erzeugen`), errors without page content,
   `RecipeRunError.createdName` after `createsToken`.
 - `createBrowserProvider({ recipe, driverFactory, hooks?, runOptions?, evidence? })` fits the `Provider` interface (`kind: "automatic"`, plus `automation.recipeId`).
-- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key` (scaffold). Each carries a `# STATUS:` comment; only `revenuecat-secret-api-key` was partly checked against the live page (2026-11-02, form and list; full run not verified), the rest is not verified.
+- Recipes: `github-fine-grained-token`, `supabase-access-token`, `revenuecat-secret-api-key`, `stripe-restricted-key`. Each carries a `# STATUS:` comment; `revenuecat-secret-api-key` was partly checked against the live page (2026-11-02, form and list; full run not verified), and `stripe-restricted-key` in the sandbox (2026-11-03: wizard, result view with the key in `data-text`, expiry; full run, sign-in form and live mode not verified), the rest is not verified.
 - Recipe `params` (per-entry values such as a project id) become template variables and provider parameter specs; see [RECIPES.md](RECIPES.md#parameters).
 - CLI: `secret-desk browser doctor`, `secret-desk browser run <id> --dry [--name --owner --days --repos --out ...]`.
 - Tests: schema, template, host, fake runs, loading recipes, provider, integration with `PlaywrightDriver` against a local form (only with Chrome, headless, no internet).
@@ -171,6 +171,6 @@ await (provider as BrowserProvider).attachScreenshots(secret.id, report.id);
 
 - Verify recipes against the real sites (trial run with a throwaway token, supervised); in particular the GitHub confirmation dialog, the token element and the Supabase expiry field.
 - A dedicated step for elements inside a dialog (selectors have no notion of a scope); until then use `css`.
-- Stripe: map the permission matrix per resource from `params`.
+- Stripe: a free permission list (today two presets: `webhooks` and `full-except-sensitive`).
 - Write revocation via recipe (`revoke.steps`) for GitHub and Supabase; so far a hint for the human.
 - Clarify each provider's terms of use regarding automation (a team decision).

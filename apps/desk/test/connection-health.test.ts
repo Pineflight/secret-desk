@@ -43,6 +43,12 @@ describe("stripePrefixMismatch", () => {
     expect(stripePrefixMismatch("stripe", "rk_live_abc")).toBeNull();
     expect(stripePrefixMismatch("stripe-live", "xyz")).toBeNull();
   });
+  it("covers the per-account connections", () => {
+    expect(stripePrefixMismatch("stripe:acct_1AbC:sandbox", "rk_live_abc")).toBe("live");
+    expect(stripePrefixMismatch("stripe:acct_1AbC:live", "rk_test_abc")).toBe("test");
+    expect(stripePrefixMismatch("stripe:acct_1AbC:live", "rk_live_abc")).toBeNull();
+    expect(stripePrefixMismatch("stripe:acct_1AbC:sandbox", "rk_test_abc")).toBeNull();
+  });
 });
 
 describe("shortHash", () => {

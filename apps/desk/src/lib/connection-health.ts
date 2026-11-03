@@ -31,8 +31,10 @@ export function staleWithoutExpiry(expires: string | null | undefined, savedAt: 
 /** "live" oder "test", wenn der eingegebene Stripe-Schluessel nicht zur Verbindung passt; sonst null. Spiegel der Server-Pruefung. */
 export function stripePrefixMismatch(connectionId: string, token: string): "live" | "test" | null {
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
-  if (connectionId === "stripe-test" && mode === "live") return "live";
-  if (connectionId === "stripe-live" && mode === "test") return "test";
+  // Per-account connections end in the mode: stripe:<acct_id>:<sandbox|live>.
+  const bound = /^stripe:acct_[A-Za-z0-9]+:(sandbox|live)$/.exec(connectionId)?.[1];
+  if ((connectionId === "stripe-test" || bound === "sandbox") && mode === "live") return "live";
+  if ((connectionId === "stripe-live" || bound === "live") && mode === "test") return "test";
   return null;
 }
 

@@ -45,12 +45,36 @@ const withSelector = <T extends z.ZodRawShape>(extra: T) =>
 /** Schritt fuer jeden Eintrag einer Liste, zum Beispiel jedes Repository. */
 const Each = z.enum(["repos"]).optional();
 
+/**
+ * Runs the step only when the variable (a recipe parameter or a fixed variable) equals the value. This is how one recipe
+ * serves several modes, for example a sandbox and a live address. The variable is not a template: it is named, not rendered.
+ */
+const When = z.object({ var: z.string().min(1), equals: z.string() }).strict().optional();
+
 const stepVariants = {
-  goto: z.object({ goto: z.string().min(1) }).strict(),
-  fill: z.object({ fill: withSelector({ value: z.string() }), each: Each }).strict(),
-  select: z.object({ select: withSelector({ value: z.string().min(1) }), each: Each }).strict(),
-  check: z.object({ check: withSelector({ checked: z.boolean().default(true) }), each: Each }).strict(),
-  click: z.object({ click: withSelector({ createsToken: z.boolean().optional() }), each: Each }).strict(),
+  goto: z.object({ goto: z.string().min(1), when: When }).strict(),
+  fill: z.object({ fill: withSelector({ value: z.string() }), each: Each, when: When }).strict(),
+  select: z.object({ select: withSelector({ value: z.string().min(1) }), each: Each, when: When }).strict(),
+  check: z.object({ check: withSelector({ checked: z.boolean().default(true) }), each: Each, when: When }).strict(),
+  click: z
+    .object({
+      click: withSelector({
+        createsToken: z.boolean().optional(),
+        /**
+         * The element may be absent (a cookie banner, a one-time notice): wait `timeoutSeconds` for it and skip the step
+         * when it does not show up. Never combine this with createsToken.
+         */
+        optional: z.boolean().optional(),
+        /** Only with optional: how long to wait for the element (default 3 s). */
+        timeoutSeconds: z.number().positive().max(30).optional(),
+      }).superRefine((v, ctx) => {
+        if (v.optional && v.createsToken) ctx.addIssue({ code: "custom", message: "optional und createsToken schliessen sich aus" });
+        if (v.timeoutSeconds !== undefined && !v.optional) ctx.addIssue({ code: "custom", message: "timeoutSeconds gehoert nur zu optional: true" });
+      }),
+      each: Each,
+      when: When,
+    })
+    .strict(),
   press: z
     .object({
       press: z
@@ -62,6 +86,7 @@ const stepVariants = {
           if (p) ctx.addIssue({ code: "custom", message: p });
         }),
       each: Each,
+      when: When,
     })
     .strict(),
   waitFor: z
@@ -70,14 +95,16 @@ const stepVariants = {
         .object({ ...conditionShape, timeoutSeconds: z.number().positive().max(3600).optional() })
         .strict()
         .superRefine(oneCondition),
+      when: When,
     })
     .strict(),
   pause: z
     .object({
       pause: z.object({ human: z.string().min(1), until: ConditionSchema }).strict(),
+      when: When,
     })
     .strict(),
-  screenshot: z.object({ screenshot: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/, "Name aus Buchstaben, Ziffern, . _ -") }).strict(),
+  screenshot: z.object({ screenshot: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/, "Name aus Buchstaben, Ziffern, . _ -"), when: When }).strict(),
 };
 
 export type Step = z.infer<(typeof stepVariants)[keyof typeof stepVariants]>;
@@ -88,7 +115,7 @@ export const StepSchema = z.unknown().transform<Step>((raw, ctx) => {
     ctx.issues.push({ code: "custom", message: "Schritt muss ein Objekt sein", input: raw });
     return z.NEVER;
   }
-  const keys = Object.keys(raw).filter((k) => k !== "each");
+  const keys = Object.keys(raw).filter((k) => k !== "each" && k !== "when");
   const key = keys[0] as keyof typeof stepVariants | undefined;
   if (keys.length !== 1 || key === undefined || !Object.hasOwn(stepVariants, key)) {
     ctx.issues.push({ code: "custom", message: `Schritt braucht genau eine Art: ${Object.keys(stepVariants).join(", ")}`, input: raw });
@@ -182,6 +209,8 @@ export const RecipeSchema = z
         token: z
           .object({
             find: SelectorSchema,
+            /** Read this attribute of the element instead of its text or value (for a key the page shows truncated but carries whole). */
+            attribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_:-]{0,40}$/, "Attributname").optional(),
             /** Der Wert muss passen, sonst Abbruch. Gruppe 1, falls vorhanden. */
             pattern: Regex.optional(),
             timeoutSeconds: z.number().positive().max(600).default(30),
@@ -218,6 +247,7 @@ export const RecipeSchema = z
     const check = (steps: Step[], base: string): void =>
       steps.forEach((step, i) => {
         checkText(step, [base, i]);
+        if ("when" in step && step.when && !known.has(step.when.var)) ctx.addIssue({ code: "custom", path: [base, i, "when", "var"], message: `Unbekannte Variable ${step.when.var}` });
         if ("goto" in step) gotoProblem(step.goto, r).forEach((message) => ctx.addIssue({ code: "custom", path: [base, i, "goto"], message }));
       });
     check(r.steps, "steps");
@@ -242,9 +272,10 @@ function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: strin
   }
   const used = new Set<string>();
   form.steps.forEach((step, i) => {
-    const kind = Object.keys(step).find((k) => k !== "each");
+    const kind = Object.keys(step).find((k) => k !== "each" && k !== "when");
     if (kind !== "fill" && kind !== "click" && kind !== "waitFor") return add(["steps", i], "A sign-in step is fill, click or waitFor");
     if ("each" in step && step.each) add(["steps", i, "each"], "A sign-in step must not repeat per item");
+    if ("when" in step && step.when) add(["steps", i, "when"], "A sign-in step must not be conditional");
     if ("click" in step && step.click.createsToken) add(["steps", i], "A sign-in step must not create a token");
     // Sign-in variables only in the value of a fill: selectors and conditions end up in error texts and logs.
     const rest = "fill" in step ? { ...step.fill, value: "" } : step;

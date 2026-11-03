@@ -6,6 +6,8 @@ import { renderTemplate } from "./template.js";
 import { WaitAbortedError, WaitTimeoutError, conditionMet } from "./wait.js";
 
 export interface HumanWait {
+  /** login: the sign-in is missing. pause: a step of the recipe waits for the human (for example a password confirmation). */
+  kind: "login" | "pause";
   reason: string;
   /** Adresse ohne Query und Fragment. */
   url: string;
@@ -93,6 +95,7 @@ export function recipeParamVars(recipe: Pick<Recipe, "params">, params: Record<s
 }
 
 const TIMEOUT_DEFAULT_S = 30;
+const OPTIONAL_TIMEOUT_S = 3;
 
 function describeStep(step: Step): string {
   if ("goto" in step) return "goto";
@@ -180,14 +183,14 @@ class Runner {
     for (const [i, step] of steps.entries()) {
       this.#index = i + 1;
       this.#aborted();
+      if ("when" in step && step.when && (this.vars[step.when.var] ?? "").trim() !== step.when.equals) continue;
       if (stopAtCreate && "click" in step && step.click.createsToken) return true;
       this.hooks.onProgress?.({ index: this.#index, total: this.#total, label: describeStep(step) });
       const items = "each" in step && step.each ? (this.vars[step.each] ?? "").split(",").map((s) => s.trim()).filter(Boolean) : [undefined];
       for (const item of items) {
         const vars = item === undefined ? this.vars : { ...this.vars, item };
         try {
-          await this.#run(step, vars);
-          this.executed++;
+          if (await this.#run(step, vars)) this.executed++;
         } catch (err) {
           this.#rethrow(err, i, step);
         }
@@ -221,7 +224,24 @@ class Runner {
     if (!hostAllowed(host, this.recipe)) this.fail("host", `Die Seite im Browser (${host}) liegt ausserhalb von ${this.recipe.host}: Abbruch.`);
   }
 
-  async #run(step: Step, vars: Vars): Promise<void> {
+  /** Runs one step. Resolves to false when an optional step found nothing to do. */
+  async #run(step: Step, vars: Vars): Promise<boolean> {
+    if ("click" in step && step.click.optional) {
+      // An optional element (a cookie banner) is waited for briefly; absent means there is nothing to do.
+      await this.checkHost();
+      const sel = pickSelector(renderValue(step.click, vars));
+      try {
+        await this.driver.waitFor({ visible: sel }, (step.click.timeoutSeconds ?? OPTIONAL_TIMEOUT_S) * 1000, this.options.signal);
+      } catch (err) {
+        if (err instanceof WaitTimeoutError) return false;
+        throw err;
+      }
+    }
+    await this.#perform(step, vars);
+    return true;
+  }
+
+  async #perform(step: Step, vars: Vars): Promise<void> {
     if ("goto" in step) {
       const url = renderTemplate(step.goto, vars, { url: true });
       let u: URL;
@@ -249,7 +269,7 @@ class Runner {
     }
     if ("pause" in step) {
       const reason = renderValue(step.pause.human, vars);
-      return this.#waitForHuman(reason, resolveCondition(step.pause.until, vars));
+      return this.#waitForHuman("pause", reason, resolveCondition(step.pause.until, vars));
     }
     await this.checkHost();
     if ("screenshot" in step) return this.shoot(step.screenshot);
@@ -269,15 +289,15 @@ class Runner {
     if (!login) return;
     const cond = resolveCondition(login.expect, this.vars);
     if (!(await conditionMet(this.driver, cond).catch(() => false))) {
-      await this.#waitForHuman(login.message ?? "Bitte im Browserfenster anmelden (Passwort, 2FA, Bestaetigungen).", cond);
+      await this.#waitForHuman("login", login.message ?? "Bitte im Browserfenster anmelden (Passwort, 2FA, Bestaetigungen).", cond);
     }
     this.#loggedIn = true;
   }
 
-  async #waitForHuman(reason: string, cond: ResolvedCondition): Promise<void> {
+  async #waitForHuman(kind: HumanWait["kind"], reason: string, cond: ResolvedCondition): Promise<void> {
     if (await conditionMet(this.driver, cond).catch(() => false)) return;
     const minutes = this.options.loginTimeoutMinutes ?? 10;
-    await this.hooks.onWaitingForHuman?.({ reason, url: stripUrl(await this.driver.currentUrl().catch(() => "")) });
+    await this.hooks.onWaitingForHuman?.({ kind, reason, url: stripUrl(await this.driver.currentUrl().catch(() => "")) });
     try {
       await this.driver.waitFor(cond, minutes * 60_000, this.options.signal);
     } catch (err) {
@@ -334,10 +354,10 @@ export async function revokeRecipe(recipe: Recipe, vars: Vars, driver: BrowserDr
   }
 }
 
-async function readValue(r: Runner, sel: Selector, pattern: string | undefined, what: string): Promise<string> {
+async function readValue(r: Runner, sel: Selector, pattern: string | undefined, what: string, attribute?: string): Promise<string> {
   let raw: string;
   try {
-    raw = (await r.driver.readText(sel)).trim();
+    raw = (attribute ? await r.driver.readAttribute(sel, attribute) : await r.driver.readText(sel)).trim();
   } catch {
     return r.fail("capture", `${what} nicht lesbar (${describeSelector(sel)}).`);
   }
@@ -369,7 +389,7 @@ async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDri
     return r.fail("capture", `Token-Feld nicht gefunden (${describeSelector(find)}).`);
   }
   await r.checkHost();
-  const token = await readValue(r, find, cap.token.pattern, "Token");
+  const token = await readValue(r, find, cap.token.pattern, "Token", cap.token.attribute);
   if (!token) return r.fail("capture", "Token-Feld ist leer.");
   r.addSecret(token);
 

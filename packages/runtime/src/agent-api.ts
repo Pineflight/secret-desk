@@ -21,6 +21,8 @@ import {
   StaleIssuanceError,
   VariableAgentCreateSchema,
   parseInput,
+  parseStripeConnectionId,
+  readConnectionLabel,
   secretApprovalSnapshot,
   variableApprovalSnapshot,
   agentStageIds,
@@ -239,8 +241,16 @@ function grafanaBase(rt: Runtime): string | undefined {
   return e ? String(e.params["baseUrl"]) : undefined;
 }
 
+/** "Name (Sandbox)" for a Stripe connection of an account whose name is known; undefined otherwise. */
+function stripeLabel(id: string, name: string | undefined): string | undefined {
+  const p = parseStripeConnectionId(id);
+  return p && name ? `Stripe ${name} (${p.mode === "live" ? "Live" : "Sandbox"})` : undefined;
+}
+
 export async function listConnections(rt: Runtime) {
-  const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
+  // Stripe connections per account and mode (`stripe:<acct_id>:<mode>`) exist only once a key was stored for them.
+  const stripeAccounts = (await rt.connections.ids("stripe:")).filter((id) => parseStripeConnectionId(id) !== null);
+  const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...stripeAccounts, ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
   // Team-Sync ohne eigenes Token nutzt die GitHub-Integration: so anzeigen, nicht als "nicht verbunden".
   const gh = [statuses.find((x) => x.id === "github"), statuses.find((x) => x.id === "github-app-key")].find((x) => x?.connected);
@@ -253,10 +263,15 @@ export async function listConnections(rt: Runtime) {
     const info = s.source === "vault" ? await rt.connections.vault?.info(s.id).catch(() => null) : null;
     if (info) saved.set(s.id, info.savedAt);
   }
+  const stripeNames = new Map<string, string>();
+  for (const id of stripeAccounts) {
+    const name = await readConnectionLabel(rt.connections, id);
+    if (name) stripeNames.set(id, name);
+  }
   return statuses.map((s) => {
     const g = connectionGuide(s.id, rt.owner, s.id === "grafana" ? { grafanaBaseUrl: grafanaBase(rt) } : s.id === "team-sync" && rt.config.teamSync ? { teamRepo: rt.config.teamSync.repo, teamRights: neededRights(rt.config.teamSync) } : {});
     const days = s.expires ? Math.ceil((Date.parse(`${s.expires}T00:00:00Z`) - Date.now()) / 86_400_000) : null;
-    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
+    return { ...s, canRemember: Boolean(rt.connections.vault), daysLeft: days, savedAt: saved.get(s.id) ?? null, label: stripeLabel(s.id, stripeNames.get(s.id)) ?? g?.label ?? s.id, description: g?.description ?? null, url: g?.url ?? null, openUrl: g ? g.openUrl ?? g.url : null, steps: g?.steps ?? [], permissions: g?.permissions ?? [] };
   });
 }
 

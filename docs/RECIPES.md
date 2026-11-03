@@ -12,7 +12,7 @@ This page is the how-to. The design, principles and implementation status are in
 |---|---|---|
 | `github-fine-grained-token` | GitHub fine-grained personal access token | not verified |
 | `supabase-access-token` | Supabase access token | not verified |
-| `stripe-restricted-key` | Stripe restricted key (scaffold, rights matrix not modeled) | not verified |
+| `stripe-restricted-key` | Stripe restricted key for one account and mode; parameters `account` (`acct_...`), `mode` (`sandbox` or `live`), `preset` (`webhooks`: *Webhook Endpoints, Event Destinations* Write, or `full-except-sensitive`); can revoke (*Expire key*) | sandbox wizard, result view and expiry checked 2026-11-02/03 with a throwaway key; full run, sign-in form and live mode not verified |
 | `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked against the live page on 2026-11-02 with a throwaway key (revoked afterwards); full run not verified |
 
 ## Where recipes live
@@ -46,6 +46,8 @@ capture:                             # required
     find: { css: "#new-access-token" }
     pattern: "^(github_pat_[A-Za-z0-9_]+)$"   # value must match, group 1 if present, else abort
     timeoutSeconds: 30                          # default 30, max 600
+  # token.attribute: read this attribute of the element instead of its text, for a key the page shows truncated but carries whole
+  #   (Stripe: `find: { css: '[data-text^="rk_"]' }`, `attribute: data-text`)
   externalId: { from: name }         # for later revocation: { from: name|days|date|secretId } or { find: <selector>, pattern? }
   expires: { from: days }            # optional
 mask:                                # regions hidden in every later screenshot
@@ -62,8 +64,8 @@ A selector finds an element. Give **exactly one** of:
 
 | Field | Meaning |
 |---|---|
-| `role` (+ optional `name`) | ARIA role with accessible name, e.g. `{ role: button, name: "Generate token" }`. `name` belongs only to `role`. |
-| `label` | Form field by its label. |
+| `role` (+ optional `name`, `exact`) | ARIA role with accessible name, e.g. `{ role: button, name: "Generate token" }`. `name` belongs only to `role`. `exact: true` requires the whole name to match. |
+| `label` (+ optional `exact`) | Form field by its label. `exact: true` requires the whole label to match (needed when a page search box also contains the word). |
 | `text` | Element by visible text. |
 | `placeholder` | Field by placeholder. |
 | `testid` | `data-testid`. |
@@ -81,11 +83,13 @@ Every step has exactly one kind.
 | `fill` | `fill: { <selector>, value: "{{name}}" }` | Types into a field. |
 | `select` | `select: { <selector>, value: "30" }` | Chooses an option. If the option does not exist the run aborts instead of guessing. |
 | `check` | `check: { <selector>, checked: true }` | Ticks or clears a checkbox (default ticks). |
-| `click` | `click: { <selector>, createsToken: true }` | Clicks. **Exactly the click after which something is created at the provider must carry `createsToken: true`**; at least one is required. A dry run stops right before it. |
+| `click` | `click: { <selector>, createsToken: true }` | Clicks. **Exactly the click after which something is created at the provider must carry `createsToken: true`**; at least one is required. A dry run stops right before it. With `optional: true` (and `timeoutSeconds`, default 3, max 30) the click is made only if the element shows up in time; otherwise the step is skipped. For things that may or may not be there, such as a cookie banner (`{ role: button, name: "Reject all", exact: true, optional: true }`, never "Accept"). Not combinable with `createsToken`. |
 | `press` | `press: { key: "Enter", <selector>? }` | Presses a key, optionally on an element. |
 | `waitFor` | `waitFor: { url \| visible \| text, timeoutSeconds? }` | Waits for a URL (regular expression), a visible selector, or text on the page. Max 3600 s. |
 | `pause` | `pause: { human: "Do X in the window", until: <condition> }` | Waits for **you** to do something (shown in the portal) until the condition holds. |
 | `screenshot` | `screenshot: form-before` | Saves an evidence image under that name (`[A-Za-z0-9][A-Za-z0-9._-]{0,60}`). Take it **before** the value becomes visible. |
+
+Every step can carry `when: { var: <variable>, equals: <value> }`: it runs only if that variable (a recipe parameter or a fixed variable) has exactly that value, otherwise it is skipped. This is how one recipe serves several modes, for example a sandbox and a live address (`stripe-restricted-key` picks its `goto` by `mode`). The variable must be known; `when` is not allowed in `login.form`.
 
 `fill`, `select`, `check`, `click` and `press` can carry `each: repos`: the step then runs once per repository with `{{item}}` set. An empty list aborts before the first click.
 
@@ -197,5 +201,5 @@ Recipes are data, not code, so they are maintained by pull request: a web interf
 ## Limits
 
 - Selectors have no notion of a scope. To find an element inside a row or dialog, use Playwright CSS in `css`, for example `[role=row]:has-text("{{name}}") button[aria-label="Show key"]` or `[role=dialog] button:has-text("Confirm")`. The driver passes `css` to `page.locator()`, so `:has-text()` and `>> nth=0` work.
-- The Stripe recipe is a scaffold: the permission matrix per resource is not modeled yet.
+- The Stripe recipe offers two permission presets (`webhooks`, `full-except-sensitive`), not a free permission list. Its sandbox wizard was checked live on 2026-11-03; the live mode (and a possible password confirmation, which the recipe handles with a `pause`) and the sign-in form are not verified.
 - Revocation through a recipe (`revoke.steps`) exists in the schema. `revenuecat-secret-api-key` uses it (More, Revoke, Confirm in the row of the key's name); the other bundled recipes leave revoking to the human.

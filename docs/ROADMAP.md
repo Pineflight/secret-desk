@@ -12,7 +12,7 @@ service, not only against mocks; [PROVIDERS.md](PROVIDERS.md) has the per-endpoi
 | Local | random hex, base64, UUID | n/a | yes |
 | Cloudflare | API tokens (account and single-zone permissions), Turnstile widget secrets | account id, zone id, Turnstile site key | API tokens and Turnstile secrets: yes (2026-11-02) |
 | Supabase | API keys (secret, publishable), reads the service role key, database password | project ref, project URL, publishable key | secret keys and service role read: yes (2026-11-02); database password: no |
-| Stripe | webhook endpoints with their signing secret (sandbox and live) | n/a | sandbox: yes (2026-11-02) |
+| Stripe | webhook endpoints with their signing secret (sandbox and live), one connection per account and mode (`stripe:<acct_id>:<mode>`) with an account check | n/a | sandbox: yes (2026-11-02); per-account connections and the account check: no |
 | Resend | sending API keys limited to one domain | domain id, domain name | yes (2026-11-02) |
 | Grafana Cloud | service account tokens | n/a | no |
 
@@ -26,13 +26,14 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 | Supabase | personal access tokens | recipe scaffold, not verified |
 | OpenAI | API keys (owner, expiry, permissions) | dialog, value view and revoke checked live 2026-11-03; service account and project choice not verified |
 | VesselAPI | API keys (30 to 90 days on the free plan) | form, value view and delete checked live 2026-11-03; full run not verified |
-| Stripe | restricted API keys | recipe scaffold (permission matrix not modeled), not verified |
+| Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |
 
 ### Created through a guided sign-in (provider facade)
 
 | Provider | What the facade does | Status |
 |---|---|---|
 | RevenueCat | Signs in through the remote browser, creates a v2 secret key (*Project configuration: Read only*), stores it as the connection `revenuecat`, tests it; projects, apps and public SDK keys are then loaded through the API v2 for several projects | Key form and list checked live on 2026-11-02. Sign-in: only the email step checked; password, one-time code, approval, CAPTCHA and error steps **not verified**. The full flow has not run against the live site. |
+| Stripe | Signs in through the remote browser, asks for the account (`acct_...`) and the mode, creates a restricted key (*Webhook Endpoints, Event Destinations: Write*), checks that it belongs to that account and mode before storing it, stores it as `stripe:<acct_id>:<mode>` and tests it | Sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key. The sign-in form (every step), the live mode (including a possible password confirmation) and the full flow are **not verified**. |
 
 ### Pasted by a human, verified and written by secret-desk
 
@@ -44,12 +45,13 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 | Item | What it brings |
 |---|---|
 | Live verification of the RevenueCat sign-in | Password, one-time code, approval, CAPTCHA and error steps of the recipe are written defensively and still to be checked against the live site. |
+| Live verification of the Stripe key recipe | The full run in the sandbox, the live mode and the sign-in form of the recipe `stripe-restricted-key`; then the first real use of `account` on webhook entries. |
 
 ## Planned
 
 | Item | Approach |
 |---|---|
-| GitHub, Supabase, Stripe, Peecho, VesselAPI, OpenAI | A facade descriptor and recipes each, behind the same guided sign-in |
+| GitHub, Supabase, Peecho, VesselAPI, OpenAI | A facade descriptor and recipes each, behind the same guided sign-in |
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Cloudflare Access service tokens | API |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |

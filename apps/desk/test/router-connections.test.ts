@@ -149,3 +149,29 @@ describe("POST connections/:id/token: Stripe prefix", () => {
     expect(list.find((c) => c.id === "stripe")?.label).toBe("Stripe");
   });
 });
+
+describe("connections of a Stripe account (id with colons, sent percent-encoded)", () => {
+  const ID = "stripe:acct_1AbC:sandbox";
+  const enc = encodeURIComponent(ID);
+  it("stores, lists under the account, rejects a wrong-mode key and removes the token and its label", async () => {
+    const { deps } = await setup();
+    const wrong = await route(ui(deps, "POST", `connections/${enc}/token`, { token: "rk_live_abcdefghijklmnop", neverExpires: true }), deps);
+    expect(wrong.status).toBe(400);
+    const ok = await route(ui(deps, "POST", `connections/${enc}/token`, { token: "rk_test_abcdefghijklmnop", neverExpires: true }), deps);
+    expect(ok.status).toBe(200);
+    expect(await json(ok)).toMatchObject({ id: ID, connected: true });
+    const list = (await json(await route(ui(deps, "GET", "connections"), deps))) as unknown as { id: string; connected: boolean; label: string }[];
+    expect(list.find((c) => c.id === ID)).toMatchObject({ connected: true, label: "Stripe acct_1AbC (Sandbox)" });
+    deps.rt.connections.session.set(`${ID}#label`, "Acme Studio", null);
+    const del = await route(ui(deps, "DELETE", `connections/${enc}/token`), deps);
+    expect(await json(del)).toMatchObject({ id: ID, connected: false });
+    expect(deps.rt.connections.session.has(`${ID}#label`)).toBe(false);
+  });
+  it("is checked through the encoded id", async () => {
+    const { deps } = await setup();
+    deps.rt.connections.session.set(ID, "rk_test_abcdefghijklmnop", null);
+    const res = await route(ui(deps, "POST", `connections/${enc}/check`, {}), deps);
+    expect(res.status).toBe(200);
+    expect((await json(res)).id).toBe(ID);
+  });
+});

@@ -16,6 +16,7 @@ import {
   TeamSyncError,
   VariableError,
   VariablePatchSchema,
+  deleteConnectionLabel,
   mergeTeamBundle,
   parseInput,
   parseTeamBundle,
@@ -271,7 +272,8 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^variables\/([^/]+)\/adopt$/, ({ rt, actor, params }) => adoptVariableFromGitHub(rt, actor, params[0]!)],
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
   ["POST", /^connections\/([^/]+)\/token$/, async ({ rt, params, body }) => {
-    const id = params[0]!;
+    // The id may carry a colon (stripe:<acct_id>:<mode>), which the client sends percent-encoded.
+    const id = decodeURIComponent(params[0]!);
     const prefixProblem = typeof body["token"] === "string" ? tokenPrefixProblem(id, body["token"]) : undefined;
     if (prefixProblem) throw new InventoryError(prefixProblem);
     const expires = tokenExpiry(body);
@@ -284,7 +286,13 @@ const humanOnly: [string, RegExp, Handler][] = [
     }
     return rt.connections.status(id);
   }],
-  ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => { rt.connections.session.delete(params[0]!); await rt.connections.vault?.delete(params[0]!); return rt.connections.status(params[0]!); }],
+  ["DELETE", /^connections\/([^/]+)\/token$/, async ({ rt, params }) => {
+    const id = decodeURIComponent(params[0]!);
+    rt.connections.session.delete(id);
+    await rt.connections.vault?.delete(id);
+    await deleteConnectionLabel(rt.connections, id);
+    return rt.connections.status(id);
+  }],
   // Parameter der Anbieter: Spezifikation, Entdeckung beim verbundenen Konto, Vorschlaege (nur Vorschlaege), Vorabcheck. Siehe API.md.
   ["GET", /^secrets\/([^/]+)\/params$/, ({ rt, actor, params, query }) => getSecretParams(rt, actor, params[0]!, { live: query.get("live") !== "0" })],
   ["PUT", /^secrets\/([^/]+)\/params$/, ({ rt, actor, params, body }) => putSecretParams(rt, actor, params[0]!, body)],
@@ -302,7 +310,7 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^variables\/([^/]+)\/load-from-source$/, ({ rt, actor, params, body }) => loadVariableFromSource(rt, actor, params[0]!, body)],
   ["GET", /^connections\/github\/write-targets$/, ({ rt }) => listWriteTargets(rt)],
   ["POST", /^connections\/([^/]+)\/check$/, ({ rt, params, body }) =>
-    checkConnection(rt, params[0]!, {
+    checkConnection(rt, decodeURIComponent(params[0]!), {
       deep: body["deep"] === true,
       targets: Array.isArray(body["targets"]) ? body["targets"].filter((x): x is string => typeof x === "string").slice(0, 50) : [],
     }),

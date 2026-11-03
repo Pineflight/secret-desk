@@ -71,7 +71,7 @@ describe("runRecipe", () => {
     // Der "Mensch" meldet sich an, sobald der Hinweis kommt (kein Wanduhr-Timer).
     const r = await runRecipe(sampleRecipe(), VARS, d, { onWaitingForHuman: (w) => { waits.push(w); d.url = "https://example.test/tokens"; } }, { pollMs: 5 });
     expect(r.value.reveal()).toBe(TOKEN);
-    expect(waits).toEqual([{ reason: "Bitte anmelden", url: "https://example.test/login" }]);
+    expect(waits).toEqual([{ kind: "login", reason: "Bitte anmelden", url: "https://example.test/login" }]);
     expect(gotos).toBe(2); // Zielseite nach der Anmeldung erneut geladen
   });
 
@@ -276,5 +276,96 @@ describe("M10: further steps with FakeDriver", () => {
     expect(d.calls).toContain('click button "Delete"');
     expect(d.closed).toBe(true);
     await expect(revokeRecipe(sampleRecipe(), VARS, new FakeDriver())).rejects.toThrow(/kennt keinen Widerruf/);
+  });
+});
+
+describe("when, optional steps, attribute capture and pause", () => {
+  const recipe = (steps: unknown[], capture: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
+    sampleRecipe({
+      login: undefined,
+      params: [{ key: "mode", label: "Modus", options: ["sandbox", "live"] }],
+      steps: [{ goto: "https://example.test/start" }, ...steps, { click: { role: "button", name: "Create", createsToken: true } }],
+      ...(Object.keys(capture).length ? { capture: { token: { find: { css: "#tok" }, pattern: "^(tok_[a-z0-9]+)$", timeoutSeconds: 0.05, ...capture }, externalId: { from: "name" } } } : {}),
+      ...extra,
+    });
+  const driver = (extra: Partial<ConstructorParameters<typeof FakeDriver>[0]> = {}) =>
+    new FakeDriver({
+      url: "about:blank",
+      visible: ["css #a", "css #b", ...FORM_VISIBLE],
+      on: (e, d) => {
+        if (e.action === "click" && e.key === 'button "Create"') {
+          d.visible.add("css #tok");
+          d.texts.set("css #tok", TOKEN);
+          d.attributes.set("css #tok@data-text", TOKEN);
+        }
+      },
+      ...extra,
+    });
+
+  it("runs a step only when its variable has the value", async () => {
+    const steps = [
+      { click: { css: "#a" }, when: { var: "mode", equals: "sandbox" } },
+      { click: { css: "#b" }, when: { var: "mode", equals: "live" } },
+    ];
+    const sandbox = driver();
+    await runRecipe(recipe(steps), { ...VARS, mode: "sandbox" }, sandbox);
+    expect(sandbox.calls).toContain("click css #a");
+    expect(sandbox.calls).not.toContain("click css #b");
+    const live = driver();
+    await runRecipe(recipe(steps), { ...VARS, mode: "live" }, live);
+    expect(live.calls).toContain("click css #b");
+    expect(live.calls).not.toContain("click css #a");
+  });
+
+  it("a skipped step is not counted and a conditional createsToken stop still ends the dry run", async () => {
+    const d = driver();
+    const r = await dryRunRecipe(recipe([{ click: { css: "#a" }, when: { var: "mode", equals: "live" } }]), { ...VARS, mode: "sandbox" }, d);
+    expect(r.executed).toBe(1); // only the goto
+  });
+
+  it("an optional click is skipped when the element does not appear", async () => {
+    const d = driver();
+    const r = recipe([{ click: { css: "#banner", optional: true, timeoutSeconds: 0.03 } }, { click: { css: "#a" } }]);
+    const res = await runRecipe(r, { ...VARS, mode: "sandbox" }, d, {}, { pollMs: 5 });
+    expect(res.value.reveal()).toBe(TOKEN);
+    expect(d.calls.some((c) => c.includes("#banner"))).toBe(false);
+    expect(d.calls).toContain("click css #a");
+  });
+
+  it("an optional click is made when the element is there", async () => {
+    const d = driver({ visible: ["css #banner", "css #a", ...FORM_VISIBLE] });
+    await runRecipe(recipe([{ click: { css: "#banner", optional: true, timeoutSeconds: 0.5 } }]), { ...VARS, mode: "sandbox" }, d, {}, { pollMs: 5 });
+    expect(d.calls).toContain("click css #banner");
+  });
+
+  it("a non-optional click on a missing element still fails", async () => {
+    const err = await runRecipe(recipe([{ click: { css: "#banner" } }]), { ...VARS, mode: "sandbox" }, driver()).catch((e: unknown) => e);
+    expect((err as RecipeRunError).kind).toBe("step");
+  });
+
+  it("captures the token from an attribute", async () => {
+    const d = driver({ texts: {} });
+    const r = recipe([], { attribute: "data-text" });
+    d.texts.clear();
+    const res = await runRecipe(r, { ...VARS, mode: "sandbox" }, d);
+    expect(res.value.reveal()).toBe(TOKEN);
+    // readText is not used for it: the page text would be the truncated form.
+    expect(String(res.screenshots.map((s) => s.png.toString()))).not.toContain(TOKEN);
+  });
+
+  it("a missing attribute is a capture error without the value", async () => {
+    const d = driver({ on: (e, dd) => void (e.action === "click" && e.key === 'button "Create"' && (dd.visible.add("css #tok"), dd.texts.set("css #tok", TOKEN))) });
+    const err = (await runRecipe(recipe([], { attribute: "data-text" }), { ...VARS, mode: "sandbox" }, d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err.kind).toBe("capture");
+    expect(err.message).not.toContain(TOKEN);
+  });
+
+  it("reports a pause as kind pause", async () => {
+    const waits: HumanWait[] = [];
+    const d = driver();
+    const r = recipe([{ pause: { human: "Passwort bestaetigen", until: { hidden: { css: "#pw" } } } }]);
+    d.visible.add("css #pw");
+    await runRecipe(r, { ...VARS, mode: "live" }, d, { onWaitingForHuman: (w) => { waits.push(w); d.visible.delete("css #pw"); } }, { pollMs: 5 });
+    expect(waits).toEqual([{ kind: "pause", reason: "Passwort bestaetigen", url: "https://example.test/start" }]);
   });
 });

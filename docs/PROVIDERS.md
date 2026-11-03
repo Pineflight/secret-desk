@@ -10,7 +10,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
 | `supabase-db-password` | automatic | `supabase` (token with *Database config: Write*) | documentation read, **not verified live** |
-| `stripe-webhook-secret` | automatic | `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified** |
+| `stripe-webhook-secret` | automatic | `stripe:<acct_id>:<mode>` per account and mode, or `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified**; sandbox: yes (2026-11-02) |
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
 | `revenuecat-secret-key` | manual (carries the discovery for variable sources) | `revenuecat` | API reference read (list endpoints, field names, permissions); public key prefixes **not verified** |
@@ -33,7 +33,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
 | `supabase-db-password` | `projectRef` (required), `length`: integer 24 to 64, default 40. The password is generated locally (letters and digits only, safe in a Postgres URL) and set with `PATCH /v1/projects/<ref>/database/password`. The old password stops working at once; there is nothing to revoke, and the API gives no read-back, so the test checks only the shape and that the API answered 2xx (no login to Postgres). |
-| `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `connection` (optional, forces `stripe-test`, `stripe-live` or `stripe`) |
+| `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `account` (optional, `acct_...`: use the connection of that account in the mode of the stage and refuse any other account, see below), `connection` (optional, forces one connection, for example `stripe-test` or `stripe:acct_1AbC:live`; the account check still runs when `account` is set) |
 | `resend-api-key` | `permission`: `sending_access` (default) or `full_access`; `domainId` (required for `sending_access`: the key is limited to this domain; not used for `full_access`) |
 | `revenuecat-secret-key` (manual) | `projectId` (optional, integration default allowed): project that apps and public SDK keys are read from; without it the apps of every project of the connection are listed |
 | `grafana-service-account-token` | `baseUrl` (required, https, no port; host must be `*.grafana.net` or in `providers.grafana.allowedHosts`), `serviceAccountId` (integer, required) |
@@ -91,15 +91,25 @@ Create each token with no more than this. The **Test connection** button on the 
 | `cloudflare` | Template *Create additional tokens* (*User > API Tokens > Edit*). Accounts and zones can only be picked in the portal if the token may read them (*Account > Account Settings > Read*, *Zone > Zone > Read*). The template does not combine with other permissions, so with it you enter the account ID once by hand as the integration default (Cloudflare dashboard, account overview); the permission groups are listed either way. Recommended expiry: 1 to 7 days, ideally with an IP restriction. |
 | `cloudflare-turnstile` | Custom token with *Account > Turnstile > Edit*, limited to the one account. |
 | `supabase` | Access token with *API Keys* Read-write and *API Key Secrets* Read (optionally *Project Settings* Read, *Projects* Read). The token never exceeds your own role (Owner or Admin). |
-| `stripe`, `stripe-test`, `stripe-live` | Restricted key: *Webhook Endpoints* Write, everything else None. Optionally *Balance* Read, so the test can confirm the key. |
+| `stripe`, `stripe-test`, `stripe-live`, `stripe:<acct_id>:<mode>` | Restricted key: *Webhook Endpoints, Event Destinations* Write, everything else None. Optionally *Balance* Read, so the test can confirm the key. |
 | `resend` | API key with *Full access*. Only this type can manage API keys. |
 | `revenuecat` | v2 secret key with *Project configuration: Read only*, everything else `None`. Read only; public values and identifiers only. |
 | `grafana` | Service account token (role Admin) of the stack. |
 
 ### Stripe: test and live
 Use one key per mode. `stripe-test` takes a sandbox key (`rk_test_`), `stripe-live` a live key (`rk_live_`). The portal rejects a key whose prefix does not match the connection.
-For an entry, the connection is chosen in this order: `connection` in the entry parameters, then by the kind of the stage (`test` uses `stripe-test`, `live` uses `stripe-live`, if connected),
+For an entry without `account`, the connection is chosen in this order: `connection` in the entry parameters, then by the kind of the stage (`test` uses `stripe-test`, `live` uses `stripe-live`, if connected),
 then the general `stripe` connection. Existing setups with only `stripe` keep working unchanged. `dev` and `shared` stages always use `stripe`.
+
+### Stripe: one connection per account and mode
+A Stripe *organization* holds several accounts (one per product), each with a sandbox and a live mode. A key belongs to exactly one `(account, mode)`, so a connection can too:
+its id is `stripe:<acct_id>:<mode>` with `<mode>` = `sandbox` or `live`, for example `stripe:acct_1AbC:sandbox`. The fixed ids above stay as they are.
+
+- **Entry.** `stripe-webhook-secret` takes the optional parameter `account` (`^acct_[A-Za-z0-9]+$`, picked from the connected accounts through the discovery kind `stripe.account`). With it, the connection is `stripe:<account>:<mode>`, where the mode follows the kind of the stage: `live` uses `live`, `test` and `dev` use `sandbox`. A `shared` stage has no mode: set `connection`. There is no fallback to `stripe`, `stripe-test` or `stripe-live`: without a key for exactly that account and mode the entry is "not connected". Without `account` nothing changes.
+- **The account is checked, not trusted.** Before an endpoint is created, `GET /v1/account` with the connection's key must return the entry's account id, otherwise nothing is created. The same check is part of the preflight (a failure blocks the issue) and of verify (check `account`). The mode check stays. This is exactly the mistake the parameter prevents: a key of another account of the same organization creating the webhook in the wrong product.
+- **Test connection** of a per-account connection checks the key prefix against the mode of the id and `GET /v1/account` against the account of the id. A successful check also reads the account name (`business_profile.name`, else `settings.dashboard.display_name`) and keeps it as the display label (*Stripe Acme Studio (Sandbox)*). The name is not a secret; it lives next to the key in the vault (entry `<id>#label`) or in the session.
+- **Connect with sign-in.** *Integrations*, Stripe, *Connect with sign-in* asks for the account id (`acct_...`) and the mode, creates the restricted key by the recipe `stripe-restricted-key` (preset `webhooks`), checks that it belongs to the account and mode, stores it as `stripe:<account>:<mode>` and tests it. A key of another account is never stored; the portal names the key to expire at Stripe.
+- **Discovery.** The kind `stripe.account` lists the connected accounts (id, name if known, modes) from the connection store. It makes no request.
 
 ### Test connection
 Each connected integration has a **Test connection** button (`POST /api/ui/connections/<id>/check`, portal only, never available to agents). It makes read-only calls:

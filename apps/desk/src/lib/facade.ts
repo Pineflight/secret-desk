@@ -3,6 +3,16 @@
 export type FacadeNeed = "mfa-code" | "approval" | "captcha";
 export type FacadeStatus = "idle" | "running" | "waiting-human" | "done" | "failed" | "cancelled";
 
+/** A recipe parameter the human chooses for each run (Stripe: account and mode). */
+export interface FacadeInput {
+  param: string;
+  label: string;
+  labelEn: string;
+  options: string[] | null;
+  pattern: string | null;
+  help: string | null;
+}
+
 export interface FacadeInfo {
   id: string;
   label: string;
@@ -14,6 +24,7 @@ export interface FacadeInfo {
   host: string | null;
   connected: boolean;
   needsProject: boolean;
+  inputs: FacadeInput[];
   timeoutMinutes: number;
   viewerUrl: string | null;
 }
@@ -39,6 +50,8 @@ export interface FacadeCheckItem {
 
 export interface FacadeResult {
   connected: boolean;
+  /** The connection that received the key (a Stripe account has its own). */
+  connectionId?: string;
   storedIn: "vault" | "session";
   keyName: string;
   projectId: string | null;
@@ -153,4 +166,20 @@ export function codeValid(code: string): boolean {
 /** Fields of the sign-in form are valid enough to send. Only shape, no policy. */
 export function signInValid(email: string, password: string): boolean {
   return email.trim().length > 0 && email.trim().length <= 254 && password.length > 0 && password.length <= 1024;
+}
+
+/** Every input has a value that fits its options and pattern (the server checks again). */
+export function inputsValid(inputs: readonly FacadeInput[], values: Record<string, string>): boolean {
+  return inputs.every((i) => {
+    const v = (values[i.param] ?? "").trim();
+    if (!v) return false;
+    if (i.options && !i.options.includes(v)) return false;
+    if (i.pattern !== null && !new RegExp(i.pattern).test(v)) return false;
+    return true;
+  });
+}
+
+/** The inputs to send: trimmed, only the ones the facade asks for. */
+export function inputsBody(inputs: readonly FacadeInput[], values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(inputs.map((i) => [i.param, (values[i.param] ?? "").trim()]));
 }
