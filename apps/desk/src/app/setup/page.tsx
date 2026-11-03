@@ -64,7 +64,7 @@ export default function SetupPage() {
   return (
     <>
       <PageHeader title={t("setup.title")} subtitle={t("setup.subtitle")} />
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="mx-auto max-w-[880px] space-y-6">
         <Card>
           <SectionLabel>{t("setup.github.title")}</SectionLabel>
           <p className="mt-3 text-sm text-muted-text">{t("setup.github.text")}</p>
