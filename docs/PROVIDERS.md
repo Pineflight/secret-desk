@@ -80,7 +80,7 @@ Variables can load their value from a source (`from: { connection, kind, resourc
 | `projectId` | Required. The project id from the dashboard address (`/projects/<id>/`), matching `^[a-z0-9]{6,20}$`. |
 | `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` | Access level of that permission section: `No access` (default), `Read only` or `Read & write`. Give the key no more than the service needs. |
 
-The parameters are validated before any browser opens (`params_invalid`). The form and the key list were checked against the live dashboard on 2026-11-02 with a throwaway key (revoked afterwards); a full recipe run is **not verified** yet.
+The parameters are validated before any browser opens (`params_invalid`). The form and the key list were checked against the live dashboard on 2026-11-02 with a throwaway key (revoked afterwards); the full recipe run was verified live on 2026-11-03 (two secret keys and one integration key through the guided sign-in); the password, one-time code, approval and CAPTCHA steps of the sign-in form are not.
 
 ## Permissions per integration
 Create each token with no more than this. The **Test connection** button on the Integrations page makes read-only calls to confirm it (see below).

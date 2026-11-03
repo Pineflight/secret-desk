@@ -77,7 +77,7 @@ The overview page shows which integrations are connected, what hangs on them and
 | Resend | domain-limited sending keys | domain id | n/a |
 | Grafana | service account tokens | n/a | n/a |
 | GitHub | n/a (it is where values are written) | n/a | fine-grained tokens (scaffold) |
-| RevenueCat | n/a (no key API) | project id, app ids, SDK and sandbox keys | secret API keys through the guided sign-in (sign-in steps after the email not verified live) |
+| RevenueCat | n/a (no key API) | project id, app ids, SDK and sandbox keys | secret API keys through the guided sign-in (key run verified live; sign-in form steps after the email not) |
 | Anything else | n/a | n/a | you paste it, the portal verifies and writes it |
 
 Cloudflare tokens and Turnstile secrets, Supabase secret keys, Stripe sandbox webhooks and Resend keys were verified against the live services in a full rollout on 2 November 2026; the rest is tested against mocks. What is supported, in progress and planned, and which external services secret-desk talks to: [Providers and roadmap](docs/ROADMAP.md). Per endpoint: [Providers](docs/PROVIDERS.md).
@@ -220,6 +220,7 @@ Known limits:
 | [Repositories](docs/REPOSITORIES.md) | Selection, local links, path rules, search, renames |
 | [Integrations](docs/INTEGRATIONS.md) | Permissions per integration, test connection, write test, vault |
 | [Providers](docs/PROVIDERS.md) | Supported providers, parameters, how well each endpoint is verified |
+| [Developing integrations](docs/DEVELOPING-INTEGRATIONS.md) | Adding a provider step by step: parts, exploring a page, dry run, tests, checklist |
 | [Browser recipes](docs/RECIPES.md) | Writing recipes; [Browser automation](docs/BROWSER-AUTOMATION.md) explains the design |
 | [Docker](docs/DOCKER.md) | Container on a Raspberry Pi in the LAN: compose file, allowed hosts, vault key, automatic updates |
 | [Search](docs/SEARCH.md) | Command palette (⌘K / Ctrl K), tolerant search, filter syntax, history |

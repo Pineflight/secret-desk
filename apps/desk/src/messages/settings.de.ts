@@ -109,4 +109,11 @@ export default {
   "settings.storage.port": "Port",
   "settings.language.title": "Sprache",
   "settings.language.hint": "Wird in diesem Browser gespeichert. Der Umschalter in der Seitenleiste macht dasselbe.",
+  "settings.tab.developer": "Entwicklung",
+  "settings.developer.title": "Für alle, die Integrationen bauen",
+  "settings.developer.intro": "Der entfernte Browser, seine Anmeldungen und die Rezepte hinter den Browser-Integrationen. Zum Benutzen von secret-desk brauchst du diese Seite nicht.",
+  "settings.developer.docs": "Integrationen entwickeln (Anleitung)",
+  "settings.developer.docsHint": "Wie man einen Anbieter hinzufügt, eine Seite erkundet, ein Rezept trocken laufen lässt und was vor einem Pull Request zu prüfen ist.",
+  "settings.developer.recipesDocs": "Rezepte schreiben",
+  "settings.developer.browserDocs": "Browser-Automatisierung",
 } satisfies Record<string, string>;

@@ -1,4 +1,4 @@
-# STATUS: Dialog (Besitzer "You", Ablauf, Rechte "Read only"), Wertanzeige und Widerruf am 2026-11-03 gegen die echte Seite geprueft (Wegwerf-Schluessel, danach widerrufen); "Service account" und die Projektauswahl sind nicht geprueft
+# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft mit Besitzer "You" (ein Schluessel); "Service account" und die Projektauswahl sind noch nicht geprueft
 # Creates an OpenAI API key on platform.openai.com/api-keys for the project that is active in the dashboard. The key is
 # shown once ("Save your key") in a read-only field. Revoked keys stay in the list with the status "Revoked".
 id: openai-api-key

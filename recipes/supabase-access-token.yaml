@@ -1,4 +1,4 @@
-# STATUS: Formular, beide Schritte, Token-Anzeige und Loeschen am 2026-11-03 gegen die echte Seite geprueft (zwei Wegwerf-Tokens, danach geloescht); der volle Rezeptlauf ist noch nicht geprueft
+# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (fuenf Tokens mit Bereich angelegt, Voreinstellung per Eingabetaste auf der Option)
 # Creates a scoped Supabase access token: one organization, one project, a permission preset and an expiry. Supabase shows
 # the token only once, in a read-only field of the "Token created" dialog. A scoped token reaches only the chosen project,
 # unlike the legacy token with full account access.

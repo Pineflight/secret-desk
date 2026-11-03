@@ -300,6 +300,11 @@ export class AutomationManager {
     this.#finish(key, patch);
   }
 
+  /** Does a tracked run hold the browser right now? */
+  isBusy(): boolean {
+    return this.#active !== null;
+  }
+
   /** Is this key the run that holds the browser right now? */
   isActive(key: string): boolean {
     return this.#active === key;

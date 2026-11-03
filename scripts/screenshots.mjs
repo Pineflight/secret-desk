@@ -220,6 +220,12 @@ try {
     }
   }, validUntil);
   await shot("integrations", "/connections");
+  // The same page with every card open.
+  await shot("integrations-expanded", "/connections", async () => {
+    await page.getByRole("button", { name: "Expand all" }).click();
+    await page.waitForTimeout(600);
+    await settle();
+  });
   // The picker: one tile per provider, grouped by category.
   await shot("integrations-picker", "/connections", async () => {
     await page.getByRole("button", { name: "Add integration" }).first().click();

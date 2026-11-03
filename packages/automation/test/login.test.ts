@@ -286,6 +286,18 @@ describe("checkSession", () => {
     expect(await checkSession(recipe(), d, { timeoutSeconds: 0.05, pollMs: 2 })).toMatchObject({ signedIn: false });
   });
 
+  it("treats a navigation interrupted by a redirect as arrived when the browser is on an allowed page", async () => {
+    const d = new FakeDriver({ pollMs: 2, on: (e, dd) => { if (e.action === "goto") { dd.url = APP; throw new Error("page.goto: interrupted by another navigation"); } } });
+    expect(await checkSession(recipe(), d, { timeoutSeconds: 1, pollMs: 2 })).toEqual({ signedIn: true, url: "https://example.test/app/home" });
+  });
+
+  it("fails with the kind page when the page does not open and the browser is nowhere useful", async () => {
+    const d = new FakeDriver({ on: (e, dd) => { if (e.action === "goto") { dd.url = "chrome-error://chromewebdata/"; throw new Error("net::ERR_CONNECTION_REFUSED"); } } });
+    const e = await error(checkSession(recipe(), d, { timeoutSeconds: 0.05, pollMs: 2 }));
+    expect(e.kind).toBe("page");
+    expect(d.closed).toBe(true);
+  });
+
   it("is signed out on a foreign host", async () => {
     const d = new FakeDriver({ on: (e, dd) => void (e.action === "goto" && (dd.url = "https://evil.test/app")) });
     expect(await checkSession(recipe(), d, { timeoutSeconds: 0.05, pollMs: 2 })).toEqual({ signedIn: false, url: "" });

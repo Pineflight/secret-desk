@@ -1,4 +1,4 @@
-# STATUS: Formular, Wertanzeige und Loeschen am 2026-11-03 gegen die echte Seite geprueft (Wegwerf-Schluessel, danach geloescht); der volle Rezeptlauf ist noch nicht geprueft
+# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (zwei Schluessel angelegt)
 # Creates a VesselAPI key in the dashboard at dashboard.vesselapi.com. The free plan offers 30, 60 or 90 days; "never" and a
 # custom date need a paid plan. The new key is shown once below "Your new API key:" and appears in the key list only after
 # a reload. Every key row exists twice in the page (desktop and mobile layout), so selectors take the visible one.

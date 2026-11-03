@@ -109,4 +109,11 @@ export default {
   "settings.storage.port": "Port",
   "settings.language.title": "Language",
   "settings.language.hint": "Stored in this browser. The switcher in the sidebar does the same.",
+  "settings.tab.developer": "Developer",
+  "settings.developer.title": "For people who build integrations",
+  "settings.developer.intro": "The remote browser, its sign-ins and the recipes behind the browser integrations. You do not need this page to use secret-desk.",
+  "settings.developer.docs": "Developing integrations (guide)",
+  "settings.developer.docsHint": "How to add a provider, explore a page, dry-run a recipe and what to check before a pull request.",
+  "settings.developer.recipesDocs": "Writing recipes",
+  "settings.developer.browserDocs": "Browser automation",
 } satisfies Record<string, string>;

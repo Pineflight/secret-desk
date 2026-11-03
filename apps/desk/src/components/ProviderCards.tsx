@@ -3,7 +3,11 @@ import { useId, type ReactNode } from "react";
 import { Badge, Card } from "@/components/ui";
 import { BRAND_ICONS } from "@/lib/brand-icons.generated";
 import { brandFill, monogram } from "@/lib/brand-color";
-import type { CardStatus, ProviderCard } from "@/lib/provider-cards";
+import { Icon } from "@/components/Icons";
+import { earliestExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
+import type { ExpiryLevel } from "@/lib/connection-health";
+import { daysLabel, formatDate } from "@/lib/format";
+import type { SignInStatus } from "@/lib/sign-in-check";
 import { useT } from "@/lib/i18n";
 
 /** The provider's logo from the bundled icon set, or a neutral monogram. Decorative: the name is always next to it. */
@@ -80,25 +84,89 @@ export function CategorySection({ category, children, grid = "tiles", level = "h
   );
 }
 
-/** The provider on the page: header, ways in as given by the caller. */
-export function ProviderPageCard({ card, actions, children }: { card: ProviderCard; actions?: ReactNode; children?: ReactNode }) {
+const SIGN_IN_TEXT: Record<SignInStatus, string> = {
+  waiting: "providers.card.signInWaiting",
+  checking: "providers.card.signInChecking",
+  yes: "providers.card.signedIn",
+  no: "providers.card.signedOut",
+  failed: "providers.card.signInFailed",
+  unchecked: "providers.card.signInUnchecked",
+};
+
+const EXPIRY_TEXT: Record<ExpiryLevel, string> = {
+  ok: "providers.card.expiresIn",
+  soon: "providers.card.expiryWarn",
+  critical: "providers.card.expiryCritical",
+  expired: "providers.card.expiryExpired",
+};
+
+/** The expiry sentence of a collapsed card: the key that runs out first, or why there is nothing to say. */
+export function expiryLine(card: Pick<ProviderCard, "keys">, t: (key: string, vars?: Record<string, string | number>) => string, now: Date = new Date()): { text: string; level: ExpiryLevel | null } | null {
+  if (connectedKeyCount(card) === 0) return null;
+  const e = earliestExpiry(card);
+  if (e) {
+    const date = e.expires ?? new Date(now.getTime() + e.daysLeft * 86_400_000).toISOString().slice(0, 10);
+    return { text: t(EXPIRY_TEXT[e.level], { date: formatDate(date), days: daysLabel(e.daysLeft) }), level: e.level };
+  }
+  const connected = card.keys.filter((k) => k.connected);
+  return { text: t(connected.every((k) => k.expires === null) ? "providers.card.neverExpires" : "providers.card.expiryUnknown"), level: null };
+}
+
+/** What a collapsed card says: counts, earliest expiry, sign-in state. Plain text lines, no controls. */
+export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: SignInStatus | null }) {
+  const t = useT();
+  const expiry = expiryLine(card, t);
+  const keys = connectedKeyCount(card);
+  const bad = expiry?.level === "critical" || expiry?.level === "expired";
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
+      <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</span>
+      <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>
+      {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
+      {signIn ? <span role={signIn === "waiting" || signIn === "checking" ? "status" : undefined}>{t(SIGN_IN_TEXT[signIn])}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * The provider on the page. Collapsed it shows logo, name, purpose, status and the summary; the header is one button that opens
+ * the details (the ways in, as given by the caller). The controls inside the details are never part of that button.
+ */
+export function ProviderPageCard({ card, open, onToggle, signIn, actions, children }: { card: ProviderCard; open: boolean; onToggle: () => void; signIn: SignInStatus | null; actions?: ReactNode; children?: ReactNode }) {
   const t = useT();
   const purposeOf = usePurpose();
+  const bodyId = useId();
   return (
     <Card>
-      <div className="flex items-start gap-3">
-        <ProviderLogo icon={card.icon} label={card.label} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="font-medium">{card.label}</h4>
-            <CardStatusBadge status={card.status} />
-          </div>
-          <p className="text-xs text-muted">{purposeOf(card)}</p>
-          <p className="mt-1 text-xs text-muted">{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</p>
-        </div>
+      <h4>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={t(open ? "providers.card.hide" : "providers.card.show", { name: card.label })}
+          className="flex w-full items-start gap-3 rounded-xl text-left"
+        >
+          <ProviderLogo icon={card.icon} label={card.label} />
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium">{card.label}</span>
+              <CardStatusBadge status={card.status} />
+            </span>
+            <span className="block text-xs text-muted">{purposeOf(card)}</span>
+            <CardSummary card={card} signIn={signIn} />
+          </span>
+          <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
+        </button>
+      </h4>
+      <div id={bodyId} hidden={!open}>
+        {open ? (
+          <>
+            {children}
+            {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
+          </>
+        ) : null}
       </div>
-      {children}
-      {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
     </Card>
   );
 }

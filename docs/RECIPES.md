@@ -2,18 +2,20 @@
 
 A **recipe** is a YAML file that tells secret-desk how to create a token in a provider's web interface, for providers that offer no API (GitHub fine-grained tokens, Supabase access tokens, Stripe restricted keys). secret-desk drives a visible Chrome through the form; **you sign in yourself** (password, 2FA, CAPTCHA stay with you). The value is read from the page into memory and then follows the normal [review and confirm flow](ARCHITECTURE.md#the-path-of-a-new-value).
 
-This page is the how-to. The design, principles and implementation status are in [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md). Schema source: [`packages/automation/src/recipe.ts`](../packages/automation/src/recipe.ts).
+This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md). The design, principles and implementation status are in [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md). Schema source: [`packages/automation/src/recipe.ts`](../packages/automation/src/recipe.ts).
 
-> **Status of the bundled recipes.** None has been verified end to end against the live provider pages. For `revenuecat-secret-api-key` the form and the key list were checked on 2026-11-02 with a throwaway key (revoked afterwards); the full recipe run is not verified yet. Each starts with a `# STATUS: nicht gegen die echte Seite geprueft` comment (the bundled recipes' comments are still in German). Do a supervised trial run with a throwaway token first.
+> **Status of the bundled recipes.** Four ran end to end against the live provider pages on 2026-11-03: `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You* only) and `revenuecat-secret-api-key` (the sign-in form steps after the email are still unchecked). `stripe-restricted-key` was checked in the sandbox but not run end to end, and `github-fine-grained-token` is not verified. Each recipe starts with a `# STATUS:` comment that says what is verified (the bundled recipes' comments are in German). Do a supervised trial run with a throwaway token first.
 
 ## Bundled recipes
 
 | Recipe | Creates | Status |
 |---|---|---|
 | `github-fine-grained-token` | GitHub fine-grained personal access token | not verified |
-| `supabase-access-token` | Supabase access token | not verified |
+| `supabase-access-token` | Supabase access token | full run verified live 2026-11-03 (five scoped tokens) |
+| `openai-api-key` | OpenAI API key (owner, expiry, permission level); can revoke | full run verified live 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
+| `vesselapi-api-key` | VesselAPI API key (30, 60 or 90 days on the free plan); can delete the old key | full run verified live 2026-11-03 (two keys) |
 | `stripe-restricted-key` | Stripe restricted key for one account and mode; parameters `account` (`acct_...`), `mode` (`sandbox` or `live`), `preset` (`webhooks`: *Webhook Endpoints, Event Destinations* Write, or `full-except-sensitive`); can revoke (*Expire key*) | sandbox wizard, result view and expiry checked 2026-11-02/03 with a throwaway key; full run, sign-in form and live mode not verified |
-| `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked against the live page on 2026-11-02 with a throwaway key (revoked afterwards); full run not verified |
+| `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked 2026-11-02; full run verified live 2026-11-03 (two secret keys and one integration key via the guided sign-in); password, one-time code, approval and CAPTCHA steps of the sign-in form not verified (the browser was already signed in) |
 
 ## Where recipes live
 
@@ -23,7 +25,7 @@ This page is the how-to. The design, principles and implementation status are in
 | `<inventory folder>/recipes/` | Always read, but only loaded when `automation.allowExternalRecipes: true`. |
 | Folders in `automation.recipesDirs` | Same: only with `allowExternalRecipes: true`. |
 
-Each `*.yaml` becomes a provider named `<recipe-id>-browser` ("<label> (Browser)"). Use that id as `provider` of a secret. An invalid recipe never stops secret-desk; it is listed as a problem on **Integrations** and by `secret-desk browser doctor`.
+Each `*.yaml` becomes a provider named `<recipe-id>-browser` ("<label> (Browser)"). Use that id as `provider` of a secret. An invalid recipe never stops secret-desk; it is listed as a problem under *Settings*, *Developer* and by `secret-desk browser doctor`.
 
 **Recipes are executable browser scripts.** Only load recipes from sources you trust and review them like code.
 

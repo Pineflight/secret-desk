@@ -25,6 +25,8 @@ export type LoginErrorKind =
   | "host"
   /** A step of the recipe did not work (page changed, element missing). */
   | "step"
+  /** A page could not be loaded at all (offline, refused, blocked), before any step ran. */
+  | "page"
   /** The provider refused the sign-in (the recipe's `failure` list matched). */
   | "rejected"
   /** The one-time code was asked for too often. */
@@ -307,6 +309,14 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
   }
 }
 
+function hostOfUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 export interface SessionCheck {
   signedIn: boolean;
   /** Address after loading the home page, without query and fragment ("" if unknown). */
@@ -325,7 +335,10 @@ export async function checkSession(recipe: Recipe, driver: BrowserDriver, option
     try {
       await driver.goto(form.home ?? form.start);
     } catch {
-      throw new LoginError("step", "The page could not be opened.");
+      // A provider that redirects (home page to dashboard or sign-in) interrupts the navigation and makes goto() throw although
+      // the browser has arrived. Only a browser that did not get to an allowed page counts as "could not be opened".
+      const arrived = hostOfUrl(await driver.currentUrl().catch(() => ""));
+      if (!arrived || !hostAllowed(arrived, recipe)) throw new LoginError("page", "The page could not be opened.");
     }
     const url = await driver.currentUrl().catch(() => "");
     let host = "";

@@ -326,7 +326,8 @@ describe("facade: sign-in, key, connection", () => {
     startFacadeSignIn(rt, human, "revenuecat", body());
     expect(() => startFacadeSignIn(rt, human, "revenuecat", body())).toThrow(IssuanceError);
     expect(() => startFacadeConnect(rt, human, "revenuecat", {})).toThrow(IssuanceError);
-    await expect(checkFacadeSession(rt, human, "revenuecat")).rejects.toThrow(IssuanceError);
+    // A check never fights over the one browser: it answers "busy" with a code the portal translates.
+    expect(await checkFacadeSession(rt, human, "revenuecat")).toMatchObject({ signedIn: false, failure: { code: "busy" } });
     cancelFacade(rt, human, "revenuecat");
     await until(() => finished(rt));
     // The next one starts from a clean slate.
@@ -375,6 +376,23 @@ describe("facade: check sign-in", () => {
     expect(drivers.every((d) => d.filled.size === 0)).toBe(true);
     // The check does not replace the state of the last sign-in run.
     expect(getFacadeState(rt, human, "revenuecat").status).toBe("idle");
+  });
+
+  it("answers with the code page when the page cannot be loaded, and frees the browser", async () => {
+    const { rt } = await setup();
+    const failing = rt.automation.newDriver;
+    rt.automation.newDriver = () => new FakeDriver({ on: (e, dd) => { if (e.action === "goto") { dd.url = "chrome-error://chromewebdata/"; throw new Error("net::ERR_CONNECTION_REFUSED at https://app.revenuecat.com/"); } } });
+    const r = await checkFacadeSession(rt, human, "revenuecat", { timeoutSeconds: 0.05 });
+    expect(r).toMatchObject({ signedIn: false, failure: { code: "page", messageEn: "The page could not be opened." } });
+    expect(JSON.stringify(r)).not.toContain("ERR_CONNECTION_REFUSED");
+    expect(rt.automation.isBusy()).toBe(false);
+    rt.automation.newDriver = failing;
+  });
+
+  it("checks one provider only: no other provider's browser is opened", async () => {
+    const { rt, drivers } = await setup();
+    await checkFacadeSession(rt, human, "revenuecat", { timeoutSeconds: 0.05 });
+    expect(drivers).toHaveLength(1);
   });
 });
 
