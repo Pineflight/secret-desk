@@ -25,7 +25,7 @@ async function init(): Promise<Desk> {
   const demo = process.env.SECRET_DESK_DEMO === "1";
   const configPath = process.env.SECRET_DESK_CONFIG ?? resolve(process.cwd(), "../../secret-desk.config.yaml");
   // Demo: simuliertes GitHub, eigener Agenten-Token im Temp-Ordner, keine echten Anfragen.
-  const options: RuntimeOptions = demo ? { fetch: await (await import("./demo")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv } : {};
+  const options: RuntimeOptions = demo ? { watchInventory: true, fetch: await (await import("./demo")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv } : { watchInventory: true };
   // Container: fehlt die Datei unter SECRET_DESK_CONFIG, wird eine Minimalkonfiguration angelegt (statt ENOENT) und der Assistent startet.
   if (process.env.SECRET_DESK_CONFIG && !demo) await ensureConfigFile(configPath);
   const rt = await createRuntime(configPath, options);

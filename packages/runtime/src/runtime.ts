@@ -48,6 +48,8 @@ export interface RuntimeOptions {
   env?: NodeJS.ProcessEnv;
   exec?: ExecFn;
   session?: SessionVault;
+  /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
+  watchInventory?: boolean;
   /** Eigener Tresor (Tests); sonst nach config.vault. */
   vault?: SecretVault | null;
   /** Nur Tests: ersetzt den echten Browser durch einen Treiber ohne Fenster. */
@@ -124,6 +126,16 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   });
   await automation.load();
 
+  const approvals = new ApprovalQueue();
+  const teamSyncMemo: Runtime["teamSyncMemo"] = { lastCheck: null, lastError: null };
+  // The inventory follows its file. When it was changed from outside, state derived from the old content is dropped:
+  // open approvals whose entry changed become stale, and the cached team-sync comparison is no longer valid.
+  inventory.onExternalChange(() => {
+    approvals.revalidate(inventory);
+    teamSyncMemo.lastCheck = null;
+  });
+  if (options.watchInventory) inventory.watch();
+
   return {
     config,
     configPath: path,
@@ -131,13 +143,13 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     github: new GitHubClient({ auth, fetch: f }),
     connections,
     providers,
-    approvals: new ApprovalQueue(),
+    approvals,
     issuances: new IssuanceQueue(),
     evidence,
     automation,
     owner: config.github.owner,
     fetch: f,
-    teamSyncMemo: { lastCheck: null, lastError: null },
+    teamSyncMemo,
   };
 }
 

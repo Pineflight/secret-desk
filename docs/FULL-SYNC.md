@@ -37,9 +37,16 @@ docker exec -it <container> sh -c 'cd /app && node packages/cli/dist/bin.js <com
 Replace `<container>` with the container name (`docker ps`). In the rest of this guide, `secret-desk` stands for
 `node packages/cli/dist/bin.js` and `--config` is left out for brevity.
 
-The CLI and the portal both edit `inventory.yaml`. After you changed the inventory with the CLI or by hand, restart the
-portal (`docker compose restart <service>`) so it does not save an older copy over it. Open reviews and approvals live in
-memory and are lost on restart; finish them first.
+The CLI and the portal both edit `inventory.yaml`, and you do not need to restart the portal after a CLI run. The portal
+follows the file: every read checks whether the file changed (cheap stat check, then a content hash) and reloads it, and the
+open pages refresh within a few seconds or when you return to the tab. When the portal saves, it never writes over a newer
+file: if the CLI wrote in between, the portal reloads, applies its change to the new content and saves that. Only when its
+change no longer fits (for example it adds an id the CLI just added) the save fails with a conflict (409) and nothing is
+overwritten; reload and repeat. A file that cannot be parsed or validated (an editor mid-save) is ignored, the last valid
+state stays in use, and the portal shows a notice if it stays unreadable. Open approvals whose entry changed on disk become
+*stale* immediately. Open reviews and approvals still live in memory and are lost on a restart. Edits by hand are picked up
+the same way; an editor that writes in place can be caught half way, which the portal treats like any unreadable file
+(it waits and retries).
 
 ## 1. Back up the inventory
 

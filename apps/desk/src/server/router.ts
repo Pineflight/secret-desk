@@ -4,6 +4,7 @@ import {
   EnvExportError,
   EvidenceError,
   GitHubError,
+  InventoryConflictError,
   InventoryError,
   IssuanceError,
   NotConnectedError,
@@ -185,6 +186,8 @@ export function sanitizeAgentName(raw: string | null): string {
 /** Gemeinsame Operationen. Alle Antworten sind JSON und enthalten nie einen geheimen Wert. */
 const common: [string, RegExp, Handler][] = [
   ["GET", /^overview$/, ({ rt }) => overview(rt)],
+  // Cheap freshness probe for the UI: the version counts every change of the inventory content (own and external).
+  ["GET", /^inventory\/version$/, ({ rt }) => ({ version: rt.inventory.version, problem: rt.inventory.problem?.persistent ? rt.inventory.problem : null })],
   ["GET", /^stages$/, ({ rt }) => listStages(rt)],
   // Vereinheitlichung: der Plan zeigt nur Namen, Stages, Anbieter und Parameter-Schluessel, nie Werte. Anwenden nur im Portal.
   ["GET", /^normalization$/, ({ rt }) => getNormalizationPlan(rt)],
@@ -422,6 +425,7 @@ function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PreflightError) return json({ error: e.message, code: e.code, findings: e.findings }, 409);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
   if (e instanceof VariableError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, 400);
+  if (e instanceof InventoryConflictError) return json({ error: e.message, code: "inventory-conflict" }, 409);
   if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);
   if (e instanceof VaultUnavailableError) return json({ error: e.message, code: "vault-unavailable" }, 409);
   if (e instanceof TeamSyncError) return json({ error: e.message, code: e.code }, e.code === "conflict" || e.code === "changed" || e.code === "too-soon" ? 409 : e.code === "denied" || e.code === "not-found" || e.code === "network" ? 502 : 400);

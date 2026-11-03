@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { InventoryStore } from "@secret-desk/core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sodium from "libsodium-wrappers";
@@ -458,5 +459,41 @@ describe("H3: approval is atomic", () => {
     expect(["failed", "approved"]).toContain(done.state);
     if (done.state === "approved") throw new Error("Zielfehler muss failed ergeben");
     expect(rt.approvals.get(id)!.state).toBe("failed");
+  });
+});
+
+describe("inventory changed outside the runtime (CLI, scripts)", () => {
+  it("an open approval becomes stale as soon as the entry changed on disk, before anybody approves it", async () => {
+    const { rt, dir } = await setup();
+    const r = await requestApplyVariable(rt, agent, "site-url-staging");
+    if (r.status !== "pending-approval") throw new Error("erwartet");
+    const cli = await InventoryStore.open(join(dir, "inventory.yaml"));
+    cli.patchVariable("site-url-staging", { value: "https://cli.example.com" });
+    await cli.save();
+    expect(rt.inventory.getVariable("site-url-staging")!.value).toBe("https://cli.example.com"); // a read triggers the reload
+    expect(rt.approvals.get(r.approvalId)!.state).toBe("stale");
+  });
+
+  it("an unrelated external change keeps open approvals pending and resets the team-sync comparison", async () => {
+    const { rt, dir } = await setup();
+    const r = await requestApplyVariable(rt, agent, "site-url-staging");
+    if (r.status !== "pending-approval") throw new Error("erwartet");
+    rt.teamSyncMemo.lastCheck = { state: "same" };
+    const cli = await InventoryStore.open(join(dir, "inventory.yaml"));
+    cli.patchSecret("hmac-acme-app", { notes: "touched" });
+    await cli.save();
+    expect(rt.inventory.getSecret("hmac-acme-app")!.notes).toBe("touched");
+    expect(rt.approvals.get(r.approvalId)!.state).toBe("pending");
+    expect(rt.teamSyncMemo.lastCheck).toBeNull();
+  });
+
+  it("the overview counts follow an external change", async () => {
+    const { rt, dir } = await setup();
+    const today = new Date("2026-11-05T00:00:00Z");
+    expect((await overview(rt, today)).byStatus.due).toBe(1);
+    const cli = await InventoryStore.open(join(dir, "inventory.yaml"));
+    cli.patchSecret("cf-deploy-acme-app", { expires: "2027-12-31" });
+    await cli.save();
+    expect((await overview(rt, today)).byStatus.due).toBe(0);
   });
 });

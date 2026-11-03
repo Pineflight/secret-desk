@@ -1,5 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { readFile, rename, rm } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, statSync, watch as fsWatch, type FSWatcher } from "node:fs";
+import { open, readFile, rename, rm } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { writePrivateFile } from "./platform.js";
 import { parseDocument, type Document } from "yaml";
 import {
@@ -28,6 +30,63 @@ export class InventoryError extends Error {
   }
 }
 
+/**
+ * The file changed on disk and a pending change could not be applied to the new content (or the new content is not
+ * valid). Nothing was overwritten. Subclass of InventoryError so existing handlers still catch it; the portal maps it to 409.
+ */
+export class InventoryConflictError extends InventoryError {
+  constructor(message: string) {
+    super(message);
+    this.name = "InventoryConflictError";
+  }
+}
+
+/** The file on disk cannot be parsed or validated (a writer may still be working on it). */
+class InvalidDiskError extends InventoryConflictError {}
+
+/** A change that was applied in memory but is not on disk yet. `replay` re-applies it to a freshly loaded document. */
+interface PendingChange {
+  replay: () => void;
+  replayable: boolean;
+}
+
+/** Why the file on disk is not taken over. Reported after it stayed invalid for `INVALID_GRACE_MS`. */
+export interface InventoryProblem {
+  message: string;
+  since: string;
+  persistent: boolean;
+}
+
+/** How long an unreadable file is tolerated silently (editors and non-atomic writers need a moment). */
+const INVALID_GRACE_MS = 3000;
+/** Without a stat change the content is hashed again after this long (mtime granularity, copies that keep the mtime). */
+const REHASH_AFTER_MS = 1000;
+/** An invalid file is looked at again at most this often. */
+const INVALID_RETRY_MS = 250;
+const SAVE_ATTEMPTS = 6;
+const LOCK_WAIT_MS = 5000;
+const LOCK_STALE_MS = 15000;
+
+const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+interface FileStat {
+  mtimeMs: number;
+  size: number;
+  ino: number;
+}
+
+const sameStat = (a: FileStat | null, b: FileStat | null): boolean => !!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino;
+
+function statOf(path: string): FileStat | null {
+  try {
+    const st = statSync(path);
+    return { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino };
+  } catch {
+    return null;
+  }
+}
+
 /** Eine Aenderung an einem Eintrag fuer applyEdits: nur diese Felder, alles andere bleibt unveraendert. */
 export interface EntryEdit {
   kind: "secret" | "variable";
@@ -50,54 +109,138 @@ export const PATCHABLE_SECRET_KEYS: readonly string[] = ["expires", "rotatedAt",
 /**
  * Das Inventar als YAML-Datei. Nur Metadaten, nie Werte. Aenderungen gehen ueber das
  * YAML-Dokument, damit Kommentare und Reihenfolge erhalten bleiben.
+ *
+ * Mehrere Prozesse (Portal, CLI, Skripte) schreiben dieselbe Datei. Deshalb folgt der Speicher der Datei:
+ *  - Vor jedem Lesen prueft er billig (stat, dann Inhalts-Hash), ob die Datei anders ist als beim letzten Laden oder
+ *    Schreiben, und laedt sie dann neu. Eine Datei, die nicht parst oder nicht validiert, wird nicht uebernommen.
+ *  - Jede Aenderung wird als Funktion des Dokuments gemerkt. Hat sich die Datei zwischen Aenderung und save() geaendert,
+ *    wird frisch geladen, die Aenderung erneut angewendet und dann geschrieben. Nie ueber eine neuere Datei schreiben.
  */
 export class InventoryStore {
   #doc: Document;
   #data!: Inventory;
   #saving: Promise<void> = Promise.resolve();
+  /** Hash des Dateiinhalts, auf dem `#doc` (ohne `#pending`) beruht. null = noch nie gelesen oder geschrieben. */
+  #baseHash: string | null = null;
+  #stat: FileStat | null = null;
+  #verifiedAt = 0;
+  /** true, solange der Speicher aus Text mit Pfad stammt und die Datei noch nie geschrieben wurde. */
+  #unwritten = false;
+  #pending: PendingChange[] = [];
+  #version = 0;
+  #problem: { message: string; since: number } | null = null;
+  #invalidStat: FileStat | null = null;
+  #invalidAt = 0;
+  #stale = false;
+  #saveRuns = 0;
+  #refreshing = false;
+  readonly #listeners = new Set<() => void>();
 
   private constructor(
     readonly path: string | null,
     text: string,
+    fromFile: boolean,
   ) {
-    this.#doc = parseDocument(text, { schema: "core" });
-    this.#assertParsed();
-    this.#validate();
+    const built = buildDocument(text);
+    this.#doc = built.doc;
+    this.#data = built.data;
+    if (path) {
+      if (fromFile) {
+        this.#baseHash = sha256(text);
+        this.#stat = statOf(path);
+        this.#verifiedAt = Date.now();
+      } else this.#unwritten = true;
+    }
   }
 
   static async open(path: string): Promise<InventoryStore> {
-    return new InventoryStore(path, await readFile(path, "utf8"));
+    return new InventoryStore(path, await readFile(path, "utf8"), true);
   }
 
   static fromText(text: string, path: string | null = null): InventoryStore {
-    return new InventoryStore(path, text);
+    return new InventoryStore(path, text, false);
   }
 
   get data(): Inventory {
+    this.#refresh();
     return this.#data;
   }
 
+  /** Zaehlt jede Aenderung des Inhalts hoch (eigene und fremde). Die Oberflaeche vergleicht sie, um neu zu laden. */
+  get version(): number {
+    this.#refresh();
+    return this.#version;
+  }
+
+  /** Gesetzt, wenn die Datei auf der Platte laenger als ein paar Sekunden nicht gelesen werden kann. Der alte Stand bleibt. */
+  get problem(): InventoryProblem | null {
+    this.#refresh();
+    if (!this.#problem) return null;
+    return { message: this.#problem.message, since: new Date(this.#problem.since).toISOString(), persistent: Date.now() - this.#problem.since >= INVALID_GRACE_MS };
+  }
+
+  /** Wird nach jedem Nachladen einer von aussen geaenderten Datei aufgerufen (Cache-Invalidierung, Freigaben pruefen). */
+  onExternalChange(fn: () => void): () => void {
+    this.#listeners.add(fn);
+    return () => this.#listeners.delete(fn);
+  }
+
+  /**
+   * Beobachtet das Verzeichnis (nicht die Datei: atomares Schreiben ersetzt die Datei) und laedt entprellt neu. Nur ein
+   * Hinweis: Auf Bind-Mounts und Netzwerkdateisystemen fehlen Ereignisse, deshalb prueft jedes Lesen die Datei ohnehin.
+   */
+  watch(options: { debounceMs?: number } = {}): () => void {
+    if (!this.path) return () => undefined;
+    const file = basename(this.path);
+    const debounce = options.debounceMs ?? 100;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let watcher: FSWatcher | null = null;
+    const hint = (): void => {
+      this.#stale = true;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        this.#refresh();
+        // A file that is still half written is looked at again shortly (the next read retries as well).
+        if (this.#problem) timer = setTimeout(() => { timer = null; this.#refresh(); }, 500);
+      }, debounce);
+      timer.unref?.();
+    };
+    try {
+      watcher = fsWatch(dirname(this.path), { persistent: false }, (_event, name) => {
+        if (name === null || name === undefined || String(name) === file) hint();
+      });
+      watcher.on("error", () => undefined);
+    } catch {
+      watcher = null;
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+      watcher?.close();
+    };
+  }
+
   getSecret(id: string): SecretEntry | undefined {
-    return this.#data.secrets.find((s) => s.id === id);
+    return this.data.secrets.find((s) => s.id === id);
   }
 
   toString(): string {
+    this.#refresh();
     return this.#doc.toString();
   }
 
   patchSecret(id: string, patch: { [K in keyof Patchable]?: Patchable[K] | null }): SecretEntry {
-    const idx = this.#data.secrets.findIndex((s) => s.id === id);
-    if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
     const unknown = Object.keys(patch).filter((k) => !PATCHABLE_SECRET_KEYS.includes(k));
     if (unknown.length > 0) throw new InventoryError(`Feld nicht erlaubt: ${unknown.join(", ")}`);
     return this.#mutate(() => {
+      const idx = this.#findSecretIndex(id);
       for (const [key, value] of Object.entries(patch)) {
         if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
           if (key === "expires") this.#doc.setIn(["secrets", idx, key], null);
           else this.#doc.deleteIn(["secrets", idx, key]);
         } else this.#doc.setIn(["secrets", idx, key], value);
       }
-    }, () => this.getSecret(id)!);
+    }, () => this.#findSecret(id)!);
   }
 
   /**
@@ -105,12 +248,11 @@ export class InventoryStore {
    * Schluessel (auch unbekannte) bleiben unveraendert. Die Pruefung gegen die Spezifikation macht der Aufrufer.
    */
   setSecretParams(id: string, set: Record<string, unknown>, remove: string[] = []): SecretEntry {
-    const idx = this.#data.secrets.findIndex((s) => s.id === id);
-    if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
     return this.#mutate(() => {
+      const idx = this.#findSecretIndex(id);
       for (const key of remove) this.#doc.deleteIn(["secrets", idx, "params", key]);
       for (const [key, value] of Object.entries(set)) this.#doc.setIn(["secrets", idx, "params", key], this.#doc.createNode(clean(value)));
-    }, () => this.getSecret(id)!);
+    }, () => this.#findSecret(id)!);
   }
 
   /**
@@ -124,8 +266,8 @@ export class InventoryStore {
       if (idx < 0) throw new InventoryError(kind === "secret" ? `Secret nicht gefunden: ${id}` : `Variable nicht gefunden: ${id}`);
       return idx;
     };
-    const targets = edits.map((e) => ({ edit: e, path: [e.kind === "secret" ? "secrets" : "variables", index(e.kind, e.id)] as (string | number)[] }));
     this.#mutate(() => {
+      const targets = edits.map((e) => ({ edit: e, path: [e.kind === "secret" ? "secrets" : "variables", index(e.kind, e.id)] as (string | number)[] }));
       for (const { edit, path } of targets) {
         if (edit.name !== undefined) this.#doc.setIn([...path, "name"], edit.name);
         if (edit.stage !== undefined) this.#doc.setIn([...path, "stage"], edit.stage);
@@ -152,35 +294,40 @@ export class InventoryStore {
     const parsed = ResourceMapEntrySchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
     const e = parsed.data;
-    const list = [...(this.#data.resourceMap ?? [])];
-    const idx = list.findIndex((x) => sameMapKey(x, e));
-    if (idx >= 0) list[idx] = e;
-    else list.push(e);
-    return this.#mutate(() => this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(list))), () => e);
+    return this.#mutate(() => {
+      const list = [...(this.#data.resourceMap ?? [])];
+      const idx = list.findIndex((x) => sameMapKey(x, e));
+      if (idx >= 0) list[idx] = e;
+      else list.push(e);
+      this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(list)));
+    }, () => e);
   }
 
   /** Entfernt einen Zuordnungseintrag. Gibt zurueck, ob es ihn gab. */
   removeResourceMapEntry(key: { kind: string; repo: string; stage?: string | undefined }): boolean {
-    const list = this.#data.resourceMap ?? [];
-    const next = list.filter((x) => !sameMapKey(x, key));
-    if (next.length === list.length) return false;
     return this.#mutate(() => {
+      const list = this.#data.resourceMap ?? [];
+      const next = list.filter((x) => !sameMapKey(x, key));
+      if (next.length === list.length) return false;
       if (next.length === 0) this.#doc.deleteIn(["resourceMap"]);
       else this.#doc.setIn(["resourceMap"], this.#doc.createNode(clean(next)));
-    }, () => true);
+      return true;
+    }, (removed) => removed);
   }
 
   addSecret(entry: z.input<typeof SecretSchema>): SecretEntry {
     const parsed = SecretSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
-    if (this.getSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
-    const places = this.#resolve(parsed.data.stage, parsed.data.places);
-    return this.#mutate(() => this.#addNode(["secrets"], { ...entry, places }), () => this.getSecret(parsed.data.id)!);
+    return this.#mutate(() => {
+      if (this.#findSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
+      const places = this.#resolve(parsed.data.stage, parsed.data.places);
+      this.#addNode(["secrets"], { ...entry, places });
+    }, () => this.#findSecret(parsed.data.id)!);
   }
 
   /** Die wirksamen Stage-Definitionen (Standard, wenn das Inventar keine nennt). */
   get stages(): StageDef[] {
-    return this.#data.stages;
+    return this.data.stages;
   }
 
   /** Ersetzt die Stage-Liste komplett. Unbekannte Stages in Secrets/Variablen/Vorlagen lehnt die Validierung ab. */
@@ -199,22 +346,44 @@ export class InventoryStore {
     }
   }
 
-  getVariable(id: string): VariableEntry | undefined {
+  // Lookups inside mutations use the in-memory data directly: a refresh in the middle of a change must never swap the document.
+  #findSecret(id: string): SecretEntry | undefined {
+    return this.#data.secrets.find((s) => s.id === id);
+  }
+
+  #findSecretIndex(id: string): number {
+    const idx = this.#data.secrets.findIndex((s) => s.id === id);
+    if (idx < 0) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+    return idx;
+  }
+
+  #findVariable(id: string): VariableEntry | undefined {
     return this.#data.variables.find((v) => v.id === id);
+  }
+
+  #findVariableIndex(id: string): number {
+    const idx = this.#data.variables.findIndex((v) => v.id === id);
+    if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
+    return idx;
+  }
+
+  getVariable(id: string): VariableEntry | undefined {
+    return this.data.variables.find((v) => v.id === id);
   }
 
   addVariable(entry: z.input<typeof VariableSchema>): VariableEntry {
     const parsed = VariableSchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
-    if (this.getVariable(parsed.data.id) || this.getSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
-    const places = this.#resolve(parsed.data.stage, parsed.data.places);
-    return this.#mutate(() => this.#addNode(["variables"], { ...entry, places }), () => this.getVariable(parsed.data.id)!);
+    return this.#mutate(() => {
+      if (this.#findVariable(parsed.data.id) || this.#findSecret(parsed.data.id)) throw new InventoryError(`id existiert schon: ${parsed.data.id}`);
+      const places = this.#resolve(parsed.data.stage, parsed.data.places);
+      this.#addNode(["variables"], { ...entry, places });
+    }, () => this.#findVariable(parsed.data.id)!);
   }
 
   patchVariable(id: string, patch: { value?: string | null; description?: string | null; owner?: string | null; link?: string | null; tags?: string[] | null; from?: { connection: string; kind: string; resource: string; field: string } | null }): VariableEntry {
-    const idx = this.#data.variables.findIndex((v) => v.id === id);
-    if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
     return this.#mutate(() => {
+      const idx = this.#findVariableIndex(id);
       if ("value" in patch) this.#doc.setIn(["variables", idx, "value"], patch.value ?? null);
       for (const key of ["description", "owner", "link", "tags", "from"] as const) {
         if (!(key in patch)) continue;
@@ -222,38 +391,42 @@ export class InventoryStore {
         if (v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "") this.#doc.deleteIn(["variables", idx, key]);
         else this.#doc.setIn(["variables", idx, key], v);
       }
-    }, () => this.getVariable(id)!);
+    }, () => this.#findVariable(id)!);
   }
 
   removeVariable(id: string): void {
-    const idx = this.#data.variables.findIndex((v) => v.id === id);
-    if (idx < 0) throw new InventoryError(`Variable nicht gefunden: ${id}`);
-    this.#mutate(() => this.#doc.deleteIn(["variables", idx]), () => undefined);
+    this.#mutate(() => this.#doc.deleteIn(["variables", this.#findVariableIndex(id)]), () => undefined);
   }
 
   addProvider(def: z.input<typeof ProviderDefSchema>): ProviderDef {
     const parsed = ProviderDefSchema.safeParse(def);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
-    if (this.#data.providers.some((p) => p.id === parsed.data.id)) throw new InventoryError(`Anbieter existiert schon: ${parsed.data.id}`);
-    return this.#mutate(() => this.#addNode(["providers"], def), () => parsed.data);
+    return this.#mutate(() => {
+      if (this.#data.providers.some((p) => p.id === parsed.data.id)) throw new InventoryError(`Anbieter existiert schon: ${parsed.data.id}`);
+      this.#addNode(["providers"], def);
+    }, () => parsed.data);
   }
 
   addEnvTemplate(template: z.input<typeof EnvTemplateSchema>): EnvTemplate {
     const parsed = EnvTemplateSchema.safeParse(template);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
-    if (this.#data.envTemplates.some((t) => t.id === parsed.data.id)) throw new InventoryError(`Vorlage existiert schon: ${parsed.data.id}`);
-    return this.#mutate(() => this.#addNode(["envTemplates"], template), () => parsed.data);
+    return this.#mutate(() => {
+      if (this.#data.envTemplates.some((t) => t.id === parsed.data.id)) throw new InventoryError(`Vorlage existiert schon: ${parsed.data.id}`);
+      this.#addNode(["envTemplates"], template);
+    }, () => parsed.data);
   }
 
   addEnvEntry(templateId: string, entry: z.input<typeof EnvEntrySchema>): EnvTemplate {
-    const idx = this.#data.envTemplates.findIndex((t) => t.id === templateId);
-    if (idx < 0) throw new InventoryError(`Vorlage nicht gefunden: ${templateId}`);
     const parsed = EnvEntrySchema.safeParse(entry);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
-    if (this.#data.envTemplates[idx]!.entries.some((e) => e.key === parsed.data.key)) {
-      throw new InventoryError(`Eintrag existiert schon: ${parsed.data.key}`);
-    }
-    return this.#mutate(() => this.#addNode(["envTemplates", idx, "entries"], entry), () => this.#data.envTemplates[idx]!);
+    return this.#mutate(() => {
+      const idx = this.#data.envTemplates.findIndex((t) => t.id === templateId);
+      if (idx < 0) throw new InventoryError(`Vorlage nicht gefunden: ${templateId}`);
+      if (this.#data.envTemplates[idx]!.entries.some((e) => e.key === parsed.data.key)) {
+        throw new InventoryError(`Eintrag existiert schon: ${parsed.data.key}`);
+      }
+      this.#addNode(["envTemplates", idx, "entries"], entry);
+    }, () => this.#data.envTemplates.find((t) => t.id === templateId)!);
   }
 
   /**
@@ -263,23 +436,24 @@ export class InventoryStore {
   renameRepo(from: string, to: string): number {
     if (!to.trim() || to.includes("/")) throw new InventoryError("Der neue Repository-Name ist ungueltig.");
     if (from === to) return 0;
-    let changed = 0;
-    const edits: (string | number)[][] = [];
-    const scan = (key: "secrets" | "variables"): void => {
-      this.#data[key].forEach((e, i) => e.places.forEach((p, j) => { if (p.repo === from) edits.push([key, i, "places", j, "repo"]); }));
-    };
-    scan("secrets");
-    scan("variables");
-    this.#data.envTemplates.forEach((t, i) => { if (t.repo === from) edits.push(["envTemplates", i, "repo"]); });
-    if (edits.length === 0) return 0;
-    this.#mutate(() => {
+    return this.#mutate(() => {
+      const edits: (string | number)[][] = [];
+      const scan = (key: "secrets" | "variables"): void => {
+        this.#data[key].forEach((e, i) => e.places.forEach((p, j) => { if (p.repo === from) edits.push([key, i, "places", j, "repo"]); }));
+      };
+      scan("secrets");
+      scan("variables");
+      this.#data.envTemplates.forEach((t, i) => { if (t.repo === from) edits.push(["envTemplates", i, "repo"]); });
       for (const path of edits) this.#doc.setIn(path, to);
-    }, () => undefined);
-    changed = edits.length;
-    return changed;
+      return edits.length;
+    }, (count) => count);
   }
 
-  /** Ersetzt Inhalt komplett (fuer den Team-Import). */
+  /**
+   * Ersetzt Inhalt komplett (fuer den Team-Import). Nicht wiederholbar: Der Aufrufer hat den neuen Inhalt aus dem alten
+   * Stand berechnet, ein Wiederholen auf einer geaenderten Datei wuerde fremde Aenderungen ueberschreiben. save() meldet
+   * in dem Fall einen Konflikt.
+   */
   replaceData(next: z.input<typeof InventorySchema>): void {
     const parsed = InventorySchema.safeParse(next);
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
@@ -293,27 +467,90 @@ export class InventoryStore {
       this.#doc.set("providers", this.#doc.createNode(clean(parsed.data.providers)));
       if (parsed.data.resourceMap && parsed.data.resourceMap.length > 0) this.#doc.set("resourceMap", this.#doc.createNode(clean(parsed.data.resourceMap)));
       else this.#doc.delete("resourceMap");
-    }, () => undefined);
+    }, () => undefined, false);
   }
 
-  /** Schreibt atomar (eindeutige Temp-Datei, dann rename). Parallele save()-Aufrufe laufen nacheinander. Ohne Pfad passiert nichts. */
+  /**
+   * Schreibt atomar (eindeutige Temp-Datei im selben Ordner, fsync, rename; Modus 0600). Parallele save()-Aufrufe laufen
+   * nacheinander. Ist die Datei seit dem Laden anders, wird sie frisch geladen und die Aenderungen werden darauf erneut
+   * angewendet, nie ueberschrieben. Ohne Pfad passiert nichts, ohne eigene Aenderungen wird nichts geschrieben.
+   */
   save(): Promise<void> {
     if (!this.path) return Promise.resolve();
     const path = this.path;
     const run = async (): Promise<void> => {
-      const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+      this.#saveRuns++;
       try {
-        // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
-        await writePrivateFile(tmp, this.#doc.toString());
-        await rename(tmp, path);
-      } catch (err) {
-        await rm(tmp, { force: true }).catch(() => undefined);
-        throw err;
+        await withFileLock(`${path}.lock`, () => this.#writeLocked(path));
+      } finally {
+        this.#saveRuns--;
       }
     };
     const next = this.#saving.then(run, run);
     this.#saving = next.catch(() => undefined);
     return next;
+  }
+
+  async #writeLocked(path: string): Promise<void> {
+    let lastInvalid = "";
+    for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
+      const disk = readText(path);
+      if (disk !== null && sha256(disk) !== this.#baseHash) {
+        // The file differs from what this store is based on: somebody else wrote it.
+        if (this.#pending.length === 0 && !this.#unwritten) {
+          this.#adopt(disk);
+          this.#stat = statOf(path);
+          this.#verifiedAt = Date.now();
+          this.#emit();
+          return;
+        }
+        try {
+          this.#rebase(disk);
+        } catch (err) {
+          if (err instanceof InvalidDiskError) {
+            // A half-written file: give the writer a moment and look again.
+            lastInvalid = err.message;
+            await sleep(50 * (attempt + 1));
+            continue;
+          }
+          this.#discardPending();
+          throw err;
+        }
+      } else if (this.#pending.length === 0 && !this.#unwritten) return;
+      const count = this.#pending.length;
+      const text = this.#doc.toString();
+      const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+      try {
+        // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
+        await writePrivateFile(tmp, text);
+        const handle = await open(tmp, "r+");
+        try {
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        // Last look right before the rename: all writers of this store hold the lock, so this closes the race for them.
+        const now = readText(path);
+        if (now !== null && sha256(now) !== this.#baseHash && (this.#baseHash !== null || this.#pending.length > 0 || this.#unwritten)) {
+          await rm(tmp, { force: true });
+          continue;
+        }
+        await rename(tmp, path);
+      } catch (err) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+      await syncDirectory(dirname(path));
+      this.#baseHash = sha256(text);
+      this.#stat = statOf(path);
+      this.#verifiedAt = Date.now();
+      this.#unwritten = false;
+      this.#pending.splice(0, count);
+      this.#problem = null;
+      return;
+    }
+    this.#discardPending();
+    throw new InventoryConflictError(lastInvalid || "Die Inventar-Datei wurde waehrend des Speicherns immer wieder von einem anderen Prozess geaendert. Nichts ueberschrieben, bitte neu laden und erneut versuchen.");
   }
 
   #addNode(path: (string | number)[], value: unknown): void {
@@ -322,12 +559,22 @@ export class InventoryStore {
     else this.#doc.setIn(path, this.#doc.createNode([clean(value)]));
   }
 
-  #mutate<T>(apply: () => void, result: () => T): T {
+  /**
+   * Applies a change to the document. `apply` does its lookups itself (never indices computed earlier) so that it can be
+   * replayed on a freshly loaded document if the file changed before it was saved.
+   */
+  #mutate<A, T>(apply: () => A, result: (a: A) => T, replayable = true): T {
+    this.#refresh();
     const before = this.#doc.toString();
     try {
-      apply();
+      const a = apply();
       this.#validate();
-      return result();
+      const r = result(a);
+      if (this.#doc.toString() !== before) {
+        this.#pending.push({ replayable, replay: () => { const x = apply(); this.#validate(); result(x); } });
+        this.#version++;
+      }
+      return r;
     } catch (err) {
       this.#doc = parseDocument(before, { schema: "core" });
       this.#validate();
@@ -335,9 +582,108 @@ export class InventoryStore {
     }
   }
 
-  #assertParsed(): void {
-    if (this.#doc.errors.length > 0) {
-      throw new InventoryError(`Inventar ist kein gueltiges YAML: ${this.#doc.errors[0]!.message}`);
+  /** Takes over the file on disk if it differs from the base. Cheap when nothing changed. */
+  #refresh(): void {
+    if (!this.path || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return;
+    const now = Date.now();
+    const st = statOf(this.path);
+    if (!st) return;
+    const unchanged = sameStat(st, this.#stat);
+    if (this.#problem) {
+      // The last attempt failed: retry when the file changed or after a short pause.
+      if (sameStat(st, this.#invalidStat) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return;
+    } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return;
+    const text = readText(this.path);
+    if (text === null) return;
+    this.#stale = false;
+    if (sha256(text) === this.#baseHash) {
+      this.#stat = st;
+      this.#verifiedAt = now;
+      this.#problem = null;
+      return;
+    }
+    this.#refreshing = true;
+    try {
+      if (this.#pending.length > 0) this.#rebase(text);
+      else this.#adopt(text);
+      this.#stat = st;
+      this.#verifiedAt = now;
+    } catch (err) {
+      // Not valid yet (half written) or the unsaved change does not fit: keep the old state, look again later.
+      this.#invalidStat = st;
+      this.#invalidAt = now;
+      this.#problem ??= { message: (err as Error).message, since: now };
+      return;
+    } finally {
+      this.#refreshing = false;
+    }
+    this.#problem = null;
+    this.#emit();
+  }
+
+  #emit(): void {
+    for (const fn of [...this.#listeners]) {
+      try {
+        fn();
+      } catch {
+        // A faulty listener must not break reads.
+      }
+    }
+  }
+
+  /** Replaces the document by the file content. Throws (and keeps the old state) if it is invalid. */
+  #adopt(text: string): void {
+    let built: { doc: Document; data: Inventory };
+    try {
+      built = buildDocument(text);
+    } catch (err) {
+      throw new InvalidDiskError(`Die Inventar-Datei auf der Platte ist ungueltig: ${(err as Error).message}`);
+    }
+    this.#doc = built.doc;
+    this.#data = built.data;
+    this.#baseHash = sha256(text);
+    this.#version++;
+    this.#pending = [];
+  }
+
+  /** Replaces the document by the file content and applies the unsaved changes again. Restores the old state on failure. */
+  #rebase(text: string): void {
+    let built: { doc: Document; data: Inventory };
+    try {
+      built = buildDocument(text);
+    } catch (err) {
+      throw new InvalidDiskError(`Die Inventar-Datei auf der Platte ist ungueltig: ${(err as Error).message}`);
+    }
+    const previous = { doc: this.#doc, data: this.#data };
+    this.#doc = built.doc;
+    this.#data = built.data;
+    try {
+      for (const change of this.#pending) {
+        if (!change.replayable) throw new InventoryError("diese Aenderung ersetzt den ganzen Inhalt");
+        change.replay();
+      }
+    } catch (err) {
+      this.#doc = previous.doc;
+      this.#data = previous.data;
+      throw new InventoryConflictError(`Die Inventar-Datei wurde von einem anderen Prozess geaendert und deine Aenderung passt nicht mehr dazu (${(err as Error).message}). Nichts ueberschrieben, bitte neu laden und erneut versuchen.`);
+    }
+    this.#baseHash = sha256(text);
+    this.#version++;
+  }
+
+  /** After a failed save the unsaved changes are dropped and the store follows the file again. */
+  #discardPending(): void {
+    this.#pending = [];
+    this.#unwritten = false;
+    const disk = readText(this.path!);
+    if (disk === null) return;
+    try {
+      this.#adopt(disk);
+      this.#stat = statOf(this.path!);
+      this.#verifiedAt = Date.now();
+      this.#emit();
+    } catch {
+      // Invalid on disk: the next read reports the problem.
     }
   }
 
@@ -345,6 +691,67 @@ export class InventoryStore {
     const parsed = InventorySchema.safeParse(this.#doc.toJS());
     if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
     this.#data = parsed.data;
+  }
+}
+
+function buildDocument(text: string): { doc: Document; data: Inventory } {
+  const doc = parseDocument(text, { schema: "core" });
+  if (doc.errors.length > 0) throw new InventoryError(`Inventar ist kein gueltiges YAML: ${doc.errors[0]!.message}`);
+  const parsed = InventorySchema.safeParse(doc.toJS());
+  if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
+  return { doc, data: parsed.data };
+}
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** Best effort: makes the rename durable. Not available everywhere (Windows), never fatal. */
+async function syncDirectory(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  try {
+    const handle = await open(dir, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Advisory lock between writers (portal, CLI, scripts) via an exclusively created file. A lock older than
+ * `LOCK_STALE_MS` belongs to a crashed process and is broken. Readers never lock.
+ */
+async function withFileLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      const handle = await open(lockPath, "wx", 0o600);
+      await handle.writeFile(`${process.pid}\n`);
+      await handle.close();
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const st = statOf(lockPath);
+      if (st && Date.now() - st.mtimeMs > LOCK_STALE_MS) {
+        await rm(lockPath, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) throw new InventoryConflictError("Ein anderer Prozess speichert gerade das Inventar. Bitte gleich noch einmal versuchen.");
+      await sleep(25);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await rm(lockPath, { force: true }).catch(() => undefined);
   }
 }
 

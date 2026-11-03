@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { ApprovalSnapshot } from "@secret-desk/core";
+import { secretApprovalSnapshot, variableApprovalSnapshot, type ApprovalSnapshot, type InventoryStore } from "@secret-desk/core";
 
 /** stale = der Eintrag hat sich seit der Anfrage geaendert, die Freigabe wurde verworfen. */
 export type ApprovalState = "pending" | "approved" | "denied" | "failed" | "stale";
@@ -40,6 +40,25 @@ export class ApprovalQueue {
     if (!item || item.state !== "pending" || this.#busy.has(id)) return false;
     this.#busy.add(id);
     return true;
+  }
+
+  /**
+   * Called after the inventory file changed from outside (CLI, script, team sync): every open request whose entry no longer
+   * has the content that was requested becomes stale right away, not only when somebody tries to approve it.
+   * Returns the ids that were made stale.
+   */
+  revalidate(inventory: InventoryStore): string[] {
+    const stale: string[] = [];
+    for (const a of this.#items.values()) {
+      if (a.state !== "pending" || this.#busy.has(a.id)) continue;
+      const target = a.action === "issue" ? inventory.getSecret(a.targetId) : inventory.getVariable(a.targetId);
+      const hash = !target ? null : a.action === "issue" ? secretApprovalSnapshot(target as never).hash : variableApprovalSnapshot(target as never).hash;
+      if (hash === a.snapshotHash) continue;
+      a.state = "stale";
+      a.result = "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.";
+      stale.push(a.id);
+    }
+    return stale;
   }
 
   create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date; snapshot: ApprovalSnapshot }): Approval {
