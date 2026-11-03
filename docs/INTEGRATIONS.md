@@ -57,9 +57,9 @@ Custom token with *Account > Turnstile > Edit*, limited to the account that owns
 
 ### Supabase (`supabase`)
 
-Why: reads, creates and deletes API keys of Supabase projects through the Management API.
+Why: reads, creates and deletes API keys of Supabase projects and sets their database password through the Management API.
 
-Access token with *API Keys* Read-write and *API Key Secrets* Read; optionally *Project Settings* Read and *Projects* Read. Limit the token to the organization or projects to manage. A token never exceeds your own role (Owner or Admin needed). A full-access ("legacy") token works but is not recommended. The token is shown only once.
+Access token with *API Keys* Read-write and *API Key Secrets* Read; optionally *Project Settings* Read and *Projects* Read, and *Database config* Write (fine-grained permission `database_config_write`), needed only for `supabase-db-password`. Limit the token to the organization or projects to manage. A token never exceeds your own role (Owner or Admin needed). A full-access ("legacy") token works but is not recommended. The token is shown only once.
 
 ### Stripe (`stripe-test`, `stripe-live`, `stripe`)
 

@@ -124,13 +124,16 @@ describe("planNormalization", () => {
     expect(prod.reasons.map((r) => r.code)).toContain("params-needed");
   });
 
-  it("leaves DB password and providers without an API as manual-only with the reason", () => {
+  it("switches the DB password to supabase-db-password and names the missing projectRef", () => {
+    const db = find(planOf().changes, "provider:secret:sb-db-password")!;
+    expect(db).toMatchObject({ kind: "provider", missingParams: ["projectRef"], after: [{ provider: "supabase-db-password" }] });
+    expect(db.reasons.map((r) => r.code)).toEqual(expect.arrayContaining(["supabase-db-password", "params-needed"]));
+    expect(find(planOf().changes, "manual-only:secret:sb-db-password")).toBeUndefined();
+  });
+
+  it("leaves providers without an API as manual-only with the reason", () => {
     const { changes } = planOf();
-    const db = find(changes, "manual-only:secret:sb-db-password")!;
-    expect(db).toMatchObject({ kind: "manual-only", autoApplicable: false });
-    expect(db.reasons[0]!.code).toBe("supabase-db-password");
     expect(find(changes, "manual-only:secret:revenuecat")!.reasons[0]!.code).toBe("revenuecat");
-    expect(find(changes, "provider:secret:sb-db-password")).toBeUndefined();
     // every other manual secret is listed too, with a reason
     expect(find(changes, "manual-only:secret:cf-access")!.reasons.map((r) => r.code)).toEqual(["cloudflare-not-yet"]);
   });
@@ -314,12 +317,12 @@ describe("applyNormalization", () => {
     const { path, store } = await onDisk();
     const result = await applyNormalization(store, {}, all(store));
     expect(result.applied.length).toBeGreaterThan(5);
-    expect(result.needsParams).toEqual([{ secretId: "sb-secret-prod", missing: ["projectRef"] }]);
+    expect(result.needsParams).toEqual([{ secretId: "sb-secret-prod", missing: ["projectRef"] }, { secretId: "sb-db-password", missing: ["projectRef"] }]);
     const reloaded = await InventoryStore.open(path);
     expect(reloaded.getSecret("sb-secret-staging")).toMatchObject({ name: "SUPABASE_SECRET_KEY", provider: "supabase-api-key", params: { projectRef: REF, type: "secret" } });
     expect(reloaded.getVariable("v-url-staging")).toMatchObject({ name: "SUPABASE_URL", stage: "staging", from: { kind: "supabase.project", resource: REF, field: "url" } });
     expect(reloaded.getSecret("cf-access")!.name).toBe("CLOUDFLARE_ACCESS_CLIENT_ID");
-    expect(reloaded.getSecret("sb-db-password")!.provider).toBe("manual");
+    expect(reloaded.getSecret("sb-db-password")!.provider).toBe("supabase-db-password");
     // values and unrelated fields survive
     expect(reloaded.getVariable("v-account")!.value).toBe(VALUE_ACCOUNT);
     expect(reloaded.getSecret("cf-access")!.notes).toBe(SECRET_LIKE);

@@ -73,6 +73,7 @@ const T = {
   nameCollision: "Nach dem Umbenennen haetten zwei Eintraege denselben Namen am selben Ziel: von Hand zusammenfuehren",
   stageFromName: "Die Stage stand im Namen, der Eintrag gilt dafuer",
   switchApiKey: "Der Schluessel laesst sich ueber die Supabase-API erzeugen",
+  switchDbPassword: "Das Datenbank-Passwort laesst sich ueber die Supabase-API setzen",
   switchStripeWebhook: "Das Webhook-Secret entsteht beim Anlegen des Endpunkts ueber die Stripe-API",
   switchGrafana: "Das Token laesst sich fuer den Service-Account ueber die Grafana-API erzeugen",
   paramsNeeded: "Danach die Parameter vervollstaendigen (Projekt)",
@@ -128,10 +129,12 @@ interface ProviderSwitch {
   paramsText: string;
 }
 const supabaseKey = (type: "secret" | "publishable"): ProviderSwitch => ({ provider: "supabase-api-key", fixed: { type }, required: ["projectRef"], reason: { code: "supabase-api-key", text: T.switchApiKey }, paramsText: T.paramsNeeded });
+const supabaseDbPassword: ProviderSwitch = { provider: "supabase-db-password", fixed: {}, required: ["projectRef"], reason: { code: "supabase-db-password", text: T.switchDbPassword }, paramsText: T.paramsNeeded };
 const grafanaToken: ProviderSwitch = { provider: "grafana-service-account-token", fixed: {}, required: ["baseUrl", "serviceAccountId"], reason: { code: "grafana-service-account-token", text: T.switchGrafana }, paramsText: T.paramsNeededGeneric };
 const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
   SUPABASE_SECRET_KEY: supabaseKey("secret"),
   SUPABASE_PUBLISHABLE_KEY: supabaseKey("publishable"),
+  SUPABASE_DB_PASSWORD: supabaseDbPassword,
   STRIPE_WEBHOOK_SECRET: { provider: "stripe-webhook-secret", fixed: {}, required: ["url", "events"], reason: { code: "stripe-webhook-secret", text: T.switchStripeWebhook }, paramsText: T.paramsNeededGeneric },
   GRAFANA_SERVICE_ACCOUNT_TOKEN: grafanaToken,
   GRAFANA_READ_TOKEN: grafanaToken,
@@ -139,7 +142,6 @@ const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
 
 /** Anbieter ohne API: (Name oder Dienst) -> Grund. Sie bleiben von Hand und stehen deshalb in der Liste. */
 const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
-  { test: /^SUPABASE_DB_PASSWORD$/, code: "supabase-db-password", text: "Supabase hat keine API fuer das Datenbank-Passwort: nur von Hand" },
   { test: /^SUPABASE_ACCESS_TOKEN$/, code: "supabase-pat", text: "Persoenliche Zugriffs-Tokens (PAT) erzeugt Supabase nur im Dashboard: nur von Hand" },
   { test: /REVENUECAT/i, code: "revenuecat", text: "RevenueCat hat keine API, die Schluessel erzeugt: nur von Hand" },
   { test: /PEECHO/i, code: "peecho", text: "Peecho hat keine API, die Schluessel erzeugt: nur von Hand" },
