@@ -22,8 +22,21 @@ export interface IssueContext {
   providerConfig?: ProviderConfig;
 }
 
+/**
+ * A value that comes out of the same provider answer as the main value but belongs to another inventory entry
+ * (for example the client id next to the client secret of an Access service token). It is shown in the review,
+ * written to the entry's places on confirm and discarded together with the main value.
+ */
+export interface CompanionValue {
+  /** Inventory id of the receiving secret entry. Must be named in the provider's `companionParams`. */
+  entryId: string;
+  value: SecretValue;
+}
+
 export interface IssuedSecret {
   value: SecretValue;
+  /** Further values from the same issuance for other entries. Only entries the provider names in params may receive one. */
+  companions?: CompanionValue[];
   /** ISO-Zeitpunkt oder Datum, wann der Wert ablaeuft. */
   expiresAt?: string | null;
   /** Kennung beim Anbieter, damit der alte Wert spaeter widerrufen werden kann. */
@@ -95,6 +108,8 @@ export interface Provider {
   params?: ParamSpec[];
   /** Listet Ressourcen der verbundenen Integration (Konten, Projekte, Zonen ...). Nur lesend. Unbekannte Art: UnknownDiscoverKindError. */
   discover?(kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]>;
+  /** Keys of `params` whose value is the inventory id of an entry that may receive a companion value from `issue`. */
+  companionParams?: string[];
   /** Further discover kinds this provider answers that no parameter uses, for example sources of variables. */
   discoverKinds?: string[];
   /** Lesender Vorabcheck: gehoert die gewaehlte Ressource zur Integration? Laeuft vor dem Ausstellen. */

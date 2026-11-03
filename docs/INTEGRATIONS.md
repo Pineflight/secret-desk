@@ -45,9 +45,11 @@ A **GitHub App** is an alternative (`github.auth.type: app`): the portal then ob
 
 ### Cloudflare (`cloudflare`)
 
-Why: creates, checks and revokes further Cloudflare tokens (`cloudflare-token`).
+Why: creates, checks and revokes further Cloudflare tokens (`cloudflare-token`), and Access service tokens (`cloudflare-access-service-token`).
 
 Template **Create additional tokens** (*User > API Tokens > Edit*), nothing else. A token that can create tokens can grant access to everything your user can reach, so set a short expiry (1 to 7 days) and, if possible, an IP restriction. Keep it for the session.
+
+No extra permission is needed for Access service tokens: the connection token only has to be able to create tokens. For each issuance the provider creates a helper token with *Access: Service Tokens Write* limited to one account and ten minutes, uses it for the Access call and deletes it again (see [PROVIDERS.md](PROVIDERS.md#cloudflare-access-service-tokens-client-id-and-secret-together)). The connection token itself never needs the Access permission.
 
 ### Cloudflare Turnstile (`cloudflare-turnstile`)
 
