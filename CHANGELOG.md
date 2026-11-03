@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The Supabase access token recipe presses Enter on the preset option itself (selecting the last option with End was timing-dependent) and offers Read-only again.
 - Recipe token names keep the start and the end of a long secret id (joined by `~`), so names of two stages no longer differ only by the time.
 - The Supabase access token recipe selects the permission preset with the keyboard; a click on *Full access* is blocked by its description tooltip.
 - Browser recipes name a new token with the secret id shortened and date plus time kept (at most 40 characters). Before, a long id cut the date off, so the next renewal produced a token with the same name and the old one could not be told apart for revocation.
