@@ -26,3 +26,14 @@ describe("i18n", () => {
     expect(translate("gibt.es.nicht", undefined, "en")).toBe("gibt.es.nicht");
   });
 });
+
+describe("systemLocale", () => {
+  it("is German only when the system prefers German, English otherwise", async () => {
+    const { systemLocale } = await import("../src/lib/i18n");
+    expect(systemLocale(["de-DE", "en-US"])).toBe("de");
+    expect(systemLocale(["de"])).toBe("de");
+    expect(systemLocale(["en-GB", "de-DE"])).toBe("en");
+    expect(systemLocale(["fr-FR"])).toBe("en");
+    expect(systemLocale([])).toBe("en");
+  });
+});

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
 import { ApiError, api, ensureSession, type SessionInfo } from "@/lib/api";
 import { useDebounced, useQuery } from "@/lib/hooks";
-import { LOCALES, LOCALE_NAMES, useI18n } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { subscribeRefresh } from "@/lib/refresh";
 import { CommandPalette } from "./CommandPalette";
 import { Icon } from "./Icons";
@@ -37,7 +37,7 @@ const isActive = (path: string, href: string): boolean => (href === "/" ? path =
 const SEARCHABLE = ["/entries", "/approvals"];
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const path = usePathname();
   const router = useRouter();
   const params = useSearchParams();
@@ -158,11 +158,6 @@ export function Shell({ children }: { children: ReactNode }) {
           <p className="font-medium">{session?.user ?? "…"}</p>
           <p className="text-xs text-muted">{t("common.userLocal")}</p>
           {session?.demo ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-[11px] font-medium text-[#a8420f]">{t("common.demo")}</p> : null}
-          <div role="group" aria-label={t("common.language")} className="mt-3 flex gap-1 rounded-xl bg-card p-1 ring-1 ring-inset ring-line">
-            {LOCALES.map((l) => (
-              <button key={l} type="button" lang={l} aria-pressed={locale === l} title={LOCALE_NAMES[l]} onClick={() => setLocale(l)} className={`flex-1 rounded-lg px-2 py-1 text-xs font-medium ${locale === l ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}>{l.toUpperCase()}</button>
-            ))}
-          </div>
           <p className="mt-3 text-center text-[11px] leading-snug text-muted">
             {t("about.footer")}
             <br />
