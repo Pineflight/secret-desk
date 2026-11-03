@@ -11,7 +11,7 @@ Components: 117. Not on the allow list (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Ap
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://github.com/modelcontextprotocol/typescript-sdk |
 | @next/env | 16.4.3 | MIT | https://github.com/vercel/next.js |
 | @swc/helpers | 0.5.23 | Apache-2.0 | https://github.com/swc-project/swc |
-| @types/node | 24.19.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/node | 26.6.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | accepts | 2.0.0 | MIT | jshttp/accepts |
 | ajv | 8.20.0 | MIT | ajv-validator/ajv |
 | ajv-formats | 3.0.1 | MIT | https://github.com/ajv-validator/ajv-formats |
@@ -115,7 +115,7 @@ Components: 117. Not on the allow list (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Ap
 | toidentifier | 1.0.1 | MIT | component/toidentifier |
 | tslib | 2.8.1 | 0BSD | https://github.com/Microsoft/tslib |
 | type-is | 2.1.0 | MIT | jshttp/type-is |
-| undici-types | 7.24.6 | MIT | https://github.com/nodejs/undici |
+| undici-types | 8.9.0 | MIT | https://github.com/nodejs/undici |
 | unpipe | 1.0.0 | MIT | stream-utils/unpipe |
 | vary | 1.1.2 | MIT | jshttp/vary |
 | which | 2.0.2 | ISC | git://github.com/isaacs/node-which |

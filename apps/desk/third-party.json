@@ -37,7 +37,7 @@
     },
     {
       "name": "@types/node",
-      "version": "24.19.2",
+      "version": "26.6.6",
       "license": "MIT",
       "source": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "status": "allowed"
@@ -765,7 +765,7 @@
     },
     {
       "name": "undici-types",
-      "version": "7.24.6",
+      "version": "8.9.0",
       "license": "MIT",
       "source": "https://github.com/nodejs/undici",
       "status": "allowed"
