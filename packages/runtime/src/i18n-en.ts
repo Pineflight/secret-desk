@@ -107,10 +107,13 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Team-Datei enthaelt einen privaten Schluessel: wird nicht hochgeladen.", "The team file contains a private key: not uploaded."],
   ["Team-Datei ist groesser als 1 MiB: wird nicht gelesen.", "The team file is larger than 1 MiB: not read."],
   ["Das Team-Repository, der Pfad oder der Zweig enthaelt ungueltige Zeichen oder Pfadbestandteile.", "The team repository, path or branch contains invalid characters or path segments."],
+  ["Feld branch: ungueltiger Zweigname.", "Field branch: invalid branch name."],
+  ["Feld repo oder branch ist ungueltig.", "Field repo or branch is invalid."],
   ["Das Team-Repository ist nicht privat. Es wird nichts geschrieben.", "The team repository is not private. Nothing is written."],
   ["Der Token darf in das Team-Repository nicht schreiben (oder das Recht laesst sich nicht feststellen). Es wird nichts geschrieben.", "The token may not write to the team repository (or the permission cannot be established). Nothing is written."],
   ["Das Team-Repository ist nicht privat. Schieben ist gesperrt, bis es privat ist.", "The team repository is not private. Pushing is blocked until it is private."],
   ["Repository privat", "Repository is private"],
+  ["Schieben erlaubt", "Push allowed"],
   // Parameter der Anbieter (core/params.ts, providers/*): Beschriftungen und Hilfetexte kommen aus den Spezifikationen selbst (siehe PARAM_ENTRIES).
   ["Den Stack oeffnen (ueber den Link oder in grafana.com unter Ihrer Organisation, dann \"Launch\").", "Open the stack (via the link, or in grafana.com under your organization, then \"Launch\")."],
   ["Im Stack unter Administration, Users and access, Service accounts einen Service-Account fuer secret-desk anlegen (Rolle Admin, damit er Tokens anderer Service-Accounts verwalten darf).", "In the stack under Administration, Users and access, Service accounts, create a service account for secret-desk (role Admin, so it can manage tokens of other service accounts)."],

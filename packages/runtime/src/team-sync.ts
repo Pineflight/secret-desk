@@ -95,7 +95,7 @@ export async function teamTokenSource(rt: Runtime): Promise<TeamTokenSource> {
 }
 
 /** One team sync operation (one check, pull or push): one client and, with a GitHub App, one installation token provider. */
-interface TeamSession {
+export interface TeamSession {
   gh: GitHubClient;
   source: TeamTokenSource;
   /** Permissions GitHub granted to the installation token minted in this operation, or null (no App token yet / not an App). */
@@ -111,6 +111,21 @@ interface TeamSession {
  * live only as long as this session, nothing is cached across operations or repositories.
  */
 async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession> {
+  const [owner, name] = split(c.repo);
+  return openScopedSession(rt, { owner, repositories: [name], permissions: teamPermissions(c) });
+}
+
+/** What one session may touch: with a GitHub App the installation token is limited to exactly this. */
+export interface SessionScope {
+  /** Owner (organization or user) the GitHub App installation belongs to. */
+  owner: string;
+  /** Repository names (without owner). Empty or missing = every repository of the installation. */
+  repositories?: string[];
+  permissions: Record<string, "read" | "write">;
+}
+
+/** Same token resolution as {@link openSession}, for a scope that is not a configured team repository (used by discovery). */
+export async function openScopedSession(rt: Runtime, scope: SessionScope): Promise<TeamSession> {
   const source = await teamTokenSource(rt);
   const auth = rt.config.github.auth;
   let granted: Record<string, string> | null = null;
@@ -123,7 +138,6 @@ async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession>
     effective = "github-pat";
   } else {
     effective = "github-app";
-    const [owner, name] = split(c.repo);
     let inner: TokenProvider | null = null;
     provider = async () => {
       if (!inner) {
@@ -132,9 +146,9 @@ async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession>
         inner = githubAppProvider({
           appId: auth.appId,
           privateKey,
-          owner,
-          repositories: [name],
-          permissions: teamPermissions(c),
+          owner: scope.owner,
+          ...(scope.repositories?.length ? { repositories: scope.repositories } : {}),
+          permissions: scope.permissions,
           fetch: rt.fetch,
           onToken: (info) => { granted = info.permissions; },
         });
@@ -148,7 +162,7 @@ async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession>
   return { gh: new GitHubClient({ auth: provider, fetch: rt.fetch }), source: effective, granted: () => granted, secrets: () => [...seenSecrets] };
 }
 
-const split = (repo: string): [string, string] => {
+export const split = (repo: string): [string, string] => {
   const [owner, name] = repo.split("/");
   return [owner!, name!];
 };
@@ -339,12 +353,19 @@ async function assertPushable(c: TeamSyncConfig, sess: TeamSession): Promise<voi
   const [owner, name] = split(c.repo);
   const info = await sess.gh.getRepo(owner, name);
   if (info.private !== true) throw new TeamSyncError("Das Team-Repository ist nicht privat. Es wird nichts geschrieben.", "team_repo_not_private");
+  const problem = pushProblem(c, sess, info);
+  if (problem) throw problem;
+}
+
+/** The "token cannot push" error, or null when GitHub says the token can (see assertPushable). Pure: no request. */
+export function pushProblem(c: Pick<TeamSyncConfig, "push">, sess: Pick<TeamSession, "source" | "granted">, info: { permissions: { push: boolean | null } | null }): TeamSyncError | null {
   const noPush = new TeamSyncError("Der Token darf in das Team-Repository nicht schreiben (oder das Recht laesst sich nicht feststellen). Es wird nichts geschrieben.", "team_repo_no_push");
-  if (info.permissions && info.permissions.push !== true) throw noPush;
+  if (info.permissions && info.permissions.push !== true) return noPush;
   if (sess.source === "github-app") {
     const g = sess.granted();
-    if (!g || g["contents"] !== "write" || (c.push.strategy === "pull-request" && g["pull_requests"] !== "write")) throw noPush;
-  } else if (!info.permissions) throw noPush;
+    if (!g || g["contents"] !== "write" || (c.push.strategy === "pull-request" && g["pull_requests"] !== "write")) return noPush;
+  } else if (!info.permissions) return noPush;
+  return null;
 }
 
 /** Vorschau fuer eine hochgeladene Team-Datei: was sie gegenueber dem lokalen Stand hinzufuegt. Aendert nichts. */
@@ -487,7 +508,11 @@ function howToExtend(source: TeamTokenSource, c: TeamSyncConfig): string {
  * ihn wieder) ob Schreiben geht. Zeigt nie einen Tokenwert.
  */
 export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean } = {}): Promise<TeamAccessCheck[]> {
-  const c = requireConfig(rt);
+  return checkTeamSyncAccessFor(rt, requireConfig(rt), options);
+}
+
+/** Same checks for a team sync setting that is not saved yet (the setup pickers check a mode before it is chosen). */
+export async function checkTeamSyncAccessFor(rt: Runtime, c: TeamSyncConfig, options: { deep?: boolean } = {}): Promise<TeamAccessCheck[]> {
   const source = await teamTokenSource(rt);
   const out: TeamAccessCheck[] = [];
   const label: Record<TeamTokenSource, string> = { own: "eigenes Team-Sync-Token", "github-pat": "GitHub-Integration (Token)", "github-app": "GitHub-Integration (App, Installationstoken nur fuer dieses Repository)", none: "keine" };
@@ -495,6 +520,7 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
   if (source === "none") return out;
   const [owner, name] = split(c.repo);
   const needed = `Noetig: ${neededRights(c).join(", ")}. ${howToExtend(source, c)}`;
+  let repoInfo: { permissions: { push: boolean | null } | null } | null = null;
   const sess = await openSession(rt, c);
   const gh = sess.gh;
   try {
@@ -503,6 +529,7 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
     if (head === null) return out;
     try {
       const info = await gh.getRepo(owner, name);
+      repoInfo = info;
       out.push(info.private === true ? { id: "private", label: "Repository privat", status: "pass", detail: c.repo } : { id: "private", label: "Repository privat", status: "fail", detail: "Das Team-Repository ist nicht privat. Schieben ist gesperrt, bis es privat ist." });
     } catch (e) {
       out.push({ id: "private", label: "Repository privat", status: "fail", detail: mapTeamSyncError(e).message });
@@ -527,6 +554,10 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
     const want = teamPermissions(c) as Record<string, string>;
     const missing = Object.entries(want).filter(([k, v]) => granted[k] !== v && !(v === "read" && granted[k] === "write"));
     out.push(missing.length === 0 ? { id: "granted", label: "Rechte der App-Installation", status: "pass", detail: Object.entries(granted).map(([k, v]) => `${k}: ${v}`).join(", ") } : { id: "granted", label: "Rechte der App-Installation", status: "fail", detail: `Fehlt: ${missing.map(([k, v]) => `${k}: ${v}`).join(", ")}. ${howToExtend(source, c)}` });
+  }
+  if (c.mode === "pull-push" && repoInfo) {
+    const problem = pushProblem(c, sess, repoInfo);
+    out.push(problem ? { id: "push", label: "Schieben erlaubt", status: "fail", detail: `${problem.message} ${needed}` } : { id: "push", label: "Schieben erlaubt", status: "pass" });
   }
   if (c.mode === "pull-push") {
     if (!options.deep) out.push({ id: "write", label: "Schreiben", status: "info", detail: "Nicht geprueft (Schreibtest legt kurz einen Probe-Zweig an und loescht ihn wieder). Mit Schreibtest pruefen." });
