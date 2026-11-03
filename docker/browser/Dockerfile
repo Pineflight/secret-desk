@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       chromium xvfb x11vnc novnc websockify socat curl ca-certificates \
-      fonts-liberation fonts-noto-color-emoji dumb-init \
+      fonts-liberation fonts-noto-color-emoji dumb-init openbox \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/share/novnc/vnc.html /usr/share/novnc/index.html \
  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin browser \
