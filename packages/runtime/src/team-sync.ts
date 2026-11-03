@@ -25,6 +25,8 @@ import {
   type TeamSyncConfig,
 } from "@secret-desk/core";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
+import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
+import { teamRights, teamRightsLabels, type TeamRights } from "./team-token-rights.js";
 
 /** Mindestabstand zwischen zwei Pushs (Entprellung): schnelle Folgeklicks erzeugen keine Folge-Commits. */
 export const MIN_PUSH_INTERVAL_MS = 30_000;
@@ -75,20 +77,25 @@ function requireConfig(rt: Runtime): TeamSyncConfig {
 export type TeamTokenSource = "own" | "github-pat" | "github-app" | "none";
 
 /** Rechte, die Team-Sync braucht (genau diese, nicht mehr): Lesen reicht fuer mode pull. */
-export function teamPermissions(c: TeamSyncConfig): { contents: "read" | "write"; pull_requests?: "write"; metadata: "read" } {
-  if (c.mode === "pull") return { contents: "read", metadata: "read" };
-  return c.push.strategy === "pull-request" ? { contents: "write", pull_requests: "write", metadata: "read" } : { contents: "write", metadata: "read" };
+export function teamPermissions(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): TeamRights {
+  return teamRights(c.mode, c.push.strategy);
 }
 
 /** Rechte als lesbare Liste fuer Befunde und Anleitungen. */
-export function neededRights(c: TeamSyncConfig): string[] {
-  const p = teamPermissions(c);
-  return [`Contents: ${p.contents === "write" ? "Read and write" : "Read"}`, ...(p.pull_requests ? ["Pull requests: Read and write"] : []), "Metadata: Read"];
+export function neededRights(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): string[] {
+  return teamRightsLabels(teamPermissions(c));
 }
 
-/** Quelle des Tokens: eigenes team-sync-Token (Sitzung, Tresor, Umgebung, op) hat Vorrang vor der GitHub-Integration. */
-export async function teamTokenSource(rt: Runtime): Promise<TeamTokenSource> {
-  if ((await rt.connections.status(TEAM_SYNC_CONNECTION)).connected) return "own";
+/** The scope a configured team sync asks the token source about. */
+export const scopeOf = (c: { repo: string; mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): TeamTokenScope => ({ repo: c.repo, mode: c.mode, strategy: c.push.strategy });
+
+/**
+ * Quelle des Tokens: eigenes team-sync-Token (Sitzung, Tresor, Umgebung, op) hat Vorrang vor der GitHub-Integration.
+ * A team token the portal created is valid for one repository and one set of rights: it counts only when `scope` names that
+ * repository (and, with a mode, rights it covers). A typed-in token has no such limit.
+ */
+export async function teamTokenSource(rt: Runtime, scope: TeamTokenScope = {}): Promise<TeamTokenSource> {
+  if ((await rt.connections.status(TEAM_SYNC_CONNECTION)).connected && metaFits(await readTeamTokenMeta(rt), scope)) return "own";
   const auth = rt.config.github.auth;
   if (auth.type === "pat") return (await rt.connections.status(GITHUB_CONNECTION)).connected ? "github-pat" : "none";
   return (await rt.connections.status(GITHUB_APP_KEY_CONNECTION)).connected ? "github-app" : "none";
@@ -112,7 +119,7 @@ export interface TeamSession {
  */
 async function openSession(rt: Runtime, c: TeamSyncConfig): Promise<TeamSession> {
   const [owner, name] = split(c.repo);
-  return openScopedSession(rt, { owner, repositories: [name], permissions: teamPermissions(c) });
+  return openScopedSession(rt, { owner, repositories: [name], permissions: teamPermissions(c), need: { mode: c.mode, strategy: c.push.strategy } });
 }
 
 /** What one session may touch: with a GitHub App the installation token is limited to exactly this. */
@@ -122,11 +129,14 @@ export interface SessionScope {
   /** Repository names (without owner). Empty or missing = every repository of the installation. */
   repositories?: string[];
   permissions: Record<string, "read" | "write">;
+  /** The mode (and push strategy) the token must serve: a team token made for fewer rights is then not used. */
+  need?: { mode: TeamSyncConfig["mode"]; strategy: TeamSyncConfig["push"]["strategy"] };
 }
 
 /** Same token resolution as {@link openSession}, for a scope that is not a configured team repository (used by discovery). */
 export async function openScopedSession(rt: Runtime, scope: SessionScope): Promise<TeamSession> {
-  const source = await teamTokenSource(rt);
+  const only = scope.repositories?.length === 1 ? `${scope.owner}/${scope.repositories[0]}` : undefined;
+  const source = await teamTokenSource(rt, { ...(only ? { repo: only } : {}), ...(scope.need ? { mode: scope.need.mode, strategy: scope.need.strategy } : {}) });
   const auth = rt.config.github.auth;
   let granted: Record<string, string> | null = null;
   const seenSecrets: string[] = [];
@@ -199,7 +209,7 @@ async function guarded<T>(rt: Runtime, fn: () => Promise<T>): Promise<T> {
 export async function teamSyncStatus(rt: Runtime): Promise<TeamSyncStatus> {
   const c = rt.config.teamSync;
   const st = await readTeamSyncState(statePath(rt));
-  const tokenSource = c ? await teamTokenSource(rt) : "none";
+  const tokenSource = c ? await teamTokenSource(rt, scopeOf(c)) : "none";
   const connected = tokenSource !== "none";
   const last = rt.teamSyncMemo.lastCheck as TeamSyncCheck | null;
   return {
@@ -466,7 +476,7 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
     const fromEnv = teamSyncFromEnv(env);
     if (fromEnv && !rt.config.teamSync) {
       await setupTeamSync(rt, fromEnv);
-      if (inventoryEmpty(rt) && (await teamTokenSource(rt)) !== "none") {
+      if (inventoryEmpty(rt) && (await teamTokenSource(rt, rt.config.teamSync ? scopeOf(rt.config.teamSync) : {})) !== "none") {
         const check = await checkTeamSync(rt);
         // Unattended: only entries that are new are applied. Changed or removed entries stay pending for the portal preview.
         if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) {
@@ -479,7 +489,7 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
       return;
     }
     const c = rt.config.teamSync;
-    if (c?.pullOnStart && (await teamTokenSource(rt)) !== "none") await checkTeamSync(rt);
+    if (c?.pullOnStart && (await teamTokenSource(rt, scopeOf(c))) !== "none") await checkTeamSync(rt);
   } catch (e) {
     rt.teamSyncMemo.lastError = mapTeamSyncError(e).message;
   }
@@ -513,7 +523,7 @@ export async function checkTeamSyncAccess(rt: Runtime, options: { deep?: boolean
 
 /** Same checks for a team sync setting that is not saved yet (the setup pickers check a mode before it is chosen). */
 export async function checkTeamSyncAccessFor(rt: Runtime, c: TeamSyncConfig, options: { deep?: boolean } = {}): Promise<TeamAccessCheck[]> {
-  const source = await teamTokenSource(rt);
+  const source = await teamTokenSource(rt, scopeOf(c));
   const out: TeamAccessCheck[] = [];
   const label: Record<TeamTokenSource, string> = { own: "eigenes Team-Sync-Token", "github-pat": "GitHub-Integration (Token)", "github-app": "GitHub-Integration (App, Installationstoken nur fuer dieses Repository)", none: "keine" };
   out.push({ id: "source", label: "Token-Quelle", status: source === "none" ? "fail" : "info", detail: label[source] });

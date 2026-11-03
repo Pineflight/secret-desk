@@ -10,7 +10,7 @@ This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRA
 
 | Recipe | Creates | Status |
 |---|---|---|
-| `github-fine-grained-token` | GitHub fine-grained personal access token | not verified |
+| `github-fine-grained-token` | GitHub fine-grained personal access token (also used for the team token, see [TEAM.md](TEAM.md)) | not verified |
 | `supabase-access-token` | Supabase access token | full run verified live 2026-11-03 (five scoped tokens) |
 | `openai-api-key` | OpenAI API key (owner, expiry, permission level); can revoke | full run verified live 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | `vesselapi-api-key` | VesselAPI API key (30, 60 or 90 days on the free plan); can delete the old key | full run verified live 2026-11-03 (two keys) |
