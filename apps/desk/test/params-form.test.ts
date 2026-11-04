@@ -95,6 +95,8 @@ describe("conversion", () => {
   });
   it("round-trips stored values into a draft", () => {
     expect(toDraft(SPECS, { ttl: 30, permissions: ["p1"], accountId: "" })).toEqual({ ttl: "30", permissions: ["p1"] });
+    // a YAML boolean for an enum with "true"/"false" options is shown as text
+    expect(toDraft([spec({ key: "flag", type: "enum", options: [{ value: "true", label: "Ja", labelEn: "Yes" }, { value: "false", label: "Nein", labelEn: "No" }] })], { flag: true })).toEqual({ flag: "true" });
   });
   it("validates type, range and options like the server", () => {
     const base = { accountId: "a", permissions: ["p"] };

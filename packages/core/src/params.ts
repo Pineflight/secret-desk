@@ -142,7 +142,8 @@ function typeOk(spec: ParamSpec, v: unknown): boolean {
     case "string":
       return typeof v === "string" && v.trim() !== "";
     case "enum":
-      return typeof v === "string";
+      // A boolean is accepted when an option spells it ("true"/"false"), so a YAML `allZones: true` is valid.
+      return typeof v === "string" || (typeof v === "boolean" && (spec.options ?? []).some((o) => o.value === String(v)));
     case "stringList":
       return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x !== "");
     case "url":
@@ -207,7 +208,7 @@ export function validateEntryParams(
       out.push(problem(spec, "wrong_type", `Parameter ${spec.key}: "${(v as string).trim()}" hat nicht das erwartete Format`));
       continue;
     }
-    if (spec.type === "enum" && spec.options && !spec.options.some((o) => o.value === v)) {
+    if (spec.type === "enum" && spec.options && !spec.options.some((o) => o.value === String(v))) {
       out.push(problem(spec, "not_in_options", `Parameter ${spec.key}: "${String(v)}" ist nicht erlaubt (erlaubt: ${spec.options.map((o) => o.value).join(", ")})`));
     }
   }

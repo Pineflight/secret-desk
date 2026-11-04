@@ -26,10 +26,10 @@ describe("specifications", () => {
   });
   it("cloudflare-token declares presets and the zone parameter", () => {
     const perms = get("cloudflare-token").params!.find((s) => s.key === "permissions")!;
-    expect(perms.presets!.map((p) => p.label)).toEqual(["Worker-Deploy", "Worker-Deploy mit Custom Domain"]);
+    expect(perms.presets!.map((p) => p.label)).toEqual(["Worker-Deploy", "Worker-Deploy mit Custom Domain", "Terraform plan (lesend)", "Terraform apply (schreibend)", "Cloudflare for SaaS (Custom Hostnames)"]);
     expect(perms.presets![0]!.values["permissions"]).toEqual(["Workers Scripts Write", "Account Settings Read"]);
     expect(perms.presets![1]!.needs).toEqual(["zoneId"]);
-    expect(get("cloudflare-token").params!.map((s) => s.key)).toEqual(["accountId", "permissions", "zoneId"]);
+    expect(get("cloudflare-token").params!.map((s) => s.key)).toEqual(["accountId", "permissions", "zoneId", "zones", "allZones"]);
   });
   it("validation without any network call names the missing keys", () => {
     const { fetch, calls } = mockFetch({ status: 599 });

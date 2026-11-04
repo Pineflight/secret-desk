@@ -138,7 +138,7 @@ describe("GET secrets/:id/params", () => {
     const r = await call(deps, ui(deps, "GET", "secrets/cf-deploy-acme-app-staging/params"));
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ secretId: "cf-deploy-acme-app-staging", provider: "cloudflare-token", connection: "cloudflare", connected: true, complete: false, unknown: { custom: "keep-me" } });
-    expect(r.json.specs.map((s: { key: string }) => s.key)).toEqual(["accountId", "permissions", "zoneId"]);
+    expect(r.json.specs.map((s: { key: string }) => s.key)).toEqual(["accountId", "permissions", "zoneId", "zones", "allZones"]);
     expect(r.json.problems.map((p: { key: string; code: string }) => [p.key, p.code])).toEqual([["accountId", "missing"], ["permissions", "missing"]]);
     expect(r.json.resources.accountId).toMatchObject({ status: "ok", suggested: "acc1" });
     expect(r.json.resources.zoneId.options[0]).toMatchObject({ value: "z1", suggestedFor: { score: 2 } });
@@ -246,7 +246,7 @@ describe("integration defaults and resources", () => {
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ connection: "cloudflare", connected: true, defaults: {} });
     expect(r.json.defaultSpecs.map((s: { key: string }) => s.key)).toEqual(["accountId"]);
-    expect(Object.keys(r.json.resources)).toEqual(["cloudflare.account", "cloudflare.permissionGroups", "cloudflare.zone"]);
+    expect(Object.keys(r.json.resources)).toEqual(["cloudflare.account", "cloudflare.permissionGroups", "cloudflare.zone", "cloudflare.zoneName"]);
     expect(r.json.resources["cloudflare.account"]).toMatchObject({ status: "ok", suggested: "acc1" });
     expect(r.json.resources["cloudflare.zone"].suggested).toBe("z1");
     expect(r.json.resources["cloudflare.permissionGroups"].suggested).toBeNull();

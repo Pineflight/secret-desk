@@ -1,5 +1,6 @@
 import { ProviderRegistry } from "@secret-desk/core";
 import { cloudflareAccessProviders } from "./cloudflare-access.js";
+import { cloudflareR2Providers } from "./cloudflare-r2.js";
 import { cloudflareProviders } from "./cloudflare.js";
 import { grafanaProviders } from "./grafana.js";
 import { manualProviders } from "./manual.js";
@@ -15,6 +16,8 @@ export * from "./http.js";
 export * from "./random.js";
 export * from "./cloudflare.js";
 export * from "./cloudflare-access.js";
+export * from "./cloudflare-r2.js";
+export * from "./sigv4.js";
 export * from "./supabase.js";
 export * from "./stripe.js";
 export * from "./resend.js";
@@ -31,6 +34,7 @@ export function createDefaultRegistry(): ProviderRegistry {
     ...randomProviders,
     ...cloudflareProviders,
     ...cloudflareAccessProviders,
+    ...cloudflareR2Providers,
     ...supabaseProviders,
     ...stripeProviders,
     ...resendProviders,
