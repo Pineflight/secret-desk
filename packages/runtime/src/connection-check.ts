@@ -12,6 +12,8 @@ import {
   writeConnectionLabel,
 } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
+import { stripeKeyCarriesAccount } from "@secret-desk/core";
+export { stripeKeyCarriesAccount };
 import type { Runtime } from "./runtime.js";
 
 /** Feste Namen der Probe-Eintraege des Schreibtests. */
@@ -193,17 +195,6 @@ async function checkStripe(rt: Runtime, id: string, token: string): Promise<Conn
   return out;
 }
 
-/**
- * Whether a Stripe key's body carries the account id. A restricted key without account read access gets 403 from
- * /v1/account, so the check falls back to the key itself: Stripe API keys start with `<prefix>_<mode>_51` followed by the
- * account id without its `acct_1` (checked live on 2026-11-04 for a restricted sandbox key). Not an official guarantee,
- * so it is used only when the API cannot answer.
- */
-export function stripeKeyCarriesAccount(key: string, account: string): boolean {
-  const m = /^(?:rk|sk)_(?:test|live)_51([A-Za-z0-9]+)$/.exec(key);
-  const tail = /^acct_1([A-Za-z0-9]+)$/.exec(account)?.[1];
-  return !!m && !!tail && tail.length >= 10 && m[1]!.startsWith(tail);
-}
 
 /** A connection bound to an account must hold a key of that very account (the mistake: a key of another account of the organization). */
 async function checkStripeAccount(rt: Runtime, id: string, account: string, token: string): Promise<ConnectionCheckItem> {

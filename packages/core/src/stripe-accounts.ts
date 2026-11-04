@@ -82,3 +82,15 @@ export async function listStripeAccounts(store: ConnectionStore): Promise<Stripe
   for (const a of found.values()) a.modes.sort((x, y) => (x === y ? 0 : x === "sandbox" ? -1 : 1));
   return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
+
+/**
+ * Whether a Stripe key's body carries the account id. A restricted key without account read access gets 403 from
+ * /v1/account, so the check falls back to the key itself: Stripe API keys start with `<prefix>_<mode>_51` followed by the
+ * account id without its `acct_1` (checked live on 2026-11-04 for a restricted sandbox key). Not an official guarantee,
+ * so it is used only when the API cannot answer.
+ */
+export function stripeKeyCarriesAccount(key: string, account: string): boolean {
+  const m = /^(?:rk|sk)_(?:test|live)_51([A-Za-z0-9]+)$/.exec(key);
+  const tail = /^acct_1([A-Za-z0-9]+)$/.exec(account)?.[1];
+  return !!m && !!tail && tail.length >= 10 && m[1]!.startsWith(tail);
+}
