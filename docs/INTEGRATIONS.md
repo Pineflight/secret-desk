@@ -137,7 +137,9 @@ The card links to `https://grafana.com/profile/org` (forwards signed-in users to
 
 Why: creates and revokes access policy tokens (`grafana-access-policy-token`) of a Grafana Cloud organization on grafana.com, for example for Terraform or a log shipper. Unlike `grafana` it is not tied to a stack.
 
-An access policy for secret-desk with only the scopes `accesspolicies:write` (and `accesspolicies:read` for discovery), and a short-lived token for it. The region and the id of the target policy are parameters of the inventory entry. The API shapes are not verified live.
+An access policy for secret-desk with only the scopes `accesspolicies:read`, `accesspolicies:write` and `stacks:read`, plus `accesspolicies:delete` (revoke tokens) and `stack-service-accounts:write` (create service accounts in a stack through the Cloud API) if grafana.com offers them (the last two names are from memory), and a token with a 90-day expiry for it. The region and the id of the target policy are parameters of the inventory entry. The API shapes are not verified live.
+
+It is created by the **guided sign-in** of the Grafana card (*Connect with sign-in*, facade `grafana`, recipe `grafana-cloud-access-policy`): you sign in at grafana.com in the portal (email and password, Google, GitHub or Microsoft; one-time codes are asked for in the portal), and the signed-in browser creates the policy and the token, which the portal stores as `grafana-cloud` and tests. The card then shows both connections as lines (the stack token you paste, the account token the sign-in made); the keys section of the dialog offers *Connect with sign-in* on the account line and *Set up* on the stack line. Nothing of this flow is verified live. With the account token the portal can create stack service accounts and tokens through the Cloud API when the stack token cannot ([PROVIDERS.md](PROVIDERS.md#grafana-service-accounts-without-manual-steps)).
 
 ## Guided sign-in (provider facade)
 
@@ -172,6 +174,7 @@ A button on every connected card (`POST /api/ui/connections/<id>/check`, portal 
 | Resend | `GET /api-keys` | 401 or 403 means the key lacks Full access |
 | RevenueCat | `GET /v2/projects?limit=1` | 401 invalid key, 403 lacks *Project configuration: Read only*, 429 rate limit (60 requests per minute), a key not starting with `sk_` is flagged |
 | Grafana | none | Cannot be tested without a stack address; checked when issuing |
+| Grafana Cloud account (`grafana-cloud`) | `GET https://grafana.com/api/v1/accesspolicies?region=us` | 200 connected, 401 rejected, 403 valid but may not list policies; a token that does not start with `glc_` is the wrong kind (not verified live) |
 | GitHub App key | none | Checked on first access: test through the GitHub connection |
 
 An expiry reported by the provider is shown on the card instead of the manual entry. Messages never contain the token.

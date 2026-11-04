@@ -14,7 +14,7 @@ service, not only against mocks; [PROVIDERS.md](PROVIDERS.md) has the per-endpoi
 | Supabase | API keys (secret, publishable), reads the service role key, database password | project ref, project URL, publishable key | secret keys and service role read: yes (2026-11-02); database password: no |
 | Stripe | webhook endpoints with their signing secret (sandbox and live), one connection per account and mode (`stripe:<acct_id>:<mode>`) with an account check | n/a | sandbox: yes (2026-11-02); per-account connections and the account check: no |
 | Resend | sending API keys limited to one domain | domain id, domain name | yes (2026-11-02) |
-| Grafana Cloud | service account tokens | n/a | no |
+| Grafana Cloud | service account tokens (the account can be found or created by name, through the stack or the Cloud API), Cloud access policy tokens | n/a | no |
 
 ### Created in a browser (recipes)
 
@@ -24,6 +24,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 |---|---|---|
 | GitHub | fine-grained personal access tokens | recipe scaffold, not verified |
 | Supabase | personal access tokens with an organization, project and permission preset | verified live: full run 2026-11-03 (five scoped tokens) |
+| Grafana Cloud (facade) | one browser step on grafana.com (`grafana-cloud-access-policy`, portal sign-in only) creates an access policy and a token, stored as `grafana-cloud`; after that stack service accounts and tokens are created through the Cloud API | API-based after one browser step; **not verified live** (sign-in, selectors, scope names and the Cloud API route are from memory) |
 | OpenAI (facade) | one browser step creates the organization Admin API key (`openai-admin-key`), after that project keys are issued through the Admin API (service accounts) | API-based after one browser step; **verified live 2026-11-03**: admin key created, stored and tested through the signed-in browser (sign-in form, single-sign-on methods and revoke not verified) |
 | Anthropic (facade and recipe) | browser for key creation (the Admin API cannot create keys: `anthropic-api-key`, works without an admin key; `anthropic-admin-key` is optional and organization only), API for the checks: workspaces, key check (`/v1/models`), deactivate and archive | **partly verified live (2026-11-04, German Console, individual organization)**: sign-in by email code, cookie banner, the missing admin key page and the key dialog fields; **not verified**: the view after creation (capture), other expiries and workspaces, the revoke path, admin key creation in an organization; the API calls follow the Admin API reference |
 | OpenAI (recipe) | API keys (owner, expiry, permissions) | verified live: full run 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
@@ -72,7 +73,7 @@ secret-desk has no telemetry and no Pineflight server. It talks only to the serv
 | Supabase Management API | Create API keys, read projects and keys | Project refs, key names |
 | Stripe API | Create webhook endpoints | Endpoint URL, event types |
 | Resend API | Create sending keys, read domains | Key names, domain ids |
-| Grafana Cloud API | Create service account tokens | Token names |
+| Grafana Cloud API | Create service account tokens, find or create stack service accounts, create access policy tokens | Token names, service account names and roles |
 | RevenueCat API v2 | Read projects, apps and public SDK keys | Project and app ids |
 | Provider websites (browser recipes) | Create tokens where no API exists | What the recipe types into the provider's own form; with the guided sign-in also the email and password you entered for that run (only on the recipe's host, never stored) |
 | Your team repository (optional team sync) | Share the value-free configuration | Inventory metadata |

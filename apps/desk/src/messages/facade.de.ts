@@ -107,6 +107,7 @@ export default {
   "facade.promise.revenuecat": "Der Schlüssel bekommt nur „Project configuration: Read only“ und läuft nicht ab. Ein KI-Agent kann diesen Ablauf nicht starten.",
   "facade.promise.stripe": "Eingeschränkter Schlüssel mit nur den Rechten der gewählten Vorlage, für ein Konto und einen Modus.",
   "facade.promise.openai": "Admin-Schlüssel der Organisation; secret-desk nutzt ihn nur, um Projektschlüssel zu erzeugen und zu löschen.",
+  "facade.promise.grafana": "Token einer Zugriffsrichtlinie deiner Grafana-Cloud-Organisation, 90 Tage gültig. Es darf Zugriffsrichtlinien und deren Tokens verwalten, Stacks lesen und Service-Accounts im Stack anlegen; secret-desk nutzt es nur dafür. Ein KI-Agent kann diesen Ablauf nicht starten.",
   "facade.promise.anthropic": "Optionaler Admin-Schlüssel einer Anthropic-Organisation; secret-desk nutzt ihn, um Workspaces aufzulisten und API-Schlüssel zu prüfen und zu deaktivieren. Ohne ihn (ein persönliches Konto hat keinen) werden API-Schlüssel trotzdem im angemeldeten Browser angelegt.",
   "facade.browserOnlyTitle": "Angemeldet. API-Schlüssel kommen aus dem Browser",
   "facade.browserOnlyText": "Dieses Konto hat keine Admin-Schlüssel: dafür braucht es eine Anthropic-Organisation. Das ist in Ordnung, denn API-Schlüssel werden im angemeldeten Browser angelegt. Der Browser ist bereit.",

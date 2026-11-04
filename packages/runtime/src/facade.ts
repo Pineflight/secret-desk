@@ -69,6 +69,11 @@ export interface FacadeDescriptor {
    * as done ("ready, keys come from the browser") instead of failing.
    */
   keyOptional?: boolean;
+  /**
+   * The integration key expires after this many days (the recipe asks the provider for that expiry). The portal stores the
+   * expiry day with the connection, so the connection health shows it before the key stops working.
+   */
+  keyExpiryDays?: number;
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -131,6 +136,22 @@ export const FACADES: readonly FacadeDescriptor[] = [
     project: null,
     inputs: [],
     summary: [{ key: "workspaces", kind: "anthropic.workspace" }],
+  },
+  {
+    // The Cloud access policy token is created once through the signed-in browser (grafana.com, portal sign-in only); after that
+    // the portal creates stack service accounts and tokens through the Cloud API. The facade belongs to the vendor `grafana`,
+    // whose card also holds the stack connection (`grafana`), which stays a pasted token.
+    id: "grafana",
+    label: "Grafana Cloud",
+    recipeId: "grafana-cloud-access-policy",
+    connectionId: "grafana-cloud",
+    keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
+    keyParams: { expiry: "90 days" },
+    keyExpiryDays: 90,
+    promise: "facade.promise.grafana",
+    project: null,
+    inputs: [],
+    summary: [],
   },
   {
     // One Stripe organization holds several accounts, each with a sandbox and a live mode. The human names the account and the
@@ -754,13 +775,14 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
   // Store it as the provider's connection. A human started this flow, so this counts as a human action.
   t.phase("stored", { text: "Storing the key.", status: "running" });
   let storedIn: "vault" | "session";
+  const expires = d.keyExpiryDays ? new Date(now.getTime() + d.keyExpiryDays * 86_400_000).toISOString().slice(0, 10) : null;
   try {
     if (rt.connections.vault) {
-      await rt.connections.vault.set(connectionId, value.reveal(), null);
+      await rt.connections.vault.set(connectionId, value.reveal(), expires);
       rt.connections.session.delete(connectionId);
       storedIn = "vault";
     } else {
-      rt.connections.session.set(connectionId, value, null);
+      rt.connections.session.set(connectionId, value, expires);
       storedIn = "session";
     }
   } catch {

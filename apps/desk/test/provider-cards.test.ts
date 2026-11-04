@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserNote, buildCards, cardMatches, connectedKeyCount, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
+import { browserNote, buildCards, cardMatches, connectedKeyCount, detailKeys, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
 
 const v = (id: string, label: string, category: string, rest: Partial<VendorInfo> = {}): VendorInfo => ({ id, label, category, icon: null, connections: [], connectionPrefixes: [], legacyConnections: [], optionalConnections: [], providers: [], recipes: [], signInPlanned: false, ...rest });
 const catalog: VendorsResponse = {
@@ -295,5 +295,31 @@ describe("card status for browser-only providers", () => {
   });
   it("a check from this page session still counts when the server remembers nothing", () => {
     expect(one("dataapi", base({ signedIn: new Set(["dataapi"]) })).status).toBe("signin");
+  });
+});
+
+describe("detailKeys: the keys section of the integration dialog", () => {
+  const grafana = catalog.vendors.concat([v("grafana", "Grafana Cloud", "payments", { connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token"], recipes: ["grafana-cloud-access-policy"] })]);
+  const cat = { ...catalog, vendors: grafana };
+  const gFacade: FacadeRow = { id: "grafana", label: "Grafana Cloud", available: true, connected: false, reason: null, connectionId: "grafana-cloud" };
+  const build = (connections: ConnectionRow[], facades: FacadeRow[]) => buildCards({ catalog: cat, connections, providers: [], recipes: [{ id: "grafana-cloud-access-policy", label: "Grafana Cloud access policy token" }], facades }).find((c) => c.id === "grafana")!;
+
+  it("lists both Grafana connections: the stack token is pasted, the Cloud token comes from the sign-in", () => {
+    const c = build([conn("grafana", "grafana", "primary", false), conn("grafana-cloud", "grafana", "optional", false)], [gFacade]);
+    expect(c.signIn.state).toBe("facade");
+    expect(detailKeys(c).map((k) => [k.id, k.action])).toEqual([["grafana", "paste"], ["grafana-cloud", "signin"]]);
+  });
+  it("a connected Cloud token has no button of its own (the sign-in section reconnects it); the stack token stays editable", () => {
+    const c = build([conn("grafana", "grafana", "primary", true, 40), conn("grafana-cloud", "grafana", "optional", true, 80)], [{ ...gFacade, connected: true }]);
+    expect(detailKeys(c).map((k) => [k.id, k.action])).toEqual([["grafana", "paste"], ["grafana-cloud", "none"]]);
+  });
+  it("without a facade every key can be set up by pasting", () => {
+    const c = build([conn("grafana", "grafana", "primary", false), conn("grafana-cloud", "grafana", "optional", false)], []);
+    expect(detailKeys(c).map((k) => [k.id, k.action])).toEqual([["grafana", "paste"], ["grafana-cloud", "paste"]]);
+  });
+  it("keeps the old behavior of a single-key facade (only connected keys, no buttons) and of Stripe (per-account keys managed by the sign-in)", () => {
+    expect(detailKeys(card("stripe")).map((k) => [k.id, k.action])).toEqual([["stripe:acct_1AbC:live", "none"], ["stripe:acct_1AbC:sandbox", "none"], ["stripe-test", "none"]]);
+    const one = buildCards({ catalog: { ...catalog, vendors: [v("aico", "AI Co", "code", { connections: ["aico"] })] }, connections: [conn("aico", "aico", "primary", false)], providers: [], recipes: [], facades: [{ id: "aico", label: "AI Co", available: true, connected: false, reason: null, connectionId: "aico" }] })[0]!;
+    expect(detailKeys(one)).toEqual([]);
   });
 });

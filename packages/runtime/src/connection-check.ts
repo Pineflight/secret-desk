@@ -258,6 +258,23 @@ async function checkAnthropic(rt: Runtime, token: string): Promise<ConnectionChe
   return out;
 }
 
+/**
+ * Cloud access policy token of Grafana Cloud: `GET https://grafana.com/api/v1/accesspolicies?region=us`. The endpoint and its answers
+ * are from memory of the Cloud API (not verified live). 200 = works, 401 = rejected; 403 means the token authenticated but its
+ * scopes do not allow listing policies, which says nothing against it; other answers cannot be told apart from a wrong endpoint.
+ */
+async function checkGrafanaCloud(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
+  const out: ConnectionCheckItem[] = [];
+  if (!token.startsWith("glc_")) out.push(item("prefix", "Tokenart", "fail", "Das ist kein Grafana-Cloud-Access-Policy-Token (es beginnt mit glc_). Stack-Tokens (glsa_) gehoeren zur Verbindung Grafana."));
+  const r = await get(rt, token, "https://grafana.com/api/v1/accesspolicies?region=us");
+  if (r.status === 200) out.push(item("token", "Token gueltig", "pass", "Zugriffsrichtlinien lassen sich lesen."));
+  else if (r.status === 401) out.push(item("token", "Token gueltig", "fail", "Grafana Cloud lehnt den Token ab (HTTP 401). Er ist ungueltig, abgelaufen oder widerrufen. Neu verbinden."));
+  else if (r.status === 403) out.push(item("token", "Token gueltig", "info", "Der Token ist gueltig, darf aber keine Zugriffsrichtlinien lesen (HTTP 403)."));
+  else if (r.status === 429) out.push(item("token", "Token gueltig", "warn", "Grafana Cloud begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
+  else out.push(item("token", "Token gueltig", "info", `Mit dieser Abfrage nicht pruefbar (${httpFail(r.status)}).`));
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GitHub
 // ---------------------------------------------------------------------------
@@ -453,6 +470,7 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     else if (id === "resend") checks = await checkResend(rt, token);
     else if (id === "revenuecat") checks = await checkRevenueCat(rt, token);
     else if (id === "openai") checks = await checkOpenai(rt, token);
+    else if (id === "grafana-cloud") checks = await checkGrafanaCloud(rt, token);
     else if (id === "anthropic") checks = await checkAnthropic(rt, token);
     else checks = [item("token", "Token", "info", "Fuer diese Verbindung gibt es keinen Test.")];
     return { id, ok: !checks.some((c) => c.status === "fail"), checks };
