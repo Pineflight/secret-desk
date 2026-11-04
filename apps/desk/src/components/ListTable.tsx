@@ -23,11 +23,11 @@ export function TagFilterChip({ tag, label, removeLabel, onClear }: { tag: strin
 }
 
 export const LIST_ROW_CLASS = "align-top hover:bg-page";
-export const LIST_CELL_CLASS = "px-3 py-2";
+export const LIST_CELL_CLASS = "px-3 py-1.5";
 /** Columns that only fit from 1280 px up; below that the row shows their content inside the name cell. */
-export const WIDE_CELL_CLASS = `${LIST_CELL_CLASS} max-xl:hidden`;
+export const WIDE_CELL_CLASS = `${LIST_CELL_CLASS} whitespace-nowrap max-xl:hidden`;
 /** Actions cell: vertically centered, as narrow as its content, hidden below 640 px (the name cell repeats the group there). */
-export const ACTIONS_CELL_CLASS = "w-px whitespace-nowrap px-3 py-2 align-middle max-sm:hidden";
+export const ACTIONS_CELL_CLASS = "w-px whitespace-nowrap px-3 py-1.5 align-middle max-sm:hidden";
 /** One compact icon group of the same width in every row, whatever the kind. */
 export const ACTIONS_GROUP_CLASS = "flex w-[10.5rem] items-center justify-end gap-0.5";
 

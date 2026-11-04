@@ -19,10 +19,10 @@ import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader
 import { filterBySearch, highlightTerms } from "@/lib/page-search";
 import { usePageSearch } from "@/lib/use-page-search";
 import { limitGroups } from "@/lib/paging";
+import { splitPlaceChips } from "@/lib/place-chips";
 import { allRepos, groupItems, repoNames, sortItems, type SortKey } from "@/lib/browse";
 import { ApiError, api, enc } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
-import { truncate } from "@/lib/tags";
 import { useQuery } from "@/lib/hooks";
 import { summaryInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
@@ -264,7 +264,7 @@ export default function EntriesPage() {
   ];
   const loadingFirst = (secrets.loading && !secrets.data) || (variables.loading && !variables.data);
   const loaded = secrets.data && variables.data;
-  const TABLE_COLUMN_CLASSES = ["", "max-xl:hidden", "max-xl:hidden", "max-xl:hidden", "max-xl:hidden", "max-sm:hidden", "w-px max-sm:hidden"];
+  const TABLE_COLUMN_CLASSES = ["", "max-[1699px]:hidden", "max-[1699px]:hidden", "max-xl:hidden", "max-xl:hidden", "max-sm:hidden", "w-px max-sm:hidden"];
   const tableColumns = [t("entries.colName"), t("entries.colKind"), t("entries.colStage"), t("entries.colValue"), t("entries.colTargets"), t("entries.colStatus"), t("entries.colActions")];
 
   return (
@@ -424,7 +424,16 @@ function KindBadge({ kind }: { kind: EntryKind }) {
 }
 
 function Targets({ places }: { places: SecretView["places"] }) {
-  return <div className="flex min-w-0 flex-wrap gap-1 [&>span]:max-w-full [&>span]:break-words [&>span]:whitespace-normal">{places.length ? places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>;
+  if (!places.length) return <span className="text-muted-text">–</span>;
+  const labels = places.map(placeText);
+  const { shown, hidden } = splitPlaceChips(labels);
+  const chip = "inline-block min-w-0 max-w-[14rem] truncate whitespace-nowrap rounded-full bg-page px-2 py-px text-[11px] leading-4 text-ink ring-1 ring-inset ring-line";
+  return (
+    <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 xl:max-w-[7rem] min-[1700px]:max-w-[24rem]" title={labels.join("\n")}>
+      {shown.map((l, i) => <span key={i} className={chip} title={l}>{l}</span>)}
+      {hidden > 0 ? <span className={`${chip} shrink-0`}>+{hidden}</span> : null}
+    </div>
+  );
 }
 
 function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRow; renewal: RenewalWarning | undefined; terms: string[]; tag: string; setTag: (v: string) => void; onEdit: () => void }) {
@@ -436,38 +445,44 @@ function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRo
       <RowIconButton label={t("entries.openSecret", { name: s.name })} icon="chevron" onClick={() => router.push(`/secrets/${enc(s.id)}`)} />
     </div>
   );
-  const status = (
+  const statusFor = (compact: boolean) => (
     <>
-      <div className="flex flex-wrap items-center gap-1.5"><StatusBadge level={s.status} /><ProviderChip automatic={s.automatic} browser={s.browser} readOnly={s.readOnly} /></div>
-      <p className="mt-1 text-xs text-muted-text">{s.verifiedAt ? <>{t("entries.confirmed")} <span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` · ${s.verifiedBy}` : ""}</> : `${t("entries.confirmed")}: ${t("secrets.never")}`}</p>
+      <div className="flex items-center gap-1.5"><StatusBadge level={s.status} /><span className={compact ? "max-[1699px]:hidden" : undefined}><ProviderChip automatic={s.automatic} browser={s.browser} readOnly={s.readOnly} /></span></div>
+      <p className={`mt-0.5 text-xs text-muted-text${compact ? " max-[1699px]:hidden" : ""}`}>{s.verifiedAt ? <>{t("entries.confirmed")} <span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` · ${s.verifiedBy}` : ""}</> : `${t("entries.confirmed")}: ${t("secrets.never")}`}</p>
     </>
   );
   return (
     <tr className={LIST_ROW_CLASS} data-kind="secret">
-      <td className={LIST_CELL_CLASS}>
-        <Link href={`/secrets/${enc(s.id)}`} className="break-words font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
-        <p className="break-all text-xs text-muted"><Marked text={s.id} terms={terms} /></p>
+      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:!py-1`}>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <Link href={`/secrets/${enc(s.id)}`} className="shrink-0 break-words font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
+          {s.description ? <span className="min-w-0 flex-1 truncate text-xs text-muted-text max-xl:hidden" title={s.description}>{s.description}</span> : null}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 xl:max-h-5 xl:flex-nowrap xl:overflow-hidden">
+          <span className="min-w-0 shrink truncate text-xs text-muted"><Marked text={s.id} terms={terms} /></span>
+          <span className="hidden items-center gap-1 xl:inline-flex min-[1700px]:hidden"><StageBadge stage={s.stage} /></span>
+          {s.tags.length > 0 ? <TagPills tags={s.tags} onPick={setTag} active={tag} /> : null}
+          {needsParams(s) ? (
+            <span title={s.params.missing.join(", ")}>
+              <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
+            </span>
+          ) : null}
+          {renewal ? <RenewalBadge warning={renewal} /> : null}
+        </div>
+        {s.description ? <p className="mt-0.5 truncate text-xs text-muted-text xl:hidden" title={s.description}>{s.description}</p> : null}
         <div className="mt-1 flex flex-wrap items-center gap-1.5 xl:hidden"><KindBadge kind="secret" /><StageBadge stage={s.stage} /><span className="tabular text-xs text-muted-text">{formatDate(s.expires)} · {daysLabel(s.daysLeft)}</span></div>
-        {s.description ? <p className="mt-1 line-clamp-2 max-w-[16rem] break-words text-xs text-muted-text" title={s.description}>{truncate(s.description, 90)}</p> : null}
-        {s.tags.length > 0 ? <div className="mt-1"><TagPills tags={s.tags} onPick={setTag} active={tag} /></div> : null}
-        {needsParams(s) ? (
-          <div className="mt-1" title={s.params.missing.join(", ")}>
-            <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
-          </div>
-        ) : null}
-        {renewal ? <div className="mt-1"><RenewalBadge warning={renewal} /></div> : null}
         <div className="mt-1 xl:hidden"><Targets places={s.places} /></div>
-        <div className="mt-2 sm:hidden">{status}</div>
+        <div className="mt-2 sm:hidden">{statusFor(false)}</div>
         <div className="mt-2 sm:hidden">{actions}</div>
       </td>
-      <td className={WIDE_CELL_CLASS}><KindBadge kind="secret" /></td>
-      <td className={WIDE_CELL_CLASS}><StageBadge stage={s.stage} /></td>
+      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><KindBadge kind="secret" /></td>
+      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><StageBadge stage={s.stage} /></td>
       <td className={WIDE_CELL_CLASS}>
         <div className="tabular">{formatDate(s.expires)}</div>
         <div className="tabular text-xs text-muted-text">{daysLabel(s.daysLeft)}</div>
       </td>
       <td className={WIDE_CELL_CLASS}><Targets places={s.places} /></td>
-      <td className={`${LIST_CELL_CLASS} max-sm:hidden`}>{status}</td>
+      <td className={`${LIST_CELL_CLASS} whitespace-nowrap max-sm:hidden`}>{statusFor(true)}</td>
       <td className={ACTIONS_CELL_CLASS}>{actions}</td>
     </tr>
   );
@@ -510,22 +525,28 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
   const value = v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[8rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>;
   return (
     <tr className={`${LIST_ROW_CLASS} cursor-pointer`} data-kind="variable" onClick={onOpen}>
-      <td className={LIST_CELL_CLASS}>
-        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} className="break-words rounded text-left font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
-        <p className="break-all text-xs text-muted"><Marked text={v.id} terms={terms} /></p>
+      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:!py-1`}>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} className="shrink-0 break-words rounded text-left font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
+          {v.description ? <span className="min-w-0 flex-1 truncate text-xs text-muted-text max-xl:hidden" title={v.description}>{v.description}</span> : null}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 xl:max-h-5 xl:flex-nowrap xl:overflow-hidden">
+          <span className="min-w-0 shrink truncate text-xs text-muted"><Marked text={v.id} terms={terms} /></span>
+          <span className="hidden items-center gap-1 xl:inline-flex min-[1700px]:hidden"><StageBadge stage={v.stage} />{value}</span>
+          {v.tags.length > 0 ? <span onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></span> : null}
+          {sourceText ? <Pill>{t("variables.src.badge", { source: sourceText })}</Pill> : null}
+        </div>
+        {v.description ? <p className="mt-0.5 truncate text-xs text-muted-text xl:hidden" title={v.description}>{v.description}</p> : null}
         <div className="mt-1 flex flex-wrap items-center gap-1.5 xl:hidden"><KindBadge kind="variable" /><StageBadge stage={v.stage} />{value}</div>
-        {v.description ? <p className="mt-1 line-clamp-2 max-w-[16rem] break-words text-xs text-muted-text" title={v.description}>{truncate(v.description, 90)}</p> : null}
-        {v.tags.length > 0 ? <div className="mt-1" onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></div> : null}
-        {sourceText ? <div className="mt-1"><Pill>{t("variables.src.badge", { source: sourceText })}</Pill></div> : null}
         <div className="mt-1 xl:hidden"><Targets places={v.places} /></div>
         <div className="mt-2 sm:hidden">{status}</div>
         <div className="mt-2 sm:hidden" onClick={(e) => e.stopPropagation()}>{actions}</div>
       </td>
-      <td className={WIDE_CELL_CLASS}><KindBadge kind="variable" /></td>
-      <td className={WIDE_CELL_CLASS}><StageBadge stage={v.stage} /></td>
-      <td className={WIDE_CELL_CLASS}>{value}</td>
+      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><KindBadge kind="variable" /></td>
+      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><StageBadge stage={v.stage} /></td>
+      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}>{value}</td>
       <td className={WIDE_CELL_CLASS}><Targets places={v.places} /></td>
-      <td className={`${LIST_CELL_CLASS} max-sm:hidden`}>{status}</td>
+      <td className={`${LIST_CELL_CLASS} whitespace-nowrap max-sm:hidden`}>{status}</td>
       <td className={ACTIONS_CELL_CLASS} onClick={(e) => e.stopPropagation()}>{actions}</td>
     </tr>
   );

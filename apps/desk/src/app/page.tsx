@@ -92,7 +92,7 @@ export default function OverviewPage() {
                   <StatusBadge level={s.status} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{s.title ?? s.name}</span>
-                    <span className="block truncate text-xs text-muted">{s.places.length ? s.places.map(placeText).join(", ") : t("home.noPlaces")}</span>
+                    <span className="block truncate text-xs text-muted" title={s.places.map(placeText).join("\n") || undefined}>{s.places.length ? s.places.map(placeText).join(", ") : t("home.noPlaces")}</span>
                   </span>
                   <StageBadge stage={s.stage} />
                   <span className="tabular w-44 text-right text-sm text-muted-text">{daysLabel(s.daysLeft)}</span>

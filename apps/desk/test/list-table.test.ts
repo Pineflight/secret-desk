@@ -60,7 +60,7 @@ describe("spacing system", () => {
   });
   it("cards and list cells use the tokens and compact cells", () => {
     expect(read("components/ui.tsx")).toContain("p-[var(--sd-pad-card)]");
-    expect(read("components/ListTable.tsx")).toContain('LIST_CELL_CLASS = "px-3 py-2"');
+    expect(read("components/ListTable.tsx")).toContain('LIST_CELL_CLASS = "px-3 py-1.5"');
   });
   it("the compare page separates repo groups with the section gap and a sticky head", () => {
     const code = read("app/compare/page.tsx");

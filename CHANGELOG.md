@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Denser rows on the entries page:** name and description share the first line (description cut with an ellipsis, full text in the tooltip and on the detail page), id and tags share the second; rows are about 50 px high from 1280 px up (below 1700 px kind, value and targets move into the first column or shrink); place chips stay on one line, cut with an ellipsis, show at most two places plus "+N" and carry the full text in a tooltip.
+
 ### Fixed
 
 - **Team sync hardening (leak scan, startup log, push permission):** the push check of the team file now also looks for the token of every connected provider (read in memory from the connection store, never logged) and for key shapes secret-desk issues (Stripe and RevenueCat `sk_`/`rk_`, `whsec_`, Supabase `sbp_`, OpenAI `sk-`, Anthropic `sk-ant-`, Cloudflare, Resend `re_`, GitHub, PEM). The startup sync log names the ids of pending changed and removed entries, not only counts. For a GitHub App session a missing `permissions.push` in the repository answer now fails closed (`team_repo_no_push`) instead of relying on the granted installation rights alone (documented in `docs/TEAM.md`). New tests cover installation token expiry and refresh and literal `../..` / `.` in path and branch names.
