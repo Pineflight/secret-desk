@@ -48,7 +48,10 @@ function driverFor(site: Site): FakeDriver {
         } else if (e.key.includes("/apikeys/create")) {
           live = !e.key.includes("/test/");
           if (!site.signedIn) drv.url = "https://dashboard.stripe.com/login";
-          else drv.pageText.add("Choose how you");
+          else {
+            drv.pageText.add("Choose how you");
+            drv.visible.add('Text "Choose how you"');
+          }
         }
         return;
       }

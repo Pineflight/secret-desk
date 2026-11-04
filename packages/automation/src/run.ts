@@ -1,6 +1,6 @@
 import { SecretValue, redact } from "@secret-desk/core";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { hostAllowed, paramValueProblem, resolveRecipe, type CaptureValue, type Condition, type Recipe, type Step } from "./recipe.js";
+import { hostAllowed, paramValueProblem, resolveRecipe, type CaptureValue, type Condition, type Recipe, type Step, type When } from "./recipe.js";
 import { describeSelector, pickSelector, type Selector } from "./selector.js";
 import { SUDO_FLOWS, SudoError, confirmAccess, sudoPageShown, type SudoHooks } from "./sudo.js";
 import { renderTemplate } from "./template.js";
@@ -133,6 +133,8 @@ function describeStep(step: Step): string {
   if ("waitFor" in step) return "waitFor";
   if ("pause" in step) return `pause human: ${step.pause.human}`;
   if ("confirmAccess" in step) return `confirmAccess ${step.confirmAccess.flow}`;
+  if ("set" in step) return `set ${step.set.var}`;
+  if ("fail" in step) return "fail";
   return `screenshot ${step.screenshot}`;
 }
 
@@ -146,9 +148,11 @@ function renderValue<T>(value: T, vars: Vars, key = ""): T {
   return value;
 }
 
-export function resolveCondition(c: Condition, vars: Vars): ResolvedCondition {
+export function resolveCondition(c: Condition & { any?: Condition[] | undefined }, vars: Vars): ResolvedCondition {
   const r = renderValue(c, vars);
   return {
+    ...(r.any ? { any: r.any.map((one) => resolveCondition(one, vars)) } : {}),
+    ...(r.all ? { all: r.all.map((one) => resolveCondition(one, vars)) } : {}),
     ...(r.url !== undefined ? { url: new RegExp(r.url) } : {}),
     ...(r.visible ? { visible: r.visible as Selector } : {}),
     ...(r.hidden ? { hidden: r.hidden as Selector } : {}),
@@ -171,6 +175,8 @@ class Runner {
   /** Zahl der ausgefuehrten Schritte. */
   executed = 0;
   readonly #known: string[] = [];
+  /** The run's own copy: `set` steps change it, the caller's object stays as it was. */
+  readonly vars: Vars;
   #loggedIn: boolean;
   #index = 0;
   #total = 0;
@@ -180,11 +186,12 @@ class Runner {
 
   constructor(
     recipe: Recipe,
-    readonly vars: Vars,
+    vars: Vars,
     readonly driver: BrowserDriver,
     readonly hooks: RunHooks,
     readonly options: RunOptions,
   ) {
+    this.vars = { ...vars };
     checkRecipeParams(recipe, vars);
     this.recipe = resolveRecipe(recipe, recipe.hostBy ? vars[recipe.hostBy] : undefined);
     this.#loggedIn = recipe.login === undefined;
@@ -214,7 +221,15 @@ class Runner {
     for (const [i, step] of steps.entries()) {
       this.#index = i + 1;
       this.#aborted();
-      if ("when" in step && step.when && (this.vars[step.when.var] ?? "").trim() !== step.when.equals) continue;
+      if ("when" in step && step.when) {
+        let holds: boolean;
+        try {
+          holds = await this.#whenHolds(step.when);
+        } catch (err) {
+          this.#rethrow(err, i, step);
+        }
+        if (!holds) continue;
+      }
       if (stopAtCreate && "click" in step && step.click.createsToken) return true;
       this.hooks.onProgress?.({ index: this.#index, total: this.#total, label: describeStep(step) });
       const items = "each" in step && step.each ? (this.vars[step.each] ?? "").split(",").map((s) => s.trim()).filter(Boolean) : [undefined];
@@ -228,6 +243,25 @@ class Runner {
       }
     }
     return false;
+  }
+
+  /** Evaluates the `when` of a step now: a variable check, an element that is (or becomes within the timeout) visible, or all of them. */
+  async #whenHolds(when: NonNullable<When>): Promise<boolean> {
+    if ("all" in when) {
+      for (const one of when.all) if (!(await this.#whenHolds(one))) return false;
+      return true;
+    }
+    if ("var" in when) return (this.vars[when.var] ?? "").trim() === when.equals;
+    const sel = pickSelector(renderValue(when.visible, this.vars));
+    const waitMs = (when.timeoutSeconds ?? 0) * 1000;
+    if (waitMs <= 0) return this.driver.isVisible(sel).catch(() => false);
+    try {
+      await this.driver.waitFor({ visible: sel }, waitMs, this.options.signal);
+      return true;
+    } catch (err) {
+      if (err instanceof WaitTimeoutError) return false;
+      throw err;
+    }
   }
 
   #rethrow(err: unknown, i: number, step: Step): never {
@@ -290,7 +324,7 @@ class Runner {
     if ("waitFor" in step) {
       const w = step.waitFor;
       const cond = resolveCondition(
-        { ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}) },
+        { ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}), ...(w.any ? { any: w.any } : {}), ...(w.all ? { all: w.all } : {}) },
         vars,
       );
       return this.driver.waitFor(cond, (w.timeoutSeconds ?? TIMEOUT_DEFAULT_S) * 1000, this.options.signal);
@@ -300,6 +334,11 @@ class Runner {
       return this.#waitForHuman("pause", reason, resolveCondition(step.pause.until, vars));
     }
     if ("confirmAccess" in step) return this.#confirmAccess(step.confirmAccess, vars);
+    if ("set" in step) {
+      this.vars[step.set.var] = step.set.value;
+      return;
+    }
+    if ("fail" in step) return this.fail("step", step.fail);
     await this.checkHost();
     if ("screenshot" in step) return this.shoot(step.screenshot);
     if ("fill" in step) return this.driver.fill(pickSelector(renderValue(step.fill, vars)), renderValue(step.fill.value, vars));
@@ -528,18 +567,30 @@ async function captureRead(r: Runner, recipe: Recipe, vars: Vars, driver: Browse
 async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
   if (recipe.kind === "read") return captureRead(r, recipe, vars, driver, options);
   const cap = recipe.capture as Recipe["capture"] & { token: NonNullable<Recipe["capture"]["token"]> };
-  // The selector may name the entry's own row ({{name}}), so it is rendered like a step selector.
-  const find = renderTemplateSelector(cap.token.find, vars, r);
+  // The selectors may name the entry's own row ({{name}}), so they are rendered like a step selector. The first one that is visible
+  // wins (a page that comes in more than one variant shows the token in different places).
+  const candidates = [
+    { find: renderTemplateSelector(cap.token.find, vars, r), attribute: cap.token.attribute },
+    ...(cap.token.alternatives ?? []).map((a) => ({ find: renderTemplateSelector(a.find, vars, r), attribute: a.attribute })),
+  ];
   // Token nur lesen, wenn der Browser noch auf einer erlaubten Seite steht (ein Klick kann woandershin fuehren).
   await r.checkHost();
   try {
-    await driver.waitFor({ visible: find }, cap.token.timeoutSeconds * 1000, options.signal);
+    await driver.waitFor(candidates.length === 1 ? { visible: candidates[0]!.find } : { any: candidates.map((c) => ({ visible: c.find })) }, cap.token.timeoutSeconds * 1000, options.signal);
   } catch (err) {
     if (err instanceof WaitAbortedError) return r.fail("abort", "Abgebrochen.");
-    return r.fail("capture", `Token-Feld nicht gefunden (${describeSelector(find)}).`);
+    return r.fail("capture", `Token-Feld nicht gefunden (${candidates.map((c) => describeSelector(c.find)).join(" | ")}).`);
   }
+  let found = candidates[0]!;
+  for (const c of candidates) {
+    if (await driver.isVisible(c.find).catch(() => false)) {
+      found = c;
+      break;
+    }
+  }
+  const find = found.find;
   await r.checkHost();
-  const token = await readValue(r, find, cap.token.pattern, "Token", cap.token.attribute);
+  const token = await readValue(r, find, cap.token.pattern, "Token", found.attribute);
   if (!token) return r.fail("capture", "Token-Feld ist leer.");
   r.addSecret(token);
 
@@ -557,7 +608,7 @@ async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDri
   }
 
   // Beleg nach dem Erzeugen, Wert verdeckt. Scheitert er, geht der Token trotzdem nicht verloren.
-  await r.shoot("nach-erzeugen", [find]).catch(() => undefined);
+  await r.shoot("nach-erzeugen", candidates.map((c) => c.find)).catch(() => undefined);
 
   return {
     value: SecretValue.from(token),

@@ -16,6 +16,14 @@ export class WaitAbortedError extends Error {
 type Probe = Pick<BrowserDriver, "currentUrl" | "isVisible" | "hasText">;
 
 export async function conditionMet(d: Probe, c: ResolvedCondition): Promise<boolean> {
+  if (c.all) {
+    for (const one of c.all) if (!(await conditionMet(d, one))) return false;
+    return true;
+  }
+  if (c.any) {
+    for (const one of c.any) if (await conditionMet(d, one).catch(() => false)) return true;
+    return false;
+  }
   if (c.url) return c.url.test(await d.currentUrl());
   if (c.visible) return d.isVisible(c.visible);
   if (c.text !== undefined) return d.hasText(c.text);

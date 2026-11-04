@@ -115,12 +115,12 @@ describe("RecipeSchema params", () => {
 });
 
 describe("hidden condition", () => {
-  it("is exactly one of url, visible, hidden or text", () => {
+  it("is exactly one of url, visible, hidden, text, all or any", () => {
     const d = base();
     d.steps = [{ goto: "https://example.test/a" }, { waitFor: { hidden: { css: "#row" } } } as never, d.steps[1] as never];
     expect(errors(d)).toBe("");
     d.steps = [{ goto: "https://example.test/a" }, { waitFor: { hidden: { css: "#row" }, text: "x" } } as never, d.steps[1] as never];
-    expect(errors(d)).toMatch(/Genau eines von url, visible, hidden oder text/);
+    expect(errors(d)).toMatch(/Genau eines von url, visible, hidden, text, all oder any/);
   });
 });
 
