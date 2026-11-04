@@ -1,4 +1,4 @@
-# STATUS: sandbox wizard, result view and key expiry checked live on 2026-11-03 in a sandbox with a throwaway key (expired afterwards); the full recipe run, the sign-in form and the live mode are not verified
+# STATUS: wizard variant: full run verified live on 2026-11-04 (two sandboxes), earlier parts on 2026-11-03. Single-page variant: verified by probe on 2026-11-04 (fields, create, copy link in the list, key expiry), not as a full recipe run. The live mode, the full-access preset of the single-page variant (refused there) and the sign-in form are not verified
 # Creates a Stripe restricted key for one account and mode (Stripe has no API that creates keys). The key is shown once in the
 # "Your new secret key" view: the page prints it truncated, the full value sits in the attributes `aria-label` and `data-text`
 # of that element (there is no input), so the token is captured from `data-text`.
@@ -14,6 +14,14 @@
 # load, so every step waits for an element, never for a fixed time. A cookie banner ("Accept all" / "Reject all") overlaps the
 # bottom right and intercepts clicks: it is rejected first (never accepted); that step is optional because the banner is
 # shown only once per browser profile.
+#
+# Stripe shows one of two key forms at the same address, depending on the account. The recipe waits for either heading, records
+# which one it got (`variant`) and runs the matching steps:
+#   wizard:      the multi-step wizard described above.
+#   single-page: the older single page "Create restricted API key": field "Key name" (#key-name), a resource filter, a row per
+#                resource with None / Read / Write buttons, button "Create key". It returns to the key list; the new key is the
+#                text of the row's `a[aria-label="Click to copy"]` link (the full key, shown in the list).
+# The full-access preset is not explored on the single-page form: the run stops there before anything is created.
 #
 # Not verified: the live mode. The live dashboard may show a different key list ("Restricted keys" / "Standard keys" with
 # "Create restricted key") and may ask to confirm the password; the pause step below waits for the human in that case. The
@@ -82,38 +90,100 @@ steps:
     when: { var: mode, equals: sandbox }
   - goto: "https://dashboard.stripe.com/{{account}}/apikeys/create"
     when: { var: mode, equals: live }
-  # (Only the start of the heading: the apostrophe of "you'll" may be a typographic one.)
-  - waitFor: { text: "Choose how you", timeoutSeconds: 90 }
+  # Either heading (only the start of the wizard heading: the apostrophe of "you'll" may be a typographic one).
+  - waitFor:
+      any:
+        - { text: "Choose how you" }
+        - { text: "Create restricted API key" }
+      timeoutSeconds: 90
+  # Which form is it? The wizard is tested first, the single page only while the variant is still unset.
+  - set: { var: variant, value: wizard }
+    when: { visible: { text: "Choose how you" } }
+  - set: { var: variant, value: single-page }
+    when:
+      all:
+        - { var: variant, equals: "" }
+        - { visible: { text: "Create restricted API key" } }
+  # The full-access preset is not explored on the single-page form: refuse before anything exists.
+  - fail: "This account shows the single-page key form; the preset full-except-sensitive is not supported there yet. Use the preset webhooks."
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: full-except-sensitive }
   - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
+
+  # ---- Wizard ----
   # Step 1: "Building your own integration" is preselected.
   - click: { role: button, name: "Continue", exact: true }
+    when: { var: variant, equals: wizard }
   - waitFor: { text: "Assign permissions to your key", timeoutSeconds: 60 }
+    when: { var: variant, equals: wizard }
   - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 2 }
+    when: { var: variant, equals: wizard }
   # Step 2: the permission template. Each card is a label over a visually hidden radio input that intercepts pointer
   # events, so a click on the card text times out; the radio is checked directly (checked live on 2026-11-03).
   - check: { role: radio, name: "Custom permissions" }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   - check: { role: radio, name: "Full access—except sensitive operations" }
-    when: { var: preset, equals: full-except-sensitive }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: full-except-sensitive }
   - click: { role: button, name: "Continue", exact: true }
+    when: { var: variant, equals: wizard }
   # Step 3 (custom permissions only): narrow the list with the search field, then set the one resource to Write.
   - waitFor: { text: "Select permissions", timeoutSeconds: 60 }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   - fill: { css: 'input[type="search"]', value: "Webhook Endpoints" }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   - waitFor: { text: "Webhook Endpoints, Event Destinations", timeoutSeconds: 30 }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   # The filter leaves the section ("Section permission level") and its one resource row ("Permission level"), each with
   # None / Read / Write radios. Only the row's radio is set (checked live on 2026-11-03); a second match makes the run stop
   # before a key exists.
   - check: { css: 'role=group[name="Permission level"s] >> role=radio[name="Write"s]' }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   - click: { role: button, name: "Continue", exact: true }
-    when: { var: preset, equals: webhooks }
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: webhooks }
   # Step 4: name and review.
   - waitFor: { text: "Name and review your key", timeoutSeconds: 60 }
+    when: { var: variant, equals: wizard }
   # The page search box above is also a text input: the label must match exactly.
   - fill: { label: "Name", exact: true, value: "{{name}}" }
+    when: { var: variant, equals: wizard }
+
+  # ---- Single page (probed 2026-11-04) ----
+  - waitFor: { visible: { css: "#key-name" }, timeoutSeconds: 30 }
+    when: { var: variant, equals: single-page }
+  - fill: { css: "#key-name", value: "{{name}}" }
+    when: { var: variant, equals: single-page }
+  - fill: { placeholder: "Filter resources", value: "Webhook Endpoints" }
+    when: { var: variant, equals: single-page }
+  # After the filter the row holds three buttons None / Read / Write (a segmented control without aria-pressed).
+  - waitFor: { visible: { css: 'tr:has-text("Webhook Endpoints, Event Destinations")' }, timeoutSeconds: 30 }
+    when: { var: variant, equals: single-page }
+  - click: { css: 'tr:has-text("Webhook Endpoints, Event Destinations") >> role=button[name="Write"s]' }
+    when: { var: variant, equals: single-page }
+
+  # ---- Both ----
   # The live mode may ask to confirm the password before the key is created.
   - pause:
       human: Stripe verlangt eine Passwortbestaetigung. Im Browserfenster das Passwort bestaetigen, dann geht es hier weiter.
@@ -121,21 +191,34 @@ steps:
     when: { var: mode, equals: live }
   - screenshot: rechte-vorher
   - click: { role: button, name: "Create key", createsToken: true }
+    when: { var: variant, equals: wizard }
   - waitFor: { text: "Your new secret key", timeoutSeconds: 60 }
+    when: { var: variant, equals: wizard }
+  - click: { role: button, name: "Create key", exact: true, createsToken: true }
+    when: { var: variant, equals: single-page }
+  # The page returns to the key list (no dialog); the new key is the row with the name.
+  - waitFor: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' }, timeoutSeconds: 60 }
+    when: { var: variant, equals: single-page }
 capture:
   token:
-    # Checked live on 2026-11-04: the result view and every key row of the list behind it carry a full key in the attributes
-    # `aria-label` (visible element) and `data-text` (hidden). Only the element under the heading "Your new secret key"
+    # Wizard (checked live on 2026-11-04): the result view and every key row of the list behind it carry a full key in the
+    # attributes `aria-label` (visible element) and `data-text` (hidden). Only the element under the heading "Your new secret key"
     # holds the new key, so the capture starts at that heading and takes the nearest key element inside its container.
     find: { css: 'text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]' }
     attribute: aria-label
     pattern: "^(rk_(test|live)_[A-Za-z0-9]+)$"
+    # Single page (probe 2026-11-04): the row of the new key in the list; the text of its copy link is the full key. The first
+    # candidate that is visible wins; the wizard's heading is never on the list page.
+    alternatives:
+      - { find: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' } }
   externalId: { from: name }
 mask:
   - { css: '[data-text^="rk_"]' }
   - { css: '[aria-label^="rk_"]' }
+  - { css: 'a[aria-label="Click to copy"]' }
 revoke:
-  # Checked in the sandbox on 2026-11-03: row menu -> "Expire key" -> dialog "Expire API key" -> "Expire" -> row gone.
+  # Checked in the sandbox on 2026-11-03 (wizard UI) and by probe on 2026-11-04 (single-page UI): row menu -> "Expire key" ->
+  # dialog "Expire API key" -> "Expire" -> row gone. The two UIs differ only in the menu button of the row.
   steps:
     - goto: "https://dashboard.stripe.com/{{account}}/test/apikeys"
       when: { var: mode, equals: sandbox }
@@ -143,8 +226,23 @@ revoke:
       when: { var: mode, equals: live }
     - waitFor: { visible: { css: 'tr:has-text("{{externalId}}")' }, timeoutSeconds: 90 }
     - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
+    - waitFor:
+        any:
+          - { visible: { css: 'tr:has-text("{{externalId}}") a[role=button][aria-haspopup=true]' } }
+          - { visible: { css: 'tr:has-text("{{externalId}}") button[aria-haspopup="menu"]' } }
+        timeoutSeconds: 30
     # The last menu button of the row belongs to the key.
+    - set: { var: menu, value: anchor }
+      when: { visible: { css: 'tr:has-text("{{externalId}}") a[role=button][aria-haspopup=true]' } }
+    - set: { var: menu, value: button }
+      when:
+        all:
+          - { var: menu, equals: "" }
+          - { visible: { css: 'tr:has-text("{{externalId}}") button[aria-haspopup="menu"]' } }
     - click: { css: 'tr:has-text("{{externalId}}") a[role=button][aria-haspopup=true] >> nth=-1' }
+      when: { var: menu, equals: anchor }
+    - click: { css: 'tr:has-text("{{externalId}}") button[aria-haspopup="menu"] >> nth=-1' }
+      when: { var: menu, equals: button }
     - click: { role: menuitem, name: "Expire key" }
     - waitFor: { text: "Expire API key", timeoutSeconds: 15 }
     - click: { role: button, name: "Expire", exact: true }

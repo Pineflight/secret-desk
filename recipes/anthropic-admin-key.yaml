@@ -19,7 +19,13 @@ login:
         - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
         - click: { role: button, name: "Continue with Google" }
   # Signed in = any Console page after the sign-in (not verified: the list of paths).
-  expect: { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows "Continue with
+  # Google" and "Continue with email"), so the address alone says nothing: the sign-in buttons must be absent too.
+  expect:
+    all:
+      - { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+      - { hidden: { role: button, name: "Continue with email" } }
+      - { hidden: { role: button, name: "Continue with Google" } }
   message: Bei Anthropic anmelden (platform.claude.com).
   # Guided sign-in. The Console signs in by email: it sends a one-time code (and a link) instead of asking for a password,
   # so this form has no password step and the portal asks for the code.
@@ -59,6 +65,8 @@ login:
 steps:
   # not verified: the address of the Admin keys page and every name below.
   - goto: "https://platform.claude.com/settings/admin-keys"
+  # The Console shows a cookie banner (seen on 2026-11-04): rejected, never accepted; optional because it shows once per profile.
+  - click: { role: button, name: "Reject all cookies", optional: true, timeoutSeconds: 3 }
   - waitFor: { visible: { role: button, name: "Create Admin Key" } }
   - click: { role: button, name: "Create Admin Key" }
   - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }

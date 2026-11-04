@@ -209,6 +209,10 @@ hosts (Apple `appleid.apple.com`, `idmsa.apple.com`; Google `accounts.google.com
 when it serves the hand-over. Every identity-provider selector and text is **not verified** until a live run; verify them
 with the viewer (above), never by typing real credentials into a recipe.
 
+## A page that comes in two variants
+
+The same address may show different forms for different accounts (Stripe: a multi-step key wizard or an older single page). Record both while exploring, then write one recipe: `waitFor` with `any` for the heading of either variant, `set` a variable from the heading that is visible (test the more specific one first, and the other only while the variable is still `""`), give each variant's steps `when: { var: ..., equals: ... }`, and list one `capture.token.alternatives` entry per place the token shows up. A variant you have not explored gets a `fail` step before the creating click, so the run stops with a clear message instead of guessing. Test every variant with its own fake driver, including that the refusal happens before any key exists (see `packages/automation/test/stripe-recipe.test.ts`). A sign-in check that cannot rely on the address uses `login.expect` with `all` (address plus the absence of the sign-in buttons).
+
 ## Confirmations in the middle of a recipe
 
 When a provider asks to confirm access while a recipe runs (GitHub *Confirm access*), do not use `pause` (it sends the human to the browser window). Use `confirmAccess` with a built-in flow; the portal answers the questions. To add a flow, add it to `SUDO_FLOWS` in `packages/automation/src/sudo.ts` with its selectors (mark what you did not verify), and test it with the fake driver as in `packages/automation/test/sudo.test.ts`. A recipe run that starts signed out can sign in through the portal on its own open browser with `RunHooks.signIn` (see `packages/runtime/src/team-token.ts`); the recipe needs `login.form`. Sign-in methods per recipe come from a live survey of the provider's sign-in page: only the provider-side button is declared in `login.methods`, everything else stays marked not verified.
