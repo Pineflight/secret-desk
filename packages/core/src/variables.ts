@@ -3,13 +3,13 @@ import { placeToTarget } from "./github.js";
 import { GitHubError } from "./github.js";
 import { looksSecret } from "./guards.js";
 import type { InventoryStore } from "./inventory.js";
-import type { Place, VariableEntry } from "./types.js";
+import { isWorkerPlace, type GitHubPlace, type Place, type VariableEntry } from "./types.js";
 
 export type DriftState = "in-sync" | "missing" | "different" | "unknown-expected" | "unreachable";
 
 export interface VariableDrift {
   variableId: string;
-  place: Place;
+  place: GitHubPlace;
   placeLabel: string;
   state: DriftState;
   expected: string | null;
@@ -32,6 +32,7 @@ export class VariableError extends Error {
 }
 
 export function placeLabel(p: Place): string {
+  if (isWorkerPlace(p)) return `worker:${p.script}`;
   return `${p.repo}/${p.scope === "environment" ? `env:${p.environment}` : p.scope === "organization" ? "org" : "repo"}`;
 }
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Cloudflare Worker secrets as a place type:** a secret can now live as a secret of a deployed Cloudflare Worker (`places: [{ scope: cloudflare-worker, accountId, script }]`, what `wrangler secret put NAME --env staging` writes) instead of, or next to, a GitHub secret. It plugs in everywhere places are used: the renewal review lists "writes Worker secret NAME on script S" as a checklist item and checks the Worker is reachable; the production confirmation of the entry's stage applies; `doctor` and the Cloudflare connection test read the secret names of each Worker (reachability, never a probe write); the entries list status shows *present* or *missing* by name; the sync plan has Worker secret lines (`worker:<script>`, `--repo worker:<script>`); the secret form offers the scope *Cloudflare Worker* with the account (integration default) and the deployed Workers of the account as suggestions (new discovery kind `cloudflare.workerScript`, read only on request). Writes use `PUT /accounts/<id>/workers/scripts/<script>/secrets` with the `cloudflare` connection (needs *Workers Scripts* edit); values are never read back (the API returns names only) and nothing is deleted. Worker variables and the repository comparison matrix are out of scope; variables reject Worker places.
+
 ### Changed
 
 - **Denser rows on the entries page:** name and description share the first line (description cut with an ellipsis, full text in the tooltip and on the detail page), id and tags share the second; rows are about 50 px high from 1280 px up (below 1700 px kind, value and targets move into the first column or shrink); place chips stay on one line, cut with an ellipsis, show at most two places plus "+N" and carry the full text in a tooltip.

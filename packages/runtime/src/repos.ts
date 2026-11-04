@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { GitHubError, InventoryError, NotConnectedError, ensurePrivateDir, expandHome as expandHomeCore, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
+import { GitHubError, githubPlacesOf, InventoryError, NotConnectedError, ensurePrivateDir, expandHome as expandHomeCore, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -237,7 +237,7 @@ export async function listRepos(rt: Runtime, opts: { live?: boolean; includePath
     }
     return r;
   };
-  for (const s of inv.secrets) for (const n of new Set(s.places.map((p) => p.repo))) { const r = row(n); r.inInventory = true; r.secrets += 1; }
+  for (const s of inv.secrets) for (const n of new Set(githubPlacesOf(s.places).map((p) => p.repo))) { const r = row(n); r.inInventory = true; r.secrets += 1; }
   for (const v of inv.variables) for (const n of new Set(v.places.map((p) => p.repo))) { const r = row(n); r.inInventory = true; r.variables += 1; }
   for (const t of inv.envTemplates) { const r = row(t.repo); r.inInventory = true; r.templates += 1; }
 

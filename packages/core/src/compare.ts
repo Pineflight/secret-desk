@@ -1,5 +1,5 @@
 import { findStage, stageEnvironment, type StageDef, type StageKind } from "./stages.js";
-import type { Inventory, Place } from "./types.js";
+import { githubPlacesOf, type GitHubPlace, type Inventory, type Place } from "./types.js";
 import { environmentStage, needStage, type WorkflowNeeds } from "./workflow-needs.js";
 
 /**
@@ -38,7 +38,7 @@ export type Parity = "consistent" | "gap" | "n/a";
 
 export interface CompareLocation {
   repo: string;
-  scope: Place["scope"];
+  scope: GitHubPlace["scope"];
   environment?: string;
 }
 
@@ -212,7 +212,7 @@ export interface CompareResult {
 export const locationKey = (l: CompareLocation): string => (l.scope === "organization" ? "organization" : `${l.repo}/${l.scope}/${l.environment ?? ""}`);
 export const locationLabel = (l: CompareLocation): string => (l.scope === "organization" ? "org" : l.scope === "environment" ? `${l.repo}/env:${l.environment}` : `${l.repo}/repo`);
 
-const placeLocation = (p: Place): CompareLocation => ({ repo: p.repo, scope: p.scope, ...(p.environment ? { environment: p.environment } : {}) });
+const placeLocation = (p: GitHubPlace): CompareLocation => ({ repo: p.repo, scope: p.scope, ...(p.environment ? { environment: p.environment } : {}) });
 
 /** Standard-Woerter, die eine Stage im Namen kennzeichnen. */
 export const STAGE_NAME_TOKENS: readonly string[] = ["STAGING", "PRODUCTION", "PROD", "DEV"];
@@ -245,7 +245,7 @@ function entriesOf(inv: Source, kind: CompareKind) {
 /** Repositories der Inventar-Ziele (mit Repo-Filter, ohne Ignorierliste). */
 function inventoryRepoSet(inv: Source, opts: CompareOptions): Set<string> {
   const out = new Set<string>();
-  for (const kind of kindsOf(opts)) for (const e of entriesOf(inv, kind)) for (const p of e.places) if (!opts.repo || p.repo === opts.repo) out.add(p.repo);
+  for (const kind of kindsOf(opts)) for (const e of entriesOf(inv, kind)) for (const p of githubPlacesOf(e.places)) if (!opts.repo || p.repo === opts.repo) out.add(p.repo);
   return out;
 }
 
@@ -271,7 +271,7 @@ export function requiredLocations(inv: Source, opts: CompareOptions = {}): Recor
       out[kind].push(l);
     };
     for (const repo of repos) for (const d of inv.stages) add(stageLocation(inv.stages, d.id, repo));
-    for (const e of entriesOf(inv, kind)) for (const p of e.places) if ((!opts.repo || p.repo === opts.repo) && !ignored.has(p.repo)) add(placeLocation(p));
+    for (const e of entriesOf(inv, kind)) for (const p of githubPlacesOf(e.places)) if ((!opts.repo || p.repo === opts.repo) && !ignored.has(p.repo)) add(placeLocation(p));
   }
   return out;
 }
@@ -280,7 +280,7 @@ interface Exp {
   id: string;
   stage: string;
   actualName: string;
-  place: Place;
+  place: GitHubPlace;
   value: string | null;
 }
 
@@ -331,7 +331,7 @@ export function compareMatrix(inv: Source, opts: CompareOptions = {}, live?: Liv
   const ignoredSet = new Set(ignoredOf(opts));
   for (const kind of kinds) {
     for (const e of entriesOf(inv, kind)) {
-      for (const p of e.places) {
+      for (const p of githubPlacesOf(e.places)) {
         if (opts.repo && p.repo !== opts.repo) continue;
         if (ignoredSet.has(p.repo)) continue;
         const actualName = p.name ?? e.name;

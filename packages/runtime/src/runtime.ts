@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import {
   ConnectionStore,
   GitHubClient,
+  CLOUDFLARE_CONNECTION,
+  WorkerSecretsClient,
   InventoryStore,
   ProviderRegistry,
   SecretVault,
@@ -32,6 +34,8 @@ export interface Runtime {
   configPath: string;
   inventory: InventoryStore;
   github: GitHubClient;
+  /** Secrets of Cloudflare Workers, written with the token of the `cloudflare` connection. */
+  workers: WorkerSecretsClient;
   connections: ConnectionStore;
   providers: ProviderRegistry;
   approvals: ApprovalQueue;
@@ -151,6 +155,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     configPath: path,
     inventory,
     github: new GitHubClient({ auth, fetch: f }),
+    workers: new WorkerSecretsClient({ auth: () => connections.token(CLOUDFLARE_CONNECTION), fetch: f }),
     connections,
     providers,
     approvals,
@@ -165,7 +170,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
 
 /** Abhaengigkeiten fuer die Funktionen des Kerns, die Ausstellung und Bestaetigung steuern. */
 export function issuanceDeps(rt: Runtime): IssuanceDeps {
-  return { inventory: rt.inventory, github: rt.github, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence, providerConfig: rt.config.providers };
+  return { inventory: rt.inventory, github: rt.github, workers: rt.workers, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence, providerConfig: rt.config.providers };
 }
 
 export async function readOptional(path: string): Promise<string | null> {

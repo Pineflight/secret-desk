@@ -20,7 +20,7 @@ interface Searchable {
   value?: string | null;
   /** Nur Variablen: Quelle in einer Integration. */
   from?: { connection: string; kind: string; resource: string; field: string } | null;
-  places: { repo: string; scope: string; environment?: string | undefined; name?: string | undefined }[];
+  places: { repo?: string | undefined; scope: string; environment?: string | undefined; name?: string | undefined; script?: string | undefined; accountId?: string | undefined }[];
 }
 
 /** Zerlegt die Anfrage in Woerter (klein geschrieben). */
@@ -33,7 +33,7 @@ export function searchText(item: Searchable): string {
   const parts: (string | null | undefined)[] = [item.id, item.name, item.title, item.description, item.owner, item.product, item.stage, item.service, item.provider, item.value];
   if (item.from) parts.push(item.from.connection, item.from.kind, item.from.resource, item.from.field);
   for (const tag of item.tags ?? []) parts.push(tag);
-  for (const p of item.places) parts.push(p.repo, p.scope, p.environment, p.name);
+  for (const p of item.places) parts.push(p.repo, p.scope, p.environment, p.name, p.script, p.accountId);
   return parts.filter((x): x is string => typeof x === "string" && x !== "").join("\n").toLowerCase();
 }
 
@@ -44,7 +44,7 @@ const f = (key: FieldKey, text: string | null | undefined): SearchField[] => (te
 function docOf(item: Searchable): SearchDoc {
   let d = docCache.get(item);
   if (!d) {
-    const repos = [...new Set(item.places.map((p) => p.repo))];
+    const repos = [...new Set(item.places.flatMap((p) => (p.repo ? [p.repo] : [])))];
     d = {
       id: item.id,
       kind: "item",

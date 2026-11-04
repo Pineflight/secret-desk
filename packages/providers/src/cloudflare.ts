@@ -168,6 +168,12 @@ export async function discoverCloudflare(id: string, connection: string, specs: 
       }
       return [...scopesByName].map(([name, scopes]) => ({ value: name, label: name, detail: groupScope([...scopes]) }));
     }
+    case "cloudflare.workerScript": {
+      // Deployed Workers of the account: the place editor offers them as the `script` of a Worker secret place.
+      const account = needParam(specs, ctx.params, "accountId");
+      const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/accounts/${seg(account)}/workers/scripts`);
+      return asList(r?.result).flatMap((w) => (str(w["id"]) ? [{ value: str(w["id"])!, label: str(w["id"])!, detail: str(w["modified_on"]) ?? "" }] : []));
+    }
     case "cloudflare.turnstileWidget": {
       const account = needParam(specs, ctx.params, "accountId");
       const r = await getJson<Envelope<unknown[]>>(id, ctx, connection, `${CLOUDFLARE_API}/accounts/${seg(account)}/challenges/widgets`);
@@ -380,6 +386,8 @@ const tokenProvider: Provider = {
   kind: "automatic",
   connection: "cloudflare",
   params: tokenSpecs,
+  /** Not used by a parameter: the place editor lists the Workers of an account for Worker secret places. */
+  discoverKinds: ["cloudflare.workerScript"],
   discover: (kind, ctx) => discoverCloudflare(TID, "cloudflare", tokenSpecs, kind, ctx),
   preflight: (ctx) => preflightCloudflare(TID, "cloudflare", tokenSpecs, ctx, true),
   async issue(ctx) {

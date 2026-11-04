@@ -1,6 +1,11 @@
 import {
   GitHubError,
+  githubPlacesOf,
   InventoryError,
+  isWorkerPlace,
+  workerKey,
+  WorkerSecretsError,
+  type WorkerPlace,
   NotConnectedError,
   parseStripeConnectionId,
   placeToTarget,
@@ -8,7 +13,7 @@ import {
   stageKind,
   type CheckStatus,
   type GitHubTarget,
-  type Place,
+  type GitHubPlace,
   writeConnectionLabel,
 } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
@@ -48,7 +53,7 @@ export interface ConnectionCheckOptions {
 export interface WriteTarget {
   id: string;
   repo: string;
-  scope: Place["scope"];
+  scope: GitHubPlace["scope"];
   environment: string | null;
   /** Mindestens ein Eintrag mit einer Stage der Art live (oder unbekannt) liegt hier. */
   live: boolean;
@@ -60,7 +65,7 @@ const TIMEOUT_MS = 15_000;
 const DAY_MS = 86_400_000;
 const MAX_TARGETS = 40;
 
-export const targetId = (p: Pick<Place, "repo" | "scope" | "environment">): string => `${p.scope}:${p.repo}${p.environment ? `/${p.environment}` : ""}`;
+export const targetId = (p: Pick<GitHubPlace, "repo" | "scope" | "environment">): string => `${p.scope}:${p.repo}${p.environment ? `/${p.environment}` : ""}`;
 
 /** Alle Ziele (Repository, Environment, Organisation), die im Inventar vorkommen. Nur Namen. */
 export function listWriteTargets(rt: Runtime): WriteTarget[] {
@@ -68,7 +73,7 @@ export function listWriteTargets(rt: Runtime): WriteTarget[] {
   const entries = [...rt.inventory.data.secrets, ...rt.inventory.data.variables];
   for (const e of entries) {
     const live = stageKind(rt.inventory.stages, e.stage) === "live";
-    for (const p of e.places) {
+    for (const p of githubPlacesOf(e.places)) {
       const id = targetId(p);
       const cur = map.get(id) ?? { id, repo: p.repo, scope: p.scope, environment: p.environment ?? null, live: false, stages: [], _stages: new Set<string>() };
       cur.live = cur.live || live;
@@ -165,7 +170,38 @@ async function checkCloudflare(rt: Runtime, id: string, token: string, now: Date
   } else {
     checks.push(item("token", "Token gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
   }
+  // Worker secret places live on the account of this token: each Worker must be reachable with the right to read its secrets.
+  if (id === "cloudflare" && !checks.some((c) => c.status === "fail")) checks.push(...(await checkWorkerTargets(rt)));
   return { id, ok: !checks.some((c) => c.status === "fail"), checks, ...(expires !== undefined ? { expires } : {}) };
+}
+
+/** Distinct Workers named by Worker secret places in the inventory. Names only. */
+export function listWorkerTargets(rt: Runtime): (WorkerPlace & { live: boolean })[] {
+  const map = new Map<string, WorkerPlace & { live: boolean }>();
+  for (const s of rt.inventory.data.secrets) {
+    const live = stageKind(rt.inventory.stages, s.stage) === "live";
+    for (const p of s.places) {
+      if (!isWorkerPlace(p)) continue;
+      const cur = map.get(workerKey(p));
+      map.set(workerKey(p), { scope: p.scope, accountId: p.accountId, script: p.script, live: (cur?.live ?? false) || live });
+    }
+  }
+  return [...map.values()].sort((a, b) => workerKey(a).localeCompare(workerKey(b)));
+}
+
+async function checkWorkerTargets(rt: Runtime): Promise<ConnectionCheckItem[]> {
+  const out: ConnectionCheckItem[] = [];
+  for (const t of listWorkerTargets(rt).slice(0, MAX_TARGETS)) {
+    const id = `worker:${t.script}`;
+    const label = `Worker ${t.script}`;
+    try {
+      await rt.workers.check(t);
+      out.push(item(id, label, "pass", "Secrets lesbar: Worker-Secrets koennen hier abgelegt werden."));
+    } catch (err) {
+      out.push(item(id, label, "fail", err instanceof WorkerSecretsError ? err.message : "Anfrage fehlgeschlagen"));
+    }
+  }
+  return out;
 }
 
 async function checkSupabase(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {

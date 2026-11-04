@@ -122,6 +122,7 @@ export default {
   "params.kind.cloudflare.zoneName": "Cloudflare-Zonennamen",
   "params.kind.cloudflare.permissionGroups": "Cloudflare-Berechtigungen",
   "params.kind.cloudflare.turnstileWidget": "Turnstile-Widgets",
+  "params.kind.cloudflare.workerScript": "Worker",
   "params.kind.supabase.project": "Supabase-Projekte",
   "params.kind.resend.domain": "Resend-Domains",
   "params.kind.openai.project": "OpenAI-Projekte",

@@ -5,6 +5,10 @@ import { neededRights } from "./team-sync.js";
 import {
   EnvEntrySchema,
   EnvExportError,
+  errorMatchesPlace,
+  githubPlacesOf,
+  isWorkerPlace,
+  snapshotPlaces,
   EnvTemplateSchema,
   InventoryError,
   NotConnectedError,
@@ -139,7 +143,7 @@ export interface SecretView {
   liveErrors?: string[];
 }
 
-type LiveCheck = Awaited<ReturnType<Runtime["github"]["snapshotDetailed"]>>;
+type LiveCheck = Awaited<ReturnType<typeof snapshotPlaces>>;
 
 /** The portal host a multi-host browser recipe uses for this entry (its `hostBy` parameter), else null. */
 function browserHostOf(rt: Runtime, provider: unknown, s: SecretEntry): string | null {
@@ -150,8 +154,8 @@ function browserHostOf(rt: Runtime, provider: unknown, s: SecretEntry): string |
 
 function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): SecretView {
   const provider = rt.providers.get(s.provider);
-  const failed = (p: Place): boolean => (check?.errors ?? []).some((e) => e.repo === p.repo && e.scope === p.scope && (e.environment ?? "") === (p.environment ?? ""));
-  const liveErrors = check ? s.places.filter(failed).map((p) => (check.errors.find((e) => e.repo === p.repo && e.scope === p.scope && (e.environment ?? "") === (p.environment ?? ""))!.message)) : [];
+  const failed = (p: Place): boolean => (check?.errors ?? []).some((e) => errorMatchesPlace(e, p));
+  const liveErrors = check ? s.places.filter(failed).map((p) => check.errors.find((e) => errorMatchesPlace(e, p))!.message) : [];
   const r = computeStatus(s, today, { thresholds: rt.inventory.data.thresholds, ...(check ? { live: check.snapshot, owner: rt.owner, unreadable: failed } : {}) });
   return {
     id: s.id,
@@ -204,15 +208,15 @@ export interface ListFilter {
 export async function listSecrets(rt: Runtime, filter: ListFilter = {}, today = new Date()): Promise<SecretView[]> {
   let secrets = rt.inventory.data.secrets;
   if (filter.stage) secrets = secrets.filter((s) => s.stage === filter.stage);
-  if (filter.repo) secrets = secrets.filter((s) => s.places.some((p) => p.repo === filter.repo));
+  if (filter.repo) secrets = secrets.filter((s) => githubPlacesOf(s.places).some((p) => p.repo === filter.repo));
   if (filter.product) secrets = secrets.filter((s) => s.product === filter.product);
   if (filter.provider) secrets = secrets.filter((s) => s.provider === filter.provider);
   if (filter.tag) secrets = secrets.filter((s) => s.tags.includes(filter.tag!));
   if (filter.q) {
     const q = filter.q.toLowerCase();
-    secrets = secrets.filter((s) => [s.id, s.name, s.title, s.description, s.owner, s.product, s.service, ...s.tags, ...s.places.map((p) => p.repo)].some((x) => x?.toLowerCase().includes(q)));
+    secrets = secrets.filter((s) => [s.id, s.name, s.title, s.description, s.owner, s.product, s.service, ...s.tags, ...s.places.map((p) => (isWorkerPlace(p) ? p.script : p.repo))].some((x) => x?.toLowerCase().includes(q)));
   }
-  const live = filter.live ? await rt.github.snapshotDetailed(rt.owner, secrets.flatMap((s) => s.places)) : undefined;
+  const live = filter.live ? await snapshotPlaces({ github: rt.github, workers: rt.workers, owner: rt.owner }, secrets.flatMap((s) => s.places)) : undefined;
   const views = secrets.map((s) => view(rt, s, today, live));
   const out = filter.status ? views.filter((v) => v.status === filter.status) : views;
   return out.sort((a, b) => (b.daysLeft === null ? -1 : a.daysLeft === null ? 1 : a.daysLeft - b.daysLeft));

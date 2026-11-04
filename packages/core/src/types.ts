@@ -26,17 +26,38 @@ export const Describable = {
 export const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, "Name in GROSSBUCHSTABEN_MIT_UNTERSTRICH");
 export const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Slug in kleinbuchstaben-mit-bindestrich");
 
-/** Wo ein Secret im GitHub-Secret-Speicher liegt. */
-export const PlaceSchema = z
-  .object({
-    repo: z.string().min(1),
-    scope: z.enum(["repository", "environment", "organization"]),
-    /** Fehlt er bei scope environment, kommt der Name aus der Stage des Secrets (siehe stages.ts). */
-    environment: z.string().min(1).optional(),
-    /** Anderer Name im Ziel als `name` des Secrets (selten). */
-    name: SecretName.optional(),
-  });
-export type Place = z.infer<typeof PlaceSchema>;
+/** A place in the GitHub secret store (repository, environment or organization). */
+export const GitHubPlaceSchema = z.object({
+  repo: z.string().min(1),
+  scope: z.enum(["repository", "environment", "organization"]),
+  /** Fehlt er bei scope environment, kommt der Name aus der Stage des Secrets (siehe stages.ts). */
+  environment: z.string().min(1).optional(),
+  /** Anderer Name im Ziel als `name` des Secrets (selten). */
+  name: SecretName.optional(),
+});
+export type GitHubPlace = z.infer<typeof GitHubPlaceSchema>;
+
+/**
+ * A secret of a deployed Cloudflare Worker (what `wrangler secret put` writes). `script` is the deployed Worker name,
+ * for example `acme-portal-staging` for the staging environment of `acme-portal`. Only secrets, never Worker variables.
+ */
+export const WorkerPlaceSchema = z.object({
+  scope: z.literal("cloudflare-worker"),
+  accountId: z.string().regex(/^[0-9a-f]{32}$/i, "Cloudflare account id: 32 hex characters"),
+  script: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/, "Worker script name"),
+  /** Other name on the Worker than `name` of the secret (rare). */
+  name: SecretName.optional(),
+});
+export type WorkerPlace = z.infer<typeof WorkerPlaceSchema>;
+
+/** Where a secret lives: the GitHub secret store or the secrets of a Cloudflare Worker. */
+export const PlaceSchema = z.union([GitHubPlaceSchema, WorkerPlaceSchema]);
+export type Place = GitHubPlace | WorkerPlace;
+
+export const isWorkerPlace = (p: Place): p is WorkerPlace => p.scope === "cloudflare-worker";
+export const isGitHubPlace = (p: Place): p is GitHubPlace => p.scope !== "cloudflare-worker";
+/** The GitHub places of a list: Worker places have no repository and take no part in repository comparisons. */
+export const githubPlacesOf = (places: readonly Place[]): GitHubPlace[] => places.filter(isGitHubPlace);
 
 export const ExpiryKindSchema = z.enum(["none", "possible", "required", "unknown"]);
 
@@ -124,7 +145,7 @@ export const VariableSchema = z.object({
   value: z.string().max(1000).nullable().default(null),
   /** Optional: woher der Sollwert gelesen wird (siehe variable-sources.ts). */
   from: VariableSourceSchema.optional(),
-  places: z.array(PlaceSchema).min(1, "mindestens ein Ziel"),
+  places: z.array(GitHubPlaceSchema).min(1, "mindestens ein Ziel"),
 });
 export type VariableEntry = z.infer<typeof VariableSchema>;
 

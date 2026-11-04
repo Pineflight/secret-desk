@@ -113,7 +113,7 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
         <TextField label={t("secrets.expiresOn")} type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
         <TextField label={t("secrets.ttlDays")} inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
       </div>
-      <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
+      <PlacesEditor rows={rows} onChange={setRows} stage={stageId} allowWorker />
       {!manualProvider && pv.error ? <Notice tone="warn">{t("params.create.loadError", { error: pv.error.message })}</Notice> : null}
       {!manualProvider && specs.length > 0 ? (
         <section aria-labelledby="create-params-title" className="space-y-3 rounded-xl border border-line p-4">

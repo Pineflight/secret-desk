@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { StageKind } from "./stages.js";
-import type { Place, SecretEntry, VariableEntry } from "./types.js";
+import { isWorkerPlace, type Place, type SecretEntry, type VariableEntry } from "./types.js";
 
 /** Stabile JSON-Darstellung: Schluessel sortiert, damit gleiche Inhalte denselben Hash ergeben. */
 export function canonicalJson(value: unknown): string {
@@ -20,7 +20,7 @@ export function hashOf(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
-const placeLabel = (p: Place): string => `${p.repo} (${p.scope === "environment" ? `environment ${p.environment ?? "?"}` : p.scope === "organization" ? "organization" : "repository"})${p.name ? ` als ${p.name}` : ""}`;
+const placeLabel = (p: Place): string => isWorkerPlace(p) ? `Cloudflare Worker ${p.script} (${p.accountId})${p.name ? ` als ${p.name}` : ""}` : `${p.repo} (${p.scope === "environment" ? `environment ${p.environment ?? "?"}` : p.scope === "organization" ? "organization" : "repository"})${p.name ? ` als ${p.name}` : ""}`;
 
 /**
  * Was zum Zeitpunkt einer Pruefung galt: Ziele, Anbieter, Parameter, Stage, Art der Stage, alte Kennung.

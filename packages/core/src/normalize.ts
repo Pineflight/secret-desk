@@ -1,7 +1,7 @@
 import { InventoryError, type EntryEdit, type InventoryStore } from "./inventory.js";
 import { analyzeName, STAGE_TOKEN_HINT, type NamingConfig } from "./naming.js";
 import { findStage, stageEnvironment } from "./stages.js";
-import type { Inventory, Place, SecretEntry, VariableEntry } from "./types.js";
+import { githubPlacesOf, isWorkerPlace, type Inventory, type Place, type SecretEntry, type VariableEntry } from "./types.js";
 import { variableSourceKind, type VariableSource } from "./variable-sources.js";
 
 /**
@@ -137,8 +137,8 @@ interface ProviderSwitch {
 
 /** The only CLOUDFLARE_ACCESS_CLIENT_ID secret with the same repositories and stage, if there is exactly one. */
 function accessClientIdOf(inv: Inventory, entry: SecretEntry): Record<string, string> {
-  const repos = new Set(entry.places.map((p) => p.repo));
-  const sameRepos = (o: SecretEntry): boolean => o.places.length > 0 && o.places.every((p) => repos.has(p.repo)) && [...repos].every((r) => o.places.some((p) => p.repo === r));
+  const repos = new Set(githubPlacesOf(entry.places).map((p) => p.repo));
+  const sameRepos = (o: SecretEntry): boolean => githubPlacesOf(o.places).length > 0 && githubPlacesOf(o.places).every((p) => repos.has(p.repo)) && [...repos].every((r) => githubPlacesOf(o.places).some((p) => p.repo === r));
   const hits = inv.secrets.filter((o) => o.name === "CLOUDFLARE_ACCESS_CLIENT_ID" && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
   return hits.length === 1 ? { clientIdTarget: hits[0]!.id } : {};
 }
@@ -150,8 +150,8 @@ const R2_ID_RE = /^CLOUDFLARE_R2_(?:[A-Z0-9]+_)*ACCESS_KEY_ID$/;
 /** The only access key id secret of the same R2 pair (same infix, repositories and stage), if there is exactly one. */
 function r2KeyIdOf(inv: Inventory, entry: SecretEntry): Record<string, string> {
   const infix = R2_SECRET_RE.exec(entry.name)?.[1] ?? "";
-  const repos = new Set(entry.places.map((p) => p.repo));
-  const sameRepos = (o: SecretEntry): boolean => o.places.length > 0 && o.places.every((p) => repos.has(p.repo)) && [...repos].every((r) => o.places.some((p) => p.repo === r));
+  const repos = new Set(githubPlacesOf(entry.places).map((p) => p.repo));
+  const sameRepos = (o: SecretEntry): boolean => githubPlacesOf(o.places).length > 0 && githubPlacesOf(o.places).every((p) => repos.has(p.repo)) && [...repos].every((r) => githubPlacesOf(o.places).some((p) => p.repo === r));
   const hits = inv.secrets.filter((o) => o.name === R2_ID_NAME(infix) && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
   return hits.length === 1 ? { companionEntry: hits[0]!.id } : {};
 }
@@ -250,7 +250,7 @@ function findCollisions(items: Item[]): Collision[] {
   const byKey = new Map<string, Item[]>();
   for (const it of items) {
     for (const p of it.places) {
-      const key = [it.kind, p.repo, p.scope, p.environment ?? "", it.stage, p.name ?? it.name].join("\u0000");
+      const key = (isWorkerPlace(p) ? [it.kind, "cloudflare-worker", p.accountId, p.script, it.stage, p.name ?? it.name] : [it.kind, p.repo, p.scope, p.environment ?? "", it.stage, p.name ?? it.name]).join("\u0000");
       byKey.set(key, [...(byKey.get(key) ?? []), it]);
     }
   }

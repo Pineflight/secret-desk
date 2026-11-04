@@ -23,6 +23,15 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["optional und createsToken schliessen sich aus", "optional and createsToken exclude each other"],
   ["timeoutSeconds gehoert nur zu optional: true", "timeoutSeconds belongs to optional: true only"],
   ["exact gehoert nur zu role mit name oder zu label", "exact belongs to role with name, or to label"],
+  // Cloudflare Worker secrets (places of scope cloudflare-worker)
+  ["Worker-Variablen gehoeren nicht zu secret-desk", "Worker variables are not managed by secret-desk"],
+  ["Die Verbindung \"cloudflare\" ist nicht eingerichtet: Worker-Secrets koennen nicht geschrieben werden.", "The connection \"cloudflare\" is not set up: Worker secrets cannot be written."],
+  ["Worker-Secrets gehen nicht ueber den Browser-Upload: der Wert wird nur vom Server geschrieben", "Worker secrets do not go through the browser upload: the value is written by the server only"],
+  ["Der Token der Cloudflare-Verbindung braucht das Recht Workers Scripts Write.", "The token of the Cloudflare connection needs the permission Workers Scripts Write."],
+  ["Worker nicht gefunden (Konto und Name pruefen).", "Worker not found (check account and name)."],
+  ["Secrets lesbar: Worker-Secrets koennen hier abgelegt werden.", "Secrets readable: Worker secrets can be stored here."],
+  ["Anfrage fehlgeschlagen", "Request failed"],
+  ["Name vorhanden", "Name present"],
   // Inventory -> GitHub
   ["Eine gewaehlte Zeile gehoert nicht zum aktuellen Plan. Plan neu erstellen.", "A selected line is not part of the current plan. Plan again."],
   ["Es ist keine Aenderung gewaehlt.", "No change is selected."],
@@ -811,6 +820,9 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   // Stripe pro Konto und Modus
   [/^Antwort ohne Wert: bei Cloudflare koennte ein verwaister Token bestehen \(Kennung (\S+)\)\. Im Dashboard pruefen und widerrufen\.$/, "Answer without a value: an orphaned token may exist at Cloudflare (id $1). Check the dashboard and revoke it."],
   [/^Zugriff ist (\S+)$/, "Access is $1"],
+  [/^Cloudflare (\S+) (\S+) -> (\d+): (.+)$/, "Cloudflare $1 $2 -> $3: $4"],
+  [/^Das Secret (\S+) wird als Worker-Secret auf dem Worker (\S+) \(Konto (\S+)\) geschrieben\.$/, "The secret $1 is written as a Worker secret on the Worker $2 (account $3)."],
+  [/^Auf dem Worker geschrieben: (.+)$/, "Written on the Worker: $1"],
   [/^Nur diese Buckets sind freigegeben: (.+)$/, "Only these buckets are released: $1"],
   [/^Die andere Haelfte des Schluesselpaars geht an den Eintrag (\S+) und an keinen anderen$/, "The other half of the key pair goes to the entry $1 and to no other"],
   [/^Zone fehlt \(zoneId, zones oder allZones\): (.+) gilt nur fuer Zonen$/, "Zone missing (zoneId, zones or allZones): $1 applies to zones only"],

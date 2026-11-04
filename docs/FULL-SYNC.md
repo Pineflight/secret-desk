@@ -223,6 +223,8 @@ place (repository, environment or organization) of every variable and secret the
 | Variable | no value in the inventory | **skip**: no value (take it from GitHub or a source first) |
 | Variable | value looks like a secret (blocked), or only suspicious | **skip**: apply it alone with `vars apply --ack-public` |
 | Secret | has a stored value and is missing in GitHub | **write** |
+| Secret | has a [Worker place](CONFIGURATION.md#places) and the Worker has no secret of that name | **write** (the Worker is read once per plan; the line is labelled `worker:<script>`) |
+| Secret | has a Worker place and the Worker already holds the name | **write** ("will overwrite"); the Cloudflare API gives no change times, so there is never a *GitHub changed it later* warning for a Worker |
 | Secret | has a stored value, exists in GitHub | **write** ("will overwrite", GitHub cannot be read back) |
 | Secret | like the line above, but GitHub changed it after `rotatedAt` (or after the value was stored) | **write**, switched **off** with a warning |
 | Secret | no stored value | **skip**: no value; *Renew* is offered when the provider can issue one. A value is never invented |
@@ -251,6 +253,9 @@ secret-desk sync --to-github --dry-run          # print the plan, write nothing
 secret-desk sync --to-github                    # print the plan, ask, then write
 secret-desk sync --to-github --yes --repo web   # no questions (confirms production too), one repository
 ```
+
+`--repo worker:<script>` limits the plan to the secrets of one Cloudflare Worker. Worker variables are not part of secret-desk: the plan
+holds Worker **secrets** only, and the write uses the `cloudflare` connection.
 
 Exit code `0` when every line was written (or there was nothing to do), `1` when a line failed or you did not confirm. The output never
 contains a value. Extra secrets in GitHub that the inventory does not know are never deleted here; clean them up on purpose

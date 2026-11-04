@@ -89,7 +89,7 @@ export class StageError extends Error {
 }
 
 interface PlaceLike {
-  scope: "repository" | "environment" | "organization";
+  scope: string;
   environment?: string | undefined;
 }
 
