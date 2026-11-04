@@ -109,6 +109,25 @@ secret-desk vars add    --id <id> --name <NAME> --stage <id> --place <repo[:env]
 
 `--ack-public` confirms that a value which only looks suspicious (long random string, JWT, name containing `TOKEN` or `KEY`) is really public. Values that clearly are secrets (Stripe keys, GitHub tokens, private keys, service-role JWTs and so on) are always rejected.
 
+## sync
+
+Brings GitHub in line with the inventory and the vault: variables with a different or missing value are set, secrets with a stored value
+are written. Never deletes anything in GitHub. Details and the rules per case: [FULL-SYNC.md](FULL-SYNC.md#sync-everything-to-github).
+
+```bash
+secret-desk sync --to-github --config <file> [--dry-run] [--yes] [--repo <name>]
+```
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | Prints the plan grouped by repository (`[x]` = would be written, `[ ]` = skipped or switched off) and writes nothing. |
+| `--yes` | Writes without asking. Confirms the production checklist item as well; use it only after reading the dry run. |
+| `--repo <name>` | Restricts the plan to one repository. |
+
+Without `--yes` the CLI asks once, and a second time when a selected line is in a live stage. Overwrites of secrets that GitHub changed
+after the inventory value are left out and counted. The output shows progress per batch, one line per write (`created`, `updated`,
+`failed` with GitHub's reason) and never a value. Exit `0` when everything was written or nothing was to do, `1` if a line failed or you did not confirm.
+
 ## env export
 
 ```bash

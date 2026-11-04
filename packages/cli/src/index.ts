@@ -40,6 +40,7 @@ import {
 
 import { browserCmd } from "./browser.js";
 import { doctorExitCode, runDoctor } from "./doctor.js";
+import { syncCmd } from "./sync.js";
 
 export interface Io {
   out: (line: string) => void;
@@ -66,6 +67,8 @@ Aufruf: secret-desk <befehl> [optionen]
   vars apply     Sollwert in GitHub setzen                   <id> --config <datei> [--ack-public]
   vars adopt     Istwert aus GitHub als Sollwert uebernehmen <id> --config <datei>
   vars add       Variable anlegen                            --id <id> --name <NAME> --stage <s> --place repo[:env]... [--value <wert>] --config <datei>
+  sync           Alles aus dem Inventar nach GitHub bringen (Plan, dann schreiben; loescht nie)
+                   --to-github --config <datei> [--dry-run] [--yes] [--repo <name>]
   env export     Dev-.env erzeugen (Werte entstehen jetzt, werden nirgends gespeichert)
                    --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
@@ -123,6 +126,8 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await renew(rest, io);
       case "vars":
         return await varsCmd(rest, io);
+      case "sync":
+        return await syncCmd(rest, io);
       case "env":
         return rest[0] === "export" ? await envExport(rest.slice(1), io) : usage(io);
       case "team":

@@ -93,6 +93,7 @@ Summary:
 | `POST secrets` | Add a secret entry |
 | `PATCH secrets/:id` | Change descriptive metadata |
 | `GET compare` | Compare stages and repositories |
+| `POST compare/sync-plan` `{ repo? }` | Read-only plan of what a sync inventory to GitHub would set or write (names, places, reasons, no values). Running it is humans only, see [FULL-SYNC.md](FULL-SYNC.md#sync-everything-to-github) |
 | `GET variables` | List variables |
 | `GET variables/:id` | One variable |
 | `POST variables` | Add a variable |

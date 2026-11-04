@@ -8,6 +8,10 @@ after you emptied the repositories on purpose.
 It assumes a running portal (locally, or in Docker as described in [DOCKER.md](DOCKER.md)), a connected GitHub
 integration and the provider integrations you need ([INTEGRATIONS.md](INTEGRATIONS.md)).
 
+**Two directions.** *GitHub to inventory* is the Compare page's *Add all missing* (and `vars adopt`): names, and variable values,
+that exist in GitHub or in the workflows become inventory entries. *Inventory to GitHub* is [Sync everything to GitHub](#sync-everything-to-github)
+below: one reviewed action that writes variables and stored secret values from the inventory into GitHub. Neither direction deletes anything.
+
 ## Order
 
 1. [Back up the inventory](#1-back-up-the-inventory)
@@ -22,6 +26,8 @@ integration and the provider integrations you need ([INTEGRATIONS.md](INTEGRATIO
 10. [Paste the remaining values](#10-paste-the-remaining-values)
 11. [Change workflows and remove old names](#11-change-workflows-and-remove-old-names)
 12. [Check the result](#12-check-the-result)
+
+Shortcut for steps 8 to 10 once the inventory is complete: [Sync everything to GitHub](#sync-everything-to-github).
 
 Steps 1 to 7 change nothing in GitHub. Steps 8 to 11 do, so read the output of step 7 before you continue.
 
@@ -202,6 +208,53 @@ Never delete an old name before the workflow that reads it is changed.
 Run the comparison again with *Check live against GitHub* and *Evaluate workflows* on. Every needed name should be present in every stage it is read in;
 what remains are entries waiting for a manual value or for a provider resource that does not exist yet. `secret-desk
 status --live` lists every secret with its status against GitHub.
+
+## Sync everything to GitHub
+
+One action brings GitHub in line with the inventory and the vault. Use it after steps 1 to 7, or any time later to repair drift.
+
+**Plan first (read only).** Compare shows *Write everything to GitHub*; the CLI shows the same plan with `--dry-run`. For every
+place (repository, environment or organization) of every variable and secret the plan has one line:
+
+| Entry | Condition | Action |
+|---|---|---|
+| Variable | missing in GitHub, or GitHub value differs from the inventory value | **set** |
+| Variable | already equal | no line (only counted) |
+| Variable | no value in the inventory | **skip**: no value (take it from GitHub or a source first) |
+| Variable | value looks like a secret (blocked), or only suspicious | **skip**: apply it alone with `vars apply --ack-public` |
+| Secret | has a stored value and is missing in GitHub | **write** |
+| Secret | has a stored value, exists in GitHub | **write** ("will overwrite", GitHub cannot be read back) |
+| Secret | like the line above, but GitHub changed it after `rotatedAt` (or after the value was stored) | **write**, switched **off** with a warning |
+| Secret | no stored value | **skip**: no value; *Renew* is offered when the provider can issue one. A value is never invented |
+| Any | repository is in `compare.ignoreRepos` | **skip** |
+| Any | target cannot be read, or the environment does not exist | **skip** with the reason |
+
+A *stored value* is an encrypted entry `<secret-id>#value` in the vault. The portal does not store secret values by itself
+(values are never stored by default, see [SECURITY-MODEL.md](SECURITY-MODEL.md)), so without such an entry every secret is skipped as *no value*
+and you create the values with `renew`.
+
+**Review.** Lines are grouped by repository; each shows name, place, action and reason, and has a checkbox. Everything is on
+except overwrites of secrets that GitHub changed more recently than the inventory. When a selected line is in a live stage
+(production), the button stays disabled until you tick *I know this value affects production* (the same wording as the checklist
+item of a renewal). The primary button reads *Write N changes to GitHub*.
+
+**Run.** The portal sends the selection in batches of 20 and shows a counter; the server rebuilds the plan for every batch and only
+writes lines the plan really contains, so a stale or forged selection cannot write anything else. A rate-limit answer (429, or 403 with an
+exhausted limit) is retried after 2 s, 10 s and 30 s; any other error fails only that line. The end shows a toast and the failures with
+GitHub's reason. Running is for humans only (CSRF token required); agents get `404` for `compare/sync` and may read the plan with
+`POST compare/sync-plan`.
+
+**CLI.**
+
+```bash
+secret-desk sync --to-github --dry-run          # print the plan, write nothing
+secret-desk sync --to-github                    # print the plan, ask, then write
+secret-desk sync --to-github --yes --repo web   # no questions (confirms production too), one repository
+```
+
+Exit code `0` when every line was written (or there was nothing to do), `1` when a line failed or you did not confirm. The output never
+contains a value. Extra secrets in GitHub that the inventory does not know are never deleted here; clean them up on purpose
+(step 11).
 
 ## Limits you may meet
 
