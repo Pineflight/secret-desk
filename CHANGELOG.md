@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cloudflare tokens over several zones without Zone Read:** `zones` accepts zone ids as well as names; ids are used without a lookup, so a connection token that may not read zones can still bind several zones.
+
 ### Added
 
 - **Provider cards: Connect for every guided sign-in, one line per account, honest expiry, no overflow:** `GET /vendors` now carries `facade` (true for a vendor with a guided sign-in, same id), and a card with a guided sign-in always shows *Connect with sign-in* / *Reconnect with sign-in* first, also when the vendor has recipes and portal lines and also when the facade list did not load (a warning with *Try again* is shown then; the fallback is unavailable only while browser automation is off or the recipe is missing). A vendor with keys per account (a connection prefix, Stripe `stripe:<acct>:<mode>`) lists one compact line per connection: account, mode, validity, and *Test*, *Reconnect* (the dialog opens with that account and mode filled in) and *Remove*; *Connect another account* opens it empty; the older connections (`stripe`, `stripe-test`, `stripe-live`) are one *older connection* line with the hint to replace them. A key value is never shown. Browser-managed entries marked `expiry: none` (Peecho's read-only keys) now read *Does not expire* instead of *Expiry not specified* and stay out of the earliest-expiry calculation. A queued or running per-portal check is a status next to the line (*Live: waiting for the browser …*), the buttons only name the action (*Check live*). Cards and their action rows wrap (`min-w-0`, `break-words`): no horizontal overflow at 375, 768 and 1440 px. Texts in German and English.
