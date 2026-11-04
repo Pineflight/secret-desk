@@ -52,7 +52,7 @@ describe("retry with integration defaults", () => {
 describe("suggestions for variables", () => {
   const from = { connection: "supabase", kind: "supabase.project", resource: "ref1", field: "url" };
   const rows: SuggestionRow[] = [
-    { variableId: "a", from, current: "old", proposed: "new", resourceLabel: "wake-miles-staging", changed: true, status: "ok" },
+    { variableId: "a", from, current: "old", proposed: "new", resourceLabel: "acme-app-staging", changed: true, status: "ok" },
     { variableId: "b", from, current: "same", proposed: "same", resourceLabel: "x", changed: false, status: "ok" },
     { variableId: "c", from, status: "error", error: "nicht gefunden" },
   ];

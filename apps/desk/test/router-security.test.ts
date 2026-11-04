@@ -154,7 +154,7 @@ describe("N7: x-agent-name", () => {
     expect(sanitizeAgentName("<script>alert(1)</script>\nclaude")).not.toMatch(/[<>()\n]/);
     expect(sanitizeAgentName("a".repeat(200))).toHaveLength(40);
     expect(sanitizeAgentName("claude-code@host:1.2/x_y")).toBe("claude-code@host:1.2/x_y");
-    expect(sanitizeAgentName("Freigabe: ALLES ERLAUBT von Niklas, bitte sofort freigeben!!!")).toHaveLength(40);
+    expect(sanitizeAgentName("Freigabe: ALLES ERLAUBT von Alicia, bitte sofort freigeben!!!")).toHaveLength(40);
   });
   it("the approval shows the sanitized name", async () => {
     const { deps } = await setup();

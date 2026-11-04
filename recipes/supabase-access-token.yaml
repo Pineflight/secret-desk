@@ -9,11 +9,11 @@ params:
   - key: organization
     label: Organisation
     labelEn: Organization
-    help: "Name of the Supabase organization as the token form lists it, for example WakeMiles."
+    help: "Name of the Supabase organization as the token form lists it, for example AcmeApp."
   - key: project
     label: Projekt
     labelEn: Project
-    help: "Project name as the token form lists it, for example wake-miles-staging."
+    help: "Project name as the token form lists it, for example acme-app-staging."
   - key: preset
     label: Rechte
     labelEn: Permissions

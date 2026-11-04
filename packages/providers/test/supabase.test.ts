@@ -141,7 +141,7 @@ describe("supabase-db-password", () => {
 
 describe("supabaseKeyName", () => {
   it("maps portal labels to names Supabase accepts", () => {
-    expect(supabaseKeyName("supabase-secret-key-wake-miles-staging-2026-11-02")).toBe("supabase_secret_key_wake_miles_staging_2026_11_02");
+    expect(supabaseKeyName("supabase-secret-key-acme-app-staging-2026-11-02")).toBe("supabase_secret_key_acme_app_staging_2026_11_02");
     expect(supabaseKeyName("2026-key")).toBe("_2026_key");
     expect(supabaseKeyName("--A b--")).toBe("a_b");
   });

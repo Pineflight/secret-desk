@@ -5,16 +5,16 @@ import { CONN_TOKEN, connections, mockFetch, routeFetch, secretEntry } from "./h
 
 const registry = createDefaultRegistry();
 const get = (id: string) => registry.get(id)!;
-const dctx = (f: typeof fetch, conns: string[], params: Record<string, unknown> = {}) => ({ connections: connections(...conns), fetch: f, params, hint: { repos: ["wake-miles"], stage: "staging", stageKind: "test" as const } });
+const dctx = (f: typeof fetch, conns: string[], params: Record<string, unknown> = {}) => ({ connections: connections(...conns), fetch: f, params, hint: { repos: ["acme-app"], stage: "staging", stageKind: "test" as const } });
 const pctx = (f: typeof fetch, conns: string[], params: Record<string, unknown>, stageKind: "test" | "live" = "test"): PreflightContext => ({ secret: secretEntry(), params, stage: "staging", stageKind, connections: connections(...conns), fetch: f });
 
 const GROUPS = { result: [{ id: "g1", name: "Workers Scripts Write", scopes: ["com.cloudflare.api.account"] }, { id: "g2", name: "Account Settings Read", scopes: ["com.cloudflare.api.account"] }, { id: "g3", name: "Workers Routes Write", scopes: ["com.cloudflare.api.account.zone"] }] };
 const cf = () =>
   routeFetch(
-    { url: "/accounts?per_page=50", reply: { body: { result: [{ id: "acc1", name: "Pineflight" }] } } },
-    { url: "/zones?", reply: { body: { result: [{ id: "z1", name: "wakemiles.com", account: { name: "Pineflight" } }] } } },
+    { url: "/accounts?per_page=50", reply: { body: { result: [{ id: "acc1", name: "Acme Org" }] } } },
+    { url: "/zones?", reply: { body: { result: [{ id: "z1", name: "acme-app.example.com", account: { name: "Acme Org" } }] } } },
     { url: "/user/tokens/permission_groups", reply: { body: GROUPS } },
-    { url: "/challenges/widgets", reply: { body: { result: [{ sitekey: "0xAAA", name: "Login", domains: ["wakemiles.com"] }] } } },
+    { url: "/challenges/widgets", reply: { body: { result: [{ sitekey: "0xAAA", name: "Login", domains: ["acme-app.example.com"] }] } } },
   );
 
 describe("specifications", () => {
@@ -55,7 +55,7 @@ describe("cloudflare discover and preflight", () => {
     const { fetch, calls } = cf();
     const p = get("cloudflare-token");
     expect((await p.discover!("cloudflare.account", dctx(fetch, ["cloudflare"]))).map((o) => o.value)).toEqual(["acc1"]);
-    expect((await p.discover!("cloudflare.zone", dctx(fetch, ["cloudflare"], { accountId: "acc1" })))[0]).toMatchObject({ value: "z1", label: "wakemiles.com" });
+    expect((await p.discover!("cloudflare.zone", dctx(fetch, ["cloudflare"], { accountId: "acc1" })))[0]).toMatchObject({ value: "z1", label: "acme-app.example.com" });
     expect((await p.discover!("cloudflare.permissionGroups", dctx(fetch, ["cloudflare"]))).map((o) => [o.value, o.detail])).toEqual([["Workers Scripts Write", "account"], ["Account Settings Read", "account"], ["Workers Routes Write", "zone"]]);
     const t = get("cloudflare-turnstile");
     expect((await t.discover!("cloudflare.turnstileWidget", dctx(fetch, ["cloudflare-turnstile"], { accountId: "acc1" })))[0]).toMatchObject({ value: "0xAAA" });
@@ -67,14 +67,14 @@ describe("cloudflare discover and preflight", () => {
     const { fetch } = cf();
     const p = cloudflareProviders[0]!;
     const ok = await p.preflight!(pctx(fetch, ["cloudflare"], { accountId: "acc1", permissions: ["Workers Scripts Write"] }));
-    expect(ok.resource).toBe("Cloudflare-Konto Pineflight (acc1)");
+    expect(ok.resource).toBe("Cloudflare-Konto Acme Org (acc1)");
     expect(ok.findings.every((f) => f.level === "ok")).toBe(true);
     const wrong = await p.preflight!(pctx(fetch, ["cloudflare"], { accountId: "other", permissions: ["Nope"] }));
     expect(wrong.findings.filter((f) => f.level === "fail").map((f) => f.id)).toEqual(["account", "permissions"]);
     const zone = await p.preflight!(pctx(fetch, ["cloudflare"], { accountId: "acc1", permissions: ["Workers Routes Write"] }));
     expect(zone.findings.find((f) => f.id === "zone")).toMatchObject({ level: "fail" });
     const withZone = await p.preflight!(pctx(fetch, ["cloudflare"], { accountId: "acc1", zoneId: "z1", permissions: ["Workers Routes Write"] }));
-    expect(withZone.resource).toContain("Zone wakemiles.com");
+    expect(withZone.resource).toContain("Zone acme-app.example.com");
   });
   it("a token that may not read accounts gives a warning, not a failure", async () => {
     const { fetch } = routeFetch({ url: "/accounts", reply: { status: 403, body: { errors: [] } } }, { url: "/permission_groups", reply: { body: GROUPS } });
@@ -97,13 +97,13 @@ describe("cloudflare discover and preflight", () => {
 });
 
 describe("supabase discover and preflight", () => {
-  const projects = () => routeFetch({ url: "/v1/projects", reply: { body: [{ id: "abc", name: "wake-miles-staging", region: "eu-west-1" }, { id: "def", name: "wake-miles-production" }] } });
+  const projects = () => routeFetch({ url: "/v1/projects", reply: { body: [{ id: "abc", name: "acme-app-staging", region: "eu-west-1" }, { id: "def", name: "acme-app-production" }] } });
   it("lists projects and checks the ref (and warns when the name contradicts the stage)", async () => {
     const { fetch } = projects();
     const p = supabaseProviders[0]!;
     expect((await p.discover!("supabase.project", dctx(fetch, ["supabase"]))).map((o) => o.value)).toEqual(["abc", "def"]);
     const ok = await p.preflight!(pctx(fetch, ["supabase"], { projectRef: "abc" }));
-    expect(ok.resource).toBe("Supabase-Projekt wake-miles-staging (ref abc)");
+    expect(ok.resource).toBe("Supabase-Projekt acme-app-staging (ref abc)");
     expect(ok.findings.every((f) => f.level === "ok")).toBe(true);
     const prodForStaging = await p.preflight!(pctx(fetch, ["supabase"], { projectRef: "def" }));
     expect(prodForStaging.findings.find((f) => f.id === "stage")).toMatchObject({ level: "warn" });
@@ -112,7 +112,7 @@ describe("supabase discover and preflight", () => {
   });
   it("reads the public key only, never service_role or secret keys", async () => {
     const { fetch, calls } = routeFetch({ url: "/api-keys", reply: { body: [{ name: "service_role", type: "secret", api_key: "SERVICE-ROLE-VALUE" }, { name: "anon", type: "publishable", api_key: "PUBLIC-ANON-VALUE" }] } });
-    const opt = { value: "abc", label: "wake-miles-staging" };
+    const opt = { value: "abc", label: "acme-app-staging" };
     expect(await readVariableField("supabase.project", "publishableKey", opt, { connections: connections("supabase"), fetch })).toBe("PUBLIC-ANON-VALUE");
     expect(calls[0]!.url).not.toContain("reveal");
     const only = routeFetch({ url: "/api-keys", reply: { body: [{ name: "service_role", type: "secret", api_key: "SERVICE-ROLE-VALUE" }] } });
@@ -123,12 +123,12 @@ describe("supabase discover and preflight", () => {
 });
 
 describe("resend discover and preflight", () => {
-  const domains = () => routeFetch({ url: "/domains", reply: { body: { data: [{ id: "d1", name: "wakemiles.com", status: "verified" }, { id: "d2", name: "pineflight.com", status: "pending" }] } } });
+  const domains = () => routeFetch({ url: "/domains", reply: { body: { data: [{ id: "d1", name: "acme-app.example.com", status: "verified" }, { id: "d2", name: "acme-org.example.com", status: "pending" }] } } });
   it("lists domains with status; the preflight names the domain and warns when not verified", async () => {
     const { fetch } = domains();
-    expect((await resendProvider.discover!("resend.domain", dctx(fetch, ["resend"])))[1]).toMatchObject({ value: "d2", label: "pineflight.com", detail: "pending, d2" });
+    expect((await resendProvider.discover!("resend.domain", dctx(fetch, ["resend"])))[1]).toMatchObject({ value: "d2", label: "acme-org.example.com", detail: "pending, d2" });
     const ok = await resendProvider.preflight!(pctx(fetch, ["resend"], { permission: "sending_access", domainId: "d1" }));
-    expect(ok.resource).toBe("Key nur fuer Domain wakemiles.com");
+    expect(ok.resource).toBe("Key nur fuer Domain acme-app.example.com");
     expect(ok.findings.every((f) => f.level === "ok")).toBe(true);
     const pending = await resendProvider.preflight!(pctx(fetch, ["resend"], { domainId: "d2" }));
     expect(pending.findings.find((f) => f.id === "verified")).toMatchObject({ level: "warn" });

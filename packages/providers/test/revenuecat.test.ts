@@ -6,9 +6,9 @@ import { CONN_TOKEN, connections, routeFetch } from "./helpers.js";
 const dctx = (f: typeof fetch, params: Record<string, unknown> = {}) => ({ connections: connections("revenuecat"), fetch: f, params, hint: { repos: [] as string[] } });
 const rctx = (f: typeof fetch, params: Record<string, unknown> = {}) => ({ connections: connections("revenuecat"), fetch: f, params });
 
-const PROJECTS = { object: "list", items: [{ id: "proj1", name: "WakeMiles" }, { id: "proj2", name: "Lupe" }], next_page: null };
+const PROJECTS = { object: "list", items: [{ id: "proj1", name: "AcmeApp" }, { id: "proj2", name: "AcmeTool" }], next_page: null };
 const APPS1 = { object: "list", items: [{ id: "app_ios", name: "iOS", type: "app_store" }, { id: "app_web", name: "Web", type: "rc_billing" }], next_page: null };
-const APPS2 = { object: "list", items: [{ id: "app_lupe", name: "Lupe", type: "play_store" }], next_page: null };
+const APPS2 = { object: "list", items: [{ id: "app_acme_tool", name: "AcmeTool", type: "play_store" }], next_page: null };
 const KEYS = {
   object: "list",
   items: [
@@ -37,7 +37,7 @@ describe("revenuecat discovery", () => {
   it("lists projects with the bearer token and no write call", async () => {
     const { fetch, calls } = rc();
     const o = await revenueCatProvider.discover!("revenuecat.project", dctx(fetch));
-    expect(o).toEqual([{ value: "proj1", label: "WakeMiles", detail: "proj1" }, { value: "proj2", label: "Lupe", detail: "proj2" }]);
+    expect(o).toEqual([{ value: "proj1", label: "AcmeApp", detail: "proj1" }, { value: "proj2", label: "AcmeTool", detail: "proj2" }]);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.url).toBe("https://api.revenuecat.com/v2/projects?limit=100");
@@ -52,12 +52,12 @@ describe("revenuecat discovery", () => {
   it("lists the apps of every project when no project is named", async () => {
     const { fetch } = rc();
     const o = await revenueCatProvider.discover!("revenuecat.publicApiKey", dctx(fetch));
-    expect(o.map((x) => x.value)).toEqual(["app_ios", "app_web", "app_lupe"]);
-    expect(o[2]!.detail).toContain("Lupe");
+    expect(o.map((x) => x.value)).toEqual(["app_ios", "app_web", "app_acme_tool"]);
+    expect(o[2]!.detail).toContain("AcmeTool");
   });
   it("follows pagination with starting_after and never follows the next_page URL", async () => {
     const { fetch, calls } = routeFetch(
-      { url: "starting_after=proj1", reply: { body: { items: [{ id: "proj2", name: "Lupe" }], next_page: null } } },
+      { url: "starting_after=proj1", reply: { body: { items: [{ id: "proj2", name: "AcmeTool" }], next_page: null } } },
       { url: "/v2/projects?", reply: { body: { items: [{ id: "proj1", name: "A" }], next_page: "https://evil.example/v2/projects?starting_after=proj1" } } },
     );
     const o = await revenueCatProvider.discover!("revenuecat.project", dctx(fetch));
@@ -86,8 +86,8 @@ describe("revenuecat variable fields", () => {
   const app = { value: "app_ios", label: "iOS (app_store)" };
   it("reads ids and names", async () => {
     const { fetch } = rc();
-    expect(await readVariableField("revenuecat.project", "id", { value: "proj1", label: "WakeMiles" }, rctx(fetch))).toBe("proj1");
-    expect(await readVariableField("revenuecat.project", "name", { value: "proj1", label: "WakeMiles" }, rctx(fetch))).toBe("WakeMiles");
+    expect(await readVariableField("revenuecat.project", "id", { value: "proj1", label: "AcmeApp" }, rctx(fetch))).toBe("proj1");
+    expect(await readVariableField("revenuecat.project", "name", { value: "proj1", label: "AcmeApp" }, rctx(fetch))).toBe("AcmeApp");
     expect(await readVariableField("revenuecat.app", "id", app, rctx(fetch))).toBe("app_ios");
     expect(await readVariableField("revenuecat.app", "name", app, rctx(fetch, { projectId: "proj1" }))).toBe("iOS");
     expect(await readVariableField("revenuecat.app", "type", app, rctx(fetch, { projectId: "proj1" }))).toBe("app_store");
