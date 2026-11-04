@@ -123,7 +123,7 @@ export default function EntriesPage() {
   const eff = effectiveFilters(filters);
   const kindsOn = activeKinds({ ...eff, kind: "" });
   const terms = useMemo(() => highlightTerms(q), [q]);
-  const inRepo = (places: { repo: string }[]) => browse.repo === "" || repoNames(places as VariableView["places"]).includes(browse.repo);
+  const inRepo = (places: { scope?: string; repo?: string | undefined }[]) => browse.repo === "" || repoNames(places as VariableView["places"]).includes(browse.repo);
   const secretsSearched = useMemo(() => filterBySearch(secrets.data ?? [], q).filter((s) => inRepo(s.places)), [secrets.data, q, browse.repo]);
   const variablesSearched = useMemo(() => filterBySearch(variables.data ?? [], q).filter((v) => inRepo(v.places)), [variables.data, q, browse.repo]);
   const secretsMatch = useMemo(() => (kindsOn.includes("secret") ? secretsSearched.filter((s) => secretMatches(s, eff)) : []), [secretsSearched, kindsOn.join(), eff.status, eff.provider, eff.params]);

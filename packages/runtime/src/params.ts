@@ -235,6 +235,12 @@ function defaultSpecsOf(providers: Provider[]): ParamSpec[] {
   return [...seen.values()];
 }
 
+/**
+ * Kinds that are only read when asked for by name: they belong to one editor, not to the overview of a connection, and a token
+ * without the matching read right must not make the connection card warn (the Workers list of the place editor needs "Workers Scripts Read").
+ */
+const ON_DEMAND_KINDS: ReadonlySet<string> = new Set(["cloudflare.workerScript"]);
+
 /** Entdeckbare Arten einer Integration, jeweils mit dem Anbieter, der sie kann. */
 function kindsOf(providers: Provider[]): Map<string, Provider> {
   const out = new Map<string, Provider>();
@@ -257,7 +263,7 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
   const resources: Record<string, ResourceState> = {};
   // Gespeicherte Standardwerte der Integration (z. B. grafana baseUrl) sind der Fallback; Query-Parameter gehen vor.
   const params = { ...(rt.inventory.data.integrationDefaults?.[connection] ?? {}), ...(options.params ?? {}) };
-  const wanted = options.kind ? [options.kind] : [...kinds.keys()];
+  const wanted = options.kind ? [options.kind] : [...kinds.keys()].filter((k) => !ON_DEMAND_KINDS.has(k));
   for (const kind of wanted) {
     const p = kinds.get(kind);
     if (!p) {

@@ -40,7 +40,7 @@ export const labelOf = (c: Connection): string => c.label || NAMES[c.id] || c.id
 /** One plain sentence about how the provider's browser sign-in works. */
 export function signInSentence(card: ProviderCard, t: (k: string, v?: Record<string, string | number>) => string): string {
   const s = card.signIn;
-  if (s.state === "facade") return t(s.facade && s.facade.id === "stripe" ? "providers.signIn.facadeScoped" : "providers.signIn.facade");
+  if (s.state === "facade") return t(s.facade && s.facade.id === "stripe" ? "providers.signIn.facadeScoped" : s.facade && s.facade.id === "grafana" ? "providers.signIn.facadeGrafana" : "providers.signIn.facade");
   if (s.state === "recipe") return t(s.available ? "providers.signIn.recipe" : "providers.signIn.recipeOff", { name: card.label });
   return t("providers.signIn.coming", { name: card.label });
 }

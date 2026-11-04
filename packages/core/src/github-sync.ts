@@ -1,9 +1,11 @@
-import { GitHubError, placeToTarget, type GitHubClient, type GitHubTarget } from "./github.js";
+import { GitHubError, placeToTarget, type GitHubClient } from "./github.js";
 import { looksSecret } from "./guards.js";
 import type { SecretValue } from "./secret.js";
 import { stageKind } from "./stages.js";
 import { parseDay } from "./status.js";
-import type { Inventory, Place } from "./types.js";
+import { isWorkerPlace, type Inventory, type Place } from "./types.js";
+import { listPlaceSecrets, placeErrorStatus, putPlaceSecret, storeId } from "./place-io.js";
+import type { WorkerSecretsClient } from "./worker-secrets.js";
 import { placeLabel } from "./variables.js";
 
 /**
@@ -72,6 +74,8 @@ export interface SecretValueSource {
 
 export interface SyncPlanDeps {
   github: Pick<GitHubClient, "listSecrets" | "listVariables">;
+  /** Reads the names of Worker secrets; without it Worker places are listed as unreadable. */
+  workers?: Pick<WorkerSecretsClient, "listSecretNames">;
   owner: string;
   inventory: Inventory;
   ignoreRepos?: readonly string[];
@@ -84,24 +88,24 @@ export interface SyncPlanDeps {
   now?: Date;
 }
 
-const targetKey = (t: GitHubTarget): string => `${t.repo}/${t.scope}/${t.environment ?? ""}`;
 const dayOf = (iso: string): string => iso.slice(0, 10);
 
 export function syncLineKey(kind: "variable" | "secret", entryId: string, place: Place): string {
+  if (isWorkerPlace(place)) return `${kind}:${entryId}:cloudflare-worker:${place.accountId}:${place.script}:${place.name ?? ""}`;
   return `${kind}:${entryId}:${place.repo}:${place.scope}:${place.environment ?? ""}:${place.name ?? ""}`;
 }
 
-/** Reads GitHub once per target and kind. 404 = the target does not exist, other errors are kept with their message. */
+/** Reads a store (GitHub target or Worker) once per kind. 404 = the store does not exist, other errors are kept with their message. */
 class Listings<T> {
   readonly #cache = new Map<string, Promise<{ ok: true; items: Map<string, T> } | { ok: false; status: number; message: string }>>();
-  constructor(private readonly read: (t: GitHubTarget) => Promise<[string, T][]>) {}
-  get(t: GitHubTarget) {
-    const k = targetKey(t);
+  constructor(private readonly read: (p: Place) => Promise<[string, T][]>) {}
+  get(p: Place) {
+    const k = storeId(p);
     let hit = this.#cache.get(k);
     if (!hit) {
-      hit = this.read(t).then(
+      hit = this.read(p).then(
         (entries) => ({ ok: true as const, items: new Map(entries) }),
-        (err: unknown) => ({ ok: false as const, status: err instanceof GitHubError ? err.status : 0, message: err instanceof Error ? err.message : String(err) }),
+        (err: unknown) => ({ ok: false as const, status: placeErrorStatus(err), message: err instanceof Error ? err.message : String(err) }),
       );
       this.#cache.set(k, hit);
     }
@@ -113,8 +117,10 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
   const { inventory, owner } = deps;
   const ignored = new Set(deps.ignoreRepos ?? []);
   const canIssue = deps.canIssue ?? ((id: string) => id !== "manual");
-  const variables = new Listings<{ value: string }>(async (t) => (await deps.github.listVariables(t)).map((v) => [v.name, { value: v.value }]));
-  const secrets = new Listings<{ updatedAt: string }>(async (t) => (await deps.github.listSecrets(t)).map((s) => [s.name, { updatedAt: s.updatedAt }]));
+  // Variables only exist on GitHub; a Worker place never reaches this reader (the schema keeps Worker places out of variables).
+  const variables = new Listings<{ value: string }>(async (p) => (isWorkerPlace(p) ? [] : (await deps.github.listVariables(placeToTarget(owner, p))).map((v) => [v.name, { value: v.value }])));
+  // A Worker lists names only, without change times: no `github-newer` check there.
+  const secrets = new Listings<{ updatedAt?: string }>(async (p) => (await listPlaceSecrets({ github: deps.github, ...(deps.workers ? { workers: deps.workers } : {}), owner }, p)).map((s) => [s.name, s.updatedAt !== undefined ? { updatedAt: s.updatedAt } : {}]));
   const lines: SyncLine[] = [];
   let unchanged = 0;
 
@@ -123,7 +129,7 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
     kind,
     entryId,
     name,
-    repo: place.repo,
+    repo: isWorkerPlace(place) ? `worker:${place.script}` : place.repo,
     place,
     placeLabel: placeLabel(place),
     stage,
@@ -151,7 +157,7 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
         skip(b, finding.level === "block" ? "secret-like" : "needs-ack");
         continue;
       }
-      const live = await variables.get(placeToTarget(owner, place));
+      const live = await variables.get(place);
       if (!live.ok) {
         skip(b, live.status === 404 ? "target-missing" : "unreadable", live.status === 404 ? {} : { detail: live.message });
         continue;
@@ -164,10 +170,10 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
 
   for (const s of inventory.secrets) {
     for (const place of s.places) {
-      if (deps.repo && place.repo !== deps.repo) continue;
+      if (deps.repo && (isWorkerPlace(place) ? `worker:${place.script}` : place.repo) !== deps.repo) continue;
       const name = place.name ?? s.name;
       const b = base("secret", s.id, name, s.stage, place);
-      if (ignored.has(place.repo)) {
+      if (!isWorkerPlace(place) && ignored.has(place.repo)) {
         skip(b, "ignored-repo");
         continue;
       }
@@ -181,7 +187,7 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
         skip(b, "no-value", canIssue(s.provider) ? { renewable: true } : {});
         continue;
       }
-      const live = await secrets.get(placeToTarget(owner, place));
+      const live = await secrets.get(place);
       if (!live.ok) {
         skip(b, live.status === 404 ? "target-missing" : "unreadable", live.status === 404 ? {} : { detail: live.message });
         continue;
@@ -194,7 +200,7 @@ export async function buildSyncPlan(deps: SyncPlanDeps): Promise<SyncPlan> {
       // GitHub cannot be read back: the line says "will overwrite". If GitHub was changed after the inventory value was
       // made (rotatedAt, else the day the value was stored), somebody else may have changed it: off by default, with a warning.
       const reference = s.rotatedAt ?? dayOf(stored.savedAt);
-      const githubNewer = parseDay(dayOf(found.updatedAt)).getTime() > parseDay(reference).getTime();
+      const githubNewer = found.updatedAt !== undefined && parseDay(dayOf(found.updatedAt)).getTime() > parseDay(reference).getTime();
       lines.push(githubNewer ? { ...b, action: "write", reason: "github-newer", defaultOn: false, warning: "github-newer" } : { ...b, action: "write", reason: "overwrite", defaultOn: true });
     }
   }
@@ -249,6 +255,8 @@ export interface SyncRunOptions {
 
 export interface SyncRunDeps {
   github: Pick<GitHubClient, "putVariable" | "putSecret">;
+  /** Writes Worker secrets; without it Worker lines fail with a clear message. */
+  workers?: Pick<WorkerSecretsClient, "putSecret">;
   owner: string;
   /** The plan, built right before. The executor trusts only this, never line content from a caller. */
   plan: SyncPlan;
@@ -292,9 +300,13 @@ export async function runSync(deps: SyncRunDeps, options: SyncRunOptions): Promi
   for (let i = 0; i < selected.length; i += batch) {
     for (const line of selected.slice(i, i + batch)) {
       const meta = { key: line.key, kind: line.kind, entryId: line.entryId, name: line.name, placeLabel: line.placeLabel };
-      const target = placeToTarget(deps.owner, line.place);
       try {
         if (line.kind === "variable") {
+          if (isWorkerPlace(line.place)) {
+            outcomes.push({ ...meta, outcome: "skipped", error: "Worker-Variablen gehoeren nicht zu secret-desk" });
+            continue;
+          }
+          const target = placeToTarget(deps.owner, line.place);
           const v = variableById.get(line.entryId);
           // The plan was built from this inventory; an entry that changed in between is skipped, never guessed.
           if (!v || v.value === null) {
@@ -314,7 +326,7 @@ export async function runSync(deps: SyncRunDeps, options: SyncRunOptions): Promi
             outcomes.push({ ...meta, outcome: "skipped", error: "Kein gespeicherter Wert mehr. Plan neu erstellen." });
             continue;
           }
-          outcomes.push({ ...meta, outcome: await withRetry(() => deps.github.putSecret(target, line.name, value)) });
+          outcomes.push({ ...meta, outcome: await withRetry(() => putPlaceSecret({ github: deps.github, ...(deps.workers ? { workers: deps.workers } : {}), owner: deps.owner }, line.place, line.name, value)) });
         }
       } catch (err) {
         outcomes.push({ ...meta, outcome: "failed", error: err instanceof Error ? err.message : String(err) });

@@ -116,7 +116,7 @@ export function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInpu
     for (const s of data.secrets) {
       if (s.stage !== input.stage) continue;
       for (const p of s.places) {
-        if (p.repo !== input.repo) continue;
+        if (p.scope === "cloudflare-worker" || p.repo !== input.repo) continue;
         const name = p.name ?? s.name;
         if (!isDev) {
           put({ name, value: null, reason: NON_DEV_SECRET(input.stage), note: s.description });

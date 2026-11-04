@@ -168,7 +168,7 @@ A **source** says where an access token comes from. It is never the value itself
 | `env` | `name` | Read from the environment variable `name`. |
 | `op` | `ref` (must start with `op://`) | Read with the 1Password CLI (`op read <ref>`). |
 
-`connections` is keyed by connection id. The ids in use are `github`, `github-app-key`, `cloudflare`, `cloudflare-turnstile`, `supabase`, `stripe`, `stripe-test`, `stripe-live`, `resend`, `revenuecat` and `grafana`; a custom provider may bring its own. The GitHub entry is set through `github.auth`, not `connections`.
+`connections` is keyed by connection id. The ids in use are `github`, `github-app-key`, `cloudflare`, `cloudflare-turnstile`, `supabase`, `stripe`, `stripe-test`, `stripe-live`, `resend`, `revenuecat`, `grafana` and `grafana-cloud`; a custom provider may bring its own. The GitHub entry is set through `github.auth`, not `connections`.
 
 ```yaml
 connections:
@@ -234,7 +234,7 @@ At most 12 stages. Ids must be unique.
 | `verifiedAt`, `verifiedBy` | date, string | unset | When and by whom the value was confirmed after review. Set by the portal. |
 | `externalId` | string | unset | Identifier at the provider, used to revoke the old value. Not a secret. Set by the portal. |
 | `source`, `rotation`, `notes` | string | unset | Free text. |
-| `places` | [place](#places)[] | `[]` | Where the secret lives in GitHub. |
+| `places` | [place](#places)[] | `[]` | Where the secret lives: in the GitHub secret store, or as a secret of a Cloudflare Worker. |
 
 The status shown in the portal derives from `expires`, `expiry` and `thresholds`: `expired` (date passed), `missing` (live check: not in GitHub), `due` (within the smallest threshold), `no-date` (`expiry: required` without a date), `soon` (within the largest threshold), `unknown` (`expiry: unknown` without a date), otherwise `ok` ([`status.ts`](../packages/core/src/status.ts)).
 
@@ -248,11 +248,13 @@ GitHub Actions variables (`vars.*`) are configuration, not secrets. The expected
 | `stage` | stage id | `shared` | |
 | `value` | string, max 1000 \| `null` | `null` | The expected value. `null` means unknown: adopt it from GitHub. Values that look like secrets are rejected (hard) or need an explicit acknowledgement (soft). |
 | `from` | `{ connection, kind, resource, field }` | unset | Optional source of the expected value in an integration (public fields only). See [RESOURCES.md](RESOURCES.md#5-variables-from-a-provider). |
-| `places` | [place](#places)[] | required, at least one | |
+| `places` | GitHub [place](#places)[] | required, at least one | GitHub places only: Worker variables are out of scope, a variable with a Worker place is rejected. |
 
 ### Places
 
-A place is a target in GitHub.
+A place is a target for the value: a GitHub secret store, or the secrets of a deployed Cloudflare Worker.
+
+**GitHub places** (`scope` is `repository`, `environment` or `organization`):
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -260,6 +262,22 @@ A place is a target in GitHub.
 | `scope` | `repository` \| `environment` \| `organization` | required | Repository-level, environment-level or organization-level. The portal form does not offer `organization` yet. |
 | `environment` | string | from the stage | Environment name for scope `environment`. If omitted, the stage's environment is used; a stage without an environment (`dev`, `shared`) makes this an error. |
 | `name` | secret-style name | the entry's `name` | A different name in the target (rare). |
+
+**Worker places** (`scope: cloudflare-worker`) write a secret the way `wrangler secret put NAME --env staging` does, for apps that read their keys as Worker secrets instead of GitHub secrets. Only for secrets, never for variables.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `scope` | `cloudflare-worker` | required | |
+| `accountId` | 32 hexadecimal characters | required | The Cloudflare account that owns the Worker. The portal form takes the integration default or the only account the token sees. |
+| `script` | string, letters, digits, `-`, `_`, at most 63 | required | The **deployed** Worker name. A Worker with an `env.staging` block is deployed as `<name>-staging`: use that name, for example `acme-portal-staging`. The portal form suggests the Workers of the account. |
+| `name` | secret-style name | the entry's `name` | A different name on the Worker (rare). |
+
+```yaml
+places:
+  - { scope: cloudflare-worker, accountId: "0123456789abcdef0123456789abcdef", script: acme-portal-staging }
+```
+
+Writing needs the `cloudflare` connection with *Account > Workers Scripts > Edit* ([PROVIDERS.md](PROVIDERS.md#permissions-per-integration)). The Cloudflare API only lists names of Worker secrets and never returns a value, so the portal shows *present* or *missing* by name and cannot compare values or change times. A stage's production confirmation applies to its Worker places like to any other place. Deleting a Worker secret is not part of secret-desk.
 
 ### Env templates
 

@@ -49,6 +49,8 @@ export default {
   "providers.signIn.start": "Connect with sign-in",
   "providers.signIn.signedInYes": "The browser is signed in.",
   "providers.signIn.signedInNo": "The browser is not signed in.",
+  "providers.signIn.facadeGrafana": "You sign in once at grafana.com. secret-desk creates an account token from it and uses it to create service accounts in the stack and further tokens itself. You still paste the stack token.",
+  "providers.keys.hintFacadeMixed": "The account token comes from the sign-in. You paste the stack token yourself.",
   "providers.keys.hintFacade": "Created and renewed by the sign-in. Pasting a key stays possible under \"I already have a key\".",
   "providers.keys.hint": "The keys secret-desk uses to call the API of {name} (webhooks, account checks, discovery).",
   "providers.keys.none": "No key yet.",

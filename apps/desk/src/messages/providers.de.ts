@@ -49,6 +49,8 @@ export default {
   "providers.signIn.start": "Mit Anmeldung verbinden",
   "providers.signIn.signedInYes": "Der Browser ist angemeldet.",
   "providers.signIn.signedInNo": "Der Browser ist nicht angemeldet.",
+  "providers.signIn.facadeGrafana": "Du meldest dich einmal bei grafana.com an. secret-desk legt daraus ein Konto-Token an, mit dem es Service-Accounts im Stack und weitere Tokens selbst erzeugt. Das Token des Stacks fügst du weiterhin ein.",
+  "providers.keys.hintFacadeMixed": "Das Konto-Token kommt von der Anmeldung. Das Token des Stacks fügst du selbst ein.",
   "providers.keys.hintFacade": "Von der Anmeldung angelegt und erneuert. Einen Schlüssel einfügen bleibt unter „Ich habe schon einen Schlüssel“ möglich.",
   "providers.keys.hint": "Die Schlüssel, mit denen secret-desk die API von {name} aufruft (Webhooks, Kontoprüfung, Ressourcen finden).",
   "providers.keys.none": "Noch kein Schlüssel.",

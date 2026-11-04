@@ -50,6 +50,7 @@ export default {
   "common.env": "Environment",
   "common.org": "Organization",
   "common.repo": "Repository",
+  "common.worker": "Cloudflare Worker",
   "common.status.ok": "OK",
   "common.status.soon": "Expiring soon",
   "common.status.due": "Due",

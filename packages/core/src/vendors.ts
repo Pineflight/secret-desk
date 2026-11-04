@@ -77,7 +77,7 @@ export const VENDORS: readonly VendorDef[] = [
   vendor({ id: "revenuecat", label: "RevenueCat", category: "payments", icon: "revenuecat", connections: ["revenuecat"], providers: ["revenuecat-secret-key"], recipes: ["revenuecat-secret-api-key"] }),
   vendor({ id: "resend", label: "Resend", category: "messaging", icon: "resend", connections: ["resend"], providers: ["resend-api-key"] }),
   vendor({ id: "telegram", label: "Telegram", category: "messaging", icon: "telegram", providers: ["telegram-bot"] }),
-  vendor({ id: "grafana", label: "Grafana Cloud", category: "observability", icon: "grafana", connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token", "grafana-access-policy-token"] }),
+  vendor({ id: "grafana", label: "Grafana Cloud", category: "observability", icon: "grafana", connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token", "grafana-access-policy-token"], recipes: ["grafana-cloud-access-policy"] }),
   vendor({ id: "openai", label: "OpenAI", category: "ai", icon: null, connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] }),
   vendor({ id: "anthropic", label: "Anthropic", category: "ai", icon: "anthropic", connections: ["anthropic"], providers: ["anthropic-api-key-browser"], recipes: ["anthropic-admin-key", "anthropic-api-key"] }),
   vendor({ id: "vesselapi", label: "VesselAPI", category: "data", icon: null, recipes: ["vesselapi-api-key"] }),

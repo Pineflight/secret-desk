@@ -31,6 +31,14 @@ describe("vendor catalog", () => {
     expect(vendorOfProvider("anthropic-admin-key-browser")?.id).toBe("anthropic");
     expect(vendorOfRecipe("anthropic-api-key")?.id).toBe("anthropic");
   });
+  it("counts both Grafana connections, both providers and the Cloud recipe under the Grafana card", () => {
+    const g = vendorById("grafana")!;
+    expect(g).toMatchObject({ connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token", "grafana-access-policy-token"], recipes: ["grafana-cloud-access-policy"] });
+    expect(vendorOfConnection("grafana-cloud")?.id).toBe("grafana");
+    expect(connectionRole(g, "grafana-cloud")).toBe("optional");
+    expect(vendorOfRecipe("grafana-cloud-access-policy")?.id).toBe("grafana");
+    expect(vendorOfProvider("grafana-cloud-access-policy-browser")?.id).toBe("grafana");
+  });
   it("covers every category from the brief", () => {
     expect(new Set(VENDORS.map((v) => v.category))).toEqual(new Set(["code", "hosting", "database", "payments", "messaging", "observability", "ai", "data", "print"]));
   });

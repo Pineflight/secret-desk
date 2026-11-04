@@ -18,6 +18,8 @@ By default the comparison is **offline**: cells show `unknown` where an expectat
 
 ### Targets
 
+The matrix compares GitHub repositories; the secrets of Cloudflare Workers (places of scope `cloudflare-worker`) are not part of it. They appear in the live status of the entries list and in the [sync plan](FULL-SYNC.md#sync-everything-to-github).
+
 A stage lives in the GitHub environment of its definition. Stages without an environment (`dev`, `shared`) have no target, with one exception: the **repository level** belongs to the first environment-less stage of kind `shared` (otherwise the first environment-less stage). Other environment-less stages show `not-applicable`. An inventory entry always counts for its own stage and is checked at its own places (repository, environment or organization).
 
 ## Cell states

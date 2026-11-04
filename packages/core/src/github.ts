@@ -3,7 +3,7 @@ import { createSign } from "node:crypto";
 import sodium from "libsodium-wrappers";
 import { SecretValue } from "./secret.js";
 import { placeKey, type LiveSnapshot } from "./status.js";
-import type { Place } from "./types.js";
+import type { GitHubPlace } from "./types.js";
 
 export type FetchLike = typeof fetch;
 
@@ -49,7 +49,7 @@ export interface GitHubTarget {
 
 export type TokenProvider = () => Promise<SecretValue>;
 
-export function placeToTarget(owner: string, place: Place): GitHubTarget {
+export function placeToTarget(owner: string, place: GitHubPlace): GitHubTarget {
   return { owner, repo: place.repo, scope: place.scope, ...(place.environment ? { environment: place.environment } : {}) };
 }
 
@@ -435,7 +435,7 @@ export class GitHubClient {
   }
 
   /** Wie snapshotDetailed, aber nur der Stand. Ein Ziel mit Fehler fehlt dann einfach (siehe snapshotDetailed). */
-  async snapshot(owner: string, places: Place[]): Promise<LiveSnapshot> {
+  async snapshot(owner: string, places: GitHubPlace[]): Promise<LiveSnapshot> {
     return (await this.snapshotDetailed(owner, places)).snapshot;
   }
 
@@ -443,7 +443,7 @@ export class GitHubClient {
    * Liest fuer alle uebergebenen Ziele die vorhandenen Secret-Namen (keine Werte). Ein Ziel mit 403/429/5xx kippt nicht den
    * ganzen Abgleich: Es erscheint in `errors`, die uebrigen liefern ihr Ergebnis. 404 heisst "Ziel gibt es nicht" und ist kein Fehler.
    */
-  async snapshotDetailed(owner: string, places: Place[]): Promise<SnapshotResult> {
+  async snapshotDetailed(owner: string, places: GitHubPlace[]): Promise<SnapshotResult> {
     const snapshot: LiveSnapshot = new Map();
     const errors: SnapshotError[] = [];
     const seen = new Set<string>();

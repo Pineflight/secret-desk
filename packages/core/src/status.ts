@@ -1,4 +1,4 @@
-import type { Inventory, Place, SecretEntry } from "./types.js";
+import { isWorkerPlace, type Inventory, type Place, type SecretEntry } from "./types.js";
 
 export type StatusLevel = "ok" | "unknown" | "soon" | "no-date" | "due" | "missing" | "expired";
 
@@ -15,6 +15,7 @@ export type LiveSnapshot = Map<string, LiveSecret>;
 
 export function placeKey(owner: string, place: Place, fallbackName: string): string {
   const name = place.name ?? fallbackName;
+  if (isWorkerPlace(place)) return `cloudflare-worker/${place.accountId}/${place.script}/${name}`;
   const where = place.scope === "environment" ? `env:${place.environment}` : place.scope === "organization" ? "org" : "repo";
   return `${owner}/${place.repo}/${where}/${name}`;
 }
@@ -78,7 +79,7 @@ export function findings(inventory: Inventory, today: Date): Finding[] {
   const out: Finding[] = [];
   const thresholds = [...inventory.thresholds].sort((a, b) => a - b);
   for (const s of inventory.secrets) {
-    const where = [...new Set(s.places.map((p) => `${p.repo}/${p.scope === "environment" ? p.environment : "repo"}`))].join(", ");
+    const where = [...new Set(s.places.map((p) => (isWorkerPlace(p) ? `worker:${p.script}` : `${p.repo}/${p.scope === "environment" ? p.environment : "repo"}`)))].join(", ");
     const r = computeStatus(s, today, { thresholds });
     if (r.daysLeft !== null) {
       if (r.daysLeft < 0) {

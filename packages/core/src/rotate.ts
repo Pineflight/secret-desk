@@ -1,11 +1,13 @@
 import { assertEntryParams, effectiveParams, integrationDefaultsOf, validateEntryParams, type ParamProblem } from "./params.js";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
-import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
+import { placeToTarget, type GitHubClient, type FetchLike } from "./github.js";
+import { putPlaceSecret } from "./place-io.js";
+import { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
-import type { Place, SecretEntry, Stage } from "./types.js";
+import { isWorkerPlace, type Place, type SecretEntry, type Stage } from "./types.js";
 
 export type RotationEvent =
   | { type: "issued"; secretId: string }
@@ -18,6 +20,8 @@ export type RotationEvent =
 export interface RotateDeps {
   inventory: InventoryStore;
   github: GitHubClient;
+  /** Writes Cloudflare Worker secrets; without it Worker places fail with a clear message. */
+  workers?: WorkerSecretsClient;
   providers: ProviderRegistry;
   connections: ConnectionStore;
   owner: string;
@@ -76,6 +80,7 @@ export interface RotationResult {
 }
 
 export function describePlace(p: Place): string {
+  if (isWorkerPlace(p)) return `Cloudflare Worker ${p.script} (${p.accountId})`;
   return `${p.repo}/${p.scope === "environment" ? `env:${p.environment}` : p.scope === "organization" ? "org" : "repo"}`;
 }
 
@@ -147,7 +152,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   for (const place of secret.places) {
     const label = describePlace(place);
     try {
-      const outcome = await deps.github.putSecret(placeToTarget(deps.owner, place), place.name ?? secret.name, issued.value);
+      const outcome = await putPlaceSecret({ github: deps.github, ...(deps.workers ? { workers: deps.workers } : {}), owner: deps.owner }, place, place.name ?? secret.name, issued.value);
       outcomes.push({ place: label, outcome });
       deps.onEvent?.({ type: "uploaded", secretId, place: label, outcome });
     } catch (err) {
@@ -247,6 +252,10 @@ export async function uploadEncrypted(
     const known = secret.places.some((p) => describePlace(p) === label);
     if (!known) {
       outcomes.push({ place: label, outcome: "failed", error: "Ziel gehoert nicht zu diesem Secret" });
+      continue;
+    }
+    if (isWorkerPlace(item.place)) {
+      outcomes.push({ place: label, outcome: "failed", error: "Worker-Secrets gehen nicht ueber den Browser-Upload: der Wert wird nur vom Server geschrieben" });
       continue;
     }
     try {

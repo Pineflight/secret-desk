@@ -1,4 +1,4 @@
-import { GitHubError, agentStageIds, placeToTarget, stageKind, type Place } from "@secret-desk/core";
+import { CLOUDFLARE_CONNECTION, GitHubError, WorkerSecretsError, agentStageIds, githubPlacesOf, isWorkerPlace, placeToTarget, stageKind, workerKey, type Place } from "@secret-desk/core";
 import { listConnections, type Runtime } from "@secret-desk/runtime";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
@@ -10,7 +10,7 @@ export interface DoctorFinding {
   detail?: string;
 }
 
-const placeLabel = (p: Place): string => `${p.repo}/${p.scope === "environment" ? `env:${p.environment}` : p.scope === "organization" ? "org" : "repo"}`;
+const placeLabel = (p: Place): string => isWorkerPlace(p) ? `worker:${p.script}` : `${p.repo}/${p.scope === "environment" ? `env:${p.environment}` : p.scope === "organization" ? "org" : "repo"}`;
 
 /**
  * Vorpruefung vor dem ersten echten Einsatz. Liest nur: Konfiguration, Verbindungen, GitHub-Ziele (nur der oeffentliche
@@ -28,13 +28,15 @@ export async function runDoctor(rt: Runtime): Promise<DoctorFinding[]> {
     if (p?.connection) needed.add(p.connection);
     if (s.provider !== "manual" && !p) out.push({ id: `provider:${s.id}`, status: "fail", label: `Unbekannter Anbieter "${s.provider}" bei ${s.id}` });
   }
+  if (inv.secrets.some((s) => s.places.some(isWorkerPlace))) needed.add(CLOUDFLARE_CONNECTION);
   const statuses = new Map((await listConnections(rt)).map((c) => [c.id, c]));
   for (const id of needed) {
     const c = statuses.get(id) ?? (await rt.connections.status(id));
     out.push({ id: `connection:${id}`, status: c.connected ? "ok" : id === "github" ? "fail" : "warn", label: `Verbindung ${id}: ${c.connected ? `verbunden (${c.source})` : "nicht verbunden"}`, ...(c.hint ? { detail: c.hint } : {}) });
   }
 
-  const places = [...inv.secrets.flatMap((s) => s.places), ...inv.variables.flatMap((v) => v.places)];
+  const allPlaces = [...inv.secrets.flatMap((s) => s.places), ...inv.variables.flatMap((v) => v.places)];
+  const places = githubPlacesOf(allPlaces);
   const seen = new Set<string>();
   const githubOk = (await rt.connections.status("github")).connected || (await rt.connections.status("github-app-key")).connected;
   if (githubOk) {
@@ -51,6 +53,23 @@ export async function runDoctor(rt: Runtime): Promise<DoctorFinding[]> {
       }
     }
   } else out.push({ id: "targets", status: "warn", label: "GitHub-Ziele nicht geprueft: keine GitHub-Verbindung" });
+
+  // Cloudflare Worker secret places: the name list of the Worker proves the script exists and the token may read and write its secrets.
+  const workerPlaces = [...new Map(allPlaces.filter(isWorkerPlace).map((p) => [workerKey(p), p])).values()];
+  if (workerPlaces.length > 0) {
+    if ((await rt.connections.status(CLOUDFLARE_CONNECTION)).connected) {
+      for (const place of workerPlaces) {
+        const key = placeLabel(place);
+        try {
+          await rt.workers.check(place);
+          out.push({ id: `target:${key}`, status: "ok", label: `Worker erreichbar, Secrets lesbar: ${key}` });
+        } catch (err) {
+          const hint = err instanceof WorkerSecretsError ? err.message : (err as Error).message;
+          out.push({ id: `target:${key}`, status: "fail", label: `Worker nicht nutzbar: ${key}`, detail: hint });
+        }
+      }
+    } else out.push({ id: "worker-targets", status: "warn", label: "Worker-Ziele nicht geprueft: keine Cloudflare-Verbindung" });
+  }
 
   const usesCloudflare = inv.secrets.some((s) => s.provider.startsWith("cloudflare-"));
   if (usesCloudflare && (await rt.connections.status("cloudflare")).connected) {

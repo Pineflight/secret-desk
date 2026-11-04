@@ -1,6 +1,11 @@
 import {
   GitHubError,
+  githubPlacesOf,
   InventoryError,
+  isWorkerPlace,
+  workerKey,
+  WorkerSecretsError,
+  type WorkerPlace,
   NotConnectedError,
   parseStripeConnectionId,
   placeToTarget,
@@ -8,7 +13,7 @@ import {
   stageKind,
   type CheckStatus,
   type GitHubTarget,
-  type Place,
+  type GitHubPlace,
   writeConnectionLabel,
 } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
@@ -48,7 +53,7 @@ export interface ConnectionCheckOptions {
 export interface WriteTarget {
   id: string;
   repo: string;
-  scope: Place["scope"];
+  scope: GitHubPlace["scope"];
   environment: string | null;
   /** Mindestens ein Eintrag mit einer Stage der Art live (oder unbekannt) liegt hier. */
   live: boolean;
@@ -60,7 +65,7 @@ const TIMEOUT_MS = 15_000;
 const DAY_MS = 86_400_000;
 const MAX_TARGETS = 40;
 
-export const targetId = (p: Pick<Place, "repo" | "scope" | "environment">): string => `${p.scope}:${p.repo}${p.environment ? `/${p.environment}` : ""}`;
+export const targetId = (p: Pick<GitHubPlace, "repo" | "scope" | "environment">): string => `${p.scope}:${p.repo}${p.environment ? `/${p.environment}` : ""}`;
 
 /** Alle Ziele (Repository, Environment, Organisation), die im Inventar vorkommen. Nur Namen. */
 export function listWriteTargets(rt: Runtime): WriteTarget[] {
@@ -68,7 +73,7 @@ export function listWriteTargets(rt: Runtime): WriteTarget[] {
   const entries = [...rt.inventory.data.secrets, ...rt.inventory.data.variables];
   for (const e of entries) {
     const live = stageKind(rt.inventory.stages, e.stage) === "live";
-    for (const p of e.places) {
+    for (const p of githubPlacesOf(e.places)) {
       const id = targetId(p);
       const cur = map.get(id) ?? { id, repo: p.repo, scope: p.scope, environment: p.environment ?? null, live: false, stages: [], _stages: new Set<string>() };
       cur.live = cur.live || live;
@@ -165,7 +170,38 @@ async function checkCloudflare(rt: Runtime, id: string, token: string, now: Date
   } else {
     checks.push(item("token", "Token gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
   }
+  // Worker secret places live on the account of this token: each Worker must be reachable with the right to read its secrets.
+  if (id === "cloudflare" && !checks.some((c) => c.status === "fail")) checks.push(...(await checkWorkerTargets(rt)));
   return { id, ok: !checks.some((c) => c.status === "fail"), checks, ...(expires !== undefined ? { expires } : {}) };
+}
+
+/** Distinct Workers named by Worker secret places in the inventory. Names only. */
+export function listWorkerTargets(rt: Runtime): (WorkerPlace & { live: boolean })[] {
+  const map = new Map<string, WorkerPlace & { live: boolean }>();
+  for (const s of rt.inventory.data.secrets) {
+    const live = stageKind(rt.inventory.stages, s.stage) === "live";
+    for (const p of s.places) {
+      if (!isWorkerPlace(p)) continue;
+      const cur = map.get(workerKey(p));
+      map.set(workerKey(p), { scope: p.scope, accountId: p.accountId, script: p.script, live: (cur?.live ?? false) || live });
+    }
+  }
+  return [...map.values()].sort((a, b) => workerKey(a).localeCompare(workerKey(b)));
+}
+
+async function checkWorkerTargets(rt: Runtime): Promise<ConnectionCheckItem[]> {
+  const out: ConnectionCheckItem[] = [];
+  for (const t of listWorkerTargets(rt).slice(0, MAX_TARGETS)) {
+    const id = `worker:${t.script}`;
+    const label = `Worker ${t.script}`;
+    try {
+      await rt.workers.check(t);
+      out.push(item(id, label, "pass", "Secrets lesbar: Worker-Secrets koennen hier abgelegt werden."));
+    } catch (err) {
+      out.push(item(id, label, "fail", err instanceof WorkerSecretsError ? err.message : "Anfrage fehlgeschlagen"));
+    }
+  }
+  return out;
 }
 
 async function checkSupabase(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
@@ -255,6 +291,23 @@ async function checkAnthropic(rt: Runtime, token: string): Promise<ConnectionChe
   else if (r.status === 401 || r.status === 403) out.push(item("token", "Schluessel gueltig", "fail", `Anthropic lehnt den Admin-Key ab (${httpFail(r.status)}). Er ist ungueltig, deaktiviert oder gehoert nicht zur Organisation. Neu verbinden.`));
   else if (r.status === 429) out.push(item("token", "Schluessel gueltig", "warn", "Anthropic begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
   else out.push(item("token", "Schluessel gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
+  return out;
+}
+
+/**
+ * Cloud access policy token of Grafana Cloud: `GET https://grafana.com/api/v1/accesspolicies?region=us`. The endpoint and its answers
+ * are from memory of the Cloud API (not verified live). 200 = works, 401 = rejected; 403 means the token authenticated but its
+ * scopes do not allow listing policies, which says nothing against it; other answers cannot be told apart from a wrong endpoint.
+ */
+async function checkGrafanaCloud(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
+  const out: ConnectionCheckItem[] = [];
+  if (!token.startsWith("glc_")) out.push(item("prefix", "Tokenart", "fail", "Das ist kein Grafana-Cloud-Access-Policy-Token (es beginnt mit glc_). Stack-Tokens (glsa_) gehoeren zur Verbindung Grafana."));
+  const r = await get(rt, token, "https://grafana.com/api/v1/accesspolicies?region=us");
+  if (r.status === 200) out.push(item("token", "Token gueltig", "pass", "Zugriffsrichtlinien lassen sich lesen."));
+  else if (r.status === 401) out.push(item("token", "Token gueltig", "fail", "Grafana Cloud lehnt den Token ab (HTTP 401). Er ist ungueltig, abgelaufen oder widerrufen. Neu verbinden."));
+  else if (r.status === 403) out.push(item("token", "Token gueltig", "info", "Der Token ist gueltig, darf aber keine Zugriffsrichtlinien lesen (HTTP 403)."));
+  else if (r.status === 429) out.push(item("token", "Token gueltig", "warn", "Grafana Cloud begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
+  else out.push(item("token", "Token gueltig", "info", `Mit dieser Abfrage nicht pruefbar (${httpFail(r.status)}).`));
   return out;
 }
 
@@ -453,6 +506,7 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     else if (id === "resend") checks = await checkResend(rt, token);
     else if (id === "revenuecat") checks = await checkRevenueCat(rt, token);
     else if (id === "openai") checks = await checkOpenai(rt, token);
+    else if (id === "grafana-cloud") checks = await checkGrafanaCloud(rt, token);
     else if (id === "anthropic") checks = await checkAnthropic(rt, token);
     else checks = [item("token", "Token", "info", "Fuer diese Verbindung gibt es keinen Test.")];
     return { id, ok: !checks.some((c) => c.status === "fail"), checks };

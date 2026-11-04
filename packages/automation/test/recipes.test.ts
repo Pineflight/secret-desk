@@ -10,7 +10,7 @@ const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 describe("bundled recipes", () => {
   it("load and are valid", async () => {
     const recipes = await loadRecipes([RECIPES]);
-    expect(recipes.map((r) => r.id).sort()).toEqual(["anthropic-admin-key", "anthropic-api-key", "github-fine-grained-token", "openai-admin-key", "openai-api-key", "peecho-api-keys", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
+    expect(recipes.map((r) => r.id).sort()).toEqual(["anthropic-admin-key", "anthropic-api-key", "github-fine-grained-token", "grafana-cloud-access-policy", "openai-admin-key", "openai-api-key", "peecho-api-keys", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
   });
   it("openai-admin-key has a guided sign-in, captures only an admin key and says it is unverified", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "openai-admin-key")!;
@@ -24,6 +24,30 @@ describe("bundled recipes", () => {
     expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google", "apple", "microsoft"]);
     expect(new RegExp(r.capture.token.pattern!).test("sk-proj-abc")).toBe(false);
     expect((await readFile(join(RECIPES, "openai-admin-key.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: key creation verified live on 2026-11-03/);
+  });
+  it("grafana-cloud-access-policy signs in at grafana.com (email, Google, GitHub, Microsoft), asks only for what the portal needs and says it is unverified", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "grafana-cloud-access-policy")!;
+    expect(r.host).toBe("grafana.com");
+    expect(r.login?.form).toMatchObject({ start: "https://grafana.com/auth/sign-in" });
+    expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google", "github", "microsoft"]);
+    expect(r.params).toMatchObject([{ key: "expiry", default: "90 days", options: ["30 days", "90 days", "No expiry"] }]);
+    // scopes: the required ones are plain clicks, the two it is unsure about are optional
+    const scopes = r.steps.flatMap((s) => ("click" in s && s.click.role === "checkbox" ? [{ name: s.click.name, optional: s.click.optional === true }] : []));
+    expect(scopes).toEqual([
+      { name: "accesspolicies:read", optional: false },
+      { name: "accesspolicies:write", optional: false },
+      { name: "stacks:read", optional: false },
+      { name: "accesspolicies:delete", optional: true },
+      { name: "stack-service-accounts:write", optional: true },
+    ]);
+    expect(r.steps.filter((s) => "click" in s && s.click.createsToken)).toHaveLength(1);
+    expect(r.steps.find((s) => "fill" in s && s.fill.label === "/token name/i")).toMatchObject({ fill: { value: "{{name}}" } });
+    const pattern = new RegExp(r.capture.token.pattern!);
+    expect(pattern.test("glc_eyJvIjoiMSIsIm4iOiJ0In0=")).toBe(true);
+    expect(pattern.test("glsa_stack_token_0000")).toBe(false);
+    expect(r.revoke?.steps.length).toBeGreaterThan(0);
+    expect(r.mask.length).toBeGreaterThan(0);
+    expect((await readFile(join(RECIPES, "grafana-cloud-access-policy.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: nothing of this recipe is verified/);
   });
   it("anthropic-admin-key has a passwordless email sign-in with a code step, a Google button, and captures only an admin key", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-admin-key")!;

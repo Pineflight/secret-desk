@@ -337,7 +337,7 @@ export class InventoryStore {
     return this.#mutate(() => this.#doc.set("stages", this.#doc.createNode(clean(parsed.data))), () => this.#data.stages);
   }
 
-  #resolve<P extends { scope: "repository" | "environment" | "organization"; environment?: string | undefined }>(stage: string, places: P[]): P[] {
+  #resolve<P extends { scope: string; environment?: string | undefined }>(stage: string, places: P[]): P[] {
     try {
       return resolvePlaces(this.#data.stages, stage, places);
     } catch (err) {
@@ -439,7 +439,7 @@ export class InventoryStore {
     return this.#mutate(() => {
       const edits: (string | number)[][] = [];
       const scan = (key: "secrets" | "variables"): void => {
-        this.#data[key].forEach((e, i) => e.places.forEach((p, j) => { if (p.repo === from) edits.push([key, i, "places", j, "repo"]); }));
+        this.#data[key].forEach((e, i) => e.places.forEach((p, j) => { if (p.scope !== "cloudflare-worker" && p.repo === from) edits.push([key, i, "places", j, "repo"]); }));
       };
       scan("secrets");
       scan("variables");
