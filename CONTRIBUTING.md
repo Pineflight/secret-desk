@@ -22,7 +22,8 @@ Useful scripts:
 
 | Script | Purpose |
 |---|---|
-| `pnpm verify` | build, typecheck and all tests: **run it before every pull request** |
+| `pnpm verify` | value scan, build, typecheck and all tests: **run it before every pull request** |
+| `pnpm scan:values` | fail if a tracked file contains a Stripe key, GitHub token or private key pattern (part of `verify` and of CI) |
 | `pnpm dev` | start the portal (needs `secret-desk.config.yaml`, see the README) |
 | `pnpm demo` | demo portal with simulated GitHub |
 | `pnpm test`, `pnpm typecheck`, `pnpm build` | the parts of `verify` |
@@ -66,7 +67,7 @@ Tests run with [Vitest](https://vitest.dev). Every behavior change needs a test.
 - Conventional-style subject: `feat(portal): ...`, `fix(security): ...`, `docs: ...`, `test: ...`, `chore: ...`. Describe the **why** in the body.
 - One logical change per pull request; keep it reviewable.
 - Fill in the pull request template: `pnpm verify` green, tests added, docs updated, translations covered, no values.
-- CI (`ci.yml`) runs `pnpm run verify` and a scan that fails the build if a Stripe key, GitHub token or private key pattern appears in a tracked file.
+- CI (`ci.yml`) runs `pnpm run verify`, which includes `scripts/scan-values.sh`: it fails if a Stripe key, GitHub token or private key pattern appears in a tracked file. **Secret-looking fixtures are assembled at run time**, never written as literals, for example `["sk", "live", "a".repeat(24)].join("_")` (see `packages/core/test/github-sync.test.ts` and `packages/runtime/test/stripe-key-account.test.ts`).
 
 ## Browser recipes as pull requests
 

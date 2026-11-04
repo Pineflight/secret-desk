@@ -27,7 +27,7 @@ export const CLOUDFLARE_ACCOUNT_ID_SPEC: ParamSpec = {
 
 /**
  * Permission sets behind the presets terraform-plan, terraform-apply and saas-custom-hostnames. The names are the ones the
- * Cloudflare permission-group list shows as far as known; none was checked against a live account. A name the account does
+ * Cloudflare permission-group list (user tokens) shows; checked against a live account on 2026-11-04 (the pages groups are called "Pages Read" and "Pages Write"). A name the account does
  * not list aborts the issuance with that name (fail closed), and an inventory entry can always set `permissions` itself.
  * Zone-bound groups need `zones`, `zoneId` or `allZones`.
  */
@@ -43,7 +43,7 @@ export const TERRAFORM_PLAN_PERMISSIONS = [
   "Workers R2 Storage Read",
   "Access: Apps and Policies Read",
   "Turnstile Sites Read",
-  "Cloudflare Pages Read",
+  "Pages Read",
 ] as const;
 
 export const TERRAFORM_APPLY_PERMISSIONS = [
@@ -58,11 +58,14 @@ export const TERRAFORM_APPLY_PERMISSIONS = [
   "Workers R2 Storage Write",
   "Access: Apps and Policies Write",
   "Turnstile Sites Write",
-  "Cloudflare Pages Write",
+  "Pages Write",
 ] as const;
 
 /** Cloudflare for SaaS: custom hostnames are managed under the zone's SSL and certificates; no separate group is known. */
 export const SAAS_CUSTOM_HOSTNAMES_PERMISSIONS = ["SSL and Certificates Write", "Zone Read"] as const;
+
+/** The expiry is always set: the entry's ttlDays, else this many days. */
+const DEFAULT_TTL_DAYS = 90;
 
 const tokenSpecs: ParamSpec[] = [
   CLOUDFLARE_ACCOUNT_ID_SPEC,
@@ -411,7 +414,7 @@ const tokenProvider: Provider = {
     const zoneIds = [...(target.zoneId ? [target.zoneId] : []), ...(target.zoneNames.length > 0 ? await resolveZoneNames(id, ctx, accountId, target.zoneNames) : [])];
     const zoneResources: Record<string, unknown> = target.all ? { [`${ACCOUNT_SCOPE}.${accountId}`]: { [`${ZONE_SCOPE}.*`]: "*" } } : Object.fromEntries([...new Set(zoneIds)].map((z) => [`${ZONE_SCOPE}.${z}`, "*"]));
 
-    const expiresOn = expiryFrom(ctx.now, ctx.secret.ttlDays);
+    const expiresOn = expiryFrom(ctx.now, ctx.secret.ttlDays ?? DEFAULT_TTL_DAYS);
     const accountGroups = permissions.filter((n) => !isZone(n));
     const policies = [
       ...(accountGroups.length > 0 ? [{ effect: "allow", resources: { [`${ACCOUNT_SCOPE}.${accountId}`]: "*" }, permission_groups: accountGroups.map((n) => ({ id: pick(n, ACCOUNT_SCOPE).id })) }] : []),
@@ -443,7 +446,7 @@ const tokenProvider: Provider = {
       `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
       perms ? `Rechte sind exakt: ${perms.join(", ")}` : "Rechte entsprechen dem, was der Dienst braucht, und nicht mehr",
       account ? `Nur das Konto ${account} ist freigegeben` : "Nur das vorgesehene Konto ist freigegeben",
-      secret.ttlDays ? `Ablauf ist ${secret.ttlDays} Tage nach heute` : "Ablauf ist wie vorgesehen gesetzt",
+      secret.ttlDays ? `Ablauf ist ${secret.ttlDays} Tage nach heute` : `Ablauf ist ${DEFAULT_TTL_DAYS} Tage nach heute (Standard)`,
     ];
   },
   async revoke(ctx) {

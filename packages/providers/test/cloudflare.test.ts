@@ -27,11 +27,11 @@ describe("cloudflare-token", () => {
     expect(r.externalId).toBe("tok1");
     expect(r.expiresAt).toBe("2026-12-01T10:00:00Z");
   });
-  it("sends no expires_on without ttlDays", async () => {
+  it("always sets an expiry: 90 days when the entry has no ttlDays", async () => {
     const m = mockFetch({ body: GROUPS }, { body: { result: { id: "tok1", value: ISSUED } } });
     const r = await token.issue!(issueCtx(m.fetch, params, { conns: ["cloudflare"] }));
-    expect(JSON.parse(m.calls[1]!.body!)).not.toHaveProperty("expires_on");
-    expect(r.expiresAt).toBeNull();
+    expect(JSON.parse(m.calls[1]!.body!).expires_on).toBe("2027-01-30T10:00:00Z");
+    expect(r.expiresAt).toBe("2027-01-30T10:00:00Z");
   });
   it("names unknown permission groups", async () => {
     const m = mockFetch({ body: GROUPS });
@@ -213,12 +213,18 @@ describe("cloudflare-token presets", () => {
     expect(preset("terraform-plan").needs).toEqual(["zones"]);
     expect(preset("saas-custom-hostnames").needs).toEqual(["zoneId"]);
   });
+  it("only uses names of the live permission-group list (2026-11-04)", () => {
+    const live = new Set(["Pages Read", "Pages Write", "Access: Apps and Policies Read", "Access: Apps and Policies Write", "Turnstile Sites Read", "Turnstile Sites Write", "Workers R2 Storage Read", "Workers R2 Storage Write", "Workers R2 Storage Bucket Item Read", "Workers R2 Storage Bucket Item Write", "Workers Routes Read", "Workers Routes Write", "Workers Scripts Read", "Workers Scripts Write", "Config Settings Read", "Config Settings Write", "Page Rules Read", "Page Rules Write", "Zone Settings Read", "Zone Settings Write", "DNS Read", "DNS Write", "Zone Read", "Zone Write", "Account Settings Read", "Account Settings Write", "SSL and Certificates Read", "SSL and Certificates Write"]);
+    const all = token.params!.find((s) => s.key === "permissions")!.presets!.flatMap((p) => p.values["permissions"] as string[]);
+    for (const n of all) expect(live.has(n), n).toBe(true);
+    expect(TERRAFORM_APPLY_PERMISSIONS).toContain("Pages Write");
+  });
   it("is read-only for plan and covers the same resources for apply", () => {
     expect(TERRAFORM_PLAN_PERMISSIONS.every((n) => n.endsWith(" Read"))).toBe(true);
     const writes = TERRAFORM_APPLY_PERMISSIONS.filter((n) => n.endsWith(" Write")).map((n) => n.replace(/ Write$/, ""));
     const reads = TERRAFORM_PLAN_PERMISSIONS.map((n) => n.replace(/ Read$/, ""));
     for (const w of writes) expect(reads).toContain(w);
-    for (const area of ["DNS", "Zone Settings", "Page Rules", "Workers Routes", "Workers Scripts", "Workers R2 Storage", "Access: Apps and Policies", "Turnstile Sites", "Cloudflare Pages"]) {
+    for (const area of ["DNS", "Zone Settings", "Page Rules", "Workers Routes", "Workers Scripts", "Workers R2 Storage", "Access: Apps and Policies", "Turnstile Sites", "Pages"]) {
       expect(writes).toContain(area);
     }
   });
