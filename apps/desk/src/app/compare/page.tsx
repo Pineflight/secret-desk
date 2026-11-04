@@ -5,6 +5,7 @@ import type { CompareCell, CompareRepo, CompareResult, RepoNote } from "@secret-
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { RenameRepoDialog } from "@/components/RenameRepoDialog";
+import { SyncToGitHubDialog } from "@/components/SyncToGitHubDialog";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable } from "@/components/ListTable";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
@@ -87,6 +88,7 @@ export default function ComparePage() {
   const [hiddenRepos, setHiddenRepos] = usePersistedState<string[]>("compare.hiddenRepos", []);
   const [showHidden, setShowHidden] = usePersistedState("compare.showHidden", false);
   const [adoptAll, setAdoptAll] = useState(false);
+  const [syncAll, setSyncAll] = useState(false);
   const [renaming, setRenaming] = useState<CompareRepo | null>(null);
   const [detail, setDetail] = useState<{ row: ViewRow; stage: string } | null>(null);
   const set = <K extends keyof CompareFilters>(k: K, v: CompareFilters[K]) => setFilters((f) => ({ ...f, [k]: v }));
@@ -281,9 +283,10 @@ export default function ComparePage() {
             {levelRows > 0 ? ` ${t("compare.sumLevelMismatchRows", { count: levelRows })}.` : ""}
             {hiddenNow.length > 0 && !showHidden ? ` ${t("compare.sumHidden", { count: hiddenNow.length })}` : ""}
           </p>
-          {candidates.length > 0 ? (
-            <div className="mt-3"><Button variant="secondary" onClick={() => setAdoptAll(true)}><Icon name="plus" />{t("compare.adoptAll", { count: candidates.length })}</Button></div>
-          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {candidates.length > 0 ? <Button variant="secondary" onClick={() => setAdoptAll(true)}><Icon name="plus" />{t("compare.adoptAll", { count: candidates.length })}</Button> : null}
+            <Button variant="secondary" onClick={() => setSyncAll(true)}><Icon name="upload" />{t("compare.sync.button")}</Button>
+          </div>
         </section>
       ) : null}
 
@@ -427,6 +430,7 @@ export default function ComparePage() {
 
       {renaming?.renamedTo ? <RenameRepoDialog from={renaming.name} to={renaming.renamedTo} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); result.reload(); }} /> : null}
       {adoptAll ? <AdoptAllDialog candidates={candidates} stages={orderedStages} environmentOf={(id) => data?.stages.find((x) => x.id === id)?.environment ?? null} onClose={() => setAdoptAll(false)} onDone={() => { setAdoptAll(false); result.reload(); }} t={t} /> : null}
+      {syncAll ? <SyncToGitHubDialog {...(filters.repo ? { repo: filters.repo } : {})} onClose={() => setSyncAll(false)} onDone={() => result.reload()} /> : null}
       {detail ? <DetailDialog row={detail.row} stage={detail.stage} stages={orderedStages} live={Boolean(data?.live)} onClose={() => setDetail(null)} t={t} label={labelOf} /> : null}
     </>
   );

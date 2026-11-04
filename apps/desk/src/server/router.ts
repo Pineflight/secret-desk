@@ -11,6 +11,7 @@ import {
   ParamsInvalidError,
   PreflightError,
   RotationError,
+  SyncError,
   StageError,
   TEAM_SYNC_CONNECTION,
   VaultUnavailableError,
@@ -105,6 +106,8 @@ import {
   listSecrets,
   listVariables,
   overview,
+  planGitHubSync,
+  runGitHubSync,
   readAttachment,
   rejectIssuance,
   removeLink,
@@ -224,6 +227,8 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^secrets$/, ({ rt, query }) => listSecrets(rt, { ...(stage(query) ? { stage: stage(query)! } : {}), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), ...(query.get("product") ? { product: query.get("product")! } : {}), ...(query.get("status") ? { status: query.get("status") as StatusLevel } : {}), ...(query.get("provider") ? { provider: query.get("provider")! } : {}), ...(query.get("q") ? { q: query.get("q")! } : {}), ...(query.get("tag") ? { tag: query.get("tag")! } : {}), live: query.get("live") === "1" })],
   // Stage-Vergleich: rein lesend (auch live), nur Namen und Zustaende, Variablen-Sollwerte nur im Vergleich.
   ["GET", /^compare$/, ({ rt, query }) => compareStages(rt, { live: query.get("live") === "1", allRepos: query.get("all") === "1", workflows: query.get("workflows") === "1", compare: csv(query, "compare"), kinds: compareKinds(query), ...(query.get("repo") ? { repo: query.get("repo")! } : {}), normalizeNames: query.get("normalize") === "1" })],
+  // Inventory -> GitHub: the plan only reads (names, places, reasons, never a value). Agents may read it; running it is humans only.
+  ["POST", /^compare\/sync-plan$/, ({ rt, actor, body }) => planGitHubSync(rt, actor, { ...(optStr(body, "repo") ? { repo: optStr(body, "repo")! } : {}) })],
   // ?preflight=1 (nur Mensch): zusaetzlich der lesende Vorabcheck beim Anbieter in der Antwort. Angelegt wird auch bei Warnungen und Fehlbefunden.
   ["POST", /^secrets$/, async ({ rt, actor, body, query }) => {
     const created = await addSecret(rt, actor, body);
@@ -327,6 +332,11 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^reviews\/([^/]+)\/reject$/, ({ rt, actor, params, body }) => rejectIssuance(rt, actor, params[0]!, optStr(body, "note"))],
   ["POST", /^secrets\/([^/]+)\/manual-value$/, ({ rt, actor, params, body }) => submitManualValue(rt, actor, params[0]!, str(body, "value"))],
   ["POST", /^approvals\/([^/]+)\/(approve|deny)$/, ({ rt, actor, params }) => resolveApproval(rt, actor, params[0]!, params[1] as "approve" | "deny")],
+  // Writes the selected lines of a fresh plan to GitHub. The production confirmation is the existing checklist item "this affects production".
+  ["POST", /^compare\/sync$/, ({ rt, actor, body }) => {
+    const keys = Array.isArray(body["keys"]) ? (body["keys"] as unknown[]).filter((k): k is string => typeof k === "string") : [];
+    return runGitHubSync(rt, actor, { keys, confirmProduction: body["confirmProduction"] === true, ...(optStr(body, "repo") ? { repo: optStr(body, "repo")! } : {}) });
+  }],
   ["POST", /^variables\/([^/]+)\/adopt$/, ({ rt, actor, params }) => adoptVariableFromGitHub(rt, actor, params[0]!)],
   ["DELETE", /^variables\/([^/]+)$/, async ({ rt, actor, params }) => { await removeVariable(rt, actor, params[0]!); return { ok: true }; }],
   ["POST", /^connections\/([^/]+)\/token$/, async ({ rt, params, body }) => {
@@ -481,6 +491,7 @@ function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof PreflightError) return json({ error: e.message, code: e.code, findings: e.findings }, 409);
   if (e instanceof NotConnectedError) return json({ error: e.message, connection: e.connection, hint: e.hint, code: "not-connected" }, 409);
   if (e instanceof VariableError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, 400);
+  if (e instanceof SyncError) return json({ error: e.message, code: e.code }, e.code === "production-confirmation" ? 409 : 400);
   if (e instanceof InventoryConflictError) return json({ error: e.message, code: "inventory-conflict" }, 409);
   if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);
   if (e instanceof VaultUnavailableError) return json({ error: e.message, code: "vault-unavailable" }, 409);

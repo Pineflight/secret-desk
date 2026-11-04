@@ -27,6 +27,8 @@ Types come from `@secret-desk/runtime` and `@secret-desk/core` (`import type` on
 | POST `evidence/:secretId/:reportId/attachments` (multipart `file`, `note`) | `Attachment` (PNG, JPEG or WebP up to 5 MB) |
 | GET `evidence/:secretId/:reportId/attachments/:file` | Image |
 | GET `compare?live=1&all=1&workflows=1&compare=a,b&kinds=secret,variable&repo&normalize=1` | `CompareResult` (matrix of repository and name against stage with cell state, `parity`, `summary`, `repos`, `errors`; read-only, never values; `live=1` reads GitHub) |
+| POST `compare/sync-plan` `{ repo? }` | `SyncPlan` (`lines` with `key`, `action` set/write/skip, `reason`, `production`, `defaultOn`, `warning`, `renewable`; `counts`; `hasProduction`; read-only, never values; agents may call it too) |
+| POST `compare/sync` `{ keys, confirmProduction?, repo? }` | `{ outcomes, ok, failed }` (writes the selected lines of a freshly built plan; humans only; `409` `production-confirmation` when a selected line is in a live stage and `confirmProduction` is not `true`; `400` `unknown-line` / `nothing-selected`; never deletes) |
 | GET `variables?stage&repo&product&q&tag` | `VariableView[]` |
 | GET `variables/:id` | `VariableView` |
 | POST `variables` | Add a variable (`acknowledgedPublic` for a soft warning) |

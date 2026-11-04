@@ -23,6 +23,12 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["optional und createsToken schliessen sich aus", "optional and createsToken exclude each other"],
   ["timeoutSeconds gehoert nur zu optional: true", "timeoutSeconds belongs to optional: true only"],
   ["exact gehoert nur zu role mit name oder zu label", "exact belongs to role with name, or to label"],
+  // Inventory -> GitHub
+  ["Eine gewaehlte Zeile gehoert nicht zum aktuellen Plan. Plan neu erstellen.", "A selected line is not part of the current plan. Plan again."],
+  ["Es ist keine Aenderung gewaehlt.", "No change is selected."],
+  ["Die Auswahl enthaelt Ziele der Produktion. Bestaetigen, dass dies die Produktion betrifft.", "The selection contains production targets. Confirm that this affects production."],
+  ["Die Variable hat keinen Sollwert mehr. Plan neu erstellen.", "The variable has no target value any more. Plan again."],
+  ["Kein gespeicherter Wert mehr. Plan neu erstellen.", "No stored value any more. Plan again."],
   // Vereinheitlichung (Namen, Anbieter, Quellen)
   ["Der Name ist nicht in GROSSBUCHSTABEN_MIT_UNTERSTRICH", "The name is not in UPPER_SNAKE_CASE"],
   ["Die Stage steht im Namen, sie kommt aus der GitHub-Environment", "The stage is part of the name; it comes from the GitHub environment"],
