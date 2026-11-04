@@ -113,6 +113,8 @@ The same list as in [PROVIDERS.md](PROVIDERS.md#parameters-per-provider), with t
 | `revenuecat-secret-key` | `projectId` | no (integration default allowed) | projects of the key | only if exactly one project |
 | `grafana-service-account-token` | `baseUrl` | yes (integration default allowed) | typed by hand | none |
 | | `serviceAccountId` | yes | service accounts of the stack at `baseUrl` | only if the stack has exactly one |
+| `grafana-access-policy-token` | `region` | yes (integration default allowed) | typed by hand | none |
+| | `accessPolicyId` | yes | access policies of the region (`grafana.accessPolicy`) | none |
 | `stripe-webhook-secret` | `url`, `events` | yes | typed by hand | none |
 | | `connection` | no | fixed: `stripe`, `stripe-test`, `stripe-live` | none |
 | `random-*`, manual providers | see [PROVIDERS.md](PROVIDERS.md#parameters-per-provider) | | no discovery | none |

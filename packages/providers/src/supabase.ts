@@ -61,6 +61,40 @@ const dbPasswordSpecs: ParamSpec[] = [
     helpEn: "24 to 64 characters, default 40. Letters and digits only, so the password fits a Postgres URL without escaping.",
   },
 ];
+/** Default connection string template of the Supabase connection pooler; {{ref}}, {{password}} and {{region}} are replaced. */
+export const DB_URL_TEMPLATE_DEFAULT = "postgresql://postgres.{{ref}}:{{password}}@aws-0-{{region}}.pooler.supabase.com:6543/postgres";
+dbPasswordSpecs.push(
+  {
+    key: "dbUrlTarget",
+    label: "Eintrag fuer die Verbindungs-URL",
+    labelEn: "Entry for the connection URL",
+    type: "string",
+    required: false,
+    pattern: "^[a-z0-9][a-z0-9-]*$",
+    help: "Id des Secret-Eintrags (Inventar), der die Verbindungs-URL mit dem neuen Passwort bekommt, zum Beispiel SUPABASE_DB_URL. Ohne Angabe gibt es keine URL.",
+    helpEn: "Inventory id of the secret entry that receives the connection URL with the new password, for example SUPABASE_DB_URL. Without it no URL is written.",
+  },
+  {
+    key: "urlTemplate",
+    label: "Vorlage der Verbindungs-URL",
+    labelEn: "Connection URL template",
+    type: "string",
+    required: false,
+    defaultValue: DB_URL_TEMPLATE_DEFAULT,
+    help: "Mit {{ref}}, {{password}} und {{region}}. Standard ist die Adresse des Connection Poolers (Port 6543); das Passwort wird URL-kodiert eingesetzt.",
+    helpEn: "With {{ref}}, {{password}} and {{region}}. Default is the connection pooler address (port 6543); the password is inserted URL-encoded.",
+  },
+  {
+    key: "region",
+    label: "Region des Projekts",
+    labelEn: "Project region",
+    type: "string",
+    required: false,
+    pattern: "^[a-z0-9][a-z0-9-]{1,39}$",
+    help: "Nur noetig, wenn die Vorlage {{region}} nutzt, zum Beispiel eu-central-1.",
+    helpEn: "Only needed when the template uses {{region}}, for example eu-central-1.",
+  },
+);
 const serviceRoleSpecs: ParamSpec[] = [PROJECT_REF, PROJECT_URL];
 
 /** Projekte der Verbindung (lesend). Die Verwaltungs-API nennt die Projektkennung als ref (oder id). */
@@ -85,7 +119,7 @@ async function discoverSupabase(id: string, kind: string, ctx: DiscoverContext):
 const STAGING_WORD = /(^|[^a-z0-9])(staging|stage|test|dev)([^a-z0-9]|$)/i;
 const PROD_WORD = /(^|[^a-z0-9])(production|prod|live)([^a-z0-9]|$)/i;
 
-async function preflightSupabase(id: string, ctx: PreflightContext, checkHealth = false): Promise<PreflightResult> {
+async function preflightSupabase(id: string, ctx: PreflightContext, checkHealth = false, failOnPaused = false): Promise<PreflightResult> {
   const ref = String(ctx.params["projectRef"]);
   const findings: PreflightFinding[] = [];
   let resource: string | null = `Supabase-Projekt ${ref}`;
@@ -96,7 +130,8 @@ async function preflightSupabase(id: string, ctx: PreflightContext, checkHealth 
     if (hit) {
       if (checkHealth) {
         const status = listed.find((p) => p.option.value === ref)?.status;
-        if (status && status !== "ACTIVE_HEALTHY") findings.push({ id: "health", level: "warn", label: `Das Projekt ${hit.label} hat den Status ${status}, nicht ACTIVE_HEALTHY: ein pausiertes Projekt lehnt die Aenderung ab` });
+        if (status && PAUSED_STATUS.test(status) && failOnPaused) findings.push({ id: "health", level: "fail", label: `Das Projekt ${hit.label} ist pausiert oder nicht aktiv (Status ${status}): erst das Projekt starten, es wurde nichts geaendert` });
+        else if (status && status !== "ACTIVE_HEALTHY") findings.push({ id: "health", level: "warn", label: `Das Projekt ${hit.label} hat den Status ${status}, nicht ACTIVE_HEALTHY: ein pausiertes Projekt lehnt die Aenderung ab` });
       }
       resource = `Supabase-Projekt ${hit.label} (ref ${ref})`;
       findings.push({ id: "project", level: "ok", label: `Das Projekt ${hit.label} gehoert zur Verbindung` });
@@ -257,11 +292,36 @@ function generateDbPassword(length: number): string {
   return out;
 }
 
+/**
+ * Fills the connection URL template. The password is percent-encoded (the generator only uses letters and digits, but a
+ * template or a future alphabet must never break the URL). Throws before anything is changed when the template cannot be filled.
+ */
+export function buildDbUrl(id: string, params: Record<string, unknown>, ref: string, password: string): string {
+  const raw = params["urlTemplate"] ?? DB_URL_TEMPLATE_DEFAULT;
+  if (typeof raw !== "string" || !/^postgres(ql)?:\/\//.test(raw)) throw new ProviderError(id, null, 'Parameter "urlTemplate" muss mit postgresql:// beginnen');
+  if (!raw.includes("{{password}}")) throw new ProviderError(id, null, 'Parameter "urlTemplate" muss {{password}} enthalten');
+  const unknown = [...raw.matchAll(/\{\{([^}]*)\}\}/g)].map((m) => m[1]!).filter((k) => !["ref", "password", "region"].includes(k));
+  if (unknown.length > 0) throw new ProviderError(id, null, `Parameter "urlTemplate" kennt den Platzhalter nicht: ${unknown.join(", ")}`);
+  const region = params["region"];
+  if (raw.includes("{{region}}") && (typeof region !== "string" || !/^[a-z0-9][a-z0-9-]{1,39}$/.test(region))) {
+    throw new ProviderError(id, null, 'Parameter "region" fehlt: die Vorlage der Verbindungs-URL braucht ihn');
+  }
+  return raw.replaceAll("{{ref}}", encodeURIComponent(ref)).replaceAll("{{region}}", encodeURIComponent(String(region ?? ""))).replaceAll("{{password}}", encodeURIComponent(password));
+}
+
+/** Project states in which the Management API cannot change the database password: the project must be started first. */
+const PAUSED_STATUS = /^(INACTIVE|PAUSED|PAUSING|GOING_DOWN|RESTORING|COMING_UP|INIT_FAILED)$/i;
+const PAUSED_BODY = /paus|inactive|not active|restor|coming up/i;
+
 /** Adds a hint to API failures; the message stays free of the token and the new password. */
 function dbPasswordFailure(id: string, err: unknown): never {
   if (!(err instanceof ProviderError) || err.status === null) throw err;
   const body = err.message.replace(/^[^:]*:\s*/, "");
   let hint: string;
+  // Wording of the "paused" answer is not verified live; a 4xx/5xx body that names a paused or inactive project counts.
+  if (err.status !== 401 && err.status !== 403 && err.status !== 429 && PAUSED_BODY.test(body)) {
+    throw new ProviderError(id, err.status, `Das Projekt ist pausiert oder nicht aktiv: erst das Projekt starten (in Supabase fortsetzen), dann erneut versuchen. Das Passwort wurde nicht geaendert. ${body}`);
+  }
   if (err.status === 401 || err.status === 403) hint = 'dem Token fehlt die Berechtigung "Database config: write" (database_config_write) oder er gilt nicht fuer dieses Projekt';
   else if (err.status === 429) hint = "Rate-Limit erreicht, spaeter erneut versuchen";
   else hint = "das Projekt muss gesund sein (ein pausiertes Projekt lehnt die Aenderung ab)";
@@ -275,18 +335,22 @@ const dbPasswordProvider: Provider = {
   connection: "supabase",
   params: dbPasswordSpecs,
   discover: (kind, ctx) => discoverSupabase("supabase-db-password", kind, ctx),
-  preflight: (ctx) => preflightSupabase("supabase-db-password", ctx, true),
+  companionParams: ["dbUrlTarget"],
+  preflight: (ctx) => preflightSupabase("supabase-db-password", ctx, true, true),
   async issue(ctx) {
     const id = "supabase-db-password";
     const ref = requireString(id, ctx.params, "projectRef");
     const length = dbPasswordLength(id, ctx.params);
     const password = generateDbPassword(length);
+    const targetId = typeof ctx.params["dbUrlTarget"] === "string" && ctx.params["dbUrlTarget"] ? ctx.params["dbUrlTarget"] : undefined;
+    // Built before the API call: a template that cannot be filled must not leave a changed password nobody can use.
+    const url = targetId ? buildDbUrl(id, ctx.params, ref, password) : undefined;
     try {
       await callWithToken(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/database/password`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ password }) }, [password]);
     } catch (err) {
       dbPasswordFailure(id, err);
     }
-    return { value: new SecretValue(password), externalId: ref, expiresAt: null };
+    return { value: new SecretValue(password), externalId: ref, expiresAt: null, ...(targetId && url ? { companions: [{ entryId: targetId, value: new SecretValue(url) }] } : {}) };
   },
   async verify(ctx) {
     const v = ctx.value.reveal();
@@ -304,6 +368,7 @@ const dbPasswordProvider: Provider = {
     ...keyChecklist(secret, ctx).slice(0, 1),
     "Das bisherige Passwort wird beim Anbieter sofort ersetzt; alles, was es noch nutzt, scheitert, bis es das neue erhaelt",
     "Alle Verbraucher (CI, supabase db push und link, Verbindungs-URLs) bekommen das neue Passwort",
+    ...(typeof secret.params["dbUrlTarget"] === "string" && secret.params["dbUrlTarget"] ? [`Die Verbindungs-URL mit dem neuen Passwort geht an den Eintrag ${secret.params["dbUrlTarget"]} und an keinen anderen`] : []),
   ],
 };
 
