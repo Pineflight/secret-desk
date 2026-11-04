@@ -1,12 +1,11 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckList } from "@/components/ConnectionCheck";
-import { ApprovalNotice, CodePrompt, ConsentPrompt } from "@/components/RunPrompts";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
-import { Icon } from "@/components/Icons";
+import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun";
 import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { IDP_NAMES, browserSignInOf, chosenMethod, clock, connectButtonState, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, needsPassword, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, signInButtonState, type FacadeInfo, type FacadeState } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -16,45 +15,6 @@ import { useI18n } from "@/lib/i18n";
  * another one in the single remote browser; without a provider the dialog checks directly.
  */
 export const FacadeCheckContext = createContext<{ check: (id: string) => Promise<CheckOutcome | undefined> } | null>(null);
-
-/** A ticking clock (once a second) while `active`, for elapsed time and the time limit. */
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
-
-const ICON: Record<StepState, { name: string; cls: string }> = {
-  pending: { name: "dot", cls: "text-muted" },
-  active: { name: "clock", cls: "animate-pulse text-primary" },
-  waiting: { name: "hand", cls: "text-warn-text" },
-  done: { name: "check", cls: "text-success" },
-  failed: { name: "x", cls: "text-danger" },
-};
-
-/** The steps of a run, live: what was done, what happens now, what comes next. */
-function Stepper({ state }: { state: FacadeState | null }) {
-  const { t } = useI18n();
-  return (
-    <ol className="space-y-1.5 text-sm" aria-label={t("facade.stepsLabel")}>
-      {stepsOf(state).map((s) => {
-        const kind = s.state === "done" ? "done" : s.state === "active" || s.state === "waiting" ? "active" : "step";
-        const icon = ICON[s.state];
-        return (
-          <li key={s.phase} className={`flex items-center gap-2 ${s.state === "pending" ? "text-muted" : ""} ${s.state === "failed" ? "font-medium text-danger-text" : ""}`} aria-current={s.state === "active" || s.state === "waiting" ? "step" : undefined}>
-            <Icon name={icon.name} className={`h-4 w-4 shrink-0 ${icon.cls}`} />
-            <span>{t(`facade.${kind}.${s.phase}`)}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
 
 /** The way out: paste a key created by hand. Collapsed, never the main path. */
 function FallbackBox({ children }: { children: ReactNode }) {
@@ -206,30 +166,18 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
   }
 
   if (run && (running || failed)) {
-    const remaining = remainingSeconds(run.timeoutAt, now);
     return (
       <div className="space-y-4 text-sm">
-        <Stepper state={run} />
-        <p className="text-xs text-muted" aria-live="polite">
-          {t("facade.elapsed", { elapsed: clock(elapsedSeconds(run.startedAt, now)) })}
-          {running && remaining !== null ? ` · ${t("facade.remaining", { remaining: clock(remaining) })}` : ""}
-        </p>
-        {running && run.needs === "mfa-code" ? <CodePrompt name={facade.label} pending={sendCode.pending} onSend={(c) => void sendCode.run(c).then((s) => s && setState(s))} /> : null}
-        {running && run.needs === "approval" ? <ApprovalNotice name={facade.label} number={run.detail} /> : null}
-        {running && run.needs === "consent" ? (
-          <ConsentPrompt
-            idp={IDP_NAMES[chosenMethod(facade, methodId)]}
-            name={facade.label}
-            scopes={run.detail}
-            pending={confirm.pending}
-            onAnswer={(accept) => void confirm.run(accept).then((s) => s && setState(s))}
-          />
-        ) : null}
-        {failed && run.failure ? (
-          <Notice tone={run.status === "cancelled" ? "info" : "danger"} {...(run.status === "cancelled" ? {} : { title: t("facade.failedTitle") })}>
-            {failureText(run.failure, locale, t)}
-          </Notice>
-        ) : null}
+        <RunStatus
+          run={run}
+          name={facade.label}
+          method={chosenMethod(facade, methodId)}
+          now={now}
+          codePending={sendCode.pending}
+          onCode={(c) => void sendCode.run(c).then((s) => s && setState(s))}
+          confirmPending={confirm.pending}
+          onConfirm={(accept) => void confirm.run(accept).then((s) => s && setState(s))}
+        />
         {failed && run.createdName ? <Notice tone="warn">{t("facade.createdKey", { name: run.createdName })}</Notice> : null}
         {failed && run.failure?.code === "project-unknown" ? (
           <form
@@ -275,10 +223,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
 
   const browser = browserSignInOf(outcome);
   const view = dialogView(browser, false);
-  const methods = methodsOf(facade);
   const method = chosenMethod(facade, methodId);
-  const sso = method !== "email";
-  const idpName = IDP_NAMES[method];
 
   const inputFields = facade.inputs.map((i) => {
     const label = locale === "en" ? i.labelEn : i.label;
@@ -315,25 +260,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
         void submit();
       }}
     >
-      {methods.length > 1 ? (
-        <fieldset className="space-y-1.5">
-          <legend className="text-sm font-medium">{t("facade.chooseMethod", { name: facade.label })}</legend>
-          {methods.map((m) => (
-            <label key={m.id} className="flex items-center gap-2">
-              <input type="radio" name="facade-method" value={m.id} checked={method === m.id} onChange={() => setMethodId(m.id)} />
-              <span>{m.label && locale === "de" ? m.label : m.labelEn && locale === "en" ? m.labelEn : t(`facade.method.${m.id}`)}</span>
-            </label>
-          ))}
-        </fieldset>
-      ) : null}
-      {sso ? <p className="text-xs text-muted">{t("facade.methodHint.sso", { name: facade.label, idp: idpName })}</p> : null}
-      {inputFields}
-      <TextField label={t(`facade.methodEmail.${method}`, { name: facade.label })} type="email" name="facade-email" autoComplete="off" spellCheck={false} data-autofocus data-1p-ignore data-lpignore="true" value={email} onChange={(e) => setEmail(e.target.value)} />
-      {needsPassword(facade, method) ? (
-        <TextField label={t(`facade.methodPassword.${method}`, { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
-      ) : (
-        <p className="text-xs text-muted">{t("facade.passwordless", { name: facade.label })}</p>
-      )}
+      <SignInFields info={facade} name={facade.label} method={method} onMethod={setMethodId} email={email} onEmail={setEmail} password={password} onPassword={setPassword} idPrefix="facade" before={inputFields} />
       {projectField}
       {err ? <Notice tone="danger">{err.message}</Notice> : null}
       <Button type="submit" variant="primary" loading={signIn.pending} disabled={signInState === "disabled"}>

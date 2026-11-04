@@ -23,6 +23,8 @@ const FILES = [
   "app/page.tsx",
   "components/IntegrationsOverview.tsx",
   "components/ProviderFacade.tsx",
+  "components/SignInRun.tsx",
+  "components/RecipeSignIn.tsx",
   "components/ProviderCards.tsx",
   "components/BrowserAutomationPanel.tsx",
   "components/RenewalWarnings.tsx",

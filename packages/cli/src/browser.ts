@@ -10,6 +10,7 @@ import {
   cdpEndpointFrom,
   chromeInstallHint,
   findChrome,
+  hostListOf,
   loadRecipesDetailed,
   playwrightAvailable,
   probeCdp,
@@ -106,7 +107,7 @@ async function doctor(args: string[], io: Io): Promise<number> {
   }
 
   const { recipes, errors } = await loadRecipesDetailed(dirs(values.recipes));
-  for (const r of recipes) line(io, "ok", `Rezept ${r.recipe.id} (${r.recipe.host}): ${await statusComment(r.file)}`);
+  for (const r of recipes) line(io, "ok", `Rezept ${r.recipe.id} (${hostListOf(r.recipe).join(", ")}): ${await statusComment(r.file)}`);
   for (const e of errors) {
     bad++;
     line(io, "fail", `Rezept ungueltig: ${e.message}`);

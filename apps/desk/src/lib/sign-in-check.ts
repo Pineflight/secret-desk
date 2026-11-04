@@ -42,6 +42,8 @@ export type SignInStatus = CheckPhase | "yes" | "no" | "failed" | "unchecked";
  */
 export function signInStatus(card: Pick<ProviderCard, "signIn">, phase: CheckPhase | undefined, outcome: CheckOutcome | undefined): SignInStatus | null {
   if (!card.signIn.facade && !card.signIn.checkRecipe) return null;
+  // Several portals: each has its own line (see `hostLines`), the card as a whole says nothing.
+  if (checkHostsOf(card).length > 0) return null;
   if (phase) return phase;
   if (!outcome) return "unchecked";
   if (outcome.signedIn === null) return "failed";
@@ -54,7 +56,27 @@ export function checkPathOf(card: Pick<ProviderCard, "id" | "signIn">): string |
   return card.signIn.checkRecipe ? `recipes/${encodeURIComponent(card.signIn.checkRecipe)}/check` : null;
 }
 
-/** The providers whose last check answered "signed in" (feeds the card status). */
+/**
+ * The key of one check. A provider with several portals (live and test, separate accounts) is checked per portal, so its key
+ * names the host; the check queue and the remembered answers use this key.
+ */
+export const checkIdOf = (cardId: string, host?: string | null): string => (host ? `${cardId}#${host}` : cardId);
+
+/** The provider and the portal host (null: the provider as a whole) a check key stands for. */
+export function splitCheckId(id: string): { cardId: string; host: string | null } {
+  const at = id.indexOf("#");
+  return at < 0 ? { cardId: id, host: null } : { cardId: id.slice(0, at), host: id.slice(at + 1) };
+}
+
+/** The body of a check request: only a provider with several portals names the one to check. */
+export const checkBodyOf = (host: string | null): { host: string } | undefined => (host ? { host } : undefined);
+
+/** The portals of a card that can be checked on their own (empty: the provider has one). */
+export function checkHostsOf(card: Pick<ProviderCard, "signIn">): readonly { value: string; host: string }[] {
+  return card.signIn.facade ? [] : (card.signIn.checkHosts ?? []);
+}
+
+/** The providers where a check answered "signed in" (feeds the card status); one signed-in portal is enough. */
 export function signedInIds(outcomes: Readonly<Record<string, CheckOutcome>>): ReadonlySet<string> {
-  return new Set(Object.entries(outcomes).filter(([, o]) => o.signedIn === true).map(([id]) => id));
+  return new Set(Object.entries(outcomes).filter(([, o]) => o.signedIn === true).map(([id]) => splitCheckId(id).cardId));
 }

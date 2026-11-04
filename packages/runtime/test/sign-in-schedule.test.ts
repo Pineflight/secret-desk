@@ -13,7 +13,7 @@ interface World {
   opened: string[];
 }
 
-const HOSTS = { openai: "platform.openai.com", anthropic: "platform.claude.com" } as const;
+const HOSTS = { openai: "platform.openai.com", anthropic: "platform.claude.com", peechoLive: "www.peecho.com", peechoTest: "test.www.peecho.com" } as const;
 
 function driverFor(w: World): FakeDriver {
   const d = new FakeDriver({
@@ -22,7 +22,7 @@ function driverFor(w: World): FakeDriver {
       if (e.action !== "goto") return;
       const host = new URL(e.key).hostname;
       w.opened.push(host);
-      drv.url = w.signedIn[host] ? `https://${host}/home` : `https://${host}/login`;
+      drv.url = w.signedIn[host] ? `https://${host}/${host.endsWith("peecho.com") ? "dashboard/orders" : "home"}` : `https://${host}/login`;
       if (w.signedIn[host]) {
         // Whatever the recipe expects after sign-in: make every plausible condition true.
         drv.pageText.add("signed in");
@@ -81,6 +81,51 @@ describe("scheduled sign-in checks: which hosts are due", () => {
     const attempts = new Map([[HOSTS.openai, now.getTime() - 5 * 60_000]]);
     expect(dueSignInChecks(rt, now, attempts, 30).map((d) => d.host)).not.toContain(HOSTS.openai);
     expect(dueSignInChecks(rt, new Date(now.getTime() + 40 * 60_000), attempts, 30).map((d) => d.host)).toContain(HOSTS.openai);
+  });
+});
+
+describe("scheduled sign-in checks: a recipe with several hosts", () => {
+  it("lists every host of the recipe on its own, so the second portal is due as well", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    const due = dueSignInChecks(rt, new Date());
+    const peecho = due.filter((d) => d.recipe.id === "peecho-api-keys").map((d) => d.host);
+    expect(peecho.sort()).toEqual([HOSTS.peechoTest, HOSTS.peechoLive].sort());
+    // One answer for the live portal does not satisfy the test portal.
+    rt.automation.noteSignIn(HOSTS.peechoLive, true);
+    const after = dueSignInChecks(rt, new Date()).filter((d) => d.recipe.id === "peecho-api-keys").map((d) => d.host);
+    expect(after).toEqual([HOSTS.peechoTest]);
+  });
+
+  it("checks each portal at its own host and remembers a different answer for each", async () => {
+    const { rt, w, scheduler } = await setup(AUTOMATION_6H, { [HOSTS.peechoLive]: true });
+    const tick = await scheduler.tick();
+    const results = Object.fromEntries(tick.checked.map((c) => [c.host, c.result]));
+    expect(results[HOSTS.peechoLive]).toBe("signed-in");
+    expect(results[HOSTS.peechoTest]).toBe("signed-out");
+    expect(w.opened).toEqual(expect.arrayContaining([HOSTS.peechoLive, HOSTS.peechoTest]));
+    const memory = Object.fromEntries(rt.automation.signInChecks().map((c) => [c.host, c.signedIn]));
+    expect(memory[HOSTS.peechoLive]).toBe(true);
+    expect(memory[HOSTS.peechoTest]).toBe(false);
+    expect(w.maxActive).toBe(1);
+  });
+
+  it("measures the lifetime per host", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    rt.automation.noteSignIn(HOSTS.peechoTest, false);
+    rt.automation.noteSignIn(HOSTS.peechoTest, true, "connect");
+    rt.automation.noteSignIn(HOSTS.peechoLive, true, "connect");
+    rt.automation.noteSignIn(HOSTS.peechoTest, false);
+    const lifetimes = rt.automation.signInLifetimes();
+    expect(lifetimes.map((l) => l.host)).toEqual([HOSTS.peechoTest]);
+  });
+
+  it("tells the portal which host each value of the parameter has", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    const info = rt.automation.info().recipes.find((r) => r.id === "peecho-api-keys");
+    expect(info).toMatchObject({ hostBy: "portal", canCheckSignIn: true });
+    expect(info?.hosts).toEqual([{ value: "live", host: HOSTS.peechoLive }, { value: "test", host: HOSTS.peechoTest }]);
+    const plain = rt.automation.info().recipes.find((r) => r.id !== "peecho-api-keys");
+    expect(plain).toMatchObject({ hostBy: null, hosts: [] });
   });
 });
 

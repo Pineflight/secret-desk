@@ -18,6 +18,8 @@ export interface WarnableEntry {
   /** Day the entry expires (YYYY-MM-DD), null: never. */
   expires: string | null;
   daysLeft: number | null;
+  /** The host of the portal this entry's parameters pick, when the provider has several portals (live and test). Null: one portal. */
+  browserHost?: string | null;
 }
 
 export interface RenewalWarning {
@@ -46,7 +48,9 @@ export function renewalWarnings(entries: readonly WarnableEntry[], cards: readon
     if (!card || !card.browser) continue;
     // A connected API key renews without the browser; a provider without a sign-in way cannot be helped from here.
     if (card.status === "connected" || card.signIn.state === "none" || card.signIn.state === "coming") continue;
-    const state = card.browser.readiness.state;
+    // A provider with several portals (separate accounts): the sign-in that counts is the one of this entry's portal.
+    const line = e.browserHost ? card.browser.hostLines.find((l) => l.host === e.browserHost) : undefined;
+    const state = (line ?? card.browser).readiness.state;
     if (state === "ready") continue;
     out.push({ secretId: e.id, title: e.title || e.name, vendorId: card.id, vendorLabel: card.label, expires: e.expires, daysLeft: e.daysLeft, state });
   }
