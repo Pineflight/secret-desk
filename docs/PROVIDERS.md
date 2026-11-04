@@ -126,6 +126,18 @@ Variables can load their value from a source (`from: { connection, kind, resourc
 
 The parameters are validated before any browser opens (`params_invalid`). The form and the key list were checked against the live dashboard on 2026-11-02 with a throwaway key (revoked afterwards); the full recipe run was verified live on 2026-11-03 (two secret keys and one integration key through the guided sign-in); the password, one-time code, approval and CAPTCHA steps of the sign-in form are not.
 
+## Peecho via the browser (read-only)
+
+`peecho-api-keys-browser` reads the two API keys that Peecho shows in its dashboard (*Merchant API Key* and *Secret key*) with the [read-only recipe](RECIPES.md#reading-values-instead-of-creating-them-kind-read) `recipes/peecho-api-keys.yaml`. Peecho has no API and no button to create, replace or reveal these keys; they are fixed and only readable, so renewal means *read again* (for example after Peecho support changed the key by e-mail). Nothing is created or revoked, and the keys do not expire.
+
+| Parameter | Meaning |
+|---|---|
+| `portal` | Required: `live` (`www.peecho.com`) or `test` (`test.www.peecho.com`). Separate accounts, separate keys. |
+| `value` | Required: `merchantKey` or `secretKey`, the key this entry takes. |
+| `companionEntry` | Optional: inventory id of the entry that receives the other key from the same read. |
+
+The run opens the dashboard (you sign in), tries `/mio-dashboard/settings/api` (read-only inputs, selectors not verified) and otherwise follows the *Application settings* link and reads the *API* tab (a definition list of plain text, verified 2026-11-04). Both values must match `^[A-Za-z0-9]{32,64}$`. The review says *Not checked against Peecho API keys*: Peecho offers no call to test a key, so only the shape is checked. Use `expiry: none` on the entries; `verifiedAt` is the date of the last read.
+
 ## Permissions per integration
 Create each token with no more than this. The **Test connection** button on the Integrations page makes read-only calls to confirm it (see below).
 

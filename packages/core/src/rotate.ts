@@ -46,6 +46,8 @@ export interface RotationPlan {
   stage: Stage;
   provider: string;
   automatic: boolean;
+  /** The provider only reads a value that already exists (nothing is created, nothing is revoked). */
+  readOnly: boolean;
   places: string[];
   revokesOld: boolean;
   ttlDays: number | null;
@@ -94,6 +96,7 @@ export function planRotation(secretId: string, deps: Pick<RotateDeps, "inventory
     stage: secret.stage,
     provider: secret.provider,
     automatic: provider?.kind === "automatic" && typeof provider.issue === "function",
+    readOnly: provider?.readOnly === true,
     places: secret.places.map(describePlace),
     revokesOld: Boolean(secret.externalId && provider?.revoke && options.revokeOld !== false),
     ttlDays: secret.ttlDays ?? null,

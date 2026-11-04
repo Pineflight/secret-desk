@@ -248,6 +248,7 @@ paths:
                           stage: { type: string }
                           provider: { type: string }
                           automatic: { type: boolean }
+                          readOnly: { type: boolean }
                           places: { type: array, items: { type: string } }
                           revokesOld: { type: boolean }
                           ttlDays: { type: [integer, "null"] }
@@ -341,6 +342,7 @@ paths:
                     label: { type: string }
                     kind: { type: string, enum: [automatic, manual] }
                     browser: { type: boolean }
+                    readOnly: { type: boolean }
                     connection: { type: [string, "null"] }
                     guide:
                       type: [object, "null"]
@@ -539,6 +541,7 @@ components:
         provider: { type: string }
         automatic: { type: boolean }
         browser: { type: boolean }
+        readOnly: { type: boolean }
         expiry: { type: string, enum: [none, possible, required, unknown] }
         expires: { type: [string, "null"], format: date }
         daysLeft: { type: [integer, "null"] }

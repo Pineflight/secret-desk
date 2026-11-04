@@ -1,0 +1,91 @@
+# STATUS: navigation and DOM read live on 2026-11-04 (application settings, tab "API", both portals signed in); the sign-in form, the /mio-dashboard/settings/api page and a full run are not verified
+# Reads the Peecho API keys (the "Merchant API Key" and the "Secret key") from the dashboard. Peecho issues these keys once per
+# application, has no API to create or rotate them and shows no button for it, so this recipe only READS (kind: read): nothing is
+# created, there is nothing to revoke, and the keys do not expire. Renewing means reading again, for example after Peecho support
+# rotated the key by e-mail. There are two separate portals with separate accounts: live (www.peecho.com) and test
+# (test.www.peecho.com), chosen by the parameter `portal`. One run reads both keys: the entry picks one with `value` and the
+# other goes to the entry named by `companionEntry` (optional).
+kind: read
+id: peecho-api-keys
+label: Peecho API keys
+host: www.peecho.com
+allowHosts: ["test.www.peecho.com"]
+params:
+  - key: portal
+    label: Portal
+    labelEn: Portal
+    options: ["live", "test"]
+    help: "live = www.peecho.com, test = test.www.peecho.com. The two portals have separate accounts and separate keys."
+  - key: value
+    label: Gelesener Wert
+    labelEn: Value to read
+    options: ["merchantKey", "secretKey"]
+    help: "merchantKey = Merchant API Key, secretKey = Secret key. This entry receives that one."
+  - key: companionEntry
+    label: Eintrag fuer den anderen Schluessel
+    labelEn: Entry for the other key
+    required: false
+    pattern: "^[a-z0-9][a-z0-9-]*$"
+    help: "Optional: inventory id of the entry that receives the other key from the same read (same stage, with a target)."
+login:
+  # Signed in = the dashboard (signed in, /dashboard redirects to /dashboard/orders, seen on 2026-11-04). A signed-out browser is
+  # expected to be sent to a sign-in page instead: not verified.
+  expect: { url: "^https://(test\\.)?www\\.peecho\\.com/dashboard/" }
+  message: Bei Peecho anmelden (Portal live oder test, je eigenes Konto).
+  # Guided sign-in on the live portal. STATUS: not verified at all: the sign-in page, its field selectors and its failure texts
+  # are guesses. The test portal is signed in by hand in the browser window (the recipe has one `host` for the sign-in state).
+  form:
+    start: "https://www.peecho.com/dashboard"
+    home: "https://www.peecho.com/dashboard"
+    steps:
+      - waitFor: { visible: { css: 'input[type="email"] >> visible=true' }, timeoutSeconds: 30 }
+      - fill: { css: 'input[type="email"] >> visible=true', value: "{{login.username}}" }
+      - fill: { css: 'input[type="password"] >> visible=true', value: "{{login.password}}" }
+      - click: { css: 'button[type="submit"] >> visible=true' }
+steps:
+  # The first page also waits for the sign-in. Two steps per page because a `goto` needs a fixed host.
+  - goto: "https://www.peecho.com/dashboard"
+    when: { var: portal, equals: live }
+  - goto: "https://test.www.peecho.com/dashboard"
+    when: { var: portal, equals: test }
+  # First try: read-only inputs under their labels (seen on 2026-11-03 as read-only inputs, selectors not verified).
+  - goto: "https://www.peecho.com/mio-dashboard/settings/api"
+    when: { var: portal, equals: live }
+  - goto: "https://test.www.peecho.com/mio-dashboard/settings/api"
+    when: { var: portal, equals: test }
+capture:
+  pick: value
+  companion: companionEntry
+  values:
+    # NOT verified: the label texts are those of the application settings; the input after each label is a guess. The wait is short
+    # because the page may not exist, then the fallback below takes over.
+    merchantKey:
+      find: { css: ':text-is("Merchant API Key") >> xpath=following::input[1]' }
+      pattern: "^[A-Za-z0-9]{32,64}$"
+      timeoutSeconds: 8
+    secretKey:
+      find: { css: ':text-is("Secret key") >> xpath=following::input[1]' }
+      pattern: "^[A-Za-z0-9]{32,64}$"
+      timeoutSeconds: 8
+  # Fallback, verified live on 2026-11-04: the application settings, tab "API", a definition list of plain text. The application id
+  # is a number that differs per portal, so the link is read from the navigation (the first application) and followed.
+  fallback:
+    steps:
+      - goto: "https://www.peecho.com/dashboard"
+        when: { var: portal, equals: live }
+      - goto: "https://test.www.peecho.com/dashboard"
+        when: { var: portal, equals: test }
+      - follow: { css: 'a[href*="/dashboard/applications/edit?applicationId="]' }
+      - waitFor: { visible: { css: 'a[href="#spa"]' } }
+      - click: { css: 'a[href="#spa"]' }
+      - waitFor: { visible: { css: '#spa dt:text-is("Merchant API Key") + dd' } }
+    values:
+      merchantKey:
+        find: { css: '#spa dt:text-is("Merchant API Key") + dd' }
+        pattern: "^[A-Za-z0-9]{32,64}$"
+      secretKey:
+        find: { css: '#spa dt:text-is("Secret key") + dd' }
+        pattern: "^[A-Za-z0-9]{32,64}$"
+mask:
+  - { css: "#spa dd" }
+  - { css: "input[readonly]" }

@@ -32,7 +32,7 @@ Under a card, the provider's **ways in**, each explained in one sentence:
 
 **Anthropic:** with the Admin key connected the card says it works without a browser sign-in, which holds for listing workspaces and for checking and deactivating keys; creating an API key is only possible in the Console, so it still runs through the signed-in browser (the Admin API cannot create keys). Its email sign-in is passwordless: the portal asks for the emailed code, not a password.
 
-The page lists the providers that are set up or have secrets or variables attached; the counts include secrets that a browser recipe creates for that provider. *Check sign-in* asks the remote browser whether it is still signed in (no credentials, nothing typed). A provider whose recipe does not exist yet (Peecho) shows *Recipe coming* as its sign-in way.
+The page lists the providers that are set up or have secrets or variables attached; the counts include secrets that a browser recipe creates for that provider. *Check sign-in* asks the remote browser whether it is still signed in (no credentials, nothing typed). A provider whose recipe is planned but does not exist yet shows *Recipe coming* as its sign-in way (none does at the moment: Peecho has the read-only recipe `peecho-api-keys`).
 
 Which connection, provider definition or recipe belongs to which card, and which category it is shown under, is defined in one place, [`vendors.ts`](../packages/core/src/vendors.ts) (served by `GET vendors`); the texts are in the interface catalogs (`vendor.<id>.purpose`, `category.<id>`).
 

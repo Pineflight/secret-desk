@@ -53,6 +53,12 @@ const When = z.object({ var: z.string().min(1), equals: z.string() }).strict().o
 
 const stepVariants = {
   goto: z.object({ goto: z.string().min(1), when: When }).strict(),
+  /**
+   * Reads the address from the `href` of the element and opens it, under the same host rules as `goto` (a link whose address
+   * differs per account, for example one that carries a numeric id). Fails closed when the element or its `href` is missing or the
+   * address leaves the allowed hosts.
+   */
+  follow: z.object({ follow: withSelector({}), when: When }).strict(),
   fill: z.object({ fill: withSelector({ value: z.string() }), each: Each, when: When }).strict(),
   select: z.object({ select: withSelector({ value: z.string().min(1) }), each: Each, when: When }).strict(),
   check: z.object({ check: withSelector({ checked: z.boolean().default(true) }), each: Each, when: When }).strict(),
@@ -228,6 +234,34 @@ export function paramValueProblem(p: Pick<RecipeParam, "pattern" | "options">, v
   return undefined;
 }
 
+export const RECIPE_KINDS = ["create", "read"] as const;
+export type RecipeKind = (typeof RECIPE_KINDS)[number];
+
+const ParamKey = z.string().regex(/^[a-z][A-Za-z0-9]{0,30}$/, "Schluessel aus Buchstaben und Ziffern, beginnt mit einem Kleinbuchstaben (hoechstens 31 Zeichen)");
+const ValueName = z.string().regex(/^[a-z][A-Za-z0-9]{0,30}$/, "Schluessel aus Buchstaben und Ziffern, beginnt mit einem Kleinbuchstaben (hoechstens 31 Zeichen)");
+
+const CaptureTokenSchema = z
+  .object({
+    find: SelectorSchema,
+    /** Read this attribute of the element instead of its text or value (for a key the page shows truncated but carries whole). */
+    attribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_:-]{0,40}$/, "Attributname").optional(),
+    /** Der Wert muss passen, sonst Abbruch. Gruppe 1, falls vorhanden. */
+    pattern: Regex.optional(),
+    timeoutSeconds: z.number().positive().max(600).default(30),
+  })
+  .strict();
+
+/** One value a `read` recipe takes from the page. The pattern is required: a value of the wrong shape ends the run. */
+const CaptureValueSchema = z
+  .object({
+    find: SelectorSchema,
+    attribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_:-]{0,40}$/, "Attributname").optional(),
+    pattern: Regex,
+    timeoutSeconds: z.number().positive().max(600).default(30),
+  })
+  .strict();
+export type CaptureValue = z.infer<typeof CaptureValueSchema>;
+
 export const RecipeSchema = z
   .object({
     id: Ident,
@@ -241,22 +275,28 @@ export const RecipeSchema = z
     params: z.array(RecipeParamSchema).default([]),
     login: z.object({ expect: ConditionSchema, message: z.string().optional(), form: LoginFormSchema.optional(), methods: z.array(LoginMethodSchema).optional() }).strict().optional(),
     steps: z.array(StepSchema).min(1),
+    /**
+     * `create` (default): the recipe creates a token at the provider (one click carries `createsToken: true`) and reads it once.
+     * `read`: the recipe only reads values the provider already shows (keys that cannot be created or rotated through the
+     * portal, for example a print service that issues fixed keys). It has no `createsToken`, no `revoke` and no expiry.
+     */
+    kind: z.enum(RECIPE_KINDS).default("create"),
     capture: z
       .object({
-        token: z
-          .object({
-            find: SelectorSchema,
-            /** Read this attribute of the element instead of its text or value (for a key the page shows truncated but carries whole). */
-            attribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_:-]{0,40}$/, "Attributname").optional(),
-            /** Der Wert muss passen, sonst Abbruch. Gruppe 1, falls vorhanden. */
-            pattern: Regex.optional(),
-            timeoutSeconds: z.number().positive().max(600).default(30),
-          })
-          .strict(),
+        /** kind `create`: the one new token. */
+        token: CaptureTokenSchema.optional(),
         externalId: z
           .union([z.object({ from: FromVar }).strict(), z.object({ find: SelectorSchema, pattern: Regex.optional() }).strict()])
           .optional(),
         expires: z.object({ from: z.literal("days") }).strict().optional(),
+        /** kind `read`: one to two named values read in the same run. */
+        values: z.record(ValueName, CaptureValueSchema).optional(),
+        /** kind `read`: the recipe parameter (with `options` = the value names) that says which value is the entry's own. */
+        pick: ParamKey.optional(),
+        /** kind `read` with two values: the recipe parameter that holds the inventory id of the entry that receives the other value. */
+        companion: ParamKey.optional(),
+        /** kind `read`: another page to try when the values above are not found (same value names, own selectors). */
+        fallback: z.object({ steps: z.array(StepSchema).min(1), values: z.record(ValueName, CaptureValueSchema) }).strict().optional(),
       })
       .strict(),
     mask: z.array(SelectorSchema).default([]),
@@ -291,11 +331,68 @@ export const RecipeSchema = z
     if (r.revoke) check(r.revoke.steps, "revoke");
     if (r.login?.form) loginFormProblems(r.login.form, r).forEach((p) => ctx.addIssue({ code: "custom", path: ["login", "form", ...p.path], message: p.message }));
     if (r.login?.methods) loginMethodProblems(r.login.methods, r.login.form !== undefined).forEach((p) => ctx.addIssue({ code: "custom", path: ["login", "methods", ...p.path], message: p.message }));
-    const creates = r.steps.some((s) => "click" in s && s.click.createsToken === true);
-    if (!creates) ctx.addIssue({ code: "custom", path: ["steps"], message: "Ein click-Schritt braucht createsToken: true (der Punkt, ab dem beim Anbieter etwas entsteht)" });
+    if (r.capture.fallback) check(r.capture.fallback.steps, "fallback");
+    if (r.kind === "create") {
+      const creates = r.steps.some((s) => "click" in s && s.click.createsToken === true);
+      if (!creates) ctx.addIssue({ code: "custom", path: ["steps"], message: "Ein click-Schritt braucht createsToken: true (der Punkt, ab dem beim Anbieter etwas entsteht)" });
+      if (!r.capture.token) ctx.addIssue({ code: "custom", path: ["capture", "token"], message: "capture.token is required (kind create)" });
+      for (const k of ["values", "pick", "companion", "fallback"] as const) {
+        if (r.capture[k] !== undefined) ctx.addIssue({ code: "custom", path: ["capture", k], message: `capture.${k} belongs to kind read` });
+      }
+    } else {
+      readProblems(r).forEach((p) => ctx.addIssue({ code: "custom", path: p.path, message: p.message }));
+    }
   });
 
 export type Recipe = z.infer<typeof RecipeSchema>;
+
+/** Static checks of a `kind: read` recipe: nothing is created, the values and their mapping to entries are declared. */
+function readProblems(r: {
+  params: RecipeParam[];
+  steps: Step[];
+  revoke?: { steps: Step[] } | undefined;
+  capture: { token?: unknown; externalId?: unknown; expires?: unknown; values?: Record<string, unknown> | undefined; pick?: string | undefined; companion?: string | undefined; fallback?: { steps: Step[]; values: Record<string, unknown> } | undefined };
+}): { path: (string | number)[]; message: string }[] {
+  const out: { path: (string | number)[]; message: string }[] = [];
+  const add = (path: (string | number)[], message: string): void => void out.push({ path, message });
+  const c = r.capture;
+  if (c.token !== undefined) add(["capture", "token"], "A read recipe has capture.values, not capture.token");
+  if (c.externalId !== undefined) add(["capture", "externalId"], "A read recipe creates nothing, so there is no externalId");
+  if (c.expires !== undefined) add(["capture", "expires"], "A read recipe has no expiry: the keys it reads do not expire through this recipe");
+  if (r.revoke) add(["revoke"], "A read recipe has nothing to revoke");
+  const creating = (steps: Step[]): boolean => steps.some((s) => "click" in s && s.click.createsToken === true);
+  if (creating(r.steps)) add(["steps"], "A read recipe must not create anything (no createsToken)");
+  if (c.fallback && creating(c.fallback.steps)) add(["capture", "fallback", "steps"], "A read recipe must not create anything (no createsToken)");
+  const names = Object.keys(c.values ?? {});
+  if (names.length < 1 || names.length > 2) {
+    add(["capture", "values"], "capture.values needs one or two values");
+    return out;
+  }
+  if (c.fallback) {
+    const other = Object.keys(c.fallback.values).sort().join(",");
+    if (other !== [...names].sort().join(",")) add(["capture", "fallback", "values"], "The fallback reads the same value names as capture.values");
+  }
+  const param = (key: string | undefined, path: string): RecipeParam | undefined => {
+    const p = r.params.find((x) => x.key === key);
+    if (!p) add(["capture", path], `capture.${path} names the parameter ${key ?? "?"}, which is not declared under params`);
+    return p;
+  };
+  if (names.length === 2 && c.pick === undefined) add(["capture", "pick"], "Two values need capture.pick (the parameter that says which value the entry takes)");
+  if (names.length === 1 && c.pick !== undefined) add(["capture", "pick"], "capture.pick belongs to two values");
+  if (c.pick !== undefined) {
+    const p = param(c.pick, "pick");
+    if (p && (!p.options || [...p.options].sort().join(",") !== [...names].sort().join(",") || !p.required || p.default !== undefined)) {
+      add(["params"], `The parameter ${c.pick} is required, has no default and lists exactly the value names (${names.join(", ")}) as options`);
+    }
+  }
+  if (c.companion !== undefined) {
+    if (names.length !== 2) add(["capture", "companion"], "capture.companion belongs to two values");
+    const p = param(c.companion, "companion");
+    if (p && (p.required || p.options || p.default !== undefined || p.pattern === undefined)) add(["params"], `The parameter ${c.companion} is optional, has a pattern (the inventory id of the receiving entry) and no options or default`);
+    if (c.companion === c.pick) add(["capture", "companion"], "capture.companion and capture.pick are different parameters");
+  }
+  return out;
+}
 
 /** Static checks of `login.form`: allowed step kinds, hosts, and where the sign-in variables may appear. */
 function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: string[] }): { path: (string | number)[]; message: string }[] {

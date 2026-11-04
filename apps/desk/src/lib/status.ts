@@ -4,7 +4,7 @@ import { FALLBACK_STAGES, stageLook, type StageDefLite } from "./stages";
 
 export type Tone = "success" | "warn" | "warn-strong" | "danger" | "neutral" | "info" | "ki" | "primary" | "stage-prod";
 export type IconName =
-  | "check" | "clock" | "alert" | "x" | "info" | "help" | "calendar" | "dot" | "shield" | "bolt" | "plug" | "key" | "wrench" | "hand";
+  | "check" | "clock" | "alert" | "x" | "info" | "help" | "calendar" | "dot" | "shield" | "bolt" | "plug" | "key" | "wrench" | "hand" | "eye";
 
 export interface Info {
   label: string;
@@ -32,7 +32,8 @@ export function stageInfo(stage: string, defs: readonly StageDefLite[] = FALLBAC
   return stageLook(defs, stage);
 }
 
-export function providerInfo(automatic: boolean, browser = false): Info {
+export function providerInfo(automatic: boolean, browser = false, readOnly = false): Info {
+  if (readOnly) return { label: translate("common.provider.read"), tone: "primary", icon: "eye" };
   if (browser) return { label: translate("common.provider.browser"), tone: "primary", icon: "plug" };
   return automatic ? { label: translate("common.provider.auto"), tone: "primary", icon: "bolt" } : { label: translate("common.provider.manual"), tone: "neutral", icon: "hand" };
 }

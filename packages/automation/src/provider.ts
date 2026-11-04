@@ -1,4 +1,4 @@
-import type { EvidenceStore, IssueContext, IssuedSecret, ParamSpec, Provider, RevokeContext, SecretEntry, Stage } from "@secret-desk/core";
+import type { Check, CompanionValue, EvidenceStore, IssueContext, IssuedSecret, ParamSpec, Provider, RevokeContext, SecretEntry, Stage } from "@secret-desk/core";
 import type { BrowserDriver } from "./driver.js";
 import type { Recipe } from "./recipe.js";
 import { recipeParamVars, revokeRecipe, runRecipe, type RunHooks, type RunOptions, type Screenshot } from "./run.js";
@@ -92,18 +92,32 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
   const { recipe } = opts;
   const shots = new Map<string, Screenshot[]>();
 
+  const read = recipe.kind === "read";
+  const companionKey = recipe.capture.companion;
+
   return {
     id: recipe.provider ?? recipe.id,
     label: recipe.label,
     kind: "automatic",
     automation: { recipeId: recipe.id },
+    ...(read ? { readOnly: true } : {}),
+    ...(companionKey ? { companionParams: [companionKey] } : {}),
     ...(recipe.params.length > 0 ? { params: recipeParamSpecs(recipe) } : {}),
     guide: {
       url: `https://${recipe.host}/`,
-      steps: ["secret-desk oeffnet ein Browserfenster.", "Dort selbst anmelden (Passwort, 2FA); secret-desk tippt keine Zugangsdaten.", "Der Rest laeuft automatisch, danach pruefen und bestaetigen."],
+      steps: read
+        ? ["secret-desk opens a browser window.", "Sign in there yourself (password, 2FA); secret-desk types no credentials.", "The values are read from the page, nothing is created at the provider. Then check and confirm."]
+        : ["secret-desk oeffnet ein Browserfenster.", "Dort selbst anmelden (Passwort, 2FA); secret-desk tippt keine Zugangsdaten.", "Der Rest laeuft automatisch, danach pruefen und bestaetigen."],
     },
     reviewChecklist: (secret) => {
       const v = recipeVars(secret, secret.stage, new Date());
+      if (read) {
+        const shown = recipe.params.filter((p) => p.options && !(p.key === recipe.capture.pick)).map((p) => `${p.key}: ${String(secret.params[p.key] ?? p.default ?? "not set")}`);
+        return [
+          `The value was read from the provider's page, not created${shown.length ? ` (${shown.join(", ")})` : ""}: the account and portal match the entry`,
+          "The value belongs to the name and target shown above and to no other",
+        ];
+      }
       return [
         `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
         `Konto/Besitzer beim Anbieter stimmt mit dem Eintrag ueberein (owner: ${v["owner"] || "nicht gesetzt"})`,
@@ -119,18 +133,39 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
       try {
         const result = await runRecipe(recipe, vars, driver, pick(opts.hooks, secretId, {}), pick(opts.runOptions, secretId, {}));
         shots.set(secretId, result.screenshots);
+        if (read) {
+          // The value the entry picked is the main value; the other one goes to the entry named by the companion parameter, if any.
+          const picked = recipe.capture.pick === undefined ? Object.keys(result.values ?? {})[0] : vars[recipe.capture.pick];
+          const target = companionKey ? (vars[companionKey] ?? "").trim() : "";
+          const otherName = Object.keys(result.values ?? {}).find((n) => n !== picked);
+          const other = otherName !== undefined ? result.values?.[otherName] : undefined;
+          const companions: CompanionValue[] = target !== "" && other ? [{ entryId: target, value: other }] : [];
+          return { value: result.value, expiresAt: null, ...(companions.length ? { companions } : {}) };
+        }
         return { value: result.value, ...(result.externalId ? { externalId: result.externalId } : {}), expiresAt: result.expiresAt ?? null };
       } catch (err) {
         shots.delete(secretId);
         throw err;
       }
     },
-    async revoke(ctx: RevokeContext): Promise<void> {
-      if (!recipe.revoke) throw new Error(`${recipe.label}: Widerruf ist nicht automatisiert, bitte beim Anbieter von Hand widerrufen (Kennung: ${ctx.externalId}).`);
-      const vars = { ...recipeVars(ctx.secret, ctx.secret.stage, new Date(), { externalId: ctx.externalId }), ...recipeParamVars(recipe, ctx.secret.params) };
-      const driver = await opts.driverFactory();
-      await revokeRecipe(recipe, vars, driver, pick(opts.hooks, ctx.secret.id, {}), pick(opts.runOptions, ctx.secret.id, {}));
-    },
+    ...(read
+      ? {
+          // The page offers no way to check a key. The shape was checked while reading; whether the provider accepts it is not known.
+          async verify(): Promise<Check[]> {
+            return [
+              { id: "read-shape", label: "Value read from the provider's page and matches the expected shape", status: "pass" },
+              { id: "read-unchecked", label: `Not checked against ${recipe.label}`, status: "info", detail: "The provider offers no call to test the key. The value is only as good as the page it was read from." },
+            ];
+          },
+        }
+      : {
+          async revoke(ctx: RevokeContext): Promise<void> {
+            if (!recipe.revoke) throw new Error(`${recipe.label}: Widerruf ist nicht automatisiert, bitte beim Anbieter von Hand widerrufen (Kennung: ${ctx.externalId}).`);
+            const vars = { ...recipeVars(ctx.secret, ctx.secret.stage, new Date(), { externalId: ctx.externalId }), ...recipeParamVars(recipe, ctx.secret.params) };
+            const driver = await opts.driverFactory();
+            await revokeRecipe(recipe, vars, driver, pick(opts.hooks, ctx.secret.id, {}), pick(opts.runOptions, ctx.secret.id, {}));
+          },
+        }),
     takeScreenshots(secretId) {
       const s = shots.get(secretId) ?? [];
       shots.delete(secretId);

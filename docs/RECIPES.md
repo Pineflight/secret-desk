@@ -4,7 +4,7 @@ A **recipe** is a YAML file that tells secret-desk how to create a token in a pr
 
 This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md). The design, principles and implementation status are in [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md). Schema source: [`packages/automation/src/recipe.ts`](../packages/automation/src/recipe.ts).
 
-> **Status of the bundled recipes.** Four ran end to end against the live provider pages on 2026-11-03: `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You* only) and `revenuecat-secret-api-key` (the sign-in form steps after the email are still unchecked). `stripe-restricted-key` was checked in the sandbox but not run end to end, and `github-fine-grained-token` is not verified. Each recipe starts with a `# STATUS:` comment that says what is verified (the bundled recipes' comments are in German). Do a supervised trial run with a throwaway token first.
+> **Status of the bundled recipes.** `peecho-api-keys` (read-only) has its navigation and DOM read verified live on 2026-11-04; its sign-in form and a full run are not. Four ran end to end against the live provider pages on 2026-11-03: `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You* only) and `revenuecat-secret-api-key` (the sign-in form steps after the email are still unchecked). `stripe-restricted-key` was checked in the sandbox but not run end to end, and `github-fine-grained-token` is not verified. Each recipe starts with a `# STATUS:` comment that says what is verified (the bundled recipes' comments are in German). Do a supervised trial run with a throwaway token first.
 
 ## Bundled recipes
 
@@ -18,7 +18,44 @@ This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRA
 | `openai-api-key` | OpenAI API key (owner, expiry, permission level); can revoke | full run verified live 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | `vesselapi-api-key` | VesselAPI API key (30, 60 or 90 days on the free plan); can delete the old key | full run verified live 2026-11-03 (two keys) |
 | `stripe-restricted-key` | Stripe restricted key for one account and mode; parameters `account` (`acct_...`), `mode` (`sandbox` or `live`), `preset` (`webhooks`: *Webhook Endpoints, Event Destinations* Write, or `full-except-sensitive`); can revoke (*Expire key*) | sandbox wizard, result view and expiry checked 2026-11-02/03 with a throwaway key; full run, sign-in form and live mode not verified |
+| `peecho-api-keys` | **Reads** (`kind: read`) the Peecho Merchant API Key and Secret key from the dashboard of the live or the test portal (parameter `portal`); creates and revokes nothing | navigation and DOM read live 2026-11-04 (application settings, tab *API*, both portals signed in); sign-in form, the `/mio-dashboard/settings/api` page and a full run not verified |
 | `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked 2026-11-02; full run verified live 2026-11-03 (two secret keys and one integration key via the guided sign-in); password, one-time code, approval and CAPTCHA steps of the sign-in form not verified (the browser was already signed in) |
+
+## Reading values instead of creating them (`kind: read`)
+
+Some providers issue a fixed key once per account and offer no way to create or replace it in the dashboard (Peecho shows the *Merchant API Key* and the *Secret key* as plain text, with no button). A recipe with `kind: read` only **reads** such values:
+
+- No step creates anything: `createsToken` is an error in a read recipe, and so are `revoke`, `capture.token`, `capture.externalId` and `capture.expires`.
+- `capture.values` names one or two values (`^[a-z][A-Za-z0-9]{0,30}$`), each with a selector and a **required** `pattern`. A value that cannot be found, does not match its pattern, is empty or equals the other value ends the run (fail closed); nothing is written. Errors never contain page content or a value.
+- The entry says which value it takes: `capture.pick` names a recipe parameter that is required, has no default and whose `options` are exactly the value names. With two values, `capture.companion` names an optional parameter holding the inventory id of the entry that receives the **other** value of the same read (the companion mechanism of the Cloudflare Access provider: one confirmation writes both entries). Without a companion only the picked value is written.
+- `capture.fallback` (optional) is a second page with its own `steps` and `values` (same value names). The first selectors are tried first; if one is not visible within its `timeoutSeconds`, the fallback steps run and the fallback values are read. A value that was found but has the wrong shape is **not** retried on the fallback.
+- The provider is marked `readOnly`. The portal labels such entries *read from the provider*, offers *Read again* instead of *Generate new value* (renewal means reading again, for example after the provider changed the key on request), and shows *does not expire · read on <date>* for entries with `expiry: none`. There is no call to test the value at the provider, so the review says *Not checked against <provider>*: only the shape was checked.
+
+Example entries (ids, names and the repository are made up):
+
+```yaml
+secrets:
+  - id: print-api-key-test
+    name: PRINT_API_KEY
+    stage: test
+    service: peecho
+    provider: peecho-api-keys-browser
+    expiry: none            # the keys do not expire; verifiedAt is the date of the last read
+    params: { portal: test, value: merchantKey, companionEntry: print-secret-key-test }
+    places: [{ repo: acme-app, scope: repository }]
+  - id: print-secret-key-test
+    name: PRINT_SECRET_KEY
+    stage: test
+    service: peecho
+    provider: peecho-api-keys-browser
+    expiry: none
+    params: { portal: test, value: secretKey }
+    places: [{ repo: acme-app, scope: repository }]
+```
+
+Reading `print-api-key-test` fills both entries from one run and one confirmation; reading `print-secret-key-test` alone writes only the secret key. `portal` is `live` or `test`: the two portals have separate accounts and separate keys, so keep one pair of entries per portal. The dashboard login (e-mail and password) stays a manual entry.
+
+The Peecho sign-in form is declared for the live portal only (a recipe has one `host` for the sign-in state); on the test portal the run waits for you to sign in in the browser window.
 
 ## Where recipes live
 
@@ -45,6 +82,7 @@ params: []                           # optional: per-entry parameters, see "Para
 login:                               # optional
   expect: { url: "^https://github\\.com/settings/" }   # signed in when this holds
   message: Sign in to GitHub (password, 2FA).           # shown while waiting for you
+kind: create                         # optional: create (default) or read, see "Reading values instead of creating them"
 steps: [ ... ]                       # required, at least one; see below
 capture:                             # required
   token:
@@ -84,6 +122,7 @@ Every step has exactly one kind.
 
 | Step | Form | What it does |
 |---|---|---|
+| `follow` | `follow: { css: "a.account-link" }` | Reads the `href` of the element and opens it under the same host rules as `goto` (relative links are resolved against the current page). Fails closed when the element or its address is missing or the address leaves `host`/`allowHosts`. For links whose address differs per account. |
 | `goto` | `goto: "https://github.com/settings/..."` | Opens a page. Must start with `https://` and a **fixed host** (no variable in the host) that is `host` or in `allowHosts`. `http` only for `localhost` and `127.0.0.1`. |
 | `fill` | `fill: { <selector>, value: "{{name}}" }` | Types into a field. |
 | `select` | `select: { <selector>, value: "30" }` | Chooses an option. If the option does not exist the run aborts instead of guessing. |

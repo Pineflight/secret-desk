@@ -48,7 +48,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Das Datenbank-Passwort laesst sich ueber die Supabase-API setzen", "The database password can be set through the Supabase API"],
   ["Persoenliche Zugriffs-Tokens (PAT) erzeugt Supabase nur im Dashboard: nur von Hand", "Supabase creates personal access tokens (PAT) only in the dashboard: by hand only"],
   ["RevenueCat hat keine API, die Schluessel erzeugt: nur von Hand", "RevenueCat has no API that creates keys: by hand only"],
-  ["Peecho hat keine API, die Schluessel erzeugt: nur von Hand", "Peecho has no API that creates keys: by hand only"],
+  ["Peecho hat keine API, die Schluessel erzeugt: nur von Hand, oder lesend ueber das Rezept peecho-api-keys (Anbieter peecho-api-keys-browser)", "Peecho has no API that creates keys: by hand only, or read-only through the recipe peecho-api-keys (provider peecho-api-keys-browser)"],
   ["VesselAPI hat keine API, die Schluessel erzeugt: nur von Hand", "VesselAPI has no API that creates keys: by hand only"],
   ["Der DIP-Schluessel wird beantragt, es gibt keine API dafuer: nur von Hand", "The DIP key is applied for, there is no API for it: by hand only"],
   ["OpenAI stellt Schluessel ueber die Admin-API aus, sobald die Integration OpenAI verbunden ist (ein Browserschritt)", "OpenAI keys are issued through the Admin API once the OpenAI integration is connected (one browser step)"],

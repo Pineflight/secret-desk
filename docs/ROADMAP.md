@@ -28,6 +28,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 | Anthropic (facade and recipe) | browser for key creation (the Admin API cannot create keys: `anthropic-admin-key`, `anthropic-api-key`), API for the checks: workspaces, key check (`/v1/models`), deactivate and archive | **not verified live**: every selector and the revoke path are guesses; the API calls follow the Admin API reference |
 | OpenAI (recipe) | API keys (owner, expiry, permissions) | verified live: full run 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | VesselAPI | API keys (30 to 90 days on the free plan) | verified live: full run 2026-11-03 (two keys) |
+| Peecho (read-only) | reads the Merchant API Key and the Secret key of the live or test portal (`peecho-api-keys`, `kind: read`; nothing is created) | navigation and DOM read live 2026-11-04; sign-in form, the `/mio-dashboard/settings/api` page and a full run not verified |
 | Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |
 
 ### Created through a guided sign-in (provider facade)
@@ -53,7 +54,7 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 
 | Item | Approach |
 |---|---|
-| GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live). OpenAI has its facade now (key creation verified live 2026-11-03). |
+| GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live, Peecho's is read-only and read live in part). OpenAI has its facade now (key creation verified live 2026-11-03). |
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |

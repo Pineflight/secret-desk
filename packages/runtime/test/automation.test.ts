@@ -126,8 +126,9 @@ describe("recipes and providers", () => {
     expect(rt.automation.recipes).toMatchObject([{ id: "sample-token", providerId: "sample-token-browser", status: "nicht gegen die echte Seite geprueft" }]);
     expect(rt.automation.problems.map((x) => x.file.split("/").pop())).toEqual(["kaputt.yaml"]);
     expect(listProviders(rt).find((x) => x.id === "sample-token-browser")).toMatchObject({ browser: true });
-    expect(listProviders(rt).find((x) => x.id === "random-hex")).toMatchObject({ browser: false });
-    expect((await listSecrets(rt))[0]).toMatchObject({ browser: true, automatic: true });
+    expect(listProviders(rt).find((x) => x.id === "random-hex")).toMatchObject({ browser: false, readOnly: false });
+    expect(listProviders(rt).find((x) => x.id === "sample-token-browser")).toMatchObject({ readOnly: false });
+    expect((await listSecrets(rt))[0]).toMatchObject({ browser: true, automatic: true, readOnly: false });
   });
 
   it("registers nothing when automation.enabled is false", async () => {

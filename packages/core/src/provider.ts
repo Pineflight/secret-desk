@@ -101,6 +101,12 @@ export interface Provider {
   label: string;
   /** automatic = erzeugt selbst per API, manual = Wert wird von Hand eingefuegt. */
   kind: "automatic" | "manual";
+  /**
+   * The provider only reads a value the service already shows (keys that cannot be created or rotated through the portal). The
+   * portal says "read from the provider" and offers "read again" instead of "generate new value"; nothing is created or revoked,
+   * and the value does not expire through this provider.
+   */
+  readOnly?: boolean;
   /** Verbindung, die der Anbieter braucht (zum Beispiel cloudflare). */
   connection?: string;
   guide?: ProviderGuide;

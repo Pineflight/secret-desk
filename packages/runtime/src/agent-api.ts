@@ -114,6 +114,8 @@ export interface SecretView {
   automatic: boolean;
   /** Der Wert entsteht ueber ein Browserfenster (Rezept), nicht ueber eine API. */
   browser: boolean;
+  /** The provider only reads a value the service already shows: "read again" instead of "generate", no expiry through the provider. */
+  readOnly: boolean;
   expiry: SecretEntry["expiry"];
   expires: string | null;
   daysLeft: number | null;
@@ -155,6 +157,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): Secr
     provider: s.provider,
     automatic: provider?.kind === "automatic" && typeof provider.issue === "function",
     browser: rt.automation.isBrowserProvider(provider),
+    readOnly: provider?.readOnly === true,
     expiry: s.expiry,
     expires: s.expires,
     daysLeft: r.daysLeft,
@@ -245,7 +248,7 @@ export function listVendors(): { categories: VendorCategory[]; vendors: VendorDe
 }
 
 export function listProviders(rt: Runtime) {
-  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), connection: p.connection ?? null, vendor: vendorOfProvider(p.id)?.id ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
+  return rt.providers.list().map((p) => ({ id: p.id, label: p.label, kind: p.kind, browser: rt.automation.isBrowserProvider(p), readOnly: p.readOnly === true, connection: p.connection ?? null, vendor: vendorOfProvider(p.id)?.id ?? null, guide: p.guide ? { url: p.guide.url, steps: p.guide.steps } : null }));
 }
 
 /** Stack-Adresse fuer den Direktlink: Standardwert der Integration, sonst die erste baseUrl eines Grafana-Eintrags. */
