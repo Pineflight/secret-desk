@@ -74,6 +74,12 @@ steps:
   - fill: { placeholder: "My Test Key", value: "{{name}}" }
   - screenshot: formular-vorher
   - click: { role: button, name: "Create admin key", exact: true, createsToken: true }
+  # The provider may ask to verify the identity (password or code) before it shows the key: answered in the portal.
+  # Passes at once when the key is shown. NOT VERIFIED: no verification was seen at this provider yet.
+  - confirmAccess:
+      flow: generic-verify
+      until: { visible: { css: "[role=dialog] input[readonly]" } }
+      timeoutSeconds: 30
   - waitFor: { visible: { css: "[role=dialog] input[readonly]" } }
 capture:
   token:

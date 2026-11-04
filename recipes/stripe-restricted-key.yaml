@@ -275,10 +275,12 @@ steps:
         - { var: preset, equals: refunds }
 
   # ---- Both ----
-  # The live mode may ask to confirm the password before the key is created.
-  - pause:
-      human: Stripe verlangt eine Passwortbestaetigung. Im Browserfenster das Passwort bestaetigen, dann geht es hier weiter.
+  # The live mode may ask to confirm the password before the key is created: answered in the portal (generic flow: a visible
+  # password or code field with a verification text). When the page is not recognized, the human finishes it in the browser window.
+  - confirmAccess:
+      flow: generic-verify
       until: { hidden: { css: 'input[type="password"]' } }
+      timeoutSeconds: 10
     when: { var: mode, equals: live }
   - screenshot: rechte-vorher
   - click: { role: button, name: "Create key", createsToken: true }
@@ -287,9 +289,27 @@ steps:
     when: { var: variant, equals: wizard }
   - click: { role: button, name: "Create key", exact: true, createsToken: true }
     when: { var: variant, equals: single-page }
-  # Live (run on 2026-11-04): after "Create key" the new row did not show within 60 s and no key existed, so Stripe asks
-  # for something first (a security check or a confirmation; the dashboard loads hCaptcha). The run hands over to the
-  # human and goes on once the new row is there; when the row is already there, the pause ends at once.
+  # Live (run on 2026-11-04): after "Create key" the new row did not show within 60 s and no key existed, so Stripe asks for
+  # something first. Seen: the dialog "Verification required" (security key, or email plus more verification). It is answered in the
+  # portal (flow stripe-verify, selectors after the click on the email option are not verified). A password or code prompt of
+  # another look is caught by the generic flow. When the new row is already there, both steps end at once.
+  - confirmAccess:
+      flow: stripe-verify
+      until: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' } }
+      timeoutSeconds: 20
+    when:
+      all:
+        - { var: mode, equals: live }
+        - { var: variant, equals: single-page }
+  - confirmAccess:
+      flow: generic-verify
+      until: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' } }
+      timeoutSeconds: 20
+    when:
+      all:
+        - { var: mode, equals: live }
+        - { var: variant, equals: single-page }
+  # Fallback when the page is none of the above (a security check, for example): the human finishes it in the browser window.
   - pause:
       human: Stripe verlangt nach "Create key" eine Bestaetigung (Sicherheitspruefung, Passwort oder Code). Im Browserfenster bestaetigen, dann geht es hier weiter.
       until: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' } }

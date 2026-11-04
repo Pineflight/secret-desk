@@ -14,12 +14,14 @@ import {
   type LoginCredentials,
   type LoginEvent,
   type Recipe,
+  type SudoAnswer,
 } from "@secret-desk/automation";
 import { InventoryError, IssuanceError, redact, STRIPE_ACCOUNT_PATTERN, stripeConnectionId, stripeKeyMode, type SecretValue, type StripeAccountMode } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
 import { checkConnection, stripeKeyCarriesAccount, type ConnectionCheckResult } from "./connection-check.js";
 import { getConnectionResources } from "./params.js";
+import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -262,6 +264,9 @@ const codeWaiters = new Map<string, { resolve: (code: string) => void; reject: (
 
 /** One pending authorization (OAuth consent) question per facade run. */
 const confirmWaiters = new Map<string, { resolve: (accepted: boolean) => void; reject: (err: Error) => void }>();
+
+/** One pending identity-verification question ("Verification required", "Confirm access") per facade run. */
+const accessWaiters = new Map<string, { resolve: (answer: SudoAnswer) => void; reject: (err: Error) => void }>();
 
 const MAX_TEXT = 400;
 
@@ -665,6 +670,7 @@ export function startFacadeConnect(rt: Runtime, actor: Actor, id: string, body: 
 
 function finishFailed(rt: Runtime, key: string, t: Tracker, f: Failure): void {
   const cancelled = f.code === "cancelled";
+  accessWaiters.delete(key);
   rt.automation.end(key, {
     status: cancelled ? "cancelled" : "failed",
     text: f.messageEn,
@@ -726,6 +732,26 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
       vars,
       driver,
       {
+        // The provider may ask to verify the identity in the middle of the run (a password, a code from an email or an app): the
+        // portal asks the human and the answer is typed once, never in the browser window.
+        access: {
+          request: (ask) => {
+            rt.automation.update(key, {
+              status: "waiting-human",
+              needs: null,
+              text: `Verify your identity at ${d.label}.`,
+              ask: { type: "access", stage: "choose", methods: [...ask.methods], attempt: ask.attempt, maxAttempts: ask.maxAttempts, ...(ask.problem ? { problem: ask.problem } : {}) },
+            });
+            return new Promise<SudoAnswer>((resolve, reject) => {
+              accessWaiters.set(key, { resolve, reject });
+              signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+            });
+          },
+          onEvent: (e) => {
+            if (e.type === "checking") rt.automation.update(key, { status: "running", ask: { type: "access", stage: "checking", method: e.method }, text: `${d.label} is checking the verification.` });
+            if (e.type === "confirmed") rt.automation.update(key, { status: "running", ask: null, text: "Verification done." });
+          },
+        },
         onWaitingForHuman: (w) => {
           if (w.kind === "pause") {
             // The recipe asks for the human in the browser (for example a password confirmation): the portal does not send the
@@ -741,7 +767,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
           if (!sessionLost) rt.automation.update(key, { status: "running", needs: null, text: "Continuing." });
         },
       },
-      { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal: AbortSignal.any([signal, inner.signal]) },
+      { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal: AbortSignal.any([signal, inner.signal]), access: rt.automation.accessTiming },
     );
     value = result.value;
     // The recipe ran inside the signed-in browser: remember the sign-in at this host.
@@ -840,6 +866,20 @@ function submitCodeAt(rt: Runtime, key: string, body: Record<string, unknown>): 
   return rt.automation.state(key);
 }
 
+/** The identity verification the human typed (a code or a password). It goes to the waiting run once and is not kept. */
+export function submitFacadeAccess(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Verify your identity");
+  if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
+  const key = stateKey(id);
+  const waiter = accessWaiters.get(key);
+  const ask = rt.automation.state(key).ask;
+  if (!waiter || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("The provider is not waiting for a verification.");
+  const answer = sudoAnswerFrom(body, ask.methods);
+  accessWaiters.delete(key);
+  waiter.resolve(answer);
+  return rt.automation.state(key);
+}
+
 /** The human confirmed or declined the authorization the identity provider asks for (the scopes were shown in the portal). */
 export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Confirm the authorization");
@@ -867,6 +907,8 @@ function cancelAt(rt: Runtime, key: string): AutomationRunState {
   if (cur.status !== "running" && cur.status !== "waiting-human") throw new IssuanceError("No sign-in is running.");
   codeWaiters.get(key)?.reject(new Error("cancelled"));
   codeWaiters.delete(key);
+  accessWaiters.get(key)?.reject(new Error("cancelled"));
+  accessWaiters.delete(key);
   confirmWaiters.get(key)?.reject(new Error("cancelled"));
   confirmWaiters.delete(key);
   return rt.automation.cancel(key);

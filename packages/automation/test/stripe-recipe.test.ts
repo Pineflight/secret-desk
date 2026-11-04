@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FakeDriver, dryRunRecipe, loadRecipes, recipeParamVars, revokeRecipe, runRecipe, RecipeRunError, type Recipe } from "../src/index.js";
+import { FakeDriver, type SudoAsk, dryRunRecipe, loadRecipes, recipeParamVars, revokeRecipe, runRecipe, RecipeRunError, type Recipe } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 // Built from parts so secret scanners do not mistake the fake for a real key.
@@ -16,6 +16,8 @@ async function recipe(): Promise<Recipe> {
   const r = (await loadRecipes([RECIPES])).find((x) => x.id === "stripe-restricted-key")!;
   // The banner wait is 8 s in the real run; the fakes do not wait that long.
   for (const s of r.steps) if ("click" in s && s.click.optional) s.click.timeoutSeconds = 0.03;
+  // A verification that does not show must not hold the fakes for the real 10 to 20 seconds.
+  for (const s of r.steps) if ("confirmAccess" in s) s.confirmAccess.timeoutSeconds = 0.05;
   return r;
 }
 
@@ -104,7 +106,40 @@ describe("stripe-restricted-key recipe", () => {
     d.visible.add('css input[type="password"]');
     const reasons: string[] = [];
     const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live" }), d, { onWaitingForHuman: (w) => { reasons.push(`${w.kind}:${w.reason.slice(0, 6)}`); d.visible.delete('css input[type="password"]'); } }, { pollMs: 2 });
-    expect(reasons).toEqual(["pause:Stripe"]);
+    expect(reasons).toEqual(["pause:The pr"]);
+    expect(res.value.reveal()).toBe(KEY);
+  });
+
+  it("the live mode answers a password confirmation in the portal (generic flow) before Create key", async () => {
+    const r = await recipe();
+    const d = wizard();
+    const PW = "made-up-stripe-password-1";
+    d.visible.add('css input[type="password"]').add("css role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]");
+    d.pageText.add("Confirm your password");
+    const asks: SudoAsk[] = [];
+    const res = await runRecipe(
+      r,
+      vars(r, { account: ACCOUNT, mode: "live" }),
+      d,
+      {
+        access: {
+          request: async (ask) => {
+            asks.push(ask);
+            return { method: "password", password: PW };
+          },
+          // The fake page leaves the confirmation once the password is sent.
+          onEvent: (e) => {
+            if (e.type === "checking") {
+              d.visible.delete('css input[type="password"]');
+              d.pageText.delete("Confirm your password");
+            }
+          },
+        },
+      },
+      { pollMs: 2 },
+    );
+    expect(asks.map((a) => a.methods)).toEqual([["password"]]);
+    expect(d.filled.get('css input[type="password"]')).toBe(PW);
     expect(res.value.reveal()).toBe(KEY);
   });
 
@@ -330,6 +365,87 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     expect(reasons).toEqual(["pause:Stripe"]);
     expect(res.value.reveal()).toBe(KEY);
     expect(d.calls.indexOf(`click ${CREATE_EXACT}`)).toBeGreaterThan(0);
+  });
+
+  /** The live single-page form up to "Create key"; `onCreate` decides what Stripe shows next. */
+  function liveSinglePage(onCreate: (drv: FakeDriver) => void): FakeDriver {
+    const OPEN = 'button "Create restricted key" (exact)';
+    const CARD = 'css [role=dialog] :text-is("Powering an integration you built")';
+    const OWN = 'css [role=dialog] :text-is("Choose your own")';
+    return new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER, OPEN, "css #key-name", FILTER, CREATE_EXACT, ROW, WRITE],
+      on: (e, drv) => {
+        if (e.action === "goto") { drv.url = e.key; return; }
+        if (e.action === "click" && e.key === OPEN) {
+          drv.pageText.add("How will you be using this key?");
+          drv.visible.add('Text "How will you be using this key?"').add(CARD).add(CONTINUE);
+        }
+        if (e.action === "click" && e.key === CONTINUE) { drv.pageText.add("Choose a permission template"); drv.visible.add(OWN); }
+        if (e.action === "click" && e.key === OWN) { drv.pageText.add("Create restricted API key"); drv.visible.add('Text "Create restricted API key"'); }
+        if (e.action === "click" && e.key === CREATE_EXACT) onCreate(drv);
+      },
+    });
+  }
+
+  it("live: answers the Stripe verification dialog in the portal (email option, code), then reads the key", async () => {
+    const r = await recipe();
+    const EMAIL_OPTION = 'Text "Verify by email + more verification"';
+    const DIALOG = "css [role=dialog]";
+    const DIALOG_CONTINUE = 'css [role=dialog] >> role=button[name="Continue"s]';
+    const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"], [role=dialog] input[type="text"]';
+    const DIALOG_SUBMIT = "css [role=dialog] >> role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
+    const CODE = "135790";
+    const d: FakeDriver = liveSinglePage((drv) => {
+      drv.pageText.add("Verification required");
+      for (const v of [DIALOG, EMAIL_OPTION, DIALOG_CONTINUE]) drv.visible.add(v);
+    });
+    const inner = d as unknown as { visible: Set<string>; pageText: Set<string> };
+    const origClick = d.click.bind(d);
+    // The dialog moves on with each click, like the page does.
+    d.click = async (sel) => {
+      await origClick(sel);
+      if (sel.css === DIALOG_CONTINUE.slice(4)) {
+        inner.visible.delete(EMAIL_OPTION);
+        inner.visible.delete(DIALOG_CONTINUE);
+        inner.visible.add(DIALOG_CODE).add(DIALOG_SUBMIT);
+      }
+      if (sel.css === DIALOG_SUBMIT.slice(4) && d.filled.get(DIALOG_CODE) === CODE) {
+        inner.visible.delete(DIALOG);
+        inner.visible.delete(DIALOG_CODE);
+        inner.visible.delete(DIALOG_SUBMIT);
+        inner.pageText.delete("Verification required");
+        inner.visible.add(COPY_LINK(VARS.name));
+        d.texts.set(COPY_LINK(VARS.name), ` ${KEY} `);
+      }
+    };
+    const asks: SudoAsk[] = [];
+    const res = await runRecipe(
+      r,
+      vars(r, { account: ACCOUNT, mode: "live" }),
+      d,
+      { access: { request: async (ask) => (asks.push(ask), { method: "code", code: CODE }) }, onWaitingForHuman: () => { throw new Error("the human must not be asked"); } },
+      { pollMs: 2 },
+    );
+    expect(res.value.reveal()).toBe(KEY);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.methods).toEqual(["code"]);
+    const order = [`click ${CREATE_EXACT}`, `click ${EMAIL_OPTION}`, `click ${DIALOG_CONTINUE}`, `fill ${DIALOG_CODE}`, `click ${DIALOG_SUBMIT}`].map((c) => d.calls.indexOf(c));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(d.calls.join("\n")).not.toContain(CODE);
+  });
+
+  it("live: passes through when Stripe asks for no verification (the portal is not asked)", async () => {
+    const r = await recipe();
+    const d = liveSinglePage((drv) => {
+      drv.visible.add(COPY_LINK(VARS.name));
+      drv.texts.set(COPY_LINK(VARS.name), ` ${KEY} `);
+    });
+    let asked = 0;
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live" }), d, { access: { request: async () => (asked++, { method: "code", code: "000000" }) } }, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(asked).toBe(0);
   });
 
   it("refuses the refunds preset on the wizard before any key exists", async () => {

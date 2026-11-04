@@ -104,7 +104,7 @@ export function CredentialsPrompt({ name, methods, pending, onSend }: { name: st
   );
 }
 
-/** "Confirm access": choose how (GitHub Mobile by default), then the number to tap, a code or the password. */
+/** "Confirm access" or an identity verification of any provider: choose how (GitHub Mobile by default where offered), then the number to tap, a code or the password. */
 export function AccessPrompt({ name, ask, pending, onSend }: { name: string; ask: Extract<import("@/lib/facade").RunAsk, { type: "access" }>; pending: boolean; onSend: (body: { method: SudoMethodId; code?: string; password?: string }) => void }) {
   const { t } = useI18n();
   const [method, setMethod] = useState<SudoMethodId>("mobile");
@@ -135,7 +135,7 @@ export function AccessPrompt({ name, ask, pending, onSend }: { name: string; ask
       }}
     >
       <p className="font-medium">{t("run.access.title", { name })}</p>
-      {ask.problem ? <Notice tone="warn">{t(`run.access.problem.${ask.problem}`)}</Notice> : <p className="text-xs text-muted">{t("run.access.hint", { name })}</p>}
+      {ask.problem ? <Notice tone="warn">{t(`run.access.problem.${ask.problem}`, { name })}</Notice> : <p className="text-xs text-muted">{t("run.access.hint", { name })}</p>}
       <fieldset className="space-y-1.5">
         <legend className="text-sm font-medium">{t("run.access.choose")}</legend>
         {ask.methods.map((m) => (

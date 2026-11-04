@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FakeDriver, RecipeRunError, RecipeSchema, SUDO_FLOWS, SudoError, confirmAccess, hostAllowed, idpHostAllowed, loadRecipes, loginMethodsOf, runRecipe, signIn, sudoNumberFrom, type Recipe, type SudoAnswer, type SudoAsk, type SudoEvent } from "../src/index.js";
+import { FakeDriver, RecipeRunError, RecipeSchema, SUDO_FLOWS, SudoError, confirmAccess, hostAllowed, idpHostAllowed, loadRecipes, loginMethodsOf, runRecipe, signIn, sudoNumberFrom, sudoPageShown, type Recipe, type SudoAnswer, type SudoAsk, type SudoEvent } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 const FLOW = SUDO_FLOWS["github-sudo"];
@@ -392,5 +392,201 @@ describe("github email sign-in", () => {
     expect(d.filled.get("css #login_field")).toBe("me@example.test");
     expect(needs).toEqual(["approval"]);
     expect(details).toEqual(["63"]);
+  });
+});
+
+// ---- Stripe "Verification required" and the generic flow ----
+
+const EMAIL_OPTION = 'Text "Verify by email + more verification"';
+const DIALOG = "css [role=dialog]";
+const DIALOG_CONTINUE = 'css [role=dialog] >> role=button[name="Continue"s]';
+const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"], [role=dialog] input[type="text"]';
+const DIALOG_PASSWORD = 'css [role=dialog] input[type="password"]';
+const DIALOG_SUBMIT = "css [role=dialog] >> role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
+const STRIPE = SUDO_FLOWS["stripe-verify"];
+const GENERIC = SUDO_FLOWS["generic-verify"];
+const EMAIL_CODE = "246810";
+
+/** A fake "Verification required" dialog: email option, Continue, the email code, then (optionally) a password as second factor. */
+function stripePage(opts: { code?: string; password?: string; secondFactor?: boolean; shown?: boolean } = {}): FakeDriver {
+  let stage: "choose" | "code" | "password" = "choose";
+  const leave = (d: FakeDriver): void => {
+    d.pageText.delete("Verification required");
+    d.visible.clear();
+  };
+  const d: FakeDriver = new FakeDriver({
+    url: "https://dashboard.stripe.com/acct_1AbC/apikeys",
+    pollMs: 2,
+    on: (e, drv) => {
+      if (e.key === DIALOG_CONTINUE && stage === "choose") {
+        stage = "code";
+        for (const v of [EMAIL_OPTION, DIALOG_CONTINUE]) drv.visible.delete(v);
+        drv.visible.add(DIALOG_CODE).add(DIALOG_SUBMIT);
+      }
+      if (e.key === DIALOG_SUBMIT && stage === "code" && drv.filled.get(DIALOG_CODE) === opts.code) {
+        if (!opts.secondFactor) return leave(drv);
+        stage = "password";
+        drv.visible.delete(DIALOG_CODE);
+        drv.visible.add(DIALOG_PASSWORD);
+      }
+      if (e.key === DIALOG_SUBMIT && stage === "password" && drv.filled.get(DIALOG_PASSWORD) === opts.password) leave(drv);
+    },
+  });
+  if (opts.shown !== false) {
+    d.pageText.add("Verification required");
+    for (const v of [DIALOG, EMAIL_OPTION, DIALOG_CONTINUE]) d.visible.add(v);
+  }
+  return d;
+}
+
+describe("confirmAccess (stripe-verify)", () => {
+  it("is detected by its title and the email option", async () => {
+    expect(await sudoPageShown(stripePage(), STRIPE)).toBe(true);
+    expect(await sudoPageShown(stripePage({ shown: false }), STRIPE)).toBe(false);
+  });
+
+  it("chooses the email option, continues, asks for the code, types it and ends when the dialog is gone", async () => {
+    const d = stripePage({ code: EMAIL_CODE });
+    const { run, args } = io(d, [{ method: "code", code: EMAIL_CODE }]);
+    await confirmAccess(STRIPE, args);
+    const order = [`click ${EMAIL_OPTION}`, `click ${DIALOG_CONTINUE}`, `fill ${DIALOG_CODE}`, `click ${DIALOG_SUBMIT}`].map((c) => d.calls.indexOf(c));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(run.asks).toHaveLength(1);
+    // Only the code is offered (no mobile, no password field yet), and nothing says GitHub.
+    expect(run.asks[0]).toMatchObject({ methods: ["code"], attempt: 1, maxAttempts: 5 });
+    expect(run.events.map((e) => e.type)).toEqual(["choose", "checking", "confirmed"]);
+    expect(JSON.stringify([run.events, run.asks])).not.toContain(EMAIL_CODE);
+    expect(d.calls.join("\n")).not.toContain("passkey");
+    expect(run.secrets).toContain(EMAIL_CODE);
+  });
+
+  it("asks a second factor (password) after the email code and does not reload the page", async () => {
+    const d = stripePage({ code: EMAIL_CODE, password: PW, secondFactor: true });
+    const { run, args } = io(d, [{ method: "code", code: EMAIL_CODE }, { method: "password", password: PW }]);
+    await confirmAccess(STRIPE, args);
+    expect(run.asks.map((a) => [a.methods, a.attempt, a.problem])).toEqual([[["code"], 1, undefined], [["password"], 2, undefined]]);
+    expect(d.filled.get(DIALOG_PASSWORD)).toBe(PW);
+    expect(d.calls.filter((c) => c.startsWith("goto "))).toHaveLength(0);
+    expect(JSON.stringify([run.events, run.asks])).not.toContain(PW);
+    expect(d.calls.join("\n")).not.toContain(PW);
+  });
+
+  it("a wrong code asks again with the reason rejected and keeps the dialog", async () => {
+    const d = stripePage({ code: EMAIL_CODE });
+    const { run, args } = io(d, [{ method: "code", code: "000000" }, { method: "code", code: EMAIL_CODE }]);
+    await confirmAccess(STRIPE, args);
+    expect(run.asks.map((a) => a.problem)).toEqual([undefined, "rejected"]);
+    expect(d.calls.filter((c) => c.startsWith("goto "))).toHaveLength(0);
+  });
+
+  it("gives up with kind unrecognized when no field shows (the human then finishes in the browser)", async () => {
+    // The Continue button works but the dialog never shows a field this tool knows.
+    const plain = new FakeDriver({ pollMs: 2, pageText: ["Verification required"], visible: [DIALOG, EMAIL_OPTION, DIALOG_CONTINUE] });
+    const { args } = io(plain, []);
+    const err = (await confirmAccess(STRIPE, { ...args, discoverTimeoutMs: 40 }).catch((e: unknown) => e)) as SudoError;
+    expect(err).toBeInstanceOf(SudoError);
+    expect(err.kind).toBe("unrecognized");
+    expect(plain.calls).toContain(`click ${EMAIL_OPTION}`);
+  });
+
+  it("an offered way the portal cannot use ends clearly: the message names the provider, not GitHub", async () => {
+    const d = stripePage({ code: EMAIL_CODE });
+    const answers: SudoAnswer[] = [1, 2, 3, 4, 5].map(() => ({ method: "code", code: "000000" }));
+    const { args } = io(d, answers);
+    const err = (await confirmAccess(STRIPE, args).catch((e: unknown) => e)) as SudoError;
+    expect(err.kind).toBe("failed");
+    expect(err.message).toBe("Stripe did not accept the confirmation.");
+  });
+});
+
+describe("confirmAccess (generic-verify)", () => {
+  const PASSWORD_FIELD = 'css input[type="password"]';
+  const CODE_FIELD = 'css input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]';
+  const PAGE_SUBMIT = "css role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
+
+  function page(opts: { field: string; accepts: string }): FakeDriver {
+    return new FakeDriver({
+      pollMs: 2,
+      pageText: ["Please verify it is you"],
+      visible: [opts.field, PAGE_SUBMIT],
+      on: (e, drv) => {
+        if (e.key === PAGE_SUBMIT && drv.filled.get(opts.field) === opts.accepts) {
+          drv.visible.clear();
+          drv.pageText.clear();
+        }
+      },
+    });
+  }
+
+  it("detects a verification-like text together with a visible password or code field, and nothing else", async () => {
+    expect(await sudoPageShown(page({ field: PASSWORD_FIELD, accepts: PW }), GENERIC)).toBe(true);
+    expect(await sudoPageShown(page({ field: CODE_FIELD, accepts: CODE }), GENERIC)).toBe(true);
+    expect(await sudoPageShown(new FakeDriver({ pageText: ["Please verify it is you"] }), GENERIC)).toBe(false);
+    expect(await sudoPageShown(new FakeDriver({ visible: [PASSWORD_FIELD], pageText: ["Welcome"] }), GENERIC)).toBe(false);
+  });
+
+  it("asks for the password when the page shows a password field, types it and submits", async () => {
+    const d = page({ field: PASSWORD_FIELD, accepts: PW });
+    const { run, args } = io(d, [{ method: "password", password: PW }]);
+    await confirmAccess(GENERIC, args);
+    expect(run.asks[0]).toMatchObject({ methods: ["password"] });
+    expect(d.filled.get(PASSWORD_FIELD)).toBe(PW);
+    expect(JSON.stringify([run.events, run.asks])).not.toContain(PW);
+  });
+
+  it("asks for the code when the page shows a code field", async () => {
+    const d = page({ field: CODE_FIELD, accepts: CODE });
+    const { run, args } = io(d, [{ method: "code", code: CODE }]);
+    await confirmAccess(GENERIC, args);
+    expect(run.asks[0]).toMatchObject({ methods: ["code"] });
+    expect(d.filled.get(CODE_FIELD)).toBe(CODE);
+  });
+
+  it("loops while the field stays: three wrong passwords end with failed and the provider-neutral text", async () => {
+    const d = page({ field: PASSWORD_FIELD, accepts: PW });
+    const { run, args } = io(d, [1, 2, 3, 4, 5].map(() => ({ method: "password", password: "wrong" }) as SudoAnswer));
+    const err = (await confirmAccess(GENERIC, args).catch((e: unknown) => e)) as SudoError;
+    expect(err.kind).toBe("failed");
+    expect(err.message).toBe("The provider did not accept the confirmation.");
+    expect(run.asks).toHaveLength(5);
+    expect(err.message).not.toContain("wrong");
+  });
+
+  it("masks the password, code and dialog fields in every screenshot of a recipe that confirms access", async () => {
+    const r = RecipeSchema.parse({
+      id: "generic-sample",
+      label: "Sample",
+      host: "example.com",
+      login: { expect: { url: "^https://example\\.com/" } },
+      steps: [
+        { goto: "https://example.com/keys" },
+        { click: { role: "button", name: "Create", createsToken: true } },
+        { confirmAccess: { flow: "generic-verify", until: { visible: { css: "#tok" } }, timeoutSeconds: 1 } },
+        { screenshot: "after" },
+      ],
+      capture: { token: { find: { css: "#tok" } } },
+    });
+    const d = new FakeDriver({
+      pollMs: 2,
+      visible: ['button "Create"'],
+      on: (e, drv) => {
+        if (e.action === "goto") drv.url = e.key;
+        if (e.key === 'button "Create"') {
+          drv.pageText.add("Please verify it is you");
+          drv.visible.add(PASSWORD_FIELD).add(PAGE_SUBMIT);
+        }
+        if (e.key === PAGE_SUBMIT) {
+          drv.visible.clear();
+          drv.pageText.clear();
+          drv.visible.add("css #tok");
+          drv.texts.set("css #tok", "tok_value_9");
+        }
+      },
+    });
+    const res = await runRecipe(r, { name: "n", owner: "", days: "1", date: "2026-11-04", description: "", repos: "", permissions: "", permissionsQuery: "", stage: "", secretId: "" }, d, { access: { request: async () => ({ method: "password", password: PW }) } }, { pollMs: 2 });
+    expect(res.value.reveal()).toBe("tok_value_9");
+    expect(d.shots.length).toBeGreaterThan(0);
+    for (const s of d.shots) expect(s.masks).toEqual(expect.arrayContaining(['css input[type="password"]', 'css input[autocomplete="one-time-code"]', "css [role=dialog] input"]));
   });
 });
