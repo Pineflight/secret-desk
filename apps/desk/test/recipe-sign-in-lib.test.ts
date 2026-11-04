@@ -1,3 +1,4 @@
+import { VENDORS } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
 import { initialPortal, recipeSignInBody, recipeSignInButtonState, recipeSignInSubject, stepsOf, type FacadeState } from "../src/lib/facade";
 import { buildCards, signInPrompts, signInRecipeOf, type CardInput, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
@@ -110,5 +111,33 @@ describe("catalogs", () => {
       expect(messages.de[key], `de ${key}`).toBeTruthy();
       expect(messages.en[key], `en ${key}`).toBeTruthy();
     }
+  });
+});
+
+describe("the real Peecho and VesselAPI vendors get a sign-in line", () => {
+  const real: VendorsResponse = { categories: ["data", "print"], vendors: VENDORS.filter((x) => x.id === "peecho" || x.id === "vesselapi").map((x) => ({ ...x, connections: [...x.connections], connectionPrefixes: [...x.connectionPrefixes], legacyConnections: [...x.legacyConnections], optionalConnections: [...x.optionalConnections], providers: [...x.providers], recipes: [...x.recipes] })) };
+  const realRecipes = [
+    { id: "peecho-api-keys", label: "Peecho API keys", host: "www.peecho.com", hostBy: "portal", hosts: [{ value: "live", host: "www.peecho.com" }, { value: "test", host: "test.www.peecho.com" }], canCheckSignIn: true, signInMethods: [{ id: "email", label: null, labelEn: null }] },
+    { id: "vesselapi-api-key", label: "VesselAPI API Key", host: "dashboard.vesselapi.com", canCheckSignIn: true, signInMethods: [{ id: "email", label: null, labelEn: null }, { id: "google", label: null, labelEn: null }] },
+  ];
+  const real0 = (extra: Partial<CardInput> = {}): CardInput => ({ catalog: real, connections: [], providers: [], recipes: realRecipes, facades: [], secrets: [], variables: [], now: NOW, signInFreshHours: 12, automationEnabled: true, ...extra });
+
+  it("checks Peecho per portal (live and test) and offers a sign-in for each portal that needs one", () => {
+    const c = card(real0({ signInChecks: [check("www.peecho.com", true, 5)] }), "peecho");
+    expect(c.signIn.state).toBe("recipe");
+    expect(c.signIn.checkRecipe).toBe("peecho-api-keys");
+    expect(c.signIn.checkHosts?.map((h) => h.value)).toEqual(["live", "test"]);
+    expect(c.browser?.hostLines.map((l) => [l.value, l.readiness.state])).toEqual([["live", "ready"], ["test", "unknown"]]);
+    expect(c.status).toBe("ready");
+    expect(signInPrompts(c)).toEqual([{ portal: "test" }]);
+  });
+
+  it("checks VesselAPI as a whole and shows signed out as a status", () => {
+    const c = card(real0({ signInChecks: [check("dashboard.vesselapi.com", false, 5)] }), "vesselapi");
+    expect(c.signIn.checkRecipe).toBe("vesselapi-api-key");
+    expect(c.signIn.checkHosts).toEqual([]);
+    expect(c.status).toBe("signout");
+    expect(signInPrompts(c)).toEqual([{ portal: null }]);
+    expect(card(real0({ signInChecks: [check("dashboard.vesselapi.com", true, 5)] }), "vesselapi").status).toBe("ready");
   });
 });

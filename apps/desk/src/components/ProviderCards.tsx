@@ -4,7 +4,7 @@ import { Badge, Button, Card } from "@/components/ui";
 import { clockTime, type ActivityResult } from "@/lib/card-activity";
 import type { BadgeKind, CollapsedMeta } from "@/lib/card-collapsed";
 import { daysLabel, formatDate } from "@/lib/format";
-import { BRAND_ICONS } from "@/lib/brand-icons.generated";
+import { BRAND_ICONS } from "@/lib/brand-icons";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
 import { browserNote, capitalized, expiryLine, hostLineNote, hostLinePhaseKey, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
