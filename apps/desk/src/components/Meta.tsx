@@ -8,6 +8,7 @@ import { useMutation } from "@/lib/hooks";
 import { MAX_DESCRIPTION, addTags, isHttpUrl } from "@/lib/tags";
 import { useToast } from "@/lib/toast";
 import { translate, useT } from "@/lib/i18n";
+import { chipTiers } from "@/lib/place-chips";
 
 export interface MetaValues {
   description: string;
@@ -56,6 +57,44 @@ export function TagPills({ tags, onPick, active }: { tags: string[]; onPick?: (t
         ),
       )}
     </span>
+  );
+}
+
+const TAG_CHIP = "max-w-[6rem] shrink-0 truncate rounded-full px-2 py-px text-[11px] ring-1 ring-inset";
+const TAG_QUIET = "bg-page text-muted-text ring-line";
+
+function OneLineTags({ shown, hidden, all, onPick, active }: { shown: string[]; hidden: number; all: string[]; onPick?: (t: string) => void; active?: string }) {
+  return (
+    <>
+      {shown.map((tag) =>
+        onPick ? (
+          <button key={tag} type="button" title={`#${tag}`} onClick={() => onPick(tag)} aria-pressed={active === tag} className={`${TAG_CHIP} ${active === tag ? "bg-primary-light text-primary ring-primary" : `${TAG_QUIET} hover:text-ink`}`}>#{tag}</button>
+        ) : (
+          <span key={tag} title={`#${tag}`} className={`${TAG_CHIP} ${TAG_QUIET}`}>#{tag}</span>
+        ),
+      )}
+      {hidden > 0 ? <span className={`${TAG_CHIP} ${TAG_QUIET}`} title={all.map((x) => `#${x}`).join("\n")}>+{hidden}</span> : null}
+    </>
+  );
+}
+
+/**
+ * Tags of a list row. Below xl they wrap freely; from xl up the row is one line high, so the chips never wrap: one, two or three
+ * chips plus a "+N" chip, whichever fits the width of the surrounding `@container` (the tier set is chosen by container query).
+ */
+export function TagChips({ tags, onPick, active }: { tags: string[]; onPick?: (t: string) => void; active?: string }) {
+  if (tags.length === 0) return null;
+  const [one, two, three] = chipTiers(tags);
+  const props = { all: tags, onPick, active };
+  return (
+    <>
+      <span className="flex flex-wrap gap-1 xl:hidden"><TagPills tags={tags} onPick={onPick} active={active} /></span>
+      <span className="hidden xl:contents">
+        <span className="flex shrink-0 items-center gap-1 @[30rem]:hidden"><OneLineTags {...one} {...props} /></span>
+        <span className="hidden shrink-0 items-center gap-1 @[30rem]:flex @[46rem]:hidden"><OneLineTags {...two} {...props} /></span>
+        <span className="hidden shrink-0 items-center gap-1 @[46rem]:flex"><OneLineTags {...three} {...props} /></span>
+      </span>
+    </>
   );
 }
 
