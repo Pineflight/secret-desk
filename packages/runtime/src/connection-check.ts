@@ -193,6 +193,18 @@ async function checkStripe(rt: Runtime, id: string, token: string): Promise<Conn
   return out;
 }
 
+/**
+ * Whether a Stripe key's body carries the account id. A restricted key without account read access gets 403 from
+ * /v1/account, so the check falls back to the key itself: Stripe API keys start with `<prefix>_<mode>_51` followed by the
+ * account id without its `acct_1` (checked live on 2026-11-04 for a restricted sandbox key). Not an official guarantee,
+ * so it is used only when the API cannot answer.
+ */
+export function stripeKeyCarriesAccount(key: string, account: string): boolean {
+  const m = /^(?:rk|sk)_(?:test|live)_51([A-Za-z0-9]+)$/.exec(key);
+  const tail = /^acct_1([A-Za-z0-9]+)$/.exec(account)?.[1];
+  return !!m && !!tail && tail.length >= 10 && m[1]!.startsWith(tail);
+}
+
 /** A connection bound to an account must hold a key of that very account (the mistake: a key of another account of the organization). */
 async function checkStripeAccount(rt: Runtime, id: string, account: string, token: string): Promise<ConnectionCheckItem> {
   const r = await get(rt, token, "https://api.stripe.com/v1/account");
@@ -200,6 +212,7 @@ async function checkStripeAccount(rt: Runtime, id: string, account: string, toke
   const have = typeof body["id"] === "string" ? body["id"] : undefined;
   if (r.status !== 200 || !have) {
     if (r.status === 401) return item("account", "Stripe-Konto", "fail", "Der Schluessel ist ungueltig oder widerrufen (HTTP 401). Neu verbinden.");
+    if (stripeKeyCarriesAccount(token, account)) return item("account", "Stripe-Konto", "pass", `Der Schluessel gehoert laut Schluessel-Kennung zum Konto ${account} (das Konto selbst darf er nicht lesen).`);
     return item("account", "Stripe-Konto", "warn", `Das Konto des Schluessels liess sich nicht lesen (${httpFail(r.status)}). Zuordnung zum Konto ${account} nicht geprueft.`);
   }
   if (have !== account) return item("account", "Stripe-Konto", "fail", `Der Schluessel gehoert zum Konto ${have}, die Verbindung ist fuer ${account} bestimmt. Einen Schluessel des Kontos ${account} verbinden.`);

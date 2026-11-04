@@ -730,6 +730,7 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Die Verbindung (\S+) gehoert zum Stripe-Konto (\S+)$/, "The connection $1 belongs to the Stripe account $2"],
   [/^Stripe-Konto (\S+)$/, "Stripe account $1"],
   [/^Das Stripe-Konto ist (\S+)$/, "The Stripe account is $1"],
+  [/^Der Schluessel gehoert laut Schluessel-Kennung zum Konto (\S+) \(das Konto selbst darf er nicht lesen\)\.$/, "By its key id the key belongs to the account $1 (it may not read the account itself)."],
   [/^Das Konto des Schluessels liess sich nicht lesen \((.+)\)\. Zuordnung zum Konto (\S+) nicht geprueft\.$/, "The account of the key could not be read ($1). Assignment to the account $2 not checked."],
   [/^Der Schluessel gehoert zum Konto (\S+), die Verbindung ist fuer (\S+) bestimmt\. Einen Schluessel des Kontos (\S+) verbinden\.$/, "The key belongs to the account $1, but the connection is meant for $2. Connect a key of the account $3."],
   [/^Der Schluessel gehoert zum Konto (\S+) \((.+)\)\.$/, "The key belongs to the account $1 ($2)."],

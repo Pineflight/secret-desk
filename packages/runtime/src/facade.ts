@@ -16,7 +16,7 @@ import {
 import { InventoryError, IssuanceError, redact, STRIPE_ACCOUNT_PATTERN, stripeConnectionId, stripeKeyMode, type SecretValue, type StripeAccountMode } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
-import { checkConnection, type ConnectionCheckResult } from "./connection-check.js";
+import { checkConnection, stripeKeyCarriesAccount, type ConnectionCheckResult } from "./connection-check.js";
 import { getConnectionResources } from "./params.js";
 import type { Runtime } from "./runtime.js";
 
@@ -142,7 +142,11 @@ export const FACADES: readonly FacadeDescriptor[] = [
       const want: StripeAccountMode = inputs["mode"] === "live" ? "live" : "sandbox";
       if (mode && mode !== want) return `The key is a ${mode === "live" ? "live" : "sandbox"} key, but the ${want} mode was chosen.`;
       const have = await stripeKeyAccount(rt, key);
-      if (have === null) return "The account of the new key could not be read, so it was not stored.";
+      if (have === null) {
+        // Restricted keys usually may not read /v1/account; the key itself names its account.
+        if (stripeKeyCarriesAccount(key.reveal(), inputs["account"] ?? "")) return null;
+        return "The account of the new key could not be read, so it was not stored.";
+      }
       if (have !== inputs["account"]) return `The new key belongs to the account ${have}, not to ${inputs["account"]}, so it was not stored.`;
       return null;
     },
