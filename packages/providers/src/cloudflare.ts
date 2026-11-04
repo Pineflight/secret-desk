@@ -261,11 +261,22 @@ function zoneTargetOf(id: string, params: Record<string, unknown>): ZoneTarget {
 
 const hasZoneTarget = (t: ZoneTarget): boolean => t.all || t.zoneId !== "" || t.zoneNames.length > 0;
 
-/** Resolves zone names to ids through the API (exact name, inside the account). A name that does not resolve aborts: fail closed. */
+/** A zone id as Cloudflare prints it: 32 hex characters. */
+const ZONE_ID = /^[0-9a-f]{32}$/;
+
+/**
+ * Resolves zone names to ids through the API (exact name, inside the account). A name that does not resolve aborts: fail
+ * closed. An entry that already is a zone id is taken as it is, so a connection token without *Zone Read* can still bind
+ * several zones.
+ */
 async function resolveZoneNames(id: string, ctx: { connections: DiscoverContext["connections"]; fetch: typeof fetch }, accountId: string, names: string[]): Promise<string[]> {
   const ids: string[] = [];
   const missing: string[] = [];
   for (const name of names) {
+    if (ZONE_ID.test(name)) {
+      ids.push(name);
+      continue;
+    }
     const r = await callWithToken<Envelope<{ id?: string; name?: string }[]>>(id, ctx, "cloudflare", `${CLOUDFLARE_API}/zones?name=${seg(name)}&account.id=${seg(accountId)}&per_page=5`, { method: "GET" });
     const hit = Array.isArray(r?.result) ? r!.result.find((z) => typeof z.id === "string" && typeof z.name === "string" && z.name.toLowerCase() === name) : undefined;
     if (hit?.id) ids.push(hit.id);

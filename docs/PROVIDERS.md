@@ -113,7 +113,7 @@ Before anything is issued the entry is validated against it (`validateEntryParam
 The zone-bound policy can cover more than one zone:
 
 - `zoneId`: one zone by id (as before).
-- `zones`: a list of zone **names**, for example `["acme.example", "acme.test"]`. Each name is resolved through `GET /zones?name=<name>&account.id=<account>` (exact name match, lower-cased); the ids go into one policy. A name that does not resolve aborts the issuance with the names (fail closed), and no token is created. Resolving needs a connection token that may read zones. `zoneId` and `zones` can be combined.
+- `zones`: a list of zone **names**, for example `["acme.example", "acme.test"]`. Each name is resolved through `GET /zones?name=<name>&account.id=<account>` (exact name match, lower-cased); the ids go into one policy. A name that does not resolve aborts the issuance with the names (fail closed), and no token is created. Resolving needs a connection token that may read zones. `zoneId` and `zones` can be combined. An entry of `zones` that already is a zone id (32 hex characters) is used as it is, without a lookup, for connection tokens that may not read zones.
 - `allZones: true`: the policy uses the resource `{ "com.cloudflare.api.account.<account>": { "com.cloudflare.api.account.zone.*": "*" } }`, i.e. every zone of the account, **also zones created later**. It cannot be combined with `zoneId` or `zones`, and the preflight warns about the reach. No zone lookup is made.
 
 Presets on the `permissions` parameter (the lists live in `packages/providers/src/cloudflare.ts` and are covered by a test; an entry can always set `permissions` itself):
