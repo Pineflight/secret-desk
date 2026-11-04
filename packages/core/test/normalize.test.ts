@@ -37,6 +37,12 @@ secrets:
     service: revenuecat
     expiry: none
     places: [{ repo: web, scope: environment, environment: production }]
+  - id: anthropic-key
+    name: ANTHROPIC_API_KEY
+    stage: production
+    service: anthropic
+    expiry: none
+    places: [{ repo: web, scope: environment, environment: production }]
   - id: openai-key
     name: OPENAI_API_KEY
     stage: production
@@ -144,6 +150,10 @@ describe("planNormalization", () => {
     expect(openai.code).toBe("openai-admin");
     expect(openai.text).toMatch(/Admin-API/);
     expect(openai.text).not.toMatch(/nur von Hand/);
+    const anthropic = find(changes, "manual-only:secret:anthropic-key")!.reasons[0]!;
+    expect(anthropic.code).toBe("anthropic-browser");
+    expect(anthropic.text).toMatch(/Console/);
+    expect(anthropic.text).toMatch(/Admin-API/);
     // every other manual secret is listed too, with a reason
     expect(find(changes, "manual-only:secret:cf-access")!.reasons.map((r) => r.code)).toEqual(["cloudflare-access-companion"]);
   });

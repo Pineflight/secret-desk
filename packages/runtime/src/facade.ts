@@ -110,6 +110,20 @@ export const FACADES: readonly FacadeDescriptor[] = [
     summary: [{ key: "projects", kind: "openai.project" }],
   },
   {
+    // The Admin API cannot create API keys: the admin key lets the portal list workspaces and check and deactivate keys, while
+    // the keys themselves come from the browser recipe `anthropic-api-key`. The Console signs in by email code (no password).
+    id: "anthropic",
+    label: "Anthropic",
+    recipeId: "anthropic-admin-key",
+    connectionId: "anthropic",
+    keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
+    keyParams: {},
+    promise: "facade.promise.anthropic",
+    project: null,
+    inputs: [],
+    summary: [{ key: "workspaces", kind: "anthropic.workspace" }],
+  },
+  {
     // One Stripe organization holds several accounts, each with a sandbox and a live mode. The human names the account and the
     // mode; the key is created in that account and stored as the connection of exactly that (account, mode).
     id: "stripe",
@@ -194,6 +208,8 @@ export interface FacadeInfo {
   methods: LoginMethodInfo[];
   /** Catalog key of the sentence about the key this flow creates, or null. */
   promise: string | null;
+  /** The email sign-in has no password (the provider sends a one-time code); the portal then asks only for the email. */
+  passwordless: boolean;
 }
 
 const stateKey = (id: string): string => `facade:${id}`;
@@ -242,6 +258,7 @@ export async function listFacades(rt: Runtime, actor: Actor): Promise<FacadeInfo
       timeoutMinutes: rt.automation.loginTimeoutMinutes,
       methods: recipe ? loginMethodsOf(recipe) : [],
       promise: d.promise ?? null,
+      passwordless: recipe?.login?.form?.passwordless === true,
     });
   }
   return out;
@@ -264,13 +281,15 @@ export function getFacadeState(rt: Runtime, actor: Actor, id: string): Automatio
 
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
-function credentialsFrom(body: Record<string, unknown>): LoginCredentials {
+function credentialsFrom(body: Record<string, unknown>, needsPassword: boolean): LoginCredentials {
   const username = typeof body["username"] === "string" ? body["username"].trim() : "";
   const password = typeof body["password"] === "string" ? body["password"] : "";
   // The password leaves the request body right away: nothing but the run's own object holds it.
   if (typeof body["password"] === "string") body["password"] = "";
   if (!username) throw new InventoryError("The email is missing.");
   if (username.length > 254 || CONTROL.test(username)) throw new InventoryError("The email is not valid.");
+  // A passwordless email sign-in (the provider sends a code) takes no password; whatever was sent is dropped.
+  if (!needsPassword) return { username, password: "" };
   if (!password) throw new InventoryError("The password is missing.");
   if (password.length > 1024 || CONTROL.test(password)) throw new InventoryError("The password is not valid.");
   return { username, password };
@@ -405,7 +424,7 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
   const projectId = projectFrom(d, recipe, body);
   const inputs = inputsFrom(d, recipe, body);
   const method = methodFrom(recipe, body);
-  const creds = credentialsFrom(body);
+  const creds = credentialsFrom(body, !(method === "email" && recipe.login?.form?.passwordless === true));
   const key = stateKey(id);
   rt.automation.forget(key);
   const minutes = rt.automation.loginTimeoutMinutes;
@@ -423,7 +442,7 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
 }
 
 async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
-  const known = [creds.username, creds.password];
+  const known = [creds.username, creds.password].filter((x) => x !== "");
   const t = new Tracker(rt, key);
   const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(Date.now() + minutes * 60_000).toISOString();
   try {

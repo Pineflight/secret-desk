@@ -30,6 +30,8 @@ export interface FacadeInfo {
   methods: FacadeMethod[];
   /** Catalog key of the sentence about the key this flow creates, or null (nothing is shown). */
   promise: string | null;
+  /** The email sign-in has no password (a one-time code is sent); only the email is asked for. Absent = false. */
+  passwordless?: boolean;
 }
 
 export type FacadeMethodId = "email" | "google" | "apple" | "microsoft" | "github";
@@ -246,10 +248,14 @@ export function connectButtonState(facade: Pick<FacadeInfo, "available" | "input
   return facade.available && inputsValid(facade.inputs, values) ? "ready" : "disabled";
 }
 
+/** The sign-in form asks for a password: not for a passwordless email sign-in (single-sign-on methods still do). */
+export const needsPassword = (facade: Pick<FacadeInfo, "passwordless">, method: string): boolean => !(facade.passwordless === true && method === "email");
+
 /** The sign-in form can be sent: provider usable, credentials and inputs present, nothing running. */
-export function signInButtonState(facade: Pick<FacadeInfo, "available" | "inputs">, email: string, password: string, values: Record<string, string>, busy: boolean): ConnectButton {
+export function signInButtonState(facade: Pick<FacadeInfo, "available" | "inputs" | "passwordless">, email: string, password: string, values: Record<string, string>, busy: boolean, method = "email"): ConnectButton {
   if (busy) return "busy";
-  return facade.available && signInValid(email, password) && inputsValid(facade.inputs, values) ? "ready" : "disabled";
+  const credentials = needsPassword(facade, method) ? signInValid(email, password) : signInValid(email, "x");
+  return facade.available && credentials && inputsValid(facade.inputs, values) ? "ready" : "disabled";
 }
 
 /** The access an authorization asks for, as list items (the portal shows them before the human confirms). */

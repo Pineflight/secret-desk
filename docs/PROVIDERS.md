@@ -26,6 +26,17 @@ Provider ids are used as `provider` of a secret in the inventory; the connection
 
 OpenAI works like RevenueCat: a facade (the guided sign-in) with the recipe `openai-admin-key` creates an organization Admin API key in the signed-in browser, stores it as the `openai` connection and tests it (`GET https://api.openai.com/v1/organization/projects?limit=1`: 200 connected, 401/403 rejected). The projects it can see are discoverable (`openai.project`). From then on the provider `openai` issues keys **through the API**: it creates a service account named after the entry (`tokenName`) in the project given by the parameter `projectId` (`proj_...`, selectable from the discovered projects) and stores the key value from the answer. OpenAI keys never expire, so the entry gets its own `ttlDays` as expiry, or **90 days** as the rotation horizon when it has none; the expiry date is always filled. The per-entry recipe `openai-api-key` stays as the browser fallback for entries that name it. Nothing of the OpenAI facade, the admin-key recipe or the Admin API calls is verified against the live service yet.
 
+## Anthropic
+
+Anthropic is a facade whose key creation stays in the browser. The Admin API (organization **Admin key**, header `x-api-key` plus `anthropic-version: 2023-06-01`) can list workspaces and list, rename and deactivate API keys, but it never returns a key's secret and **cannot create API keys**. So:
+
+- The facade (recipe `anthropic-admin-key`, signs in by email code or Google) creates the Admin key in the Console, stores it as the `anthropic` connection and tests it (`GET /v1/organizations/workspaces?limit=1`: 200 connected, 401/403 rejected). Workspaces are discoverable (`anthropic.workspace`; the default workspace is added to the list).
+- API keys come from the recipe `anthropic-api-key` through the signed-in browser (provider `anthropic-api-key-browser`, parameter `workspace`, default `Default`). The key is checked with `GET /v1/models`. Anthropic keys never expire, so the expiry is always set: the entry's `ttlDays`, else 90 days (the renewal date).
+- Revoke: with the `anthropic` connection, the key is found by its name (`GET /v1/organizations/api_keys`), set to `inactive`, then `archived`; a refusal of the second step is ignored. Without the connection the recipe's browser revoke runs.
+- On the card, "Works without browser sign-in" means checking and deactivating keys; creating a key still needs the browser.
+
+Not verified: every Console selector, the exact Console wording, whether the default workspace is listed by the API, and whether `archived` can be set through the API. The Console moved from `console.anthropic.com` to `platform.claude.com`; both hosts are accepted.
+
 ## Parameters per provider
 
 Given under `params` of the inventory entry. Source: [`packages/providers/src`](../packages/providers/src).
@@ -34,6 +45,7 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 |---|---|
 | `random-hex`, `random-base64` | `bytes`: integer 8 to 128, default 32 |
 | `random-uuid` | none |
+| `anthropic-api-key-browser` | `workspace` (optional, selectable from the discovered `anthropic.workspace` resources, default `Default`) |
 | `cloudflare-token` | `accountId` (string, required, may come from the integration default), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`), `zoneId` (optional, needed for zone-bound permissions) |
 | `cloudflare-access-service-token` | `accountId` (required, may come from the integration default), `clientIdTarget` (required: inventory id of the secret entry that receives the client ID), `duration` (`8760h` default, `720h`, `2160h`, `forever`) |
 | `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |

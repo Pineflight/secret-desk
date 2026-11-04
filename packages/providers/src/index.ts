@@ -19,6 +19,7 @@ export * from "./stripe.js";
 export * from "./resend.js";
 export * from "./revenuecat.js";
 export * from "./openai.js";
+export * from "./anthropic.js";
 export * from "./grafana.js";
 export * from "./manual.js";
 

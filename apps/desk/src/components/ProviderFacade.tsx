@@ -5,7 +5,7 @@ import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, Notice, SelectField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { IDP_NAMES, browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { IDP_NAMES, browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, needsPassword, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -157,7 +157,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
 
   const now = useNow(started && !isFinished(state));
   const submit = useCallback(async () => {
-    if (signInButtonState(facade, email, password, inputValues, false) !== "ready") return;
+    if (signInButtonState(facade, email, password, inputValues, false, chosenMethod(facade, methodId)) !== "ready") return;
     // Copy, then clear: the form never keeps the password after sending.
     const body = { username: email.trim(), password, method: chosenMethod(facade, methodId), ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}) };
     setEmail("");
@@ -331,7 +331,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
     </details>
   ) : null;
   const connectState = connectButtonState(facade, inputValues, connect.pending);
-  const signInState = signInButtonState(facade, email, password, inputValues, signIn.pending);
+  const signInState = signInButtonState(facade, email, password, inputValues, signIn.pending, method);
 
   const signInForm = (
     <form
@@ -356,7 +356,11 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
       {sso ? <p className="text-xs text-muted">{t("facade.methodHint.sso", { name: facade.label, idp: idpName })}</p> : null}
       {inputFields}
       <TextField label={t(`facade.methodEmail.${method}`, { name: facade.label })} type="email" name="facade-email" autoComplete="off" spellCheck={false} data-autofocus data-1p-ignore data-lpignore="true" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <TextField label={t(`facade.methodPassword.${method}`, { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {needsPassword(facade, method) ? (
+        <TextField label={t(`facade.methodPassword.${method}`, { name: facade.label })} type="password" name="facade-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} />
+      ) : (
+        <p className="text-xs text-muted">{t("facade.passwordless", { name: facade.label })}</p>
+      )}
       {projectField}
       {err ? <Notice tone="danger">{err.message}</Notice> : null}
       <Button type="submit" variant="primary" loading={signIn.pending} disabled={signInState === "disabled"}>
