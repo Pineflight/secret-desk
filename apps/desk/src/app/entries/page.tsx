@@ -7,7 +7,7 @@ import type { VariableDrift } from "@secret-desk/core";
 import type { SecretView, VariableApplyResult, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { EditMetaDialog, TagPills, metaFrom } from "@/components/Meta";
+import { EditMetaDialog, TagChips, metaFrom } from "@/components/Meta";
 import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, FilterRow, LIST_CELL_CLASS, WIDE_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
 import { Marked } from "@/components/Marked";
@@ -418,9 +418,9 @@ export default function EntriesPage() {
   );
 }
 
-function KindBadge({ kind }: { kind: EntryKind }) {
+function KindBadge({ kind, compact = false }: { kind: EntryKind; compact?: boolean }) {
   const t = useT();
-  return <Badge info={kind === "secret" ? { label: t("entries.kindSecret"), tone: "primary", icon: "key" } : { label: t("entries.kindVariable"), tone: "info", icon: "dot" }} />;
+  return <Badge compact={compact} info={kind === "secret" ? { label: t("entries.kindSecret"), tone: "primary", icon: "key" } : { label: t("entries.kindVariable"), tone: "info", icon: "dot" }} />;
 }
 
 function Targets({ places }: { places: SecretView["places"] }) {
@@ -429,7 +429,7 @@ function Targets({ places }: { places: SecretView["places"] }) {
   const { shown, hidden } = splitPlaceChips(labels);
   const chip = "inline-block min-w-0 max-w-[14rem] truncate whitespace-nowrap rounded-full bg-page px-2 py-px text-[11px] leading-4 text-ink ring-1 ring-inset ring-line";
   return (
-    <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 xl:max-w-[7rem] min-[1700px]:max-w-[24rem]" title={labels.join("\n")}>
+    <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 xl:max-w-[7rem]" title={labels.join("\n")}>
       {shown.map((l, i) => <span key={i} className={chip} title={l}>{l}</span>)}
       {hidden > 0 ? <span className={`${chip} shrink-0`}>+{hidden}</span> : null}
     </div>
@@ -453,15 +453,17 @@ function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRo
   );
   return (
     <tr className={LIST_ROW_CLASS} data-kind="secret">
-      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:!py-1`}>
-        <div className="flex min-w-0 items-baseline gap-2">
-          <Link href={`/secrets/${enc(s.id)}`} className="shrink-0 break-words font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
-          {s.description ? <span className="min-w-0 flex-1 truncate text-xs text-muted-text max-xl:hidden" title={s.description}>{s.description}</span> : null}
+      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:max-[1699px]:min-w-[16rem] min-[1700px]:min-w-[11rem] xl:!py-1`}>
+       <div className="@container">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link href={`/secrets/${enc(s.id)}`} title={s.name} className="min-w-0 max-xl:break-words xl:truncate font-medium text-primary hover:underline"><Marked text={s.name} terms={terms} /></Link>
+          <span className="hidden shrink-0 xl:max-[1699px]:inline-flex"><KindBadge kind="secret" compact /></span>
+          {s.description ? <span className="hidden xl:contents"><span className="hidden min-w-0 flex-1 basis-0 truncate text-xs text-muted-text @[26rem]:block" title={s.description}>{s.description}</span></span> : null}
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 xl:max-h-5 xl:flex-nowrap xl:overflow-hidden">
-          <span className="min-w-0 shrink truncate text-xs text-muted"><Marked text={s.id} terms={terms} /></span>
-          <span className="hidden items-center gap-1 xl:inline-flex min-[1700px]:hidden"><StageBadge stage={s.stage} /></span>
-          {s.tags.length > 0 ? <TagPills tags={s.tags} onPick={setTag} active={tag} /> : null}
+        <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5${needsParams(s) || renewal ? "" : " xl:h-5 xl:flex-nowrap xl:overflow-hidden"}`}>
+          <span className="min-w-0 shrink truncate hidden text-xs text-muted max-xl:block @[23rem]:block xl:max-w-[8rem]"><Marked text={s.id} terms={terms} /></span>
+          <span className="hidden shrink-0 items-center gap-1 xl:max-[1699px]:inline-flex"><StageBadge stage={s.stage} /></span>
+          {s.tags.length > 0 ? <TagChips tags={s.tags} onPick={setTag} active={tag} /> : null}
           {needsParams(s) ? (
             <span title={s.params.missing.join(", ")}>
               <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
@@ -474,6 +476,7 @@ function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRo
         <div className="mt-1 xl:hidden"><Targets places={s.places} /></div>
         <div className="mt-2 sm:hidden">{statusFor(false)}</div>
         <div className="mt-2 sm:hidden">{actions}</div>
+       </div>
       </td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><KindBadge kind="secret" /></td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><StageBadge stage={s.stage} /></td>
@@ -525,15 +528,20 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
   const value = v.value === null ? <span className="text-xs text-muted">{t("variables.unknownYet")}</span> : <span className="block max-w-[8rem] truncate font-mono text-xs" title={v.value}>{shortValue(v.value)}</span>;
   return (
     <tr className={`${LIST_ROW_CLASS} cursor-pointer`} data-kind="variable" onClick={onOpen}>
-      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:!py-1`}>
-        <div className="flex min-w-0 items-baseline gap-2">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} className="shrink-0 break-words rounded text-left font-medium text-primary hover:underline"><Marked text={v.name} terms={terms} /></button>
-          {v.description ? <span className="min-w-0 flex-1 truncate text-xs text-muted-text max-xl:hidden" title={v.description}>{v.description}</span> : null}
+      <td className={`${LIST_CELL_CLASS} w-full max-w-0 xl:max-[1699px]:min-w-[16rem] min-[1700px]:min-w-[11rem] xl:!py-1`}>
+       <div className="@container">
+        <div className="flex min-w-0 items-center gap-2">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={t("variables.openDetails", { name: v.name })} title={v.name} className="min-w-0 rounded text-left font-medium text-primary hover:underline max-xl:break-words xl:truncate"><Marked text={v.name} terms={terms} /></button>
+          <span className="hidden shrink-0 xl:max-[1699px]:inline-flex"><KindBadge kind="variable" compact /></span>
+          {v.description ? <span className="hidden xl:contents"><span className="hidden min-w-0 flex-1 basis-0 truncate text-xs text-muted-text @[26rem]:block" title={v.description}>{v.description}</span></span> : null}
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 xl:max-h-5 xl:flex-nowrap xl:overflow-hidden">
-          <span className="min-w-0 shrink truncate text-xs text-muted"><Marked text={v.id} terms={terms} /></span>
-          <span className="hidden items-center gap-1 xl:inline-flex min-[1700px]:hidden"><StageBadge stage={v.stage} />{value}</span>
-          {v.tags.length > 0 ? <span onClick={(e) => e.stopPropagation()}><TagPills tags={v.tags} onPick={setTag} active={tag} /></span> : null}
+        <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5${sourceText ? "" : " xl:h-5 xl:flex-nowrap xl:overflow-hidden"}`}>
+          <span className="min-w-0 shrink truncate text-xs text-muted hidden max-xl:block @[23rem]:block xl:max-w-[8rem]"><Marked text={v.id} terms={terms} /></span>
+          <span className="hidden shrink-0 items-center gap-1 xl:max-[1699px]:inline-flex"><StageBadge stage={v.stage} /></span>
+          <span className="hidden xl:max-[1699px]:contents">
+            <span className="hidden max-w-[8rem] shrink-0 truncate font-mono text-xs @[38rem]:block" title={v.value ?? undefined}>{v.value === null ? t("variables.unknownYet") : shortValue(v.value)}</span>
+          </span>
+          {v.tags.length > 0 ? <span className="contents" onClick={(e) => e.stopPropagation()}><TagChips tags={v.tags} onPick={setTag} active={tag} /></span> : null}
           {sourceText ? <Pill>{t("variables.src.badge", { source: sourceText })}</Pill> : null}
         </div>
         {v.description ? <p className="mt-0.5 truncate text-xs text-muted-text xl:hidden" title={v.description}>{v.description}</p> : null}
@@ -541,6 +549,7 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
         <div className="mt-1 xl:hidden"><Targets places={v.places} /></div>
         <div className="mt-2 sm:hidden">{status}</div>
         <div className="mt-2 sm:hidden" onClick={(e) => e.stopPropagation()}>{actions}</div>
+       </div>
       </td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><KindBadge kind="variable" /></td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><StageBadge stage={v.stage} /></td>
