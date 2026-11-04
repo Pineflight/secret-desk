@@ -5,8 +5,9 @@
 set -u
 cd "$(dirname "$0")/.."
 pattern='(sk_(live|test)_[A-Za-z0-9]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'
-# grep exits 0 on a match, 1 on none, 2 on an error: only 1 is a pass.
-git ls-files -z | xargs -0 grep -nE "$pattern"
+# git grep searches the tracked files and exits 0 on a match, 1 on none, anything else on an error: only 1 is a pass.
+# (xargs would turn grep's 1 into 123 on Linux, so it is not used.)
+git grep -nIE "$pattern" -- .
 case $? in
   1) exit 0 ;;
   0) echo "Possible secret value in a tracked file (see above). Assemble fixtures at run time, see CONTRIBUTING.md." >&2; exit 1 ;;
