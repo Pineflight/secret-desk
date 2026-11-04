@@ -62,7 +62,7 @@ async function setup(handler: Handler, opts: { tokens?: Record<string, string> }
   return { rt, calls };
 }
 
-const ghUser: Handler = (url) => (url === "https://api.github.com/user" ? { body: { login: "niklas" }, headers: { "github-authentication-token-expiration": "2026-12-01 10:00:00 UTC" } } : undefined);
+const ghUser: Handler = (url) => (url === "https://api.github.com/user" ? { body: { login: "alice" }, headers: { "github-authentication-token-expiration": "2026-12-01 10:00:00 UTC" } } : undefined);
 const byId = (r: { checks: { id: string; status: string }[] }) => Object.fromEntries(r.checks.map((c) => [c.id, c.status]));
 const leak = (r: unknown, ...vals: string[]) => vals.forEach((v) => expect(JSON.stringify(r)).not.toContain(v));
 

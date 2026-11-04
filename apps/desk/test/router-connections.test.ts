@@ -33,7 +33,7 @@ async function setup() {
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     calls.push({ url: u, method: init?.method ?? "GET" });
-    if (u === "https://api.github.com/user") return new Response(JSON.stringify({ login: "niklas" }), { status: 200, headers: { "github-authentication-token-expiration": "2099-01-01 00:00:00 UTC" } });
+    if (u === "https://api.github.com/user") return new Response(JSON.stringify({ login: "alice" }), { status: 200, headers: { "github-authentication-token-expiration": "2099-01-01 00:00:00 UTC" } });
     if (u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
     if ((init?.method ?? "GET") === "GET" && /\/(secrets|variables)\?/.test(u)) return new Response(JSON.stringify({ secrets: [], variables: [] }), { status: 200 });
     return new Response(null, { status: 204 });

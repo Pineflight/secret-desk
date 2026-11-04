@@ -22,14 +22,14 @@ Type `key:value`; while you type a key or a value the palette suggests the valid
 | Filter | Example | Meaning |
 |---|---|---|
 | `stage:` | `stage:staging` | stage id |
-| `repo:` | `repo:wake-miles` | repository |
+| `repo:` | `repo:acme-app` | repository |
 | `tag:` | `tag:config` | tag |
 | `art:` / `kind:` | `art:variable` | secret, variable, repo, stage, connection, provider, page, action |
 | `besitzer:` / `owner:` | `owner:anna` | owner |
 | `status:` | `status:fehlt`, `status:missing` | status of a secret (expired, due, soon, missing ...) |
 | `anbieter:` / `provider:` | `provider:stripe` | provider or service |
 
-Filters and words combine: `stage:staging repo:wake-miles token`.
+Filters and words combine: `stage:staging repo:acme-app token`.
 
 ## History
 An empty search shows recently opened entries, recent searches and typical suggestions. They are kept only in this browser (`localStorage`: entry ids and search terms, never values). The palette footer turns the history off (which also deletes it) or clears it.

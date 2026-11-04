@@ -105,7 +105,7 @@ export interface PreflightFinding {
 }
 
 export interface PreflightResult {
-  /** Lesbare Beschreibung der gewaehlten Ressource, zum Beispiel "Supabase-Projekt wake-miles-staging (ref abc)". */
+  /** Lesbare Beschreibung der gewaehlten Ressource, zum Beispiel "Supabase-Projekt acme-app-staging (ref abc)". */
   resource: string | null;
   findings: PreflightFinding[];
 }

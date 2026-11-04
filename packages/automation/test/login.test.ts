@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { FakeDriver, LoginError, RecipeSchema, checkSession, loadRecipeFile, signIn, type LoginEvent, type Recipe } from "../src/index.js";
 import { sampleRecipe } from "./helpers.js";
 
-const EMAIL = "niklas.example@example.test";
+const EMAIL = "alice.example@example.test";
 const TYPED_PW = "fake-typed-value-1";
 const CODE = "424242";
 const APP = "https://example.test/app/home";

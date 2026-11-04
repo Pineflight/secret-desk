@@ -135,7 +135,7 @@ describe("resources and suggestions", () => {
     status: "ok",
     suggested: "acc1",
     options: [
-      { value: "acc1", label: "Pineflight", detail: "acc1", suggestedFor: { score: 1, reason: "einzige Option" } },
+      { value: "acc1", label: "Acme Org", detail: "acc1", suggestedFor: { score: 1, reason: "einzige Option" } },
       { value: "acc2", label: "Privat", detail: "Konto" },
     ],
   };
@@ -152,13 +152,13 @@ describe("resources and suggestions", () => {
     expect(isSuggested(state, "")).toBe(false);
   });
   it("shows name and detail, hides detail that repeats the id", () => {
-    expect(optionText(state.options[0]!)).toBe("Pineflight");
+    expect(optionText(state.options[0]!)).toBe("Acme Org");
     expect(optionText(state.options[1]!)).toBe("Privat · Konto");
   });
   it("reads values as resource names", () => {
-    expect(describeValue(SPECS[0]!, "acc1", state, "de")).toBe("Pineflight (acc1)");
+    expect(describeValue(SPECS[0]!, "acc1", state, "de")).toBe("Acme Org (acc1)");
     expect(describeValue(SPECS[0]!, "other", state, "de")).toBe("other");
-    expect(describeValue(SPECS[3]!, ["acc1", "x"], state, "de")).toBe("Pineflight (acc1), x");
+    expect(describeValue(SPECS[3]!, ["acc1", "x"], state, "de")).toBe("Acme Org (acc1), x");
     expect(describeValue(SPECS[2]!, "zone", undefined, "en")).toBe("Zone");
     expect(describeValue(SPECS[0]!, "", state, "de")).toBe("");
   });

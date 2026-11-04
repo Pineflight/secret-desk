@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Neutral examples:** tests, docs and recipes use placeholder names (`acme-app`, `acme-org`, `example.com`) instead of real product, account and host names. A test (`no-internal-names.test.ts`) fails when such a name appears outside `scripts/internal-names-allowlist.txt`.
 - **The human never leaves the portal:** *Open browser* and every "sign in in the browser window" hint are gone from the connect dialog, the provider cards, sign-in check results and failure texts. The viewer stays in *Settings*, *Developer* for recipe authors. A CAPTCHA (or a confirmation only the browser can give) ends the run with a message and *Try again* (failure code `captcha`) instead of waiting for someone in the browser window.
 - **OpenAI recipe:** key creation verified live on 2026-11-03 with the signed-in browser. The create buttons are found by role and exact name (*Create new Admin key*, *Create admin key*) and the name field by its placeholder *My Test Key*.
 

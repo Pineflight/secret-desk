@@ -20,7 +20,7 @@ describe("suggestName: real-world examples", () => {
     ["VITE_SUPABASE_URL", "SUPABASE_URL"],
     ["RATE_LIMIT_GEHEIMNIS_WEB", "RATE_LIMIT_SECRET_WEB"],
     ["KUNDENDOMAIN_ABGLEICH_TOKEN", "CUSTOMER_DOMAIN_RECONCILIATION_TOKEN"],
-    ["CLOUDFLARE_ZONE_ID_WAKEMILES", "CLOUDFLARE_ZONE_ID_WAKEMILES"],
+    ["CLOUDFLARE_ZONE_ID_ACMEAPP", "CLOUDFLARE_ZONE_ID_ACMEAPP"],
     ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"],
   ];
   for (const [from, to] of cases) it(`${from} -> ${to}`, () => expect(suggestName(from)).toBe(to));
@@ -74,7 +74,7 @@ describe("rules", () => {
     expect(suggestName("FROBNICATOR_KEY")).toBe("FROBNICATOR_KEY");
   });
   it("names that comply produce no finding", () => {
-    for (const n of ["STRIPE_WEBHOOK_SECRET", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID_WAKEMILES", "SUPABASE_SECRET_KEY"]) expect(checkName(n)).toEqual([]);
+    for (const n of ["STRIPE_WEBHOOK_SECRET", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID_ACMEAPP", "SUPABASE_SECRET_KEY"]) expect(checkName(n)).toEqual([]);
   });
   it("every finding carries a code, a text and the suggested name", () => {
     for (const f of checkName("NEXT_PUBLIC_CF_SUPABASE_ANON_KEY_PRODUCTION")) {

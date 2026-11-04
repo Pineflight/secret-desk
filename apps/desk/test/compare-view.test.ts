@@ -128,10 +128,10 @@ const repoInfo = (name: string, over: Partial<CompareRepo> = {}): CompareRepo =>
 describe("repositories without entries and renamed ones", () => {
   const repos = [
     repoInfo("costs"),
-    repoInfo("night-before-landingpage", { found: { secrets: 0, variables: 0 }, needed: 3 }),
+    repoInfo("acme-shop-landingpage", { found: { secrets: 0, variables: 0 }, needed: 3 }),
     repoInfo("status", { found: { secrets: 1, variables: 0 } }),
     repoInfo("web", { inInventory: true }),
-    repoInfo("leitfaden", { inInventory: true, onGitHub: false, renamedTo: "night-before" }),
+    repoInfo("acme-site", { inInventory: true, onGitHub: false, renamedTo: "acme-shop" }),
   ];
   it("only repositories without inventory and without any finding", () => {
     expect(reposWithoutEntries(repos).map((r) => r.name)).toEqual(["costs"]);
@@ -139,10 +139,10 @@ describe("repositories without entries and renamed ones", () => {
     expect(reposWithoutEntries(repos, { repo: "", q: " CO " }).map((r) => r.name)).toEqual(["costs"]);
   });
   it("repository filter lists all repositories, even without rows", () => {
-    expect(repoList([{ repo: "web" }], repos)).toEqual(["costs", "leitfaden", "night-before-landingpage", "status", "web"]);
+    expect(repoList([{ repo: "web" }], repos)).toEqual(["acme-shop-landingpage", "acme-site", "costs", "status", "web"]);
   });
   it("inventory repositories that GitHub no longer knows", () => {
-    expect(missingOnGitHub(repos).map((r) => [r.name, r.renamedTo])).toEqual([["leitfaden", "night-before"]]);
+    expect(missingOnGitHub(repos).map((r) => [r.name, r.renamedTo])).toEqual([["acme-site", "acme-shop"]]);
   });
 });
 
@@ -150,7 +150,7 @@ describe("Needed by workflows", () => {
   const needed = c("needed");
   const nRow = (repo: string, name: string, extra: Partial<CompareCell["detail"] & object> = {}) =>
     row(repo, name, { staging: { ...needed, detail: { ids: [], targets: [], neededBy: ["deploy.yml"], actualNames: [name], ...extra } }, production: c("not-expected") }, { ids: [], neededMissing: true, needs: [{ file: "deploy.yml", environment: "staging" }] });
-  const rows = viewRows({ ...live, live: false, rows: [nRow("night-before", "RESEND_API_KEY"), row("web", "OTHER", { staging: c("unknown", true), production: c("unknown", true) })] }, ["staging", "production"]);
+  const rows = viewRows({ ...live, live: false, rows: [nRow("acme-shop", "RESEND_API_KEY"), row("web", "OTHER", { staging: c("unknown", true), production: c("unknown", true) })] }, ["staging", "production"]);
   it("needed is a deviation even without live and has an appearance", () => {
     expect(rows[0]).toMatchObject({ deviation: true });
     expect(rows[1]).toMatchObject({ deviation: false });
@@ -163,24 +163,24 @@ describe("Needed by workflows", () => {
     expect(stageTotals(rows, ["staging"]).staging!.needed).toBe(1);
   });
   it("candidates for adoption: name, repo, stage, files, unique id", () => {
-    const cands = adoptCandidates(viewRows({ ...live, live: false, rows: [nRow("night-before", "RESEND_API_KEY"), nRow("night-before-landingpage", "CLOUDFLARE_API_TOKEN")] }, ["staging"]));
+    const cands = adoptCandidates(viewRows({ ...live, live: false, rows: [nRow("acme-shop", "RESEND_API_KEY"), nRow("acme-shop-landingpage", "CLOUDFLARE_API_TOKEN")] }, ["staging"]));
     expect(cands.map((x) => [x.repo, x.name, x.stage, x.files, x.id])).toEqual([
-      ["night-before", "RESEND_API_KEY", "staging", ["deploy.yml"], "night-before-resend-api-key-staging"],
-      ["night-before-landingpage", "CLOUDFLARE_API_TOKEN", "staging", ["deploy.yml"], "night-before-landingpage-cloudflare-api-token-staging"],
+      ["acme-shop", "RESEND_API_KEY", "staging", ["deploy.yml"], "acme-shop-resend-api-key-staging"],
+      ["acme-shop-landingpage", "CLOUDFLARE_API_TOKEN", "staging", ["deploy.yml"], "acme-shop-landingpage-cloudflare-api-token-staging"],
     ]);
     expect(adoptCandidates([nRow("r", "bad_name")])[0]!.invalidName).toBe(true);
     const taken = new Set(["a-x-staging"]);
     expect(suggestId("a", "X", "staging", taken)).toBe("a-x-staging-2");
   });
   it("request: metadata only; secret manual with unknown expiry, variable without value", () => {
-    const base = { repo: "night-before", name: "RESEND_API_KEY", stage: "staging", id: "x" };
+    const base = { repo: "acme-shop", name: "RESEND_API_KEY", stage: "staging", id: "x" };
     const sec = adoptRequest({ ...base, kind: "secret" }, { environment: "staging", description: "Von deploy.yml benoetigt" });
     expect(sec.path).toBe("secrets");
-    expect(sec.body).toMatchObject({ provider: "manual", expiry: "unknown", places: [{ repo: "night-before", scope: "environment" }] });
+    expect(sec.body).toMatchObject({ provider: "manual", expiry: "unknown", places: [{ repo: "acme-shop", scope: "environment" }] });
     expect(JSON.stringify(sec.body)).not.toContain("value");
     const v = adoptRequest({ ...base, name: "NEXT_PUBLIC_APP_URL", kind: "variable" }, { environment: null, description: "d" });
     expect(v.path).toBe("variables");
-    expect(v.body).toMatchObject({ places: [{ repo: "night-before", scope: "repository" }] });
+    expect(v.body).toMatchObject({ places: [{ repo: "acme-shop", scope: "repository" }] });
     expect(v.body).not.toHaveProperty("value");
   });
   it("link to the new dialog with prefill", () => {
@@ -197,7 +197,7 @@ describe("level mismatch, optional, hiding", () => {
     row(repo, name, { staging: c("ok", true, true), production: c("ok", true, true), shared: { state: "level-mismatch", expected: false, detail: { ids: [], targets: [], neededBy: ["provision.yml"], inventoryStages: ["staging", "production"] } } }, { levelMismatch: true, needs: [{ file: "provision.yml" }] });
   const need = (repo: string, name: string) => row(repo, name, { staging: c("not-expected"), production: c("not-expected"), shared: { state: "needed", expected: false, detail: { ids: [], targets: [], neededBy: ["a.yml"], actualNames: [name] } } }, { ids: [], neededMissing: true, needs: [{ file: "a.yml" }] });
   const opt = (repo: string, name: string) => row(repo, name, { staging: c("not-expected"), production: c("not-expected"), shared: { state: "optional", expected: false, detail: { ids: [], targets: [], neededBy: ["up.yml"] } } }, { ids: [], needs: [{ file: "up.yml" }] });
-  const result: CompareResult = { ...live, live: false, rows: [lm("wake-miles", "REVENUECAT_API_KEY"), need("wake-miles", "NEW_KEY"), opt("status", "SLACK_HOOK")] };
+  const result: CompareResult = { ...live, live: false, rows: [lm("acme-app", "REVENUECAT_API_KEY"), need("acme-app", "NEW_KEY"), opt("status", "SLACK_HOOK")] };
   const rows = viewRows(result, ["staging", "production"]);
 
   it("level-mismatch and optional are no deviation and have their own appearance without adoption", () => {
@@ -215,7 +215,7 @@ describe("level mismatch, optional, hiding", () => {
     expect(t).toMatchObject({ needed: 1, levelMismatch: 1 });
   });
   it("hiding: display only, back with the switch, only existing repos count", () => {
-    expect(hideRepos(rows, ["status"], false).map((r) => r.repo)).toEqual(["wake-miles", "wake-miles"]);
+    expect(hideRepos(rows, ["status"], false).map((r) => r.repo)).toEqual(["acme-app", "acme-app"]);
     expect(hideRepos(rows, ["status"], true)).toHaveLength(3);
     expect(hideRepos(rows, [], false)).toHaveLength(3);
     expect(hiddenPresent(rows, ["status", "gibt-es-nicht"])).toEqual(["status"]);

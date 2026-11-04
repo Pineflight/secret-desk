@@ -9,7 +9,7 @@ import { createRuntime } from "../src/runtime.js";
 const INVENTORY = `version: 1
 secrets:
   - { id: k-stg, name: API_KEY, stage: staging, service: x, expiry: none, places: [{ repo: web, scope: environment }] }
-  - { id: lf, name: LEITFADEN_KEY, stage: shared, service: x, expiry: none, places: [{ repo: leitfaden, scope: repository }] }
+  - { id: lf, name: ACME_SITE_KEY, stage: shared, service: x, expiry: none, places: [{ repo: acme-site, scope: repository }] }
 variables: []
 `;
 
@@ -68,7 +68,7 @@ const repo = (name: string, over: Record<string, unknown> = {}) => ({ name, priv
 const dirEntry = (name: string) => ({ name, type: "file", size: 100 });
 
 const base: Spec = {
-  "/orgs/acme/repos": [repo("web"), repo("night-before"), repo("costs"), repo("old", { archived: true }), repo(".github"), repo(".github-private"), repo("status")],
+  "/orgs/acme/repos": [repo("web"), repo("acme-shop"), repo("costs"), repo("old", { archived: true }), repo(".github"), repo(".github-private"), repo("status")],
   "/repos/acme/web/environments": { environments: [{ name: "staging" }] },
   "/repos/acme/web/environments/staging/secrets": sec("API_KEY"),
   "/repos/acme/web/environments/staging/variables": vr({}),
@@ -76,13 +76,13 @@ const base: Spec = {
   "/repos/acme/web/environments/production/variables": vr({}),
   "/repos/acme/web/actions/secrets": sec(),
   "/repos/acme/web/actions/variables": vr({}),
-  "/repos/acme/night-before/environments": { environments: [{ name: "staging" }, { name: "preview" }] },
-  "/repos/acme/night-before/environments/staging/secrets": sec("RESEND_API_KEY"),
-  "/repos/acme/night-before/environments/staging/variables": vr({}),
-  "/repos/acme/night-before/environments/preview/secrets": sec("PREVIEW_ONLY"),
-  "/repos/acme/night-before/environments/preview/variables": vr({}),
-  "/repos/acme/night-before/actions/secrets": sec("CLOUDFLARE_API_TOKEN"),
-  "/repos/acme/night-before/actions/variables": vr({ SITE: "x" }),
+  "/repos/acme/acme-shop/environments": { environments: [{ name: "staging" }, { name: "preview" }] },
+  "/repos/acme/acme-shop/environments/staging/secrets": sec("RESEND_API_KEY"),
+  "/repos/acme/acme-shop/environments/staging/variables": vr({}),
+  "/repos/acme/acme-shop/environments/preview/secrets": sec("PREVIEW_ONLY"),
+  "/repos/acme/acme-shop/environments/preview/variables": vr({}),
+  "/repos/acme/acme-shop/actions/secrets": sec("CLOUDFLARE_API_TOKEN"),
+  "/repos/acme/acme-shop/actions/variables": vr({ SITE: "x" }),
   "/repos/acme/costs/environments": { environments: [] },
   "/repos/acme/costs/actions/secrets": sec(),
   "/repos/acme/costs/actions/variables": vr({}),
@@ -97,11 +97,11 @@ describe("compareStages with allRepos", () => {
   it("reads repositories without inventory: findings are unexpected, empty repos are in the list", async () => {
     const { rt, calls } = await setup(base);
     const r = await compareStages(rt, { live: true, allRepos: true });
-    const nb = r.rows.filter((x) => x.repo === "night-before").map((x) => `${x.kind}:${x.name}`).sort();
+    const nb = r.rows.filter((x) => x.repo === "acme-shop").map((x) => `${x.kind}:${x.name}`).sort();
     expect(nb).toEqual(["secret:CLOUDFLARE_API_TOKEN", "secret:PREVIEW_ONLY", "secret:RESEND_API_KEY", "variable:SITE"]);
     expect(r.rows.find((x) => x.name === "RESEND_API_KEY")!.cells.staging!.state).toBe("unexpected");
     expect(r.rows.find((x) => x.name === "PREVIEW_ONLY")!.other).toEqual({ present: ["preview"], needed: [] });
-    expect(r.repos.map((x) => x.name)).toEqual(["costs", "leitfaden", "night-before", "status", "web"]);
+    expect(r.repos.map((x) => x.name)).toEqual(["acme-shop", "acme-site", "costs", "status", "web"]);
     expect(r.repos.find((x) => x.name === "costs")).toMatchObject({ inInventory: false, found: { secrets: 0, variables: 0 }, private: true });
     // 403 je Repo wird zum Hinweis, nicht zum Gesamtfehler
     expect(r.errors).toEqual([]);
@@ -116,7 +116,7 @@ describe("compareStages with allRepos", () => {
     const { rt, calls, max } = await setup(base);
     await compareStages(rt, { live: true, allRepos: true });
     expect(max()).toBeLessThanOrEqual(4);
-    const nb = calls.filter((c) => c.includes("/repos/acme/night-before"));
+    const nb = calls.filter((c) => c.includes("/repos/acme/acme-shop"));
     // 1 Environments-Liste + 2 Arten x (Repo-Ebene + 2 Environments)
     expect(nb).toHaveLength(1 + 2 * 3);
     expect(new Set(calls).size).toBe(calls.length);
@@ -126,7 +126,7 @@ describe("compareStages with allRepos", () => {
     const a = await setup(base);
     const r = await compareStages(a.rt, { live: true });
     expect(a.calls.some((c) => c.includes("/orgs/acme/repos"))).toBe(false);
-    expect(r.repos.map((x) => x.name)).toEqual(["leitfaden", "web"]);
+    expect(r.repos.map((x) => x.name)).toEqual(["acme-site", "web"]);
     const b = await setup(base);
     await compareStages(b.rt, { allRepos: true });
     expect(b.calls).toEqual([]);
@@ -143,15 +143,15 @@ describe("compareStages with allRepos", () => {
     const { rt, calls } = await setup(base);
     const r = await compareStages(rt, { live: true, allRepos: true, repo: "costs" });
     expect(r.repos.map((x) => x.name)).toEqual(["costs"]);
-    expect(calls.some((c) => c.includes("/repos/acme/night-before"))).toBe(false);
+    expect(calls.some((c) => c.includes("/repos/acme/acme-shop"))).toBe(false);
   });
 });
 
 describe("compareStages with workflows", () => {
   const wfSpec: Spec = {
     ...base,
-    "/repos/acme/night-before/contents/.github/workflows": [dirEntry("deploy.yml"), dirEntry("README.md")],
-    "/repos/acme/night-before/contents/.github/workflows/deploy.yml": DEPLOY,
+    "/repos/acme/acme-shop/contents/.github/workflows": [dirEntry("deploy.yml"), dirEntry("README.md")],
+    "/repos/acme/acme-shop/contents/.github/workflows/deploy.yml": DEPLOY,
     "/repos/acme/web/contents/.github/workflows": 403,
     "/repos/acme/costs/contents/.github/workflows": 404,
     "/repos/acme/status/contents/.github/workflows": 403,
@@ -160,8 +160,8 @@ describe("compareStages with workflows", () => {
   it("Contents API: needed rows, hint on 403, 404 = no workflows", async () => {
     const { rt, calls } = await setup(wfSpec);
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
-    const row = (n: string) => r.rows.find((x) => x.repo === "night-before" && x.name === n)!;
-    // production existiert in night-before nicht -> RESEND/TURNSTILE fehlen dort, staging hat RESEND
+    const row = (n: string) => r.rows.find((x) => x.repo === "acme-shop" && x.name === n)!;
+    // production existiert in acme-shop nicht -> RESEND/TURNSTILE fehlen dort, staging hat RESEND
     expect(row("RESEND_API_KEY").cells.production).toMatchObject({ state: "needed", detail: { neededBy: ["deploy.yml"] } });
     expect(row("RESEND_API_KEY").cells.staging!.state).toBe("unexpected");
     expect(row("TURNSTILE_SECRET_KEY").cells.production!.state).toBe("needed");
@@ -169,7 +169,7 @@ describe("compareStages with workflows", () => {
     expect(row("NEXT_PUBLIC_APP_URL").cells.staging!.state).toBe("needed");
     expect(row("RESEND_API_KEY").needs).toEqual([{ file: "deploy.yml", environment: "production" }]);
     expect(r.summary.neededMissing).toBe(3);
-    expect(r.repos.find((x) => x.name === "night-before")!.needed).toBe(3);
+    expect(r.repos.find((x) => x.name === "acme-shop")!.needed).toBe(3);
     // web: 403 auf Contents -> Hinweis, kein Gesamtfehler
     expect(r.repos.find((x) => x.name === "web")!.notes).toEqual([{ code: "contents-forbidden", status: 403 }]);
     expect(r.repos.find((x) => x.name === "costs")!.notes).toEqual([]);
@@ -180,15 +180,15 @@ describe("compareStages with workflows", () => {
 
   it("locally linked folder takes precedence, the Contents API is not asked", async () => {
     const { rt, calls, projects } = await setup(wfSpec);
-    const dir = join(projects, "night-before");
+    const dir = join(projects, "acme-shop");
     await mkdir(join(dir, ".git"), { recursive: true });
     await mkdir(join(dir, ".github", "workflows"), { recursive: true });
     await writeFile(join(dir, ".github", "workflows", "local.yml"), "on: push\njobs:\n  j:\n    runs-on: x\n    environment: staging\n    steps:\n      - run: echo ${{ secrets.LOCAL_ONLY_KEY }}\n");
-    await setLink(rt, "night-before", dir);
+    await setLink(rt, "acme-shop", dir);
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
-    const names = r.rows.filter((x) => x.repo === "night-before" && x.needs).map((x) => x.name);
+    const names = r.rows.filter((x) => x.repo === "acme-shop" && x.needs).map((x) => x.name);
     expect(names).toEqual(["LOCAL_ONLY_KEY"]);
-    expect(calls.some((c) => c.includes("/repos/acme/night-before/contents"))).toBe(false);
+    expect(calls.some((c) => c.includes("/repos/acme/acme-shop/contents"))).toBe(false);
   });
 
   it("without live: local folders only, no network", async () => {
@@ -206,7 +206,7 @@ describe("compareStages with workflows", () => {
   it("organization secrets cover workflow needs", async () => {
     const { rt } = await setup({ ...wfSpec, "/orgs/acme/actions/secrets": sec("TURNSTILE_SECRET_KEY") });
     const r = await compareStages(rt, { live: true, allRepos: true, workflows: true });
-    const t = r.rows.find((x) => x.repo === "night-before" && x.name === "TURNSTILE_SECRET_KEY")!;
+    const t = r.rows.find((x) => x.repo === "acme-shop" && x.name === "TURNSTILE_SECRET_KEY")!;
     expect(t.cells.production!.state).toBe("not-expected");
     expect(t.neededMissing).toBe(false);
   });
@@ -217,12 +217,12 @@ describe("compareStages with ignoreRepos", () => {
     ...base,
     "/repos/acme/status/contents/.github/workflows": [dirEntry("up.yml")],
     "/repos/acme/status/contents/.github/workflows/up.yml": "on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: echo ${{ secrets.UPTIME_TOKEN }}\n",
-    "/repos/acme/leitfaden/environments": { environments: [] },
-    "/repos/acme/leitfaden/actions/secrets": sec(),
-    "/repos/acme/leitfaden/actions/variables": vr({}),
-    "/repos/acme/leitfaden/contents/.github/workflows": 404,
+    "/repos/acme/acme-site/environments": { environments: [] },
+    "/repos/acme/acme-site/actions/secrets": sec(),
+    "/repos/acme/acme-site/actions/variables": vr({}),
+    "/repos/acme/acme-site/contents/.github/workflows": 404,
     "/repos/acme/web/contents/.github/workflows": 404,
-    "/repos/acme/night-before/contents/.github/workflows": 404,
+    "/repos/acme/acme-shop/contents/.github/workflows": 404,
     "/repos/acme/costs/contents/.github/workflows": 404,
   };
 
@@ -237,33 +237,33 @@ describe("compareStages with ignoreRepos", () => {
 
   it("ignored repositories (also from the inventory) read neither GitHub nor workflows and appear only in the list", async () => {
     const { rt, calls } = await setup(spec);
-    const r = await compareStages(rt, { live: true, allRepos: true, workflows: true, ignoreRepos: ["status", "leitfaden", ".github", ".github-private"] });
-    expect(r.ignored).toEqual([".github", ".github-private", "leitfaden", "status"]);
-    expect(r.rows.some((x) => x.repo === "status" || x.repo === "leitfaden")).toBe(false);
-    expect(r.repos.map((x) => x.name)).toEqual(["costs", "night-before", "web"]);
-    expect(calls.filter((c) => c.includes("/repos/acme/status") || c.includes("/repos/acme/leitfaden"))).toEqual([]);
+    const r = await compareStages(rt, { live: true, allRepos: true, workflows: true, ignoreRepos: ["status", "acme-site", ".github", ".github-private"] });
+    expect(r.ignored).toEqual([".github", ".github-private", "acme-site", "status"]);
+    expect(r.rows.some((x) => x.repo === "status" || x.repo === "acme-site")).toBe(false);
+    expect(r.repos.map((x) => x.name)).toEqual(["acme-shop", "costs", "web"]);
+    expect(calls.filter((c) => c.includes("/repos/acme/status") || c.includes("/repos/acme/acme-site"))).toEqual([]);
     // nicht ignorierte Repos werden weiter gelesen
-    expect(calls.some((c) => c.includes("/repos/acme/night-before/environments"))).toBe(true);
+    expect(calls.some((c) => c.includes("/repos/acme/acme-shop/environments"))).toBe(true);
   });
 });
 
 describe("renamed repositories", () => {
-  const renamed = (u: string) => (u.endsWith("/repos/acme/leitfaden") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/9" } }) : new Response(JSON.stringify({ name: "night-before", full_name: "acme/night-before" }), { status: 200 }));
-  const spec: Spec = { ...base, "/repos/acme/leitfaden": renamed, "/repositories/9": renamed };
+  const renamed = (u: string) => (u.endsWith("/repos/acme/acme-site") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/9" } }) : new Response(JSON.stringify({ name: "acme-shop", full_name: "acme/acme-shop" }), { status: 200 }));
+  const spec: Spec = { ...base, "/repos/acme/acme-site": renamed, "/repositories/9": renamed };
 
   it("compareStages: inventory repo missing in the list, 301 returns the new name", async () => {
     const { rt } = await setup(spec);
     const r = await compareStages(rt, { live: true, allRepos: true });
-    expect(r.repos.find((x) => x.name === "leitfaden")).toMatchObject({ inInventory: true, onGitHub: false, renamedTo: "night-before" });
+    expect(r.repos.find((x) => x.name === "acme-site")).toMatchObject({ inInventory: true, onGitHub: false, renamedTo: "acme-shop" });
   });
 
   it("repository list: renamedTo, unresolvable ones stay without", async () => {
-    const { rt } = await setup({ ...spec, "/repos/acme/leitfaden": 404 });
+    const { rt } = await setup({ ...spec, "/repos/acme/acme-site": 404 });
     const none = await listRepos(rt, { live: true });
-    expect(none.repos.find((x) => x.name === "leitfaden")!.renamedTo).toBeUndefined();
+    expect(none.repos.find((x) => x.name === "acme-site")!.renamedTo).toBeUndefined();
     const { rt: rt2 } = await setup(spec);
     const list = await listRepos(rt2, { live: true });
-    expect(list.repos.find((x) => x.name === "leitfaden")).toMatchObject({ inInventory: true, renamedTo: "night-before" });
+    expect(list.repos.find((x) => x.name === "acme-site")).toMatchObject({ inInventory: true, renamedTo: "acme-shop" });
     expect(list.repos.find((x) => x.name === "web")!.renamedTo).toBeUndefined();
   });
 
@@ -271,13 +271,13 @@ describe("renamed repositories", () => {
     const { rt, projects, dir } = await setup(spec);
     const folder = join(projects, "lf");
     await mkdir(join(folder, ".git"), { recursive: true });
-    await setLink(rt, "leitfaden", folder);
-    const res = await renameInventoryRepo(rt, "leitfaden", "night-before");
-    expect(res).toMatchObject({ from: "leitfaden", to: "night-before", changed: 1, linkMoved: true });
-    expect(rt.inventory.data.secrets.find((s) => s.id === "lf")!.places[0]!.repo).toBe("night-before");
-    expect(await readFile(join(dir, "inventory.yaml"), "utf8")).toContain("night-before");
-    expect(JSON.parse(await readFile(join(dir, "links.json"), "utf8")).links).toHaveProperty("night-before");
-    await expect(renameInventoryRepo(rt, "leitfaden", "x")).rejects.toThrow(/nicht vor/);
+    await setLink(rt, "acme-site", folder);
+    const res = await renameInventoryRepo(rt, "acme-site", "acme-shop");
+    expect(res).toMatchObject({ from: "acme-site", to: "acme-shop", changed: 1, linkMoved: true });
+    expect(rt.inventory.data.secrets.find((s) => s.id === "lf")!.places[0]!.repo).toBe("acme-shop");
+    expect(await readFile(join(dir, "inventory.yaml"), "utf8")).toContain("acme-shop");
+    expect(JSON.parse(await readFile(join(dir, "links.json"), "utf8")).links).toHaveProperty("acme-shop");
+    await expect(renameInventoryRepo(rt, "acme-site", "x")).rejects.toThrow(/nicht vor/);
     await expect(renameInventoryRepo(rt, "web", "WEB")).rejects.toThrow(/gleich/);
     await expect(renameInventoryRepo(rt, "web", "a/b")).rejects.toThrow(/ungueltig/);
   });
