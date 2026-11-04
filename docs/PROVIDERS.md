@@ -14,6 +14,8 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `stripe-webhook-secret` | automatic | `stripe:<acct_id>:<mode>` per account and mode, or `stripe-test` / `stripe-live` / `stripe` (see below) | search, fields **not verified**; sandbox: yes (2026-11-02) |
 | `resend-api-key` | automatic | `resend` | **not verified** |
 | `grafana-service-account-token` | automatic | `grafana` | **not verified** |
+| `grafana-access-policy-token` | automatic | `grafana-cloud` (a grafana.com token with `accesspolicies:write`) | from memory of the Cloud API, **not verified live** |
+| `vapid-keypair` | automatic | none | locally (P-256 from `node:crypto`; derivation checked in tests) |
 | `revenuecat-secret-key` | manual (carries the discovery for variable sources) | `revenuecat` | API reference read (list endpoints, field names, permissions); public key prefixes **not verified** |
 | `openai` | automatic | `openai` (the organization **Admin API key**, created once by the guided sign-in) | issues a service account key per project (`POST /v1/organization/projects/{projectId}/service_accounts`, the key value is in the answer, shown once), revokes it with `DELETE .../service_accounts/{id}`; verifies it with `GET /v1/models?limit=1`; **not verified live yet** |
 | `stripe-restricted-key`, `supabase-access-token`, `github-fine-grained-token`, `telegram-bot` | manual | none | guides; landing pages where no sub-page is known |
@@ -52,13 +54,25 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `openai` | `projectId` (required, `^proj_[A-Za-z0-9]+$`, selectable from the discovered `openai.project` resources) |
 | `supabase-api-key` | `projectRef` (required), `type`: `secret` (default) or `publishable` |
 | `supabase-service-role` | `projectRef` (required); reads the existing `service_role` key, creates nothing |
-| `supabase-db-password` | `projectRef` (required), `length`: integer 24 to 64, default 40. The password is generated locally (letters and digits only, safe in a Postgres URL) and set with `PATCH /v1/projects/<ref>/database/password`. The old password stops working at once; there is nothing to revoke, and the API gives no read-back, so the test checks only the shape and that the API answered 2xx (no login to Postgres). |
+| `supabase-db-password` | `projectRef` (required), `length`: integer 24 to 64, default 40; optional companion: `dbUrlTarget` (inventory id of the secret entry that receives the connection URL), `urlTemplate` (default `postgresql://postgres.{{ref}}:{{password}}@aws-0-{{region}}.pooler.supabase.com:6543/postgres`; placeholders `{{ref}}`, `{{password}}` percent-encoded, `{{region}}`), `region` (needed only if the template uses `{{region}}`; the pooler host differs per project, so check it). A project that is paused or not active makes the preflight fail ("start the project first") and nothing is changed. The password is generated locally The password is generated locally (letters and digits only, safe in a Postgres URL) and set with `PATCH /v1/projects/<ref>/database/password`. The old password stops working at once; there is nothing to revoke, and the API gives no read-back, so the test checks only the shape and that the API answered 2xx (no login to Postgres). |
 | `stripe-webhook-secret` | `url` (required, the webhook endpoint), `events` (string[] of event types, required), `account` (optional, `acct_...`: use the connection of that account in the mode of the stage and refuse any other account, see below), `connection` (optional, forces one connection, for example `stripe-test` or `stripe:acct_1AbC:live`; the account check still runs when `account` is set) |
 | `resend-api-key` | `permission`: `sending_access` (default) or `full_access`; `domainId` (required for `sending_access`: the key is limited to this domain; not used for `full_access`) |
 | `revenuecat-secret-key` (manual) | `projectId` (optional, integration default allowed): project that apps and public SDK keys are read from; without it the apps of every project of the connection are listed |
 | `grafana-service-account-token` | `baseUrl` (required, https, no port; host must be `*.grafana.net` or in `providers.grafana.allowedHosts`), `serviceAccountId` (integer, required) |
+| `grafana-access-policy-token` | `region` (required, for example `us` or `eu`; integration default allowed), `accessPolicyId` (required, selectable from the discovered `grafana.accessPolicy` resources). The expiry comes from `ttlDays` (default 90 days). |
+| `vapid-keypair` | `publicKeyVariable` (required: inventory id of the **variable** entry that receives the public key) |
 | `github-fine-grained-token` (manual) | optional `params.permissions`, a map such as `{ contents: read, metadata: read }`, prefills the GitHub token form (together with `ttlDays`, the description and the configured owner) |
 | other manual providers | none |
+
+### VAPID key pairs (private key as secret, public key as variable)
+
+`vapid-keypair` generates a P-256 pair for web push with `node:crypto`: the private key is the raw 32-byte scalar and the public key the uncompressed 65-byte point, both base64url (the format web-push libraries expect). Put it on the secret entry `VAPID_PRIVATE_KEY`; `publicKeyVariable` names the **variable** entry (for example `VAPID_PUBLIC_KEY` or `NEXT_PUBLIC_VAPID_PUBLIC_KEY`) that receives the public key from the same issuance. The review lists the variable (name, targets, fingerprint), the commit writes it as a GitHub variable and stores the new value as the variable's expected value. A value for an entry of the wrong kind is refused (a public value never reaches a secret entry, a secret never a variable).
+
+The pair does not expire (`expiry: none`). **Rotating invalidates all existing push subscriptions**; users have to subscribe again. The review checklist and the checks say so, so a human confirms it. The pair is checked before it is shown (the private key must derive the public key); the test derives the public key again from the stored private key, but cannot compare it with the variable (the verification only sees the private key).
+
+### Grafana Cloud access policy tokens
+
+`grafana-access-policy-token` creates a token for an access policy on grafana.com (not a stack): `POST https://www.grafana.com/api/v1/tokens?region=<region>` with `accessPolicyId`, `name`, `displayName` and `expiresAt`, revoke with `DELETE /api/v1/tokens/<id>?region=<region>`, discovery with `GET /api/v1/accesspolicies?region=<region>` (resource kind `grafana.accessPolicy`). The host is fixed to `www.grafana.com`, so the connection token never goes to a host from the inventory. The connection `grafana-cloud` holds a grafana.com token whose access policy has `accesspolicies:write` (and `accesspolicies:read` for discovery). **The request and response shapes are written from memory of the API and are not verified live**; the code marks them. The test calls the policies endpoint with the new token: HTTP 200 passes, 401 fails, 403 or anything else is reported as "not checkable with this scope".
 
 ### Cloudflare Access service tokens (client ID and secret together)
 

@@ -259,6 +259,19 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
           "Praktisch: Service-Account des Stacks mit der Rolle Admin",
         ],
       };
+    case "grafana-cloud":
+      return {
+        label: "Grafana Cloud (Konto)",
+        description: "Erzeugt und widerruft Access-Policy-Token einer Grafana-Cloud-Organisation (grafana.com), zum Beispiel fuer Terraform oder einen Log-Shipper.",
+        url: "https://grafana.com/profile/org",
+        steps: [
+          "In grafana.com unter Ihrer Organisation, Security, Access Policies eine Zugriffsrichtlinie fuer secret-desk anlegen.",
+          "Der Richtlinie nur den Geltungsbereich accesspolicies:write (und accesspolicies:read) geben, sonst nichts.",
+          "Fuer diese Richtlinie einen Token mit kurzem Ablauf erzeugen, kopieren und unten einfuegen.",
+          "Die Id der Ziel-Richtlinie und ihre Region tragen die Secrets im Inventar als Parameter.",
+        ],
+        permissions: ["accesspolicies:write (Token erzeugen und loeschen)", "accesspolicies:read (Richtlinien auflisten)"],
+      };
     default:
       return undefined;
   }

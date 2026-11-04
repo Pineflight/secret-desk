@@ -36,6 +36,8 @@ export interface Attachment {
 
 export interface CompanionSummary {
   entryId: string;
+  /** Absent = secret. A variable companion holds a public value. */
+  kind?: "secret" | "variable";
   name: string;
   targets: string[];
   fingerprint: string;

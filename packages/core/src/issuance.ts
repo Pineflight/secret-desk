@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import { hashOf, issuanceSnapshot } from "./snapshot.js";
-import type { SecretEntry } from "./types.js";
+import type { SecretEntry, VariableEntry } from "./types.js";
 import type { EvidenceStore } from "./evidence.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
@@ -50,12 +50,22 @@ export interface PendingIssuance {
 
 export interface PendingCompanion {
   entryId: string;
+  /** Whether the receiving entry is a secret or a variable (public value). */
+  kind: "secret" | "variable";
   value: SecretValue;
   /** Hash of the receiving entry's places and stage at review time; a change before confirm makes the issuance stale. */
   snapshot: string;
 }
 
-const companionSnapshot = (e: SecretEntry): string => hashOf({ places: e.places, stage: e.stage });
+const companionSnapshot = (e: SecretEntry | VariableEntry): string => hashOf({ places: e.places, stage: e.stage });
+
+/** A companion target is a secret entry or a variable entry; ids are unique across both. */
+function companionEntry(inventory: InventoryStore, id: string): { entry: SecretEntry | VariableEntry; kind: "secret" | "variable" } | undefined {
+  const secret = inventory.getSecret(id);
+  if (secret) return { entry: secret, kind: "secret" };
+  const variable = inventory.getVariable(id);
+  return variable ? { entry: variable, kind: "variable" } : undefined;
+}
 
 /** Inventory ids a provider names in its `companionParams` for these effective params. */
 function companionTargets(provider: { companionParams?: string[] } | undefined, params: Record<string, unknown>): string[] {
@@ -136,7 +146,7 @@ export async function prepareIssuance(
     for (const f of pre.findings) if (f.level !== "ok") preChecks.push({ id: `preflight:${f.id}`, label: f.label, status: "warn", ...(f.detail ? { detail: f.detail } : {}) });
     // Companion targets are checked before anything is created at the provider, so a bad target never leaves an orphan.
     for (const id of companionTargets(provider, params)) {
-      const target = deps.inventory.getSecret(id);
+      const target = companionEntry(deps.inventory, id)?.entry;
       if (!target) throw new IssuanceError(`Secret nicht gefunden: ${id}`);
       if (id === secret.id) throw new IssuanceError("Der Eintrag darf nicht sein eigener Begleiter sein.");
       if (target.stage !== secret.stage) throw new IssuanceError(`Der Begleiter ${id} liegt in einer anderen Stage (${target.stage}).`);
@@ -149,13 +159,15 @@ export async function prepareIssuance(
     kind = "issued";
     const allowed = companionTargets(provider, params);
     for (const c of issued.companions ?? []) {
-      const target = allowed.includes(c.entryId) ? deps.inventory.getSecret(c.entryId) : undefined;
-      if (!target) {
+      const found = allowed.includes(c.entryId) ? companionEntry(deps.inventory, c.entryId) : undefined;
+      // A value for an entry nobody named, or for an entry of the wrong kind (a public value must never reach a secret
+      // entry by accident, nor a secret a variable, which GitHub shows in clear text).
+      if (!found || found.kind !== (c.kind ?? "secret")) {
         // The provider returned a value for an entry nobody named: undo what was created, write nothing.
         if (externalId && externalId !== secret.externalId && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
         throw new IssuanceError("Der Anbieter lieferte einen Begleitwert fuer einen nicht benannten Eintrag. Nichts wurde geschrieben.");
       }
-      companions.push({ entryId: c.entryId, value: c.value, snapshot: companionSnapshot(target) });
+      companions.push({ entryId: c.entryId, kind: found.kind, value: c.value, snapshot: companionSnapshot(found.entry) });
     }
   }
 
@@ -174,12 +186,14 @@ export async function prepareIssuance(
     }
   }
   for (const c of companions) {
-    const target = deps.inventory.getSecret(c.entryId)!;
+    const target = companionEntry(deps.inventory, c.entryId)!.entry;
     const targets = target.places.map(describePlace);
-    companionSummaries.push({ entryId: c.entryId, name: target.name, targets, fingerprint: fingerprintOf(c.value) });
+    companionSummaries.push({ entryId: c.entryId, ...(c.kind === "variable" ? { kind: "variable" as const } : {}), name: target.name, targets, fingerprint: fingerprintOf(c.value) });
     for (const place of target.places) {
       try {
-        await deps.github.publicKey(placeToTarget(deps.owner, place));
+        // A variable is written with the same right as a secret but through another endpoint: reading it proves access.
+        if (c.kind === "variable") await deps.github.listVariables(placeToTarget(deps.owner, place));
+        else await deps.github.publicKey(placeToTarget(deps.owner, place));
         checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts erreichbar mit Schreibrecht: ${describePlace(place)}`, status: "pass" });
       } catch (err) {
         checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts nicht erreichbar: ${describePlace(place)}`, status: "fail", detail: (err as Error).message });
@@ -302,24 +316,26 @@ async function commitIssuanceOnce(
   if (missing.length > 0) throw new IssuanceError(`Nicht alle Pruefpunkte bestaetigt: ${missing.map((m) => m.id).join(", ")}`);
 
   // Companions only go to the entries the provider named, and only while their places are what the review showed.
-  const companionEntries: { entry: SecretEntry; value: SecretValue }[] = [];
+  const companionEntries: { entry: SecretEntry | VariableEntry; kind: "secret" | "variable"; value: SecretValue }[] = [];
   for (const c of pending.companions) {
-    const entry = deps.inventory.getSecret(c.entryId);
-    if (!entry || companionSnapshot(entry) !== c.snapshot) {
+    const found = companionEntry(deps.inventory, c.entryId);
+    const entry = found?.entry;
+    if (!entry || found.kind !== c.kind || companionSnapshot(entry) !== c.snapshot) {
       await discardIssuanceNow(pending, deps, { by: confirmation.by, why: "stale" });
       throw new StaleIssuanceError();
     }
-    companionEntries.push({ entry, value: c.value });
+    companionEntries.push({ entry, kind: c.kind, value: c.value });
   }
 
   const outcomes: PlaceOutcome[] = [];
   const writes = [
-    ...secret.places.map((place) => ({ place, name: place.name ?? secret.name, label: describePlace(place), value: pending.value })),
-    ...companionEntries.flatMap(({ entry, value }) => entry.places.map((place) => ({ place, name: place.name ?? entry.name, label: `${entry.name}: ${describePlace(place)}`, value }))),
+    ...secret.places.map((place) => ({ place, name: place.name ?? secret.name, label: describePlace(place), value: pending.value, variable: false })),
+    ...companionEntries.flatMap(({ entry, kind, value }) => entry.places.map((place) => ({ place, name: place.name ?? entry.name, label: `${entry.name}: ${describePlace(place)}`, value, variable: kind === "variable" }))),
   ];
   for (const w of writes) {
     try {
-      const outcome = await deps.github.putSecret(placeToTarget(deps.owner, w.place), w.name, w.value);
+      const target = placeToTarget(deps.owner, w.place);
+      const outcome = w.variable ? await deps.github.putVariable(target, w.name, w.value.reveal()) : await deps.github.putSecret(target, w.name, w.value);
       outcomes.push({ place: w.label, outcome });
     } catch (err) {
       outcomes.push({ place: w.label, outcome: "failed", error: (err as Error).message });
@@ -335,7 +351,9 @@ async function commitIssuanceOnce(
   for (const w of writes) {
     const { place, label } = w;
     try {
-      const live = (await deps.github.listSecrets(placeToTarget(deps.owner, place))).find((s) => s.name === w.name);
+      const live = w.variable
+        ? (await deps.github.listVariables(placeToTarget(deps.owner, place))).find((s) => s.name === w.name && s.value === w.value.reveal())
+        : (await deps.github.listSecrets(placeToTarget(deps.owner, place))).find((s) => s.name === w.name);
       const fresh = live !== undefined && Date.parse(live.updatedAt) >= since;
       pending.report.checks.push({ id: `written:${label}`, label: `In GitHub geschrieben: ${label}`, status: fresh ? "pass" : "warn", ...(live ? { actual: `geaendert ${live.updatedAt}` } : { detail: "Name nicht gefunden" }) });
     } catch (err) {
@@ -369,13 +387,18 @@ async function commitIssuanceOnce(
       ...(unknownExpiry ? { expiry: "unknown" as const } : {}),
       ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
     });
-    for (const { entry } of companionEntries) {
+    for (const { entry, kind, value } of companionEntries) {
+      if (kind === "variable") {
+        // The expected value of the variable is the new public value, so the next comparison with GitHub is in sync.
+        deps.inventory.patchVariable(entry.id, { value: value.reveal() });
+        continue;
+      }
       deps.inventory.patchSecret(entry.id, {
         rotatedAt: day,
         verifiedAt: day,
         verifiedBy: confirmation.by,
         // An entry that never expires keeps no expiry date.
-        ...(entry.expiry === "none" ? {} : { expires: pending.newExpires }),
+        ...((entry as SecretEntry).expiry === "none" ? {} : { expires: pending.newExpires }),
         ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
       });
     }

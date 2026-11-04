@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { supabaseKeyName, supabaseProviders } from "../src/supabase.js";
+import { DB_URL_TEMPLATE_DEFAULT, buildDbUrl, supabaseKeyName, supabaseProviders } from "../src/supabase.js";
 import { ProviderError } from "../src/http.js";
 import { CONN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, secretEntry, verifyCtx } from "./helpers.js";
 
@@ -127,15 +127,96 @@ describe("supabase-db-password", () => {
     const items = p.reviewChecklist!(secretEntry({ stage: "staging", params: { projectRef: "abc" } }));
     expect(items.join(" ")).toContain("sofort ersetzt");
   });
-  it("preflight warns when the project is paused and passes when healthy", async () => {
+  it("preflight fails when the project is paused (nothing is changed) and passes when healthy", async () => {
     const f = () => routeFetch({ url: "/v1/projects", reply: { body: [{ id: "abc", name: "demo-staging", status: "ACTIVE_HEALTHY" }, { id: "def", name: "demo-prod", status: "INACTIVE" }] } });
     const pctx = (fetch: typeof fetch, params: Record<string, unknown>) => ({ params, stage: "staging" as const, connections: connections("supabase"), fetch, secret: secretEntry({ stage: "staging" }), now: new Date("2026-11-01T10:00:00Z") });
     const ok = await p.preflight!(pctx(f().fetch, { projectRef: "abc" }));
     expect(ok.findings.every((x) => x.level === "ok")).toBe(true);
     const paused = await p.preflight!(pctx(f().fetch, { projectRef: "def" }));
-    expect(paused.findings.find((x) => x.id === "health")).toMatchObject({ level: "warn" });
+    expect(paused.findings.find((x) => x.id === "health")).toMatchObject({ level: "fail" });
+    expect(paused.findings.find((x) => x.id === "health")!.label).toContain("erst das Projekt starten");
     const missing = await p.preflight!(pctx(f().fetch, { projectRef: "zzz" }));
     expect(missing.findings.find((x) => x.id === "project")).toMatchObject({ level: "fail" });
+  });
+
+  describe("connection URL companion", () => {
+    const withUrl = { projectRef: "abc", dbUrlTarget: "sb-db-url", region: "eu-central-1" };
+    it("names the companion parameter and declares template and region", () => {
+      expect(p.companionParams).toEqual(["dbUrlTarget"]);
+      expect(p.params!.find((s) => s.key === "urlTemplate")).toMatchObject({ required: false, defaultValue: DB_URL_TEMPLATE_DEFAULT });
+      expect(p.params!.find((s) => s.key === "dbUrlTarget")).toMatchObject({ required: false });
+    });
+    it("returns no companion without dbUrlTarget", async () => {
+      expect((await run(mockFetch({ body: {} }))).companions).toBeUndefined();
+    });
+    it("builds the default pooler URL with the new password as companion", async () => {
+      const m = mockFetch({ body: {} });
+      const r = await run(m, withUrl);
+      const password = r.value.reveal();
+      expect(r.companions).toHaveLength(1);
+      expect(r.companions![0]).toMatchObject({ entryId: "sb-db-url" });
+      expect(r.companions![0]!.kind).toBeUndefined();
+      expect(r.companions![0]!.value.reveal()).toBe(`postgresql://postgres.abc:${password}@aws-0-eu-central-1.pooler.supabase.com:6543/postgres`);
+      expect((JSON.parse(m.calls[0]!.body!) as { password: string }).password).toBe(password);
+    });
+    it("honours a custom template", async () => {
+      const r = await run(mockFetch({ body: {} }), { projectRef: "abc", dbUrlTarget: "u", urlTemplate: "postgres://app:{{password}}@db.example.test:5432/{{ref}}" });
+      expect(r.companions![0]!.value.reveal()).toBe(`postgres://app:${r.value.reveal()}@db.example.test:5432/abc`);
+    });
+    it("percent-encodes the password in the URL", () => {
+      const url = buildDbUrl("t", { region: "us-east-1" }, "abc", "p@ss:w/rd#1 %");
+      expect(url).toBe("postgresql://postgres.abc:p%40ss%3Aw%2Frd%231%20%25@aws-0-us-east-1.pooler.supabase.com:6543/postgres");
+      expect(new URL(url).password).toBe("p%40ss%3Aw%2Frd%231%20%25");
+    });
+    it("rejects an unusable template or a missing region before any API call", async () => {
+      const bad: Record<string, unknown>[] = [
+        { ...withUrl, urlTemplate: "https://x/{{password}}" },
+        { ...withUrl, urlTemplate: "postgresql://u@h/db" },
+        { ...withUrl, urlTemplate: "postgresql://u:{{password}}@h/{{secret}}" },
+        { projectRef: "abc", dbUrlTarget: "u" },
+        { ...withUrl, region: "EU/../x" },
+      ];
+      for (const params of bad) {
+        const m = mockFetch({ body: {} });
+        await expect(run(m, params)).rejects.toThrow(ProviderError);
+        expect(m.calls).toHaveLength(0);
+      }
+    });
+    it("a region is not needed when the template does not use it", async () => {
+      const r = await run(mockFetch({ body: {} }), { projectRef: "abc", dbUrlTarget: "u", urlTemplate: "postgresql://postgres:{{password}}@h.example.test/postgres" });
+      expect(r.companions).toHaveLength(1);
+    });
+    it("a failed API call returns no companion and no URL in the error", async () => {
+      const m = mockFetch({ status: 422, body: "bad" });
+      const err = await run(m, withUrl).catch((e: unknown) => e as Error);
+      expect(err).toBeInstanceOf(ProviderError);
+      const sent = (JSON.parse(m.calls[0]!.body!) as { password: string }).password;
+      expect(err.message).not.toContain(sent);
+    });
+    it("review checklist names the URL entry", () => {
+      const items = p.reviewChecklist!(secretEntry({ stage: "staging", params: withUrl })).join(" | ");
+      expect(items).toContain("sb-db-url");
+      expect(items).toContain("sofort ersetzt");
+    });
+  });
+
+  describe("paused project", () => {
+    for (const [status, body] of [[400, "Project is paused"], [409, JSON.stringify({ message: "project is INACTIVE" })], [422, "Project not active"]] as const) {
+      it(`HTTP ${status} says to start the project first and that nothing changed`, async () => {
+        const m = mockFetch({ status, body });
+        const err = await run(m, { projectRef: "abc", dbUrlTarget: "u", region: "eu-central-1" }).catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(ProviderError);
+        expect(err.message).toContain("erst das Projekt starten");
+        expect(err.message).toContain("nicht geaendert");
+        expect((err as ProviderError).status).toBe(status);
+        const sent = (JSON.parse(m.calls[0]!.body!) as { password: string }).password;
+        expect(err.message).not.toContain(sent);
+      });
+    }
+    it("a 401 stays a permission hint even if the text mentions a paused project", async () => {
+      const err = await run(mockFetch({ status: 401, body: "unauthorized paused" })).catch((e: unknown) => e as Error);
+      expect(err.message).toMatch(/database_config_write/);
+    });
   });
 });
 
@@ -145,4 +226,5 @@ describe("supabaseKeyName", () => {
     expect(supabaseKeyName("2026-key")).toBe("_2026_key");
     expect(supabaseKeyName("--A b--")).toBe("a_b");
   });
+
 });

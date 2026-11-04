@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { baseUrl } from "../src/grafana.js";
 import { probeWithValue } from "../src/checks.js";
 import { callWithToken } from "../src/http.js";
-import { grafanaProvider as p } from "../src/grafana.js";
+import { grafanaAccessPolicyProvider as policy, grafanaProvider as p } from "../src/grafana.js";
 import { ProviderError } from "../src/http.js";
-import { CONN_TOKEN, ISSUED, LEAK, connections, issueCtx, mockFetch, revokeCtx, verifyCtx } from "./helpers.js";
+import { CONN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, secretEntry, verifyCtx } from "./helpers.js";
 
 const params = { baseUrl: "https://example.grafana.net/", serviceAccountId: 7 };
 
@@ -107,5 +107,91 @@ describe("F4/N8: redirects are never followed", () => {
     expect(r.status).toBe(307);
     expect(m.calls[0]!.redirect).toBe("manual");
     expect(m.calls).toHaveLength(1);
+  });
+});
+
+describe("grafana-access-policy-token", () => {
+  const pp = { region: "eu", accessPolicyId: "pol-1" };
+  const conns = { conns: ["grafana-cloud"] };
+  it("is automatic and uses the grafana-cloud connection", () => {
+    expect(policy).toMatchObject({ kind: "automatic", connection: "grafana-cloud" });
+    expect(policy.params!.find((s) => s.key === "accessPolicyId")).toMatchObject({ required: true, discover: "grafana.accessPolicy" });
+    expect(policy.params!.find((s) => s.key === "region")).toMatchObject({ required: true });
+  });
+  it("creates a token with name and expiry (default 90 days) at the fixed Grafana host", async () => {
+    const m = mockFetch({ body: { id: "tok-9", token: ISSUED } });
+    const r = await policy.issue!(issueCtx(m.fetch, pp, conns));
+    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/tokens?region=eu", method: "POST" });
+    expect(m.calls[0]!.headers).toMatchObject({ Authorization: `Bearer ${CONN_TOKEN}`, "Content-Type": "application/json" });
+    expect(JSON.parse(m.calls[0]!.body!)).toEqual({ accessPolicyId: "pol-1", name: "test-secret-2026-11-01", displayName: "test-secret-2026-11-01", expiresAt: "2027-01-30T10:00:00Z" });
+    expect(r.value.reveal()).toBe(ISSUED);
+    expect(r.externalId).toBe("tok-9");
+    expect(r.expiresAt).toBe("2027-01-30T10:00:00Z");
+  });
+  it("uses ttlDays when set", async () => {
+    const m = mockFetch({ body: { id: "t", token: ISSUED } });
+    const r = await policy.issue!(issueCtx(m.fetch, pp, { ...conns, ttlDays: 30 }));
+    expect(JSON.parse(m.calls[0]!.body!).expiresAt).toBe("2026-12-01T10:00:00Z");
+    expect(r.expiresAt).toBe("2026-12-01T10:00:00Z");
+  });
+  it("revokes via DELETE with the region", async () => {
+    const m = mockFetch({ status: 204 });
+    await policy.revoke!(revokeCtx(m.fetch, pp, "tok-9", ["grafana-cloud"]));
+    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/tokens/tok-9?region=eu", method: "DELETE" });
+  });
+  it("revoke is idempotent on 404 but not on 403", async () => {
+    await expect(policy.revoke!(revokeCtx(mockFetch({ status: 404, body: "gone" }).fetch, pp, "t", ["grafana-cloud"]))).resolves.toBeUndefined();
+    await expect(policy.revoke!(revokeCtx(mockFetch({ status: 403, body: "no" }).fetch, pp, "t", ["grafana-cloud"]))).rejects.toThrow(ProviderError);
+  });
+  it("discovers access policies of the region", async () => {
+    const m = mockFetch({ body: { items: [{ id: "pol-1", name: "ci", displayName: "CI shipper", scopes: ["logs:write", "metrics:write"] }, { name: "no-id" }] } });
+    const opts = await policy.discover!("grafana.accessPolicy", { connections: connections("grafana-cloud"), fetch: m.fetch, params: { region: "eu" }, hint: { repos: [] } });
+    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/accesspolicies?region=eu", method: "GET" });
+    expect(opts).toEqual([{ value: "pol-1", label: "CI shipper", detail: "logs:write, metrics:write" }]);
+  });
+  it("discovery needs the region and rejects other kinds", async () => {
+    const ctx = { connections: connections("grafana-cloud"), fetch: mockFetch().fetch, params: {}, hint: { repos: [] } };
+    await expect(policy.discover!("grafana.accessPolicy", ctx)).rejects.toThrow();
+    await expect(policy.discover!("other", ctx)).rejects.toThrow();
+  });
+  it("rejects a region that could change the request", async () => {
+    for (const region of ["eu&x=1", "EU", "a/b", "", "e"]) await expect(policy.issue!(issueCtx(mockFetch().fetch, { ...pp, region }, conns))).rejects.toThrow(ProviderError);
+  });
+  it("error responses carry no token values", async () => {
+    const m = mockFetch({ status: 403, body: LEAK });
+    const err = await policy.issue!(issueCtx(m.fetch, pp, conns)).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.message).not.toContain(CONN_TOKEN);
+    expect(err.message).not.toContain(ISSUED);
+  });
+  it("an answer without token or id is an error", async () => {
+    await expect(policy.issue!(issueCtx(mockFetch({ body: { id: "x" } }).fetch, pp, conns))).rejects.toThrow(/Unerwartete Antwort/);
+  });
+  it("verify: 200 passes, 401 fails, 403 and others are not checkable", async () => {
+    const run = (status: number) => policy.verify!(verifyCtx(mockFetch({ status, body: [] }).fetch, pp, { externalId: "t", expiresAt: "2027-01-30T10:00:00Z" }));
+    expect(byId(await run(200))["works"]).toBe("pass");
+    expect(byId(await run(401))["works"]).toBe("fail");
+    const c403 = await run(403);
+    expect(byId(c403)["works"]).toBe("info");
+    expect(c403.find((c) => c.id === "works")!.detail).toContain("nicht pruefbar");
+    expect(byId(await run(500))["works"]).toBe("info");
+    expectNoLeak(await run(401));
+  });
+  it("preflight finds the policy, fails for an unknown one and warns on an empty list", async () => {
+    const pctx = (fetch: typeof globalThis.fetch, params: Record<string, unknown>) => ({ params, stage: "dev" as const, connections: connections("grafana-cloud"), fetch, secret: secretEntry() });
+    const list = { body: { items: [{ id: "pol-1", displayName: "CI shipper" }] } };
+    const ok = await policy.preflight!(pctx(routeFetch({ url: "/accesspolicies", reply: list }).fetch, pp));
+    expect(ok.findings).toEqual([expect.objectContaining({ id: "accessPolicy", level: "ok" })]);
+    const bad = await policy.preflight!(pctx(routeFetch({ url: "/accesspolicies", reply: list }).fetch, { ...pp, accessPolicyId: "nope" }));
+    expect(bad.findings[0]).toMatchObject({ level: "fail" });
+    const empty = await policy.preflight!(pctx(routeFetch({ url: "/accesspolicies", reply: { body: { items: [] } } }).fetch, pp));
+    expect(empty.findings[0]).toMatchObject({ level: "warn" });
+    const denied = await policy.preflight!(pctx(routeFetch({ url: "/accesspolicies", reply: { status: 403, body: "no" } }).fetch, pp));
+    expect(denied.findings[0]).toMatchObject({ level: "warn" });
+  });
+  it("review checklist names the policy and the default expiry", () => {
+    const items = policy.reviewChecklist!(secretEntry({ params: pp })).join(" | ");
+    expect(items).toContain("pol-1");
+    expect(items).toContain("90 Tage");
   });
 });
