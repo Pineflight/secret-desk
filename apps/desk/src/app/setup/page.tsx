@@ -71,11 +71,12 @@ export default function SetupPage() {
         <Card>
           <SectionLabel>{t("setup.github.title")}</SectionLabel>
           <p className="mt-3 text-sm text-muted-text">{t("setup.github.text")}</p>
-          <form className="mt-3 space-y-3" onSubmit={(e) => { e.preventDefault(); void previewGitHub.run().then((r) => { if (r) setCheck(r); else if (r === null) { setCreated(true); finish(); } }); }}>
+          {/* Deliberately no form element: the picker holds its own forms (sign-in, "Confirm access"), and nested forms submit each other. */}
+          <div className="mt-3 space-y-3">
             <TeamConfigPicker onChange={onPick} />
             {previewGitHub.error ? <Notice tone="danger">{previewGitHub.error.message}</Notice> : null}
-            <Button type="submit" loading={previewGitHub.pending} disabled={!selectionReady(selection, access)}>{selection?.createFile ? t("setup.github.create") : t("setup.github.preview")}</Button>
-          </form>
+            <Button loading={previewGitHub.pending} disabled={!selectionReady(selection, access)} onClick={() => void previewGitHub.run().then((r) => { if (r) setCheck(r); else if (r === null) { setCreated(true); finish(); } })}>{selection?.createFile ? t("setup.github.create") : t("setup.github.preview")}</Button>
+          </div>
           {check ? (
             <div className="mt-4 space-y-3">
               {check.state === "missing-remote" || !check.diff ? <Notice tone="warn">{t("setup.github.empty")}</Notice> : <SyncDiff diff={check.diff} />}
