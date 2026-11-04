@@ -117,6 +117,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Feld repo oder branch ist ungueltig.", "Field repo or branch is invalid."],
   ["Das Team-Repository ist nicht privat. Es wird nichts geschrieben.", "The team repository is not private. Nothing is written."],
   ["Der Token darf in das Team-Repository nicht schreiben (oder das Recht laesst sich nicht feststellen). Es wird nichts geschrieben.", "The token may not write to the team repository (or the permission cannot be established). Nothing is written."],
+  ["GitHub meldet fuer das Installations-Token kein Schreibrecht (permissions.push fehlt). Es wird nichts geschrieben.", "GitHub reports no write permission for the installation token (permissions.push is missing). Nothing is written."],
   ["Das Team-Repository ist nicht privat. Schieben ist gesperrt, bis es privat ist.", "The team repository is not private. Pushing is blocked until it is private."],
   ["Repository privat", "Repository is private"],
   ["Schieben erlaubt", "Push allowed"],

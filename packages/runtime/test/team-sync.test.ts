@@ -13,6 +13,7 @@ import {
   previewTeamText,
   pushTeamSync,
   setupTeamSync,
+  startupSyncLine,
   startupTeamSync,
   teamSyncStatus,
 } from "../src/team-sync.js";
@@ -643,5 +644,27 @@ describe("no token anywhere", () => {
     expect(seen(out)).not.toContain(TOKEN);
     expect(seen(out)).not.toContain("gh_main_token_made_up");
     void InventoryStore;
+  });
+});
+
+describe("startup log line", () => {
+  it("lists the ids of applied, pending changed and pending removed entries, never more", () => {
+    const empty = { added: [], changed: [], removed: [] };
+    const diff = { sections: { secrets: { added: [], changed: ["hmac-app"], removed: ["old-key"] }, variables: { added: [], changed: ["api-url"], removed: [] }, stages: empty, providers: empty, envTemplates: empty }, empty: false };
+    const line = startupSyncLine(["new-one"], diff);
+    expect(line).toBe("team sync startup: applied 1 new entries (new-one); pending for confirmation: 2 (hmac-app, api-url) changed, 1 (old-key) removed");
+    expect(startupSyncLine([], null)).toContain("0 changed, 0 removed");
+  });
+});
+
+describe("provider tokens in the leak scan", () => {
+  it("a team file containing the token of another connected provider is rejected without naming it", async () => {
+    const { rt } = await setup({ teamSync: "teamSync:\n  repo: acme/team-config\n  mode: pull-push\n" });
+    const providerToken = ["made", "up", "other", "provider", "token"].join("_");
+    rt.connections.session.set("some-provider", providerToken, null);
+    rt.inventory.addSecret({ id: "s1", name: "S_ONE", stage: "shared", service: "intern", provider: "random-hex", expiry: "none", description: providerToken, places: [{ repo: "app", scope: "repository" }] } as never);
+    const err = await planTeamPush(rt).catch((e: unknown) => e as Error);
+    expect((err as Error).message).toMatch(/Zugangs-Token/);
+    expect((err as Error).message).not.toContain(providerToken);
   });
 });

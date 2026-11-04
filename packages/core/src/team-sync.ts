@@ -69,8 +69,24 @@ export function assertTeamFileClean(text: string, forbidden: readonly string[] =
   }
   for (const f of forbidden) if (f.length >= 8 && text.includes(f)) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(text)) throw new TeamBundleError("Team-Datei enthaelt einen privaten Schluessel: wird nicht hochgeladen.");
-  if (/gh[pousr]_[A-Za-z0-9]{20,}/.test(text) || /github_pat_[A-Za-z0-9_]{20,}/.test(text)) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
+  if (TOKEN_SHAPES.some((re) => re.test(text))) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
 }
+
+/**
+ * Key formats secret-desk issues or stores, matched by shape (defense in depth next to the exact token texts passed to
+ * assertTeamFileClean). Prefixes are anchored so that plain words and identifiers do not match.
+ */
+export const TOKEN_SHAPES: readonly RegExp[] = [
+  /gh[pousr]_[A-Za-z0-9]{20,}/, // GitHub
+  /github_pat_[A-Za-z0-9_]{20,}/, // GitHub fine-grained
+  /(?<![A-Za-z0-9])[sr]k_(?:live_|test_)?[A-Za-z0-9]{20,}/, // Stripe secret/restricted, RevenueCat secret
+  /(?<![A-Za-z0-9])whsec_[A-Za-z0-9+/=]{16,}/, // Stripe webhook secret
+  /(?<![A-Za-z0-9])sbp_[A-Za-z0-9]{20,}/, // Supabase access token
+  /(?<![A-Za-z0-9])sk-(?:ant-)?[A-Za-z0-9_-]{20,}/, // OpenAI, Anthropic
+  /(?<![A-Za-z0-9_])re_(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{20,}/, // Resend
+  /(?<![A-Za-z0-9])cf(?:ut|k|at)_[A-Za-z0-9]{20,}/, // Cloudflare prefixed tokens
+  /(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{40}(?![A-Za-z0-9_-])/, // Cloudflare classic token shape (40 chars, mixed)
+];
 
 // ------------------------------------------------------------------------------------------------ Zustand (lokal)
 

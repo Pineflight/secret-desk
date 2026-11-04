@@ -26,7 +26,11 @@ class Fake {
   refs: string[] = [];
   deleted: string[] = [];
   validTokens = new Set<string>();
-  repo: { private: boolean; permissions?: { push: boolean } } = { private: true };
+  repo: { private: boolean; permissions?: { push: boolean } } = { private: true, permissions: { push: true } };
+  /** Expiry reported for minted installation tokens, and whether every mint returns a new token text. */
+  expiresAt = "2099-01-01T00:00:00Z";
+  uniqueTokens = false;
+  minted: string[] = [];
   writes: string[] = [];
   readonly fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
@@ -39,8 +43,10 @@ class Fake {
     if (/^\/app\/installations\/7\/access_tokens$/.test(url.pathname)) {
       this.tokenRequests.push({ path: url.pathname, body });
       if (this.accessTokensStatus !== 201) return j({ message: "The permissions requested are not granted to this installation." }, this.accessTokensStatus);
-      this.validTokens.add(INSTALL_TOKEN);
-      return j({ token: INSTALL_TOKEN, expires_at: "2099-01-01T00:00:00Z", permissions: this.granted, repositories: [{ name: "team-config" }] }, 201);
+      const token = this.uniqueTokens ? `${INSTALL_TOKEN}_${this.minted.length + 1}` : INSTALL_TOKEN;
+      this.minted.push(token);
+      this.validTokens.add(token);
+      return j({ token, expires_at: this.expiresAt, permissions: this.granted, repositories: [{ name: "team-config" }] }, 201);
     }
     if (!this.validTokens.has(bearer)) return j({ message: "Bad credentials" }, 401);
     if (url.pathname === "/repos/acme/team-config" && method === "GET") return j(this.repo);
@@ -253,7 +259,58 @@ async function pushOnce(rt: Runtime) {
   return pushTeamSync(rt, { confirm: true, expectLocalHash: plan.localHash, expectRemoteSha: plan.remoteSha }, t0);
 }
 
+describe("installation token expiry and refresh", () => {
+  it("a token that expires within a minute is replaced inside the same operation, never reused", async () => {
+    const fake = new Fake();
+    fake.uniqueTokens = true;
+    fake.expiresAt = new Date(Date.now() + 30_000).toISOString();
+    const { rt } = await setup({ auth: "app", fake });
+    await checkTeamSyncAccess(rt);
+    // The check makes several requests: each finds the cached token too close to expiry and mints a fresh one.
+    expect(fake.tokenRequests.length).toBeGreaterThan(1);
+    expect(new Set(fake.minted).size).toBe(fake.minted.length);
+    expect(fake.auth.filter((a) => a.startsWith(INSTALL_TOKEN))).toEqual(expect.arrayContaining([fake.minted[0], fake.minted[1]]));
+  });
+
+  it("an already expired token is not used for a request", async () => {
+    const fake = new Fake();
+    fake.uniqueTokens = true;
+    fake.expiresAt = new Date(Date.now() - 5_000).toISOString();
+    const { rt } = await setup({ auth: "app", fake });
+    await checkTeamSyncAccess(rt);
+    expect(fake.tokenRequests.length).toBeGreaterThan(1);
+  });
+
+  it("a token with a long life is minted once per operation", async () => {
+    const fake = new Fake();
+    fake.uniqueTokens = true;
+    const { rt } = await setup({ auth: "app", fake });
+    await checkTeamSyncAccess(rt);
+    expect(fake.tokenRequests).toHaveLength(1);
+  });
+
+  it("every minted token text is kept out of the team file, also the older ones of the operation", async () => {
+    const fake = new Fake();
+    fake.uniqueTokens = true;
+    fake.expiresAt = new Date(Date.now() + 30_000).toISOString();
+    const { rt } = await setup({ auth: "app", fake, teamSync: DIRECT });
+    rt.inventory.addSecret({ ...(ONE_SECRET as object), description: `${INSTALL_TOKEN}_1` } as never);
+    await expect(planTeamPush(rt)).rejects.toThrow(/Zugangs-Token/);
+  });
+});
+
 describe("push permission with a GitHub App", () => {
+  it("fails closed when GitHub reports no permissions.push for the repository (nothing is written)", async () => {
+    const fake = new Fake();
+    delete fake.repo.permissions;
+    const { rt } = await setup({ auth: "app", teamSync: DIRECT, fake });
+    rt.inventory.addSecret(ONE_SECRET);
+    await expect(pushOnce(rt)).rejects.toMatchObject({ code: "team_repo_no_push", message: expect.stringContaining("permissions.push") });
+    expect(fake.writes).toHaveLength(0);
+    const push = (await checkTeamSyncAccess(rt)).find((c) => c.id === "push");
+    expect(push).toMatchObject({ status: "fail" });
+  });
+
   it("succeeds on a private repository when the installation token was granted contents: write", async () => {
     const { rt, fake } = await setup({ auth: "app", teamSync: DIRECT });
     rt.inventory.addSecret(ONE_SECRET);

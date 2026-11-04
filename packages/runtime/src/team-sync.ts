@@ -317,7 +317,7 @@ export interface TeamPushPlan {
   targetBranch: string;
 }
 
-/** Every secret text the team file must never contain: own token, GitHub PAT, App private key and the installation token of this operation. */
+/** Every secret text the team file must never contain: own token, GitHub PAT, App private key, the tokens of every connected provider and the installation token of this operation. */
 async function teamTokenText(rt: Runtime, sess?: TeamSession): Promise<string[]> {
   const out: string[] = [];
   for (const id of [TEAM_SYNC_CONNECTION, GITHUB_CONNECTION, GITHUB_APP_KEY_CONNECTION]) {
@@ -326,6 +326,20 @@ async function teamTokenText(rt: Runtime, sess?: TeamSession): Promise<string[]>
     } catch {
       /* not connected */
     }
+  }
+  // Every other connected provider (vault, session, env, 1Password): read in memory, compared by the caller, never logged.
+  const known = new Set([TEAM_SYNC_CONNECTION, GITHUB_CONNECTION, GITHUB_APP_KEY_CONNECTION]);
+  try {
+    for (const id of await rt.connections.ids()) {
+      if (known.has(id)) continue;
+      try {
+        out.push((await rt.connections.token(id)).reveal());
+      } catch {
+        /* configured but not readable */
+      }
+    }
+  } catch {
+    /* an unreadable store lists nothing; the exact ids above and the shape patterns still apply */
   }
   if (sess) out.push(...sess.secrets());
   return out;
@@ -356,8 +370,9 @@ async function planWith(rt: Runtime, c: TeamSyncConfig, sess: TeamSession): Prom
 
 /**
  * Before any write: the team repository must be private and the token must be able to push. Fails closed, no override.
- * User tokens: GET /repos returns `permissions.push`. GitHub App installation tokens usually return no `permissions`; then the
- * permissions GitHub granted to the installation token (contents: write, pull_requests: write for pull-request mode) decide.
+ * GET /repos must return `permissions.push` for every token type, GitHub App installation tokens included; an absent field fails
+ * closed. For a GitHub App the granted installation permissions (contents: write, pull_requests: write for pull-request mode) must
+ * also match.
  */
 async function assertPushable(c: TeamSyncConfig, sess: TeamSession): Promise<void> {
   const [owner, name] = split(c.repo);
@@ -372,6 +387,8 @@ export function pushProblem(c: Pick<TeamSyncConfig, "push">, sess: Pick<TeamSess
   const noPush = new TeamSyncError("Der Token darf in das Team-Repository nicht schreiben (oder das Recht laesst sich nicht feststellen). Es wird nichts geschrieben.", "team_repo_no_push");
   if (info.permissions && info.permissions.push !== true) return noPush;
   if (sess.source === "github-app") {
+    // Fail closed: GitHub must report permissions.push for the installation token; absent means the right cannot be established.
+    if (!info.permissions) return new TeamSyncError("GitHub meldet fuer das Installations-Token kein Schreibrecht (permissions.push fehlt). Es wird nichts geschrieben.", "team_repo_no_push");
     const g = sess.granted();
     if (!g || g["contents"] !== "write" || (c.push.strategy === "pull-request" && g["pull_requests"] !== "write")) return noPush;
   } else if (!info.permissions) return noPush;
@@ -467,6 +484,13 @@ export function teamSyncFromEnv(env: NodeJS.ProcessEnv = process.env): Record<st
   return { repo, ...(env["SECRET_DESK_TEAM_PATH"]?.trim() ? { path: env["SECRET_DESK_TEAM_PATH"]!.trim() } : {}), ...(env["SECRET_DESK_TEAM_BRANCH"]?.trim() ? { branch: env["SECRET_DESK_TEAM_BRANCH"]!.trim() } : {}) };
 }
 
+/** The startup log line: ids (never values) of applied entries and of entries that stay pending for the portal preview. */
+export function startupSyncLine(applied: readonly string[], diff: BundleDiff | null | undefined): string {
+  const pending = (k: "changed" | "removed") => (diff ? Object.values(diff.sections).flatMap((x) => x[k]) : []);
+  const list = (ids: string[]) => `${ids.length}${ids.length ? ` (${ids.join(", ")})` : ""}`;
+  return `team sync startup: applied ${applied.length} new entries (${applied.join(", ")}); pending for confirmation: ${list(pending("changed"))} changed, ${list(pending("removed"))} removed`;
+}
+
 /**
  * Beim Start des Portals: Headless-Einrichtung aus der Umgebung (nur wenn noch nichts eingerichtet und das Inventar leer ist,
  * dann wird der Stand einmal uebernommen) und die Abfrage des Repositories bei pullOnStart. Fehler brechen den Start nie ab.
@@ -481,9 +505,7 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
         // Unattended: only entries that are new are applied. Changed or removed entries stay pending for the portal preview.
         if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) {
           const r = await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: "merge", onlyAdded: true });
-          const d = check.diff;
-          const count = (k: "changed" | "removed") => (d ? Object.values(d.sections).reduce((n, x) => n + x[k].length, 0) : 0);
-          console.info(`team sync startup: applied ${r.added.length} new entries (${r.added.join(", ")}); pending for confirmation: ${count("changed")} changed, ${count("removed")} removed`);
+          console.info(startupSyncLine(r.added, check.diff));
         }
       }
       return;

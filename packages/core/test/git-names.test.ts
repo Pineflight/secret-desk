@@ -11,8 +11,8 @@ describe("git name validators", () => {
     expect(isSafeRepoSegment("..")).toBe(false);
     expect(isSafeRepoSegment(".")).toBe(false);
     expect(isSafeRepoSegment("a/b")).toBe(false);
-    for (const p of ["", "..", "../x", "a/../b", "/a", "a//b", "a\\b", "a/./b", "a\nb"]) expect(isSafeContentPath(p), p).toBe(false);
-    for (const b of ["", "@", "..", "a..b", "a@{b", "-x", "a/", "/a", "a.lock", "a/.b", "a b", "a^b"]) expect(isValidBranchName(b), b).toBe(false);
+    for (const p of ["", "..", "../x", "a/../b", "/a", "a//b", "a\\b", "a/./b", "a\nb", "../..", "./.."]) expect(isSafeContentPath(p), p).toBe(false);
+    for (const b of ["", "@", "..", "a..b", "a@{b", "-x", "a/", "/a", "a.lock", "a/.b", "a b", "a^b", "../..", ".", "./x"]) expect(isValidBranchName(b), b).toBe(false);
   });
 });
 
@@ -21,6 +21,10 @@ describe("TeamSyncSchema", () => {
     expect(TeamSyncSchema.safeParse({ repo: "../.." }).success).toBe(false);
     expect(TeamSyncSchema.safeParse({ repo: "acme/." }).success).toBe(false);
     expect(TeamSyncSchema.safeParse({ repo: "acme/x", path: "../../x" }).success).toBe(false);
+    expect(TeamSyncSchema.safeParse({ repo: "acme/x", path: "../.." }).success).toBe(false);
+    expect(TeamSyncSchema.safeParse({ repo: "acme/x", branch: "../.." }).success).toBe(false);
+    expect(TeamSyncSchema.safeParse({ repo: "acme/x", branch: "." }).success).toBe(false);
+    expect(TeamSyncSchema.safeParse({ repo: "acme/x", push: { branch: "." } }).success).toBe(false);
     expect(TeamSyncSchema.safeParse({ repo: "acme/x", branch: "../x" }).success).toBe(false);
     expect(TeamSyncSchema.safeParse({ repo: "acme/x", push: { branch: "a/../b" } }).success).toBe(false);
   });
@@ -39,6 +43,9 @@ describe("GitHubClient input validation (fail closed, no request)", () => {
       () => gh.getContentFile("..", "r", "p", "main"),
       () => gh.getContentFile("o", ".", "p", "main"),
       () => gh.getContentFile("o", "r", "../x", "main"),
+      () => gh.getContentFile("o", "r", "../..", "main"),
+      () => gh.getContentFile("o", "r", "p", "../.."),
+      () => gh.getContentFile("o", "r", "p", "."),
       () => gh.getContentFile("o", "r", "p", "../main"),
       () => gh.putContentFile("o", "r", "a/../b", "main", "t", "m"),
       () => gh.putContentFile("o", "r", "p", "a/../b", "t", "m"),
