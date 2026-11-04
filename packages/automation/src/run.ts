@@ -414,7 +414,7 @@ class Runner {
     this.#loggedIn = true;
   }
 
-  /** A confirmation the provider may ask for (GitHub "Confirm access"): answered in the portal, or by the human in the browser window. */
+  /** A confirmation the provider may ask for (for example GitHub "Confirm access" or an identity verification): answered in the portal, or by the human in the browser window. */
   async #confirmAccess(spec: { flow: keyof typeof SUDO_FLOWS; until: Condition; timeoutSeconds?: number | undefined }, vars: Vars): Promise<void> {
     const flow = SUDO_FLOWS[spec.flow];
     const until = resolveCondition(spec.until, vars);
@@ -426,7 +426,11 @@ class Runner {
       this.#aborted();
       if (await conditionMet(this.driver, until).catch(() => false)) return;
       if (await sudoPageShown(this.driver, flow)) break;
-      if (Date.now() >= deadline) return this.fail("step", "Neither the expected page nor the confirmation page of the provider appeared.");
+      if (Date.now() >= deadline) {
+        // A flow that looks for fields (not for one known page) cannot tell a page it does not know from none: the human looks.
+        if (flow.discover) return this.#waitForHuman("pause", flow.humanHint, until);
+        return this.fail("step", "Neither the expected page nor the confirmation page of the provider appeared.");
+      }
       await new Promise((r) => setTimeout(r, pollMs));
     }
     if (!this.hooks.access) return this.#waitForHuman("pause", flow.humanHint, until);
@@ -443,6 +447,8 @@ class Runner {
     } catch (err) {
       if (!(err instanceof SudoError)) throw err;
       if (err.kind === "abort") return this.fail("abort", "Abgebrochen.");
+      // The page offers nothing this tool can fill in: the human finishes it in the browser window.
+      if (err.kind === "unrecognized") return this.#waitForHuman("pause", flow.humanHint, until);
       return this.fail(err.kind === "timeout" ? "timeout" : "step", err.message);
     }
     await this.driver.waitFor(until, waitMs, this.options.signal);

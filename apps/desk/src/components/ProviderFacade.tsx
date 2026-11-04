@@ -6,7 +6,7 @@ import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun";
 import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, signInButtonState, type FacadeInfo, type FacadeState } from "@/lib/facade";
+import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, signInButtonState, type FacadeInfo, type FacadeState, type SudoMethodId } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -52,6 +52,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
   const sendCode = useMutation(async (c: string) => api<FacadeState>("POST", `${base}/code`, { code: c }));
   const cancel = useMutation(async () => api<FacadeState>("POST", `${base}/cancel`));
   const confirm = useMutation(async (accept: boolean) => api<FacadeState>("POST", `${base}/confirm`, { accept }));
+  const sendAccess = useMutation(async (body: { method: SudoMethodId; code?: string; password?: string }) => api<FacadeState>("POST", `${base}/access`, body));
 
   // Pick up a run that is already going (the page was reloaded).
   useEffect(() => {
@@ -180,6 +181,8 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
           onCode={(c) => void sendCode.run(c).then((s) => s && setState(s))}
           confirmPending={confirm.pending}
           onConfirm={(accept) => void confirm.run(accept).then((s) => s && setState(s))}
+          accessPending={sendAccess.pending}
+          onAccess={(body) => void sendAccess.run(body).then((s) => s && setState(s))}
         />
         {failed && run.createdName ? <Notice tone="warn">{t("facade.createdKey", { name: run.createdName })}</Notice> : null}
         {failed && run.failure?.code === "project-unknown" ? (

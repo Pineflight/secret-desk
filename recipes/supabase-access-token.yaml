@@ -81,6 +81,12 @@ steps:
   - waitFor: { text: "Token summary" }
   - screenshot: formular-vorher
   - click: { role: button, name: "Create token", createsToken: true }
+  # The provider may ask to verify the identity (password or code) before it shows the key: answered in the portal.
+  # Passes at once when the key is shown. NOT VERIFIED: no verification was seen at this provider yet.
+  - confirmAccess:
+      flow: generic-verify
+      until: { visible: { css: "#scoped-access-token-value" } }
+      timeoutSeconds: 30
   - waitFor: { visible: { css: "#scoped-access-token-value" } }
 capture:
   token:

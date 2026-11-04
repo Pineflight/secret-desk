@@ -36,6 +36,12 @@ login:
       - fill: { css: 'input[name="username"] >> visible=true', value: "{{login.username}}" }
       - fill: { css: 'input[name="password"] >> visible=true', value: "{{login.password}}" }
       - click: { css: 'input[name="signInSubmitButton"] >> visible=true' }
+    # not verified: the one-time code step of a Cognito hosted page (an account with multi-factor authentication); the field names
+    # are Cognito's usual ones and were not checked. Without such a step this block is never used.
+    mfa:
+      detect: { visible: { css: 'input[name="confirmationCode"]:visible, input[name="totpCode"]:visible, input[autocomplete="one-time-code"]:visible' } }
+      field: { css: 'input[name="confirmationCode"]:visible, input[name="totpCode"]:visible, input[autocomplete="one-time-code"]:visible' }
+      submit: { css: 'input[name="confirm"]:visible, button[type="submit"]:visible' }
     # not verified: Cognito's usual wording.
     failure:
       - detect: { text: "Incorrect username or password" }
@@ -48,6 +54,12 @@ steps:
   - select: { css: "#expiry", value: "{{expiry}}" }
   - screenshot: formular-vorher
   - click: { role: button, name: "Generate API Key", createsToken: true }
+  # The provider may ask to verify the identity (password or code) before it shows the key: answered in the portal.
+  # Passes at once when the key is shown. NOT VERIFIED: no verification was seen at this provider yet.
+  - confirmAccess:
+      flow: generic-verify
+      until: { visible: { css: ".copy-content" } }
+      timeoutSeconds: 30
   - waitFor: { visible: { css: ".copy-content" } }
 capture:
   token:

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SelectorSchema, selectorProblem, selectorShape, type Selector } from "./selector.js";
+import { SUDO_FLOW_IDS } from "./sudo.js";
 import { KNOWN_VARS, LOGIN_VARS, placeholdersOf } from "./template.js";
 
 const Regex = z.string().refine(
@@ -166,13 +167,13 @@ const stepVariants = {
     })
     .strict(),
   /**
-   * The provider may ask to confirm access here (GitHub "Confirm access"). Runs once the page is shown; the human answers in the
+   * The provider may ask to confirm access here (GitHub "Confirm access", Stripe "Verification required", or any verification with the generic flow). Runs once the page is shown; the human answers in the
    * portal (see sudo.ts). `until` holds when the page the recipe wants is there, which also ends the step when no confirmation
    * was asked. A run without a portal to answer in waits for the human in the browser window instead.
    */
   confirmAccess: z
     .object({
-      confirmAccess: z.object({ flow: z.enum(["github-sudo"]), until: ConditionSchema, timeoutSeconds: z.number().positive().max(3600).optional() }).strict(),
+      confirmAccess: z.object({ flow: z.enum(SUDO_FLOW_IDS), until: ConditionSchema, timeoutSeconds: z.number().positive().max(3600).optional() }).strict(),
       when: When,
     })
     .strict(),
