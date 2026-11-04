@@ -14,6 +14,7 @@ import {
   type PreflightResult,
   type Provider,
   type StageKind,
+  stripeKeyCarriesAccount,
 } from "@secret-desk/core";
 import { check, isRecord, probeWithConnection, sameSet, step, strings } from "./checks.js";
 import { unknownKind } from "./discover.js";
@@ -79,11 +80,19 @@ async function connectionOf(ctx: { params: Record<string, unknown>; connections:
   return "stripe";
 }
 
-/** The account id the connection's key belongs to (`GET /v1/account`). */
-async function connectionAccount(ctx: CallContext, connection: string): Promise<string> {
-  const res = await callWithToken<{ id?: string }>(ID, ctx, connection, ACCOUNT_API, { method: "GET" });
-  if (!res || typeof res.id !== "string") throw badResponse(ID);
-  return res.id;
+/**
+ * The account id the connection's key belongs to (`GET /v1/account`). A restricted key without account read access gets
+ * 403 there; then the key id itself is compared with the wanted account (`stripeKeyCarriesAccount`), never guessed.
+ */
+async function connectionAccount(ctx: CallContext, connection: string, want?: string): Promise<string> {
+  try {
+    const res = await callWithToken<{ id?: string }>(ID, ctx, connection, ACCOUNT_API, { method: "GET" });
+    if (!res || typeof res.id !== "string") throw badResponse(ID);
+    return res.id;
+  } catch (err) {
+    if (want && err instanceof ProviderError && err.status === 403 && stripeKeyCarriesAccount((await ctx.connections.token(connection)).reveal(), want)) return want;
+    throw err;
+  }
 }
 
 function accountMismatchText(connection: string, want: string, have: string): string {
@@ -100,7 +109,7 @@ async function preflightStripe(ctx: PreflightContext): Promise<PreflightResult> 
   const account = accountOf(ctx.params);
   if (!account) return { resource: null, findings: [] };
   const connection = await connectionOf(ctx, contextKind(ctx));
-  const have = await connectionAccount(ctx, connection);
+  const have = await connectionAccount(ctx, connection, account);
   if (have !== account) return { resource: `Stripe-Konto ${account}`, findings: [{ id: "account", level: "fail", label: "Die Verbindung gehoert zu einem anderen Stripe-Konto", detail: accountMismatchText(connection, account, have) }] };
   return { resource: `Stripe-Konto ${account}`, findings: [{ id: "account", level: "ok", label: `Die Verbindung ${connection} gehoert zum Stripe-Konto ${account}` }] };
 }
@@ -120,7 +129,7 @@ export const stripeWebhookProvider: Provider = {
     // The mistake this guards against: a webhook created in the wrong Stripe account. Refuse before anything is created.
     const account = accountOf(ctx.params);
     if (account) {
-      const have = await connectionAccount(ctx, connection);
+      const have = await connectionAccount(ctx, connection, account);
       if (have !== account) throw new ProviderError(ID, null, accountMismatchText(connection, account, have));
     }
     const form = new URLSearchParams();
@@ -141,7 +150,8 @@ export const stripeWebhookProvider: Provider = {
       const account = accountOf(ctx.params);
       if (account) {
         const a = await probeWithConnection(ID, ctx, connection, ACCOUNT_API);
-        const have = a.status >= 200 && a.status < 300 && isRecord(a.json) && typeof a.json["id"] === "string" ? a.json["id"] : undefined;
+        let have = a.status >= 200 && a.status < 300 && isRecord(a.json) && typeof a.json["id"] === "string" ? a.json["id"] : undefined;
+        if (have === undefined && a.status === 403 && stripeKeyCarriesAccount((await ctx.connections.token(connection)).reveal(), account)) have = account;
         accountChecks.push(
           have === undefined
             ? check("account", "Stripe-Konto", "warn", { expected: account, actual: `HTTP ${a.status}`, detail: "Konto der Verbindung nicht lesbar" })

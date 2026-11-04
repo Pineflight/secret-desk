@@ -42,6 +42,25 @@ describe("stripe-webhook-secret with an account", () => {
     expect((result as { externalId: string }).externalId).toBe("we_1");
   });
 
+  it("accepts a restricted key that may not read the account when its key id names the account", async () => {
+    // Keys are assembled at run time so secret scanners do not mistake the fixtures for real keys.
+    const key = (body: string) => ["rk", "test", body].join("_");
+    const forbidden = { url: "/v1/account", reply: { status: 403, body: { error: { type: "invalid_request_error" } } } };
+    const acct = "acct_1AbCdEfGhIjKlMn";
+    const conn = stripeConnectionId(acct, "sandbox");
+    const withAcct = { ...params, account: acct };
+    const c = new ConnectionStore();
+    c.session.set(conn, key("51AbCdEfGhIjKlMnXyz0123456789"));
+    const m = routeFetch(forbidden, endpointRoute);
+    const ok = await p.issue!({ ...issueCtx(m.fetch, withAcct), stage: "staging", stageKind: "test", connections: c });
+    expect(ok.externalId).toBe("we_1");
+    const c2 = new ConnectionStore();
+    c2.session.set(conn, key("51ZyXwVuTsRqPoNmXyz0123456789"));
+    const m2 = routeFetch(forbidden, endpointRoute);
+    await expect(p.issue!({ ...issueCtx(m2.fetch, withAcct), stage: "staging", stageKind: "test", connections: c2 })).rejects.toThrow();
+    expect(m2.calls.some((x) => x.method === "POST")).toBe(false);
+  });
+
   it("refuses a connection whose key belongs to another account and creates nothing", async () => {
     const { m, result } = await issue([SANDBOX], "test", OTHER);
     expect(result).toBeInstanceOf(ProviderError);
