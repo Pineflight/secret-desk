@@ -181,7 +181,7 @@ await (provider as BrowserProvider).attachScreenshots(secret.id, report.id);
 
 ## Confirming access (`confirmAccess`)
 
-The principle is that the human never leaves the portal: the remote browser viewer is a developer tool. Every confirmation a provider asks for in the middle of a recipe runs through a built-in flow (`packages/automation/src/sudo.ts`), triggered by the step `confirmAccess: { flow: github-sudo, until: <page the recipe wants> }`.
+The principle is that the human never leaves the portal: the remote browser viewer is a developer tool. Every confirmation a provider asks for in the middle of a recipe runs through a built-in flow (`packages/automation/src/sudo.ts`), triggered by the step `confirmAccess: { flow: <github-sudo | stripe-verify | generic-verify>, until: <page the recipe wants> }`. A flow is data (`SUDO_FLOWS`), not code: the run, the runtime and the portal know no provider. The portal asks the human for the ways the page offers (GitHub Mobile, a code, a password) and the answer is typed once. The step passes at once when `until` holds, so a recipe can put it after any click that *may* trigger a verification.
 
 **GitHub *Confirm access* (sudo mode).** Seen on the live page on 2026-11-03: heading *Confirm access*, *Signed in as @user*, the default view *Use GitHub Mobile*, links *Use your passkey*, *Use your authenticator app*, *Use your password*, the fields `sudo_app_otp` (button *Verify*) and `sudo_password` (button *Confirm*), and after *Use GitHub Mobile* the text *Enter the digits shown below* with a one or two digit number. The portal asks how to confirm:
 
@@ -190,5 +190,28 @@ The principle is that the human never leaves the portal: the remote browser view
 - **Password**: held in memory for the run only (like the facade password), typed into `sudo_password`, *Confirm*; never logged, the field is masked in screenshots.
 - **Passkey**: not possible in the remote browser and not offered.
 
+**Flow shape.** A flow lists its `methods`, how to `detect` the page (a text, plain or `/pattern/flags`, plus one visible element), what `present` keeps true while it is open (a text or elements), the `code` / `password` ways (field, submit buttons, optional `switchTo`), and optionally `mobile`, `prepare` (clicks made once before the first question), `discover` (ask only for the ways whose field is visible now and follow a page that moves on to a further factor), `keepPage` (do not reload between tries) and `maxAttempts`. A flow with `discover` that finds no field it knows ends with the kind `unrecognized`, and the recipe then waits for the human in the browser window (like `pause`) instead of failing.
+
+**Stripe *Verification required* (`stripe-verify`).** Seen live on 2026-11-04 after *Create key* in live mode: title *Verification required*, text *To make changes to your account, verify your identity using one of these options.*, two option cards *Use a security key* (preselected, a passkey: not possible in the remote browser and never chosen) and *Verify by email + more verification*, button *Continue*. The flow clicks the email option, then *Continue* (scoped to `[role=dialog]`), asks the portal for the code Stripe sent by email, types it and clicks the submit button; if the dialog goes on to a further factor ("more verification") it asks again (password or another code, up to 5 questions) without reloading. **Not verified** (guesses scoped to the dialog, each step waits for its element so a wrong guess fails visibly or hands over to the human): the code field (`input[autocomplete="one-time-code"]`, `input[inputmode="numeric"]` or a text input), the password field (`input[type="password"]`), the submit button (*Continue*, *Verify*, *Submit* or *Confirm*), the second factor itself, and whether the dialog stays open between the steps.
+
+**Any other provider (`generic-verify`).** For re-verification pages that are not known yet: the page shows a password field (`input[type="password"]`) or a one-time-code field (`input[autocomplete="one-time-code"]`, or a numeric input in a dialog) together with a verification-like text (`/verif|confirm|re-?enter|password|code|identity|two-factor|2FA/i`). The flow asks the portal for the matching way, types, clicks *Continue* / *Verify* / *Submit* / *Confirm* (dialog first, then the page) and asks again while the field stays (up to 5 questions). Nothing about it is verified live; a password field on a page that is not a verification would also match, so recipes use it only right after a click that may ask. In every screenshot of a recipe that uses `confirmAccess`, the password and code fields and every input inside a dialog are masked.
+
 A refused code or password and a missed GitHub Mobile approval ask the portal again (three tries). After a failed try the page is reloaded to get back to the first view. Not verified live: the place of the digits on the page (read from the text after the sentence), the buttons *Verify* and *Confirm*, and the view switches. A run without a portal to answer in (CLI, MCP) waits for the human in the browser window instead. Hooks: `RunHooks.access` (`request`, `onEvent`); timing options `RunOptions.access`.
 
+### Sign-in and verification per integration
+
+Sign-in MFA via the portal = the recipe has a `login.form.mfa` block (the portal asks for the one-time code). Mid-run verification = the `confirmAccess` step after the click that creates the key. "Verified live" says whether that part was seen working against the real site; everything marked "no" uses selectors that are guesses.
+
+| Recipe | Sign-in MFA via portal | Mid-run verification | Verified live |
+|---|---|---|---|
+| `github-fine-grained-token` | yes (two-factor pages) | `github-sudo` before and during create and delete | page text and field names seen 2026-11-03; flow not run end to end |
+| `stripe-restricted-key` | yes (`mfa` block, guessed selectors) | `generic-verify` before *Create key* (live, password), then `stripe-verify` and `generic-verify` after *Create key* (live, single-page form) | dialog seen 2026-11-04; everything after the email option no |
+| `anthropic-admin-key` | yes (email code) | `generic-verify` after the create click | sign-in code step yes (2026-11-04); verification no |
+| `anthropic-api-key` | shares the sign-in with `anthropic-admin-key` (same host; the recipe has no form of its own) | none | n/a |
+| `openai-admin-key` | yes (guessed selectors) | `generic-verify` after the create click | no |
+| `openai-api-key` | shares the sign-in with `openai-admin-key` (same host; no form of its own) | none | n/a |
+| `grafana-cloud-access-policy` | yes (guessed selectors) | `generic-verify` after the create click | no |
+| `revenuecat-secret-api-key` | yes (guessed selectors) | `generic-verify` after *Generate* | no |
+| `supabase-access-token` | yes (guessed selectors) | `generic-verify` after *Create token* | no |
+| `vesselapi-api-key` | yes (`mfa` block added, Cognito field names guessed) | `generic-verify` after *Generate API Key* | no |
+| `peecho-api-keys` | yes (`mfa` block added, guessed selectors; no one-time-code step was ever seen) | none (the recipe only reads) | no |

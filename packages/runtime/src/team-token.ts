@@ -21,6 +21,7 @@ import { GitHubClient, GitHubError, GitHubInputError, InventoryError, IssuanceEr
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry, RunAsk } from "./automation.js";
 import { credentialsFrom, methodFrom } from "./facade.js";
+import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 import {
   readTeamTokenRecord,
@@ -353,21 +354,7 @@ export function submitTeamTokenAccess(rt: Runtime, actor: Actor, body: Record<st
   requireHuman(actor, "Confirm access at GitHub");
   const ask = asked(rt);
   if (!waiting.access || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("GitHub is not waiting for a confirmation.");
-  const method = body["method"];
-  let answer: SudoAnswer;
-  if (method === "mobile") answer = { method };
-  else if (method === "code") {
-    const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
-    body["code"] = "";
-    if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
-    answer = { method, code };
-  } else if (method === "password") {
-    const password = typeof body["password"] === "string" ? body["password"] : "";
-    body["password"] = "";
-    if (!password || password.length > 1024 || /[\u0000-\u001f\u007f]/.test(password)) throw new InventoryError("The password is not valid.");
-    answer = { method, password };
-  } else throw new InventoryError("Field method: mobile, code or password.");
-  if (!ask.methods.includes(answer.method)) throw new InventoryError("This way to confirm is not offered.");
+  const answer = sudoAnswerFrom(body, ask.methods);
   waiting.access(answer);
   return rt.automation.state(RUN_KEY);
 }

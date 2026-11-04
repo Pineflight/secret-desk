@@ -6,7 +6,7 @@ import { InventoryError } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
 import { listConnections } from "../src/agent-api.js";
 import { checkConnection, tokenPrefixProblem } from "../src/index.js";
-import { getFacadeState, listFacades, startFacadeConnect, startFacadeSignIn } from "../src/facade.js";
+import { getFacadeState, listFacades, startFacadeConnect, startFacadeSignIn, submitFacadeAccess, cancelFacade } from "../src/facade.js";
 import { createRuntime } from "../src/runtime.js";
 
 const EMAIL = "typed.stripe@example.test";
@@ -19,6 +19,8 @@ const KEY_LIVE = ["rk", "live", "FAKEKEYFORTESTSONLY1234567890"].join("_");
 const human = { kind: "human", name: "alice" } as const;
 
 const CONTINUE = 'button "Continue" (exact)';
+const PAGE_SUBMIT = "css role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
+const CONFIRM_PW = "typed-confirmation-for-this-run";
 
 interface Site {
   signedIn: boolean;
@@ -27,6 +29,8 @@ interface Site {
   keyMade: string | null;
   /** Live mode: the dashboard asks for the password before the key is created. */
   passwordPrompt: boolean;
+  /** The password the fake dashboard accepts on its confirmation. */
+  confirmWith: string;
 }
 
 function driverFor(site: Site): FakeDriver {
@@ -74,7 +78,15 @@ function driverFor(site: Site): FakeDriver {
       if (e.action === "fill" && e.key === 'css input[type="search"]') drv.pageText.add("Webhook Endpoints, Event Destinations");
       if (e.action === "fill" && e.key === 'Feld "Name" (exact)') {
         site.keyMade = "named";
-        if (live && site.passwordPrompt) drv.visible.add('css input[type="password"]');
+        if (live && site.passwordPrompt) {
+          drv.visible.add('css input[type="password"]').add(PAGE_SUBMIT);
+          drv.pageText.add("Confirm your password");
+        }
+      }
+      if (e.action === "click" && e.key === PAGE_SUBMIT && drv.filled.get('css input[type="password"]') === site.confirmWith) {
+        drv.visible.delete('css input[type="password"]');
+        drv.visible.delete(PAGE_SUBMIT);
+        drv.pageText.delete("Confirm your password");
       }
       if (e.action === "click" && e.key === 'button "Create key"') {
         drv.pageText.add("Your new secret key");
@@ -89,7 +101,7 @@ function driverFor(site: Site): FakeDriver {
 
 async function setup(site: Partial<Site> = {}, opts: { vault?: boolean } = {}) {
   void opts;
-  const s: Site = { signedIn: false, keyAccount: ACCT, keyMade: null, passwordPrompt: false, ...site };
+  const s: Site = { signedIn: false, keyAccount: ACCT, keyMade: null, passwordPrompt: false, confirmWith: CONFIRM_PW, ...site };
   const dir = await mkdtemp(join(tmpdir(), "sd-facade-stripe-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   await writeFile(join(dir, "secret-desk.config.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
@@ -201,11 +213,33 @@ describe("facade: stripe per account and mode", () => {
     expect(JSON.stringify(end)).not.toContain(KEY_TEST);
   });
 
-  it("the live mode ends with a portal message when it needs a confirmation only the browser can give", async () => {
-    const { rt } = await setup({ signedIn: true, passwordPrompt: true });
+  it("the live mode asks the password confirmation in the portal, types it once and goes on", async () => {
+    const { rt, drivers } = await setup({ signedIn: true, passwordPrompt: true });
     startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    const waiting = getFacadeState(rt, human, "stripe");
+    expect(waiting).toMatchObject({ status: "waiting-human", ask: { type: "access", stage: "choose", methods: ["password"] } });
+    // A way the page does not offer, and a bad value, are refused without touching the run.
+    expect(() => submitFacadeAccess(rt, human, "stripe", { method: "mobile" })).toThrow(/not offered/);
+    expect(() => submitFacadeAccess(rt, human, "stripe", { method: "password", password: "" })).toThrow(/not valid/);
+    const typed = { method: "password", password: CONFIRM_PW };
+    submitFacadeAccess(rt, human, "stripe", typed);
+    expect(typed.password).toBe("");
     await until(() => finished(rt));
-    expect(getFacadeState(rt, human, "stripe")).toMatchObject({ status: "failed", failure: { code: "captcha" } });
+    const end = getFacadeState(rt, human, "stripe");
+    expect(end.status).toBe("done");
+    expect(JSON.stringify([waiting, end])).not.toContain(CONFIRM_PW);
+    expect(drivers.flatMap((d) => [...d.filled]).filter(([sel]) => sel === 'css input[type="password"]').map(([, v]) => v)).toContain(CONFIRM_PW);
+  });
+
+  it("a verification answer without a waiting question is refused, and cancelling ends a waiting run", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true });
+    expect(() => submitFacadeAccess(rt, human, "stripe", { method: "password", password: CONFIRM_PW })).toThrow(/not waiting/);
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    cancelFacade(rt, human, "stripe");
+    await until(() => finished(rt));
+    expect(getFacadeState(rt, human, "stripe").status).toBe("cancelled");
   });
 
   it("refuses missing or malformed inputs before any browser opens", async () => {

@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ApprovalNotice, CodePrompt, ConsentPrompt } from "@/components/RunPrompts";
+import { AccessPrompt, ApprovalNotice, CodePrompt, ConsentPrompt } from "@/components/RunPrompts";
 import { Icon } from "@/components/Icons";
 import { Notice, TextField } from "@/components/ui";
-import { IDP_NAMES, clock, elapsedSeconds, failureText, isRunning, methodsOf, needsPassword, remainingSeconds, stepsOf, type FacadeInfo, type FacadeMethodId, type FacadeState, type StepState } from "@/lib/facade";
+import { IDP_NAMES, clock, elapsedSeconds, failureText, isRunning, methodsOf, needsPassword, remainingSeconds, stepsOf, type FacadeInfo, type FacadeMethodId, type FacadeState, type StepState, type SudoMethodId } from "@/lib/facade";
 import { useI18n } from "@/lib/i18n";
 
 /**
@@ -96,7 +96,7 @@ export function SignInFields({ info, name, method, onMethod, email, onEmail, pas
 }
 
 /** What a run shows while it goes on and after it failed: steps, time, the question it asks the human, and the failure. */
-export function RunStatus({ run, name, method, now, signInOnly = false, codePending, onCode, confirmPending, onConfirm }: {
+export function RunStatus({ run, name, method, now, signInOnly = false, codePending, onCode, confirmPending, onConfirm, accessPending = false, onAccess }: {
   run: FacadeState;
   name: string;
   method: FacadeMethodId;
@@ -106,6 +106,9 @@ export function RunStatus({ run, name, method, now, signInOnly = false, codePend
   onCode: (code: string) => void;
   confirmPending: boolean;
   onConfirm: (accept: boolean) => void;
+  /** Runs that verify the identity in the middle (a password or a code): the answer goes to the run once. */
+  accessPending?: boolean;
+  onAccess?: (body: { method: SudoMethodId; code?: string; password?: string }) => void;
 }) {
   const { t, locale } = useI18n();
   const running = isRunning(run);
@@ -121,6 +124,7 @@ export function RunStatus({ run, name, method, now, signInOnly = false, codePend
       {running && run.needs === "mfa-code" ? <CodePrompt name={name} pending={codePending} onSend={onCode} /> : null}
       {running && run.needs === "approval" ? <ApprovalNotice name={name} number={run.detail} /> : null}
       {running && run.needs === "consent" ? <ConsentPrompt idp={IDP_NAMES[method]} name={name} scopes={run.detail} pending={confirmPending} onAnswer={onConfirm} /> : null}
+      {running && onAccess && run.ask?.type === "access" ? <AccessPrompt name={name} ask={run.ask} pending={accessPending} onSend={onAccess} /> : null}
       {failed && run.failure ? (
         <Notice tone={run.status === "cancelled" ? "info" : "danger"} {...(run.status === "cancelled" ? {} : { title: t("facade.failedTitle") })}>
           {failureText(run.failure, locale, t)}

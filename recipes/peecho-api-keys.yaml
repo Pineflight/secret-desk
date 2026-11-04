@@ -45,6 +45,12 @@ login:
       - fill: { css: 'input[type="email"] >> visible=true', value: "{{login.username}}" }
       - fill: { css: 'input[type="password"] >> visible=true', value: "{{login.password}}" }
       - click: { css: 'button[type="submit"] >> visible=true' }
+    # not verified: no one-time code step of this sign-in was ever seen; the selectors are the usual ones. Without such a step the
+    # sign-in is finished after the click above and this block is never used.
+    mfa:
+      detect: { visible: { css: 'input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]' } }
+      field: { css: 'input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]' }
+      submit: { css: 'button[type="submit"] >> visible=true' }
 steps:
   # The first page also waits for the sign-in. Two steps per page because a `goto` needs a fixed host.
   - goto: "https://www.peecho.com/dashboard"

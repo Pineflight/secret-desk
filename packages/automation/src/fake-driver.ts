@@ -89,7 +89,8 @@ export class FakeDriver implements BrowserDriver {
   }
 
   async hasText(text: string): Promise<boolean> {
-    return this.pageText.has(text);
+    const rx = textPattern(text);
+    return rx ? [...this.pageText].some((t) => rx.test(t)) : this.pageText.has(text);
   }
 
   async readText(sel: Selector): Promise<string> {

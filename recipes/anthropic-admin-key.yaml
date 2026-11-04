@@ -81,6 +81,12 @@ steps:
   - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
   - screenshot: formular-vorher
   - click: { css: "[role=dialog] button[type=submit]", createsToken: true }
+  # The provider may ask to verify the identity (password or code) before it shows the key: answered in the portal.
+  # Passes at once when the key is shown. NOT VERIFIED: no verification was seen at this provider yet.
+  - confirmAccess:
+      flow: generic-verify
+      until: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
+      timeoutSeconds: 30
   - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
 capture:
   token:
