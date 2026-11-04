@@ -74,9 +74,9 @@ function driverFor(site: Site): FakeDriver {
       }
       if (e.action === "click" && e.key === 'button "Create key"') {
         drv.pageText.add("Your new secret key");
-        drv.visible.add('css [data-text^="rk_"] >> visible=true >> nth=0');
-        drv.texts.set('css [data-text^="rk_"] >> visible=true >> nth=0', "rk_…");
-        drv.attributes.set('css [data-text^="rk_"] >> visible=true >> nth=0@data-text', live ? KEY_LIVE : KEY_TEST);
+        drv.visible.add('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]');
+        drv.texts.set('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]', "rk_…");
+        drv.attributes.set('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]@aria-label', live ? KEY_LIVE : KEY_TEST);
       }
     },
   });
