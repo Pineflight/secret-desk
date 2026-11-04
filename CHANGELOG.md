@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **R2 credentials use user tokens:** `cloudflare-r2-credentials` creates its token through `/user/tokens` like `cloudflare-token`; the integration's token gets 403 on the account-owned token endpoints.
 - **Cloudflare tokens over several zones without Zone Read:** `zones` accepts zone ids as well as names; ids are used without a lookup, so a connection token that may not read zones can still bind several zones.
 
 ### Added

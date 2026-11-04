@@ -8,7 +8,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `random-hex`, `random-base64`, `random-uuid` | automatic | none | locally |
 | `cloudflare-token` | automatic | `cloudflare` (token with *User > API Tokens > Edit*) | reference read, `expires_on` only from a third-party source |
 | `cloudflare-access-service-token` | automatic | `cloudflare` (same token, no extra permission) | documentation read, **not verified live** |
-| `cloudflare-r2-credentials` | automatic | `cloudflare` (token that may create account-owned API tokens) | documentation read, **not verified live** |
+| `cloudflare-r2-credentials` | automatic | `cloudflare` (token that may create API tokens) | documentation read, **not verified live** |
 | `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
 | `supabase-db-password` | automatic | `supabase` (token with *Database config: Write*) | documentation read, **not verified live** |
@@ -128,15 +128,17 @@ Zone-level groups (DNS, Zone Settings, Page Rules, Config Settings, Workers Rout
 
 ### Cloudflare R2 S3 credentials (access key ID and secret access key together)
 
-`cloudflare-r2-credentials` issues the S3 key pair for R2 from one API token. Cloudflare derives the S3 credentials from an API token: the **Access Key ID is the token id** and the **Secret Access Key is the SHA-256 (hex) of the token value**. The provider creates an account-owned token (`POST /accounts/<account>/tokens`) restricted to R2 and derives both values locally; the token value itself is never stored.
+Account-owned tokens are not used: the *Create additional tokens* connection token gets HTTP 403 (code 9109) on `/accounts/<id>/tokens` (seen live on 2026-11-04).
+
+`cloudflare-r2-credentials` issues the S3 key pair for R2 from one API token. Cloudflare derives the S3 credentials from an API token: the **Access Key ID is the token id** and the **Secret Access Key is the SHA-256 (hex) of the token value**. The provider creates a user token (`POST /user/tokens`, like `cloudflare-token`) restricted to R2 resources of the account and derives both values locally; the token value itself is never stored.
 
 - Attach it to **one** of the two entries. `value` says which half this entry receives (`secretAccessKey` or `accessKeyId`), `companionEntry` names the entry for the other half. Both are written in the same commit; the review lists the companion (name, targets, fingerprint, never the value). Every issuance creates a new token, so both entries change together. Two pairs (for example app storage and a Terraform state bucket) are two token entries, each with its own companion.
 - `access`: `read` (*Workers R2 Storage Bucket Item Read*), `write` (item read and write) or `admin` (account-level *Workers R2 Storage Read* and *Write*, also manages buckets). `buckets` limits read and write to `com.cloudflare.edge.r2.bucket.<account>_<jurisdiction>_<bucket>` resources; without it the account resource is used (all buckets). `admin` cannot be limited to buckets.
 - Expiry: `expires_on` is always set, from the entry's `ttlDays` (default 90).
-- Revoke deletes the token (`DELETE /accounts/<account>/tokens/<id>`; already gone counts as done).
+- Revoke deletes the token (`DELETE /user/tokens/<id>`; already gone counts as done).
 - Verify: the token is read through the connection (status, expiry). With a `bucket` and when the entry holds the secret access key, an S3 `ListObjectsV2` (`max-keys=1`) on the first bucket is signed with SigV4 (`node:crypto`, region `auto`, service `s3`) against `https://<account>.r2.cloudflarestorage.com` (`<account>.eu.r2...` for `eu`). Without a bucket only the token is checked: the token value is not available at verify time (the entry holds only its hash), so the planned `GET /accounts/<id>/r2/buckets` probe with the token itself is not possible.
 
-Not verified live: the permission group names, whether the connection may create account-owned tokens (it needs the account-level permission to edit API tokens; the *Create additional tokens* template is a user token), the `all buckets` resource form and the S3 derivation against a real bucket. The SigV4 signer is checked against the AWS test vector `get-vanilla`.
+Not verified live: the permission group names, the `all buckets` resource form and the S3 derivation against a real bucket. The SigV4 signer is checked against the AWS test vector `get-vanilla`.
 
 Parameters can be defaults of the integration (`integrationDefaults` in the inventory, only parameters marked `integrationDefault`: `accountId` for Cloudflare, `baseUrl` for Grafana). They apply when an entry does not set the parameter.
 `discover` lists resources of the connected integration read-only; the portal offers **one** suggestion at most (project name contains repository and stage; zone or domain name contains the repository; a single account) and never applies it by itself. Ambiguous or weak matches give no suggestion.

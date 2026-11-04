@@ -101,7 +101,12 @@ export function deriveS3Credentials(tokenId: string, tokenValue: string): { acce
   return { accessKeyId: tokenId, secretAccessKey: createHash("sha256").update(tokenValue).digest("hex") };
 }
 
-const tokensUrl = (accountId: string): string => `${CLOUDFLARE_API}/accounts/${seg(accountId)}/tokens`;
+/**
+ * User tokens (`/user/tokens`), like `cloudflare-token`: the integration's token (the "Create additional tokens" template)
+ * may create user tokens but gets 403 on the account-owned token endpoints (seen live on 2026-11-04). The account id still
+ * scopes the token's resources.
+ */
+const tokensUrl = (_accountId: string): string => `${CLOUDFLARE_API}/user/tokens`;
 
 function accessOf(params: Record<string, unknown>): Access {
   const a = requireString(ID, params, "access");
