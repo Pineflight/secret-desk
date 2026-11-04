@@ -35,7 +35,7 @@ function driverFor(site: Site): FakeDriver {
   let live = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['button "Reject all" (exact)', 'css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"'],
+    visible: ['button "Reject all" (exact)', 'button "Create restricted key" (exact)', 'css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"'],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
@@ -45,7 +45,8 @@ function driverFor(site: Site): FakeDriver {
             drv.url = "https://dashboard.stripe.com/login";
             drv.visible.add('css input[type="email"]');
           }
-        } else if (e.key.includes("/apikeys/create")) {
+        } else if (e.key.includes("/apikeys/create") || e.key.endsWith("/apikeys")) {
+          // Live starts at the key list ("Create restricted key" opens the flow); the fake shows the wizard right away.
           live = !e.key.includes("/test/");
           if (!site.signedIn) drv.url = "https://dashboard.stripe.com/login";
           else {
@@ -172,7 +173,7 @@ describe("facade: stripe per account and mode", () => {
     await until(() => finished(rt));
     expect(getFacadeState(rt, human, "stripe").result).toMatchObject({ connected: true, connectionId: `stripe:${ACCT}:live` });
     expect((await rt.connections.token(`stripe:${ACCT}:live`)).reveal()).toBe(KEY_LIVE);
-    expect(drivers.some((d) => d.calls.includes(`goto https://dashboard.stripe.com/${ACCT}/apikeys/create`))).toBe(true);
+    expect(drivers.some((d) => d.calls.includes(`goto https://dashboard.stripe.com/${ACCT}/apikeys`))).toBe(true);
     expect(String((getFacadeState(rt, human, "stripe").result as { keyName: string }).keyName)).toMatch(/^secret-desk-live-/);
   });
 
