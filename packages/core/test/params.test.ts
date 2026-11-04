@@ -60,24 +60,24 @@ describe("validateEntryParams", () => {
 
 describe("markSuggestions", () => {
   const opt = (label: string, value: string = label) => ({ value, label });
-  const staging = { repos: ["wake-miles"], stage: "staging", stageKind: "test" as const };
+  const staging = { repos: ["acme-app"], stage: "staging", stageKind: "test" as const };
   it("suggests exactly one clear match by repository and stage", () => {
-    const r = markSuggestions("supabase.project", [opt("wake-miles-staging"), opt("wake-miles-production"), opt("other-staging")], staging);
-    expect(r.suggested).toBe("wake-miles-staging");
+    const r = markSuggestions("supabase.project", [opt("acme-app-staging"), opt("acme-app-production"), opt("other-staging")], staging);
+    expect(r.suggested).toBe("acme-app-staging");
     expect(r.options.filter((o) => o.suggestedFor)).toHaveLength(1);
   });
   it("suggests nothing when ambiguous", () => {
-    const r = markSuggestions("supabase.project", [opt("wake-miles-staging"), opt("wake-miles-staging-2")], staging);
+    const r = markSuggestions("supabase.project", [opt("acme-app-staging"), opt("acme-app-staging-2")], staging);
     expect(r.suggested).toBeNull();
     expect(r.options.some((o) => o.suggestedFor)).toBe(false);
   });
   it("suggests nothing when none matches or the match is only weak or for another stage", () => {
     expect(markSuggestions("supabase.project", [opt("acme-staging")], staging).suggested).toBeNull();
-    expect(markSuggestions("supabase.project", [opt("wake-miles")], staging).suggested).toBeNull();
-    expect(markSuggestions("supabase.project", [opt("wake-miles-production")], staging).suggested).toBeNull();
+    expect(markSuggestions("supabase.project", [opt("acme-app")], staging).suggested).toBeNull();
+    expect(markSuggestions("supabase.project", [opt("acme-app-production")], staging).suggested).toBeNull();
   });
   it("zones match by repository only, accounts only when single, other kinds never", () => {
-    expect(markSuggestions("cloudflare.zone", [opt("wakemiles.com", "z1"), opt("pineflight.com", "z2")], staging).suggested).toBe("z1");
+    expect(markSuggestions("cloudflare.zone", [opt("acme-app.example.com", "z1"), opt("acme-org.example.com", "z2")], staging).suggested).toBe("z1");
     expect(markSuggestions("cloudflare.account", [opt("A", "1")], staging).suggested).toBe("1");
     expect(markSuggestions("cloudflare.account", [opt("A", "1"), opt("B", "2")], staging).suggested).toBeNull();
     expect(markSuggestions("cloudflare.permissionGroups", [opt("A")], staging).suggested).toBeNull();

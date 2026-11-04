@@ -9,7 +9,7 @@ import { PolicyError } from "../src/agent-api.js";
 import { cancelFacade, checkFacadeSession, getFacadeState, listFacades, startFacadeConnect, startFacadeSignIn, submitFacadeCode } from "../src/facade.js";
 import { createRuntime } from "../src/runtime.js";
 
-const EMAIL = "niklas.typed@example.test";
+const EMAIL = "alice.typed@example.test";
 const SIGN_IN_PW = "typed-value-for-this-run-only";
 const CODE = "135790";
 const KEY = "sk_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6";

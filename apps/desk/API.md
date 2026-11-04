@@ -87,13 +87,13 @@ Parameters are configuration (ids, addresses, permissions), never secret values;
 `ParamSpec`: `{ key, label, labelEn, type: "string"|"stringList"|"enum"|"url"|"integer", required, requiredWhen?: { key, equals }, help, helpEn, options?: [{ value, label, labelEn }], defaultValue?, discover?: kind, presets?: [{ id, label, labelEn, values, needs? }], integrationDefault?, min?, max? }`.
 Discovery kinds: `cloudflare.account`, `cloudflare.zone` (use `param.accountId`), `cloudflare.permissionGroups` (option `detail` is `account` or `zone`), `cloudflare.turnstileWidget` (needs `param.accountId`), `supabase.project`, `resend.domain`, `revenuecat.project`, `revenuecat.app` and `revenuecat.publicApiKey` (optional `param.projectId`; without it the apps of all projects), `grafana.serviceAccount` (needs `param.baseUrl`).
 
-Example `GET secrets/cf-deploy-wake-miles-staging/params` (abridged):
+Example `GET secrets/cf-deploy-acme-app-staging/params` (abridged):
 
 ```json
-{ "secretId": "cf-deploy-wake-miles-staging", "provider": "cloudflare-token", "connection": "cloudflare", "connected": true,
+{ "secretId": "cf-deploy-acme-app-staging", "provider": "cloudflare-token", "connection": "cloudflare", "connected": true,
   "values": {}, "defaults": {}, "effective": {}, "unknown": { "custom": "keep-me" }, "complete": false,
   "problems": [{ "key": "accountId", "code": "missing", "message": "accountId fehlt", "label": "Cloudflare-Konto", "labelEn": "Cloudflare account" }],
-  "resources": { "accountId": { "status": "ok", "suggested": "acc1", "options": [{ "value": "acc1", "label": "Pineflight", "detail": "acc1", "suggestedFor": { "score": 1, "reason": "einzige Option" } }] } },
+  "resources": { "accountId": { "status": "ok", "suggested": "acc1", "options": [{ "value": "acc1", "label": "Acme Org", "detail": "acc1", "suggestedFor": { "score": 1, "reason": "einzige Option" } }] } },
   "preflight": { "status": "skipped", "skippedReason": "params", "resource": null, "findings": [] } }
 ```
 

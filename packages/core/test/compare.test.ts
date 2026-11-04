@@ -244,36 +244,36 @@ secrets:
 
 describe("compareMatrix: repositories without inventory and workflows", () => {
   const meta = (name: string, over: Partial<{ private: boolean; archived: boolean; pushedAt: string | null }> = {}) => ({ name, private: true, archived: false, pushedAt: "2026-10-20T08:00:00Z", ...over });
-  const repos = [meta("web"), meta("night-before"), meta("costs"), meta("old", { archived: true }), meta(".github"), meta("status")];
+  const repos = [meta("web"), meta("acme-shop"), meta("costs"), meta("old", { archived: true }), meta(".github"), meta("status")];
   const kn = (repo: string, scope: "repository" | "environment", env?: string) => k(scope, env, repo);
 
   it("findings in repos without an entry are unexpected, also in other environments; empty repos appear in the list", () => {
     const extra = {
       repos,
-      readRepos: ["night-before", "costs", "status"],
-      envs: new Map([["night-before", ["staging", "preview"]], ["costs", []], ["status", []]]),
+      readRepos: ["acme-shop", "costs", "status"],
+      envs: new Map([["acme-shop", ["staging", "preview"]], ["costs", []], ["status", []]]),
       reads: reads(
         [
-          [kn("night-before", "repository"), names("CLOUDFLARE_API_TOKEN")],
-          [kn("night-before", "environment", "staging"), names("RESEND_API_KEY")],
-          [kn("night-before", "environment", "preview"), names("PREVIEW_ONLY")],
+          [kn("acme-shop", "repository"), names("CLOUDFLARE_API_TOKEN")],
+          [kn("acme-shop", "environment", "staging"), names("RESEND_API_KEY")],
+          [kn("acme-shop", "environment", "preview"), names("PREVIEW_ONLY")],
           [kn("costs", "repository"), names()],
           [kn("status", "repository"), { error: "HTTP 403", status: 403 }],
         ],
-        [[kn("night-before", "repository"), vars({ SITE: "x" })], [kn("costs", "repository"), vars({})]],
+        [[kn("acme-shop", "repository"), vars({ SITE: "x" })], [kn("costs", "repository"), vars({})]],
       ),
     };
     const r = compareMatrix(inv(), {}, reads([]), extra);
-    const nb = r.rows.filter((x) => x.repo === "night-before");
+    const nb = r.rows.filter((x) => x.repo === "acme-shop");
     expect(nb.map((x) => `${x.kind}:${x.name}`).sort()).toEqual(["secret:CLOUDFLARE_API_TOKEN", "secret:PREVIEW_ONLY", "secret:RESEND_API_KEY", "variable:SITE"]);
     expect(row({ ...r, rows: nb }, "RESEND_API_KEY").cells.staging!.state).toBe("unexpected");
     expect(row({ ...r, rows: nb }, "CLOUDFLARE_API_TOKEN").cells.shared!.state).toBe("unexpected");
     expect(row({ ...r, rows: nb }, "PREVIEW_ONLY").other).toEqual({ present: ["preview"], needed: [] });
     // Repository-Liste: archivierte und .github fehlen, costs hat keine Funde, status hat einen Lesefehler als Hinweis
-    expect(r.repos.map((x) => x.name)).toEqual(["costs", "night-before", "status", "web"]);
+    expect(r.repos.map((x) => x.name)).toEqual(["acme-shop", "costs", "status", "web"]);
     const costs = r.repos.find((x) => x.name === "costs")!;
     expect(costs).toMatchObject({ inInventory: false, private: true, found: { secrets: 0, variables: 0 }, needed: 0, onGitHub: true });
-    expect(r.repos.find((x) => x.name === "night-before")!.found).toEqual({ secrets: 3, variables: 1 });
+    expect(r.repos.find((x) => x.name === "acme-shop")!.found).toEqual({ secrets: 3, variables: 1 });
     expect(r.repos.find((x) => x.name === "status")!.notes).toMatchObject([{ code: "read-error", status: 403 }]);
     expect(r.repos.find((x) => x.name === "web")!.inInventory).toBe(true);
     // Fehler der Zusatz-Repos landen nicht in der globalen Fehlerliste
@@ -335,12 +335,12 @@ describe("compareMatrix: repositories without inventory and workflows", () => {
   });
 
   it("environment without stage: for a read repo the name is missing -> other.needed, otherwise not counted", () => {
-    const needs = new Map([["night-before", { refs: [{ kind: "secret" as const, name: "PREVIEW_KEY", file: "p.yml", environment: "preview" }, { kind: "secret" as const, name: "GONE_KEY", file: "p.yml", environment: "nope" }], notes: [] }]]);
+    const needs = new Map([["acme-shop", { refs: [{ kind: "secret" as const, name: "PREVIEW_KEY", file: "p.yml", environment: "preview" }, { kind: "secret" as const, name: "GONE_KEY", file: "p.yml", environment: "nope" }], notes: [] }]]);
     const extra = {
-      repos: [meta("night-before")],
-      readRepos: ["night-before"],
-      envs: new Map([["night-before", ["preview"]]]),
-      reads: reads([[kn("night-before", "environment", "preview"), names("PREVIEW_KEY")]], [[kn("night-before", "environment", "preview"), vars({})]]),
+      repos: [meta("acme-shop")],
+      readRepos: ["acme-shop"],
+      envs: new Map([["acme-shop", ["preview"]]]),
+      reads: reads([[kn("acme-shop", "environment", "preview"), names("PREVIEW_KEY")]], [[kn("acme-shop", "environment", "preview"), vars({})]]),
       needs,
     };
     const r = compareMatrix(inv(), {}, reads([]), extra);

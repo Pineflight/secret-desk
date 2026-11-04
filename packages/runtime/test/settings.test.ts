@@ -29,17 +29,17 @@ describe("shortenHome", () => {
     expect(shortenHome("/opt/data")).toBe("/opt/data");
     expect(shortenHome("/Userset/x")).toBe("/Userset/x");
   });
-  it("respects path boundaries with the real home too (not /Users/niklas2/x -> ~2/x)", () => {
+  it("respects path boundaries with the real home too (not /Users/alice2/x -> ~2/x)", () => {
     const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
-    process.env["HOME"] = "/srv/niklas";
-    process.env["USERPROFILE"] = "/srv/niklas";
+    process.env["HOME"] = "/srv/alice";
+    process.env["USERPROFILE"] = "/srv/alice";
     try {
-      expect(shortenHome("/srv/niklas/x")).toBe("~/x");
-      expect(shortenHome("/srv/niklas")).toBe("~");
-      expect(shortenHome("/srv/niklas2/x")).toBe("/srv/niklas2/x");
-      expect(shortenHome("/srv/niklas-alt")).toBe("/srv/niklas-alt");
-      expect(shortenHome("/data/srv/niklas/x")).toBe("/data/srv/niklas/x");
-      expect(shortenHome("Datei /srv/niklas/a und /srv/niklas2/b")).toBe("Datei ~/a und /srv/niklas2/b");
+      expect(shortenHome("/srv/alice/x")).toBe("~/x");
+      expect(shortenHome("/srv/alice")).toBe("~");
+      expect(shortenHome("/srv/alice2/x")).toBe("/srv/alice2/x");
+      expect(shortenHome("/srv/alice-alt")).toBe("/srv/alice-alt");
+      expect(shortenHome("/data/srv/alice/x")).toBe("/data/srv/alice/x");
+      expect(shortenHome("Datei /srv/alice/a und /srv/alice2/b")).toBe("Datei ~/a und /srv/alice2/b");
     } finally {
       for (const [k, v] of Object.entries(saved)) {
         if (v === undefined) delete process.env[k];

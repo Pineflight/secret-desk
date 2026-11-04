@@ -77,8 +77,8 @@ describe("matching and ranking", () => {
 
 describe("filter syntax", () => {
   const docs = [
-    doc("a", "ALPHA", { attrs: { stage: ["staging"], repo: ["wake-miles"], tag: ["config"], owner: ["niklaslurse"], status: ["missing", "fehlt"] } }),
-    doc("b", "BETA", { kind: "variable", attrs: { stage: ["production"], repo: ["wake-miles"], tag: ["config"] } }),
+    doc("a", "ALPHA", { attrs: { stage: ["staging"], repo: ["acme-app"], tag: ["config"], owner: ["alice-example"], status: ["missing", "fehlt"] } }),
+    doc("b", "BETA", { kind: "variable", attrs: { stage: ["production"], repo: ["acme-app"], tag: ["config"] } }),
     doc("c", "GAMMA", { attrs: { stage: ["staging"], repo: ["other"], owner: ["anna"] } }),
   ];
   it("parses filters and keeps unknown x:y as words", () => {
@@ -90,9 +90,9 @@ describe("filter syntax", () => {
   it("filters by stage, repo, tag, kind, owner, status", () => {
     expect(ids(docs, "stage:staging")).toEqual(expect.arrayContaining(["a", "c"]));
     expect(ids(docs, "stage:staging")).not.toContain("b");
-    expect(ids(docs, "repo:wake-miles tag:config").sort()).toEqual(["a", "b"]);
+    expect(ids(docs, "repo:acme-app tag:config").sort()).toEqual(["a", "b"]);
     expect(ids(docs, "art:variable")).toEqual(["b"]);
-    expect(ids(docs, "besitzer:niklaslurse")).toEqual(["a"]);
+    expect(ids(docs, "besitzer:alice-example")).toEqual(["a"]);
     expect(ids(docs, "status:fehlt")).toEqual(["a"]);
     expect(ids(docs, "status:missing")).toEqual(["a"]);
     expect(ids(docs, "stage:staging alpha")).toEqual(["a"]);

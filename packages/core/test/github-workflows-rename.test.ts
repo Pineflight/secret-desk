@@ -29,10 +29,10 @@ describe("GitHubClient: workflow files", () => {
 describe("GitHubClient.resolveRepo", () => {
   it("301: follows the redirect itself (within GitHub only) and names the new name", async () => {
     const { c, calls } = client((u) =>
-      u.endsWith("/repos/acme/leitfaden") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/42" } }) : json({ name: "night-before", full_name: "acme/night-before" }),
+      u.endsWith("/repos/acme/acme-site") ? new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/42" } }) : json({ name: "acme-shop", full_name: "acme/acme-shop" }),
     );
-    expect(await c.resolveRepo("acme", "leitfaden")).toEqual({ name: "night-before", fullName: "acme/night-before" });
-    expect(calls.map((x) => x.url)).toEqual(["https://api.github.com/repos/acme/leitfaden", "https://api.github.com/repositories/42"]);
+    expect(await c.resolveRepo("acme", "acme-site")).toEqual({ name: "acme-shop", fullName: "acme/acme-shop" });
+    expect(calls.map((x) => x.url)).toEqual(["https://api.github.com/repos/acme/acme-site", "https://api.github.com/repositories/42"]);
     expect((calls[0]!.init as RequestInit).redirect).toBe("manual");
   });
   it("200 without rename, 404 and 410 -> null", async () => {
@@ -53,25 +53,25 @@ describe("GitHubClient.resolveRepo", () => {
 describe("InventoryStore.renameRepo", () => {
   const YAML = `version: 1
 secrets:
-  - { id: a, name: A_KEY, stage: staging, service: x, expiry: none, places: [{ repo: leitfaden, scope: environment }, { repo: other, scope: repository }] }
+  - { id: a, name: A_KEY, stage: staging, service: x, expiry: none, places: [{ repo: acme-site, scope: environment }, { repo: other, scope: repository }] }
 variables:
-  - { id: v, name: A_VAR, stage: shared, value: null, places: [{ repo: leitfaden, scope: repository }] }
+  - { id: v, name: A_VAR, stage: shared, value: null, places: [{ repo: acme-site, scope: repository }] }
 envTemplates:
-  - { id: t, repo: leitfaden, stage: dev, entries: [{ key: K, from: { type: default, value: "1" } }] }
+  - { id: t, repo: acme-site, stage: dev, entries: [{ key: K, from: { type: default, value: "1" } }] }
 `;
   it("replaces targets of secrets, variables and templates, nothing else", () => {
     const inv = InventoryStore.fromText(YAML);
-    expect(inv.renameRepo("leitfaden", "night-before")).toBe(3);
-    expect(inv.data.secrets[0]!.places.map((p) => p.repo)).toEqual(["night-before", "other"]);
-    expect(inv.data.variables[0]!.places[0]!.repo).toBe("night-before");
-    expect(inv.data.envTemplates[0]!.repo).toBe("night-before");
-    expect(inv.toString()).toContain("night-before");
-    expect(inv.toString()).not.toContain("leitfaden");
+    expect(inv.renameRepo("acme-site", "acme-shop")).toBe(3);
+    expect(inv.data.secrets[0]!.places.map((p) => p.repo)).toEqual(["acme-shop", "other"]);
+    expect(inv.data.variables[0]!.places[0]!.repo).toBe("acme-shop");
+    expect(inv.data.envTemplates[0]!.repo).toBe("acme-shop");
+    expect(inv.toString()).toContain("acme-shop");
+    expect(inv.toString()).not.toContain("acme-site");
   });
   it("unknown name: 0 changes; invalid new name throws", () => {
     const inv = InventoryStore.fromText(YAML);
     expect(inv.renameRepo("nope", "x")).toBe(0);
-    expect(() => inv.renameRepo("leitfaden", "a/b")).toThrow();
-    expect(() => inv.renameRepo("leitfaden", " ")).toThrow();
+    expect(() => inv.renameRepo("acme-site", "a/b")).toThrow();
+    expect(() => inv.renameRepo("acme-site", " ")).toThrow();
   });
 });

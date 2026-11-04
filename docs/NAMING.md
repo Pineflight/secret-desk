@@ -19,7 +19,7 @@ Rules are applied in this order; each one that fires is reported with a reason c
 | 6 | `non-english` | German words from a small dictionary become English (`GEHEIMNIS` to `SECRET`, `ABGLEICH` to `RECONCILIATION`, `KUNDENDOMAIN` to `CUSTOMER_DOMAIN`, ...). Unknown words are never guessed. | `RATE_LIMIT_GEHEIMNIS_WEB` becomes `RATE_LIMIT_SECRET_WEB` |
 | 7 | `workspace-rename` | `naming.renames` in the configuration wins over the generic rules; `naming.keep` names are never changed. | `MAIL_API_KEY` becomes `RESEND_API_KEY` |
 
-A product suffix is allowed and stays: `CLOUDFLARE_ZONE_ID_WAKEMILES` and `STRIPE_WEBHOOK_SECRET` are compliant.
+A product suffix is allowed and stays: `CLOUDFLARE_ZONE_ID_ACMEAPP` and `STRIPE_WEBHOOK_SECRET` are compliant.
 
 ### Workspace overrides
 

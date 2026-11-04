@@ -1,0 +1,18 @@
+# Files that may contain an internal name from packages/runtime/test/no-internal-names.test.ts.
+# Format: <path relative to the repository root> | <reason>. Lines starting with # are ignored.
+# The repository's own address (the owner/secret-desk GitHub path and the lowercase image name) is always permitted and needs no entry.
+LICENSE | copyright holder
+package.json | author field (copyright holder)
+README.md | publisher attribution ("created by"), copyright line, no-telemetry statement
+CHANGELOG.md | publisher attribution in released notes, image references
+docker/browser/THIRD-PARTY-NOTICES.md | image name of this project, publisher contact for source requests
+docs/ROADMAP.md | no-telemetry statement names the publisher
+.github/workflows/release.yml | OCI image vendor/authors labels (publisher)
+apps/desk/src/messages/about.de.ts | About page publisher attribution
+apps/desk/src/messages/about.en.ts | About page publisher attribution
+apps/desk/test/about.test.ts | tests the About page publisher attribution
+packages/cli/src/index.ts | no-telemetry statement names the publisher
+packages/cli/test/about.test.ts | tests the CLI About output
+packages/runtime/src/about.ts | About data: publisher and repository address
+packages/runtime/test/about.test.ts | tests About data and the no-telemetry audit
+packages/runtime/test/no-internal-names.test.ts | defines the list of names
