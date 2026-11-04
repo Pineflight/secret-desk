@@ -9,7 +9,7 @@ import { FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderTile, usePurpose } from "@/components/ProviderCards";
 import { RecipeSignInFlow } from "@/components/RecipeSignIn";
 import { recipeSignInSubject, type FacadeInfo } from "@/lib/facade";
-import { cardMatches, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
+import { cardMatches, detailKeys, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { stripePrefixMismatch } from "@/lib/connection-health";
@@ -98,7 +98,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
     const portal = sub.portal ?? signInPrompts(card)[0]?.portal ?? null;
     return <RecipeSignInFlow subject={subject} name={card.label} portal={portal} onChanged={onSignedIn} onDone={onDone} />;
   }
-  const keys = card.keys.filter((k) => k.connected || (k.role !== "legacy" && !card.signIn.facade));
+  const keys = detailKeys(card);
   return (
     <div className="space-y-5 text-sm">
       <h3 className="sr-only">{t("providers.ways")}</h3>
@@ -122,7 +122,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
       ) : null}
       <section aria-labelledby={`way-keys-${card.id}`} className="rounded-xl border border-line p-4">
         <h4 id={`way-keys-${card.id}`} className="font-medium">{t("providers.way.keys")}</h4>
-        <p className="mt-1 text-muted">{card.signIn.facade ? t("providers.keys.hintFacade") : t("providers.keys.hint", { name: card.label })}</p>
+        <p className="mt-1 text-muted">{card.signIn.facade ? t(keys.some((k) => k.action === "paste") ? "providers.keys.hintFacadeMixed" : "providers.keys.hintFacade") : t("providers.keys.hint", { name: card.label })}</p>
         {keys.length === 0 ? <p className="mt-2 text-xs text-muted">{t("providers.keys.none")}</p> : (
           <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
             {keys.map((k) => (
@@ -134,7 +134,8 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
                 </span>
                 <span className="flex items-center gap-2">
                   {k.connected ? <Badge info={{ label: t("connections.connected"), tone: "success", icon: "check" }} /> : null}
-                  {!card.signIn.facade ? <Button onClick={() => setSub({ kind: "key", id: k.id })}>{k.connected ? t("providers.keys.edit") : t("providers.keys.setUp")}</Button> : null}
+                  {k.action === "paste" ? <Button onClick={() => setSub({ kind: "key", id: k.id })}>{k.connected ? t("providers.keys.edit") : t("providers.keys.setUp")}</Button> : null}
+                  {k.action === "signin" && facade ? <Button disabled={!facade.available} onClick={() => setSub({ kind: "signin" })}>{t("providers.signIn.start")}</Button> : null}
                 </span>
               </li>
             ))}

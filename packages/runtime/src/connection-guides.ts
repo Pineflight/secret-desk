@@ -266,11 +266,18 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         url: "https://grafana.com/profile/org",
         steps: [
           "In grafana.com unter Ihrer Organisation, Security, Access Policies eine Zugriffsrichtlinie fuer secret-desk anlegen.",
-          "Der Richtlinie nur den Geltungsbereich accesspolicies:write (und accesspolicies:read) geben, sonst nichts.",
+          "Der Richtlinie nur die Geltungsbereiche unten geben, sonst nichts.",
           "Fuer diese Richtlinie einen Token mit kurzem Ablauf erzeugen, kopieren und unten einfuegen.",
           "Die Id der Ziel-Richtlinie und ihre Region tragen die Secrets im Inventar als Parameter.",
+          "Einfacher geht es ueber \"Mit Anmeldung verbinden\": der Browser meldet sich bei grafana.com an und legt Richtlinie und Token an.",
         ],
-        permissions: ["accesspolicies:write (Token erzeugen und loeschen)", "accesspolicies:read (Richtlinien auflisten)"],
+        permissions: [
+          "accesspolicies:write (Token erzeugen)",
+          "accesspolicies:read (Richtlinien auflisten)",
+          "accesspolicies:delete (Token widerrufen; nicht sicher, ob der Bereich so heisst)",
+          "stacks:read (Stacks auflisten)",
+          "stack-service-accounts:write (Service-Accounts im Stack anlegen; nicht sicher, ob der Bereich so heisst)",
+        ],
       };
     default:
       return undefined;
@@ -282,6 +289,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
  * Gibt eine Fehlermeldung zurueck oder undefined. Unbekannte Praefixe werden nicht beanstandet.
  */
 export function tokenPrefixProblem(id: string, token: string): string | undefined {
+  if (id === "grafana-cloud") return /^glc_/.test(token.trim()) ? undefined : "Das ist kein Grafana-Cloud-Access-Policy-Token (es beginnt mit glc_). Stack-Tokens (glsa_) gehoeren zur Verbindung Grafana.";
   if (id === "openai") return /^sk-admin-/.test(token.trim()) ? undefined : "Das ist kein OpenAI-Admin-Key (er beginnt mit sk-admin-). Normale Schluessel koennen keine Schluessel erzeugen.";
   if (id === "anthropic") return /^sk-ant-admin/.test(token.trim()) ? undefined : "Das ist kein Anthropic-Admin-Key (er beginnt mit sk-ant-admin). Normale API-Schluessel koennen die Admin-API nicht nutzen.";
   if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";

@@ -107,6 +107,7 @@ export default {
   "facade.promise.revenuecat": "The key gets only “Project configuration: Read only” and does not expire. An AI agent cannot start this flow.",
   "facade.promise.stripe": "Restricted key with only the permissions of the chosen preset, for one account and mode.",
   "facade.promise.openai": "Organization admin key; secret-desk uses it only to create and delete project keys.",
+  "facade.promise.grafana": "Token of an access policy of your Grafana Cloud organization, valid for 90 days. It may manage access policies and their tokens, read stacks and create service accounts in the stack; secret-desk uses it only for that. An AI agent cannot start this flow.",
   "facade.promise.anthropic": "Optional admin key of an Anthropic organization; secret-desk uses it to list workspaces and to check and deactivate API keys. Without it (an individual account has none) API keys are still created in the signed-in browser.",
   "facade.browserOnlyTitle": "Signed in. API keys come from the browser",
   "facade.browserOnlyText": "This account has no admin keys: they need an Anthropic organization. That is fine, because API keys are created in the signed-in browser. The browser is ready.",

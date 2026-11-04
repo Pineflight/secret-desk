@@ -330,6 +330,25 @@ export const legacyKeys = (card: ProviderCard): KeyRow[] => card.keys.filter((k)
 /** Per-account keys of the sign-in (Stripe), the ones the card lists as "Account · mode". */
 export const primaryKeys = (card: ProviderCard): KeyRow[] => card.keys.filter((k) => k.role !== "legacy");
 
+export type KeyAction = "paste" | "signin" | "none";
+export type DetailKey = KeyRow & { action: KeyAction };
+
+/**
+ * The rows of the keys section in the integration dialog. A vendor without a guided sign-in lists every key it can have, each with
+ * "Set up". A vendor with one lists only the connected keys, which the sign-in manages (no button). A vendor with a guided sign-in
+ * and more than one current connection (Grafana: the stack token is pasted, the Cloud token comes from the sign-in) lists all of
+ * them: the sign-in's own connection offers "Connect with sign-in", the others stay pasted.
+ */
+export function detailKeys(card: Pick<ProviderCard, "keys" | "signIn" | "prefixes">): DetailKey[] {
+  const facade = card.signIn.facade;
+  const current = card.keys.filter((k) => k.role !== "legacy");
+  const several = facade !== null && current.length > 1;
+  const managed = (k: KeyRow): boolean => facade !== null && (k.role === "legacy" || k.id === facade.connectionId || card.prefixes.some((p) => k.id.startsWith(p)));
+  return card.keys
+    .filter((k) => k.connected || (k.role !== "legacy" && (facade === null || several)))
+    .map((k) => ({ ...k, action: facade === null ? "paste" : managed(k) ? (k.connected ? "none" : "signin") : "paste" }));
+}
+
 /** A legacy key is only worth a hint while a primary one could replace it. */
 export const showsLegacyHint = (card: ProviderCard): boolean => legacyKeys(card).some((k) => k.connected) && card.signIn.state === "facade";
 
