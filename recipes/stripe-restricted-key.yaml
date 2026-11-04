@@ -125,7 +125,9 @@ steps:
 capture:
   token:
     # The page shows the key truncated; the whole key is in `data-text` (and `aria-label`).
-    find: { css: '[data-text^="rk_"]' }
+    # The result view renders the key in three places (same value); the first visible one is taken (checked live on
+    # 2026-11-03: a selector that matched all three stopped the run after the key existed).
+    find: { css: '[data-text^="rk_"] >> visible=true >> nth=0' }
     attribute: data-text
     pattern: "^(rk_(test|live)_[A-Za-z0-9]+)$"
   externalId: { from: name }
