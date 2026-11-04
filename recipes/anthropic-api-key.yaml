@@ -1,58 +1,75 @@
-# STATUS: nothing of this recipe is verified live (key creation and revoke are best guesses; every selector is a guess)
-# Creates an Anthropic API key on platform.claude.com (Settings, API keys, "Create Key") in a workspace. The key is shown once,
-# in a dialog. The Admin API cannot create API keys, so this recipe is the only way to make one. Revoke goes through the Admin
-# API when the `anthropic` connection exists (the provider does that); the revoke section below is the fallback in the browser.
-# Every selector is a best guess; each step waits for its element, so a wrong guess fails visibly instead of clicking something
-# else. The Console moved from console.anthropic.com to platform.claude.com; both hosts are accepted.
+# STATUS: sign-in verified live 2026-11-04 (German Console, individual organization; email plus one-time code). The key dialog fields (name, expiry, workspace, submit button) were checked by a read-only probe that created no key. The view after creation (capture of the key), the choice of another expiry or workspace, and revoke are NOT verified.
+# Creates an Anthropic API key on platform.claude.com (Settings, API keys, "Create key") in a workspace. The key is shown once,
+# in a dialog. The Admin API cannot create API keys, so this recipe is the only way to make one; it works for an individual
+# organization too (no admin key needed). Revoke goes through the Admin API when the `anthropic` connection exists (the
+# provider does that); the revoke section below is the fallback in the browser (not verified).
+# The Console renders in the language of the account (German for the probed account), so every text selector accepts both
+# German and English as a /pattern/flags text; placeholders, types and structure are used where they exist.
+# The expiry of a key is always filled: the dialog offers 30 days by default (kept for `days` = 30); another number of days is
+# picked by its option text and fails visibly (before a key exists) when the Console does not offer it. The date is `days` from today.
 id: anthropic-api-key
 label: Anthropic API Key
 host: platform.claude.com
-# not verified: the old Console address redirects to the new one.
+# The old Console address redirects to the new one.
 allowHosts: [console.anthropic.com]
 params:
   - key: workspace
     label: Workspace
     labelEn: Workspace
     required: false
-    default: "Default"
-    help: "Name of the workspace the key belongs to. Without a choice the Default workspace is used (not verified: the name of the default workspace in the Console)."
+    default: ""
+    help: "Name of the workspace the key belongs to. Empty (or Default) keeps the Default workspace of the dialog."
 login:
-  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows "Continue with
-  # Google" and "Continue with email"), so the address alone says nothing: the sign-in buttons must be absent too.
+  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows the Google and the
+  # email button), so the address alone says nothing: the sign-in buttons and the email field must be absent too.
   expect:
     all:
       - { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
-      - { hidden: { role: button, name: "Continue with email" } }
-      - { hidden: { role: button, name: "Continue with Google" } }
+      - { hidden: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*e-?mail/i' } }
+      - { hidden: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*Google/i' } }
+      - { hidden: { css: 'input[type="email"], input[name="email"]' } }
   message: Bei Anthropic anmelden (platform.claude.com).
 steps:
-  # not verified: the address of the API keys page and every name below.
   - goto: "https://platform.claude.com/settings/keys"
-  # The Console shows a cookie banner (seen on 2026-11-04): rejected, never accepted; optional because it shows once per profile.
-  - click: { role: button, name: "Reject all cookies", optional: true, timeoutSeconds: 3 }
-  - waitFor: { visible: { role: button, name: "Create Key" } }
-  - click: { role: button, name: "Create Key" }
-  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
-  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
-  # not verified: the workspace dropdown of the dialog.
-  - click: { css: "[role=dialog] [role=combobox]" }
+  # The Console shows a cookie banner (German: "Alle Cookies ablehnen"): rejected, never accepted; optional because it shows
+  # once per profile, and skipped when it cannot be clicked (verified live: the click once failed with "not actionable").
+  - click: { role: button, name: '/^(Reject all cookies|Alle Cookies ablehnen)$/i', optional: true, timeoutSeconds: 3 }
+  # The create button appears twice on the page (header and empty state): the first visible one.
+  - waitFor: { visible: { role: button, name: '/^(Create key|Schlüssel erstellen)$/i', first: true } }
+  - click: { role: button, name: '/^(Create key|Schlüssel erstellen)$/i', first: true }
+  # Dialog 1 explains identity federation and offers the plain API key (German: "Mit einem API-Schlüssel fortfahren").
+  - click: { role: button, name: '/^(Continue with an API key|Mit einem API-Schlüssel fortfahren)/i', optional: true, timeoutSeconds: 5 }
+  # Dialog 2: the name field has the placeholder "my-secret-key" in every language.
+  - waitFor: { visible: { placeholder: "my-secret-key" } }
+  - fill: { placeholder: "my-secret-key", value: "{{name}}" }
+  # Expiry: a select button that shows "30 Tage (4. Dez. 2026)" / "30 days (...)". 30 days is the default of the dialog.
+  - click: { role: button, name: '/^[0-9]+ ?(day|Tag)/i', first: true }
+    when: { var: days, notEquals: "30" }
+  - click: { role: option, name: '/^{{days}} ?(day|Tag)/i', first: true }
+    when: { var: days, notEquals: "30" }
+  # Workspace: a select button that shows "Standard-Arbeitsbereich" / "Default workspace".
+  - click: { role: button, name: '/^(Default|Standard)/i', first: true }
+    when: { all: [{ var: workspace, notEquals: "" }, { var: workspace, notEquals: "Default" }] }
   - click: { role: option, name: "{{workspace}}", exact: true }
+    when: { all: [{ var: workspace, notEquals: "" }, { var: workspace, notEquals: "Default" }] }
   - screenshot: formular-vorher
-  - click: { css: '[role=dialog] button:has-text("Add")', createsToken: true }
+  - click: { css: "[role=dialog] button[type=submit]", createsToken: true }
+  # not verified: the view after creation; the key is read from any readonly input or code element of the dialog.
   - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
 capture:
   token:
     find: { css: "[role=dialog] input[readonly], [role=dialog] code" }
     pattern: "^sk-ant-api[0-9]*-[A-Za-z0-9_-]+$"
   externalId: { from: name }
+  expires: { from: days }
 mask:
   - { css: "[role=dialog] input[readonly], [role=dialog] code" }
 revoke:
-  # not verified: the row is found by the key's name; the menu and the confirm button are guesses.
+  # not verified: the row is found by the key's name; the menu and the confirm button are guesses (both languages).
   steps:
     - goto: "https://platform.claude.com/settings/keys"
     - waitFor: { visible: { css: '[role=row]:has-text("{{externalId}}")' } }
     - click: { css: '[role=row]:has-text("{{externalId}}") button[aria-label="More"]' }
-    - click: { role: menuitem, name: "Delete" }
-    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - click: { role: menuitem, name: '/^(Delete|Archive|Löschen|Archivieren)/i' }
+    - click: { role: button, name: '/^(Delete|Archive|Löschen|Archivieren)/i', first: true }
     - waitFor: { hidden: { css: '[role=row]:has-text("{{externalId}}")' } }

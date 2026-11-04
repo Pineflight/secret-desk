@@ -64,6 +64,11 @@ export interface FacadeDescriptor {
   promise?: string;
   /** Discovery kinds whose option counts are reported after the connection test ("1 project, 3 apps"). */
   summary: { key: string; kind: string }[];
+  /**
+   * The integration key is optional: when the recipe ends as "unsupported" (the account has no such feature), the run finishes
+   * as done ("ready, keys come from the browser") instead of failing.
+   */
+  keyOptional?: boolean;
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -114,6 +119,8 @@ export const FACADES: readonly FacadeDescriptor[] = [
   {
     // The Admin API cannot create API keys: the admin key lets the portal list workspaces and check and deactivate keys, while
     // the keys themselves come from the browser recipe `anthropic-api-key`. The Console signs in by email code (no password).
+    // The admin key is optional: an individual organization has none, and the sign-in alone makes the browser ready.
+    keyOptional: true,
     id: "anthropic",
     label: "Anthropic",
     recipeId: "anthropic-admin-key",
@@ -180,6 +187,11 @@ export interface FacadeResult {
   check: ConnectionCheckResult | null;
   /** Counts reported by the provider after the connection test, keyed by the descriptor's summary keys. */
   counts: Record<string, number>;
+  /**
+   * The sign-in worked, but the provider cannot create the integration key for this account (Anthropic: admin keys need an
+   * organization). Nothing is stored; keys are created in the browser. `connected` is false.
+   */
+  browserOnly?: boolean;
 }
 
 export interface FacadeInput {
@@ -721,6 +733,14 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     if (sessionLost) {
       const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
       return finishFailed(rt, key, t, { code: "session-lost", message: "The browser is not signed in (the session was not kept). Sign in again.", messageEn: "The browser is not signed in (the session was not kept). Sign in again.", ...(createdName ? { createdName } : {}) });
+    }
+    if (d.keyOptional && err instanceof RecipeRunError && err.kind === "unsupported") {
+      // The recipe ran in the signed-in browser up to the page that lacks the feature: the browser is ready.
+      rt.automation.noteSignIn(recipe.host, true, "run");
+      const text = "Signed in. This account has no admin keys (they need an organization); API keys are created in the browser.";
+      const result: FacadeResult = { connected: false, browserOnly: true, connectionId: d.connectionId, storedIn: rt.connections.vault ? "vault" : "session", keyName: "", projectId: null, check: null, counts: {} };
+      t.phase("connected", { text });
+      return rt.automation.end(key, { status: "done", text, needs: null, timeline: t.done(), result });
     }
     return finishFailed(rt, key, t, failureOf(err, [], signal.aborted));
   }

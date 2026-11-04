@@ -1,13 +1,15 @@
-# STATUS: nothing of this recipe is verified live (sign-in form, email code step, Google button, key creation and revoke are all best guesses; every selector is a guess)
+# STATUS: sign-in verified live 2026-11-04 (German Console, individual organization; email plus one-time code). On an individual organization the Admin keys page has no create button: the recipe detects that and ends as "unsupported" (verified by probe). Creating an admin key in a real organization (dialog, capture) and revoke are NOT verified; the Google sign-in is not verified.
 # Creates an organization Admin API key on platform.claude.com (Settings, Admin keys). The portal stores it as the `anthropic`
 # connection and uses it to list workspaces and to check and deactivate API keys. The Admin API cannot create API keys, so the
-# keys themselves come from the recipe `anthropic-api-key`. The Admin key is shown once, in a dialog. Every selector below is
-# a best guess; each step waits for its element, so a wrong guess fails visibly instead of clicking something else. Needs the
-# organization admin role. The Console moved from console.anthropic.com to platform.claude.com; both hosts are accepted.
+# keys themselves come from the recipe `anthropic-api-key`, which works without an admin key. This recipe is optional: it needs
+# an Anthropic organization and its admin role. An individual organization has no admin keys; the recipe then ends as
+# "unsupported" instead of failing, and the portal reports "API keys are created in the browser". Text selectors accept German
+# and English as /pattern/flags texts (the Console follows the account language). The Console moved from console.anthropic.com
+# to platform.claude.com; both hosts are accepted.
 id: anthropic-admin-key
 label: Anthropic Admin API Key
 host: platform.claude.com
-# not verified: the old Console address redirects to the new one.
+# The old Console address redirects to the new one.
 allowHosts: [console.anthropic.com]
 params: []
 login:
@@ -16,20 +18,21 @@ login:
   methods:
     - id: google
       steps:
-        - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
-        - click: { role: button, name: "Continue with Google" }
+        - waitFor: { visible: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*Google/i' }, timeoutSeconds: 20 }
+        - click: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*Google/i' }
   # Signed in = any Console page after the sign-in (not verified: the list of paths).
-  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows "Continue with
-  # Google" and "Continue with email"), so the address alone says nothing: the sign-in buttons must be absent too.
+  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows the Google and the
+  # email button), so the address alone says nothing: the sign-in buttons and the email field must be absent too.
   expect:
     all:
       - { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
-      - { hidden: { role: button, name: "Continue with email" } }
-      - { hidden: { role: button, name: "Continue with Google" } }
+      - { hidden: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*e-?mail/i' } }
+      - { hidden: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*Google/i' } }
+      - { hidden: { css: 'input[type="email"], input[name="email"]' } }
   message: Bei Anthropic anmelden (platform.claude.com).
   # Guided sign-in. The Console signs in by email: it sends a one-time code (and a link) instead of asking for a password,
   # so this form has no password step and the portal asks for the code.
-  # STATUS: not verified: nothing of this form has been run against the live site yet (every selector below is a best guess).
+  # STATUS: the email, one-time code and submit steps ran live on 2026-11-04; the approval, captcha and failure texts are not verified.
   form:
     passwordless: true
     start: "https://platform.claude.com/login"
@@ -38,7 +41,7 @@ login:
       # not verified: the email field and the continue button.
       - waitFor: { visible: { css: 'input[type="email"], input[name="email"]' }, timeoutSeconds: 20 }
       - fill: { css: 'input[type="email"], input[name="email"]', value: "{{login.username}}" }
-      - click: { role: button, name: "Continue with email" }
+      - click: { role: button, name: '/^(Continue|Mit|Weiter|Fortfahren).*e-?mail/i' }
     # not verified: selectors of the one-time code step (the email carries a code; the field takes it).
     mfa:
       detect: { visible: { css: 'input[autocomplete="one-time-code"], input[name="code"], input[inputmode="numeric"]' } }
@@ -63,16 +66,21 @@ login:
         message: Anthropic hat die Anmeldung vorerst gesperrt (zu viele Versuche). Spaeter erneut versuchen.
         messageEn: Anthropic has blocked the sign-in for now (too many attempts). Try again later.
 steps:
-  # not verified: the address of the Admin keys page and every name below.
   - goto: "https://platform.claude.com/settings/admin-keys"
-  # The Console shows a cookie banner (seen on 2026-11-04): rejected, never accepted; optional because it shows once per profile.
-  - click: { role: button, name: "Reject all cookies", optional: true, timeoutSeconds: 3 }
-  - waitFor: { visible: { role: button, name: "Create Admin Key" } }
-  - click: { role: button, name: "Create Admin Key" }
+  # The Console shows a cookie banner (German: "Alle Cookies ablehnen"): rejected, never accepted; skipped when absent or when
+  # it cannot be clicked.
+  - click: { role: button, name: '/^(Reject all cookies|Alle Cookies ablehnen)$/i', optional: true, timeoutSeconds: 3 }
+  # An individual organization has no admin keys and no create button (checked live on 2026-11-04). Not an error of the recipe:
+  # the run ends as "unsupported" and the portal says that API keys are created in the browser.
+  - fail: "Admin keys need an Anthropic organization; API keys are created in the browser."
+    unsupported: true
+    when: { absent: { role: button, name: '/^(Create Admin Key|Create key|Admin-Schlüssel erstellen|Schlüssel erstellen)$/i', first: true }, timeoutSeconds: 8 }
+  # not verified: everything from here on needs an organization.
+  - click: { role: button, name: '/^(Create Admin Key|Create key|Admin-Schlüssel erstellen|Schlüssel erstellen)$/i', first: true }
   - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
   - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
   - screenshot: formular-vorher
-  - click: { css: '[role=dialog] button:has-text("Create")', createsToken: true }
+  - click: { css: "[role=dialog] button[type=submit]", createsToken: true }
   - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
 capture:
   token:
@@ -87,6 +95,6 @@ revoke:
     - goto: "https://platform.claude.com/settings/admin-keys"
     - waitFor: { visible: { css: '[role=row]:has-text("{{externalId}}")' } }
     - click: { css: '[role=row]:has-text("{{externalId}}") button[aria-label="More"]' }
-    - click: { role: menuitem, name: "Delete" }
-    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - click: { role: menuitem, name: '/^(Delete|Archive|Löschen|Archivieren)/i' }
+    - click: { role: button, name: '/^(Delete|Archive|Löschen|Archivieren)/i', first: true }
     - waitFor: { hidden: { css: '[role=row]:has-text("{{externalId}}")' } }

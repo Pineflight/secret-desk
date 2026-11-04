@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadRecipes, loadRecipesDetailed, loginMethodsOf } from "../src/index.js";
+import { loadRecipes, loadRecipesDetailed, loginMethodsOf, textPattern } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 
@@ -33,7 +33,7 @@ describe("bundled recipes", () => {
     expect(r.login?.form?.mfa).toBeDefined();
     expect(JSON.stringify(r.login?.form?.steps)).not.toContain("login.password");
     expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google"]);
-    expect(r.login?.methods?.find((m) => m.id === "google")?.steps?.[1]).toMatchObject({ click: { role: "button", name: "Continue with Google" } });
+    expect(r.login?.methods?.find((m) => m.id === "google")?.steps?.[1]).toMatchObject({ click: { role: "button", name: expect.stringContaining("Google") } });
     const pattern = new RegExp(r.capture.token.pattern!);
     expect(pattern.test("sk-ant-admin01-AbC_d-123")).toBe(true);
     expect(pattern.test("sk-ant-api03-AbC_d-123")).toBe(false);
@@ -41,22 +41,47 @@ describe("bundled recipes", () => {
     expect(r.steps.find((s) => "click" in s && s.click.createsToken)).toBeDefined();
     expect(r.mask.length).toBeGreaterThan(0);
   });
-  it("anthropic-api-key takes an optional workspace (default: Default), names the key and captures only an API key", async () => {
+  it("anthropic-admin-key ends as unsupported (not failed) when the page has no create button", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-admin-key")!;
+    const step = r.steps.find((x) => "fail" in x);
+    expect(step).toMatchObject({ fail: expect.stringContaining("Admin keys need an Anthropic organization"), unsupported: true, when: { absent: { role: "button", first: true } } });
+    // the create button of the organization is told apart in both languages
+    const name = (step as { when: { absent: { name: string } } }).when.absent.name;
+    const rx = textPattern(name)!;
+    expect(["Create Admin Key", "Admin-Schlüssel erstellen"].every((n) => rx.test(n))).toBe(true);
+    expect(rx.test("Abbrechen")).toBe(false);
+  });
+  it("anthropic-api-key follows the verified German dialog: placeholder, submit button, expiry from days, optional workspace", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-api-key")!;
     expect(r.host).toBe("platform.claude.com");
-    expect(r.params).toMatchObject([{ key: "workspace", required: false, default: "Default" }]);
-    expect(r.steps.find((s) => "fill" in s)).toMatchObject({ fill: { value: "{{name}}" } });
-    expect(r.steps.some((s) => "click" in s && s.click.role === "option" && s.click.name === "{{workspace}}")).toBe(true);
+    expect(r.params).toMatchObject([{ key: "workspace", required: false, default: "" }]);
+    expect(r.steps.find((s) => "fill" in s)).toMatchObject({ fill: { placeholder: "my-secret-key", value: "{{name}}" } });
+    expect(r.steps.find((s) => "click" in s && s.click.createsToken)).toMatchObject({ click: { css: "[role=dialog] button[type=submit]" } });
+    // the create button appears twice: the first visible one, in both languages
+    const create = r.steps.find((s) => "click" in s && s.click.first === true && s.click.role === "button" && !s.when);
+    const createName = textPattern((create as { click: { name: string } }).click.name)!;
+    expect(createName.test("Schlüssel erstellen") && createName.test("Create key")).toBe(true);
+    const dialogContinue = r.steps.find((s) => "click" in s && s.click.optional === true && s.click.timeoutSeconds === 5) as { click: { name: string } };
+    expect(textPattern(dialogContinue.click.name)!.test("Mit einem API-Schlüssel fortfahren")).toBe(true);
+    // expiry: kept at the dialog default for 30 days, otherwise chosen by option text in both languages
+    const expiry = r.steps.filter((s) => "click" in s && s.when && "var" in s.when && s.when.var === "days");
+    expect(expiry).toHaveLength(2);
+    expect(r.capture.expires).toEqual({ from: "days" });
+    const option = textPattern((expiry[1] as { click: { name: string } }).click.name.replace("{{days}}", "60"))!;
+    expect(option.test("60 Tage (3. Jan. 2027)") && option.test("60 days (Jan 3, 2027)") && !option.test("30 Tage")).toBe(true);
     expect(r.capture.externalId).toEqual({ from: "name" });
     const pattern = new RegExp(r.capture.token.pattern!);
     expect(pattern.test("sk-ant-api03-AbC_d-123")).toBe(true);
     expect(pattern.test("sk-ant-admin01-AbC_d-123")).toBe(false);
     expect(r.revoke?.steps.length).toBeGreaterThan(0);
   });
-  it("the anthropic recipes say that nothing is verified live", async () => {
+  it("the anthropic recipes state what is verified and what is not", async () => {
     for (const f of ["anthropic-admin-key.yaml", "anthropic-api-key.yaml"]) {
-      expect((await readFile(join(RECIPES, f), "utf8")).split("\n")[0], f).toMatch(/^# STATUS: nothing of this recipe is verified live/);
+      const first = (await readFile(join(RECIPES, f), "utf8")).split("\n")[0] ?? "";
+      expect(first, f).toMatch(/^# STATUS: sign-in verified live 2026-11-04/);
+      expect(first, f).toMatch(/NOT verified/);
     }
+    expect((await readFile(join(RECIPES, "anthropic-api-key.yaml"), "utf8")).split("\n")[0]).toMatch(/read-only probe/);
   });
   it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));
