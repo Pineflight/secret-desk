@@ -30,6 +30,7 @@ import { formatDate } from "@/lib/format";
 import { Button, Notice, SelectField, TextField } from "./ui";
 import { SetupStep } from "./SetupStep";
 import { showPermissionWarning, stepperState, type StepId, type StepStatus } from "@/lib/setup-steps";
+import { confirmStep, EMPTY_CHOICE, keepChoice, readChoice, withBranch, withFile, withMode, withRepo, writeChoice, type SetupChoice } from "@/lib/setup-choice";
 import { TeamTokenControl } from "./TeamTokenControl";
 
 const enc = encodeURIComponent;
@@ -76,13 +77,12 @@ export function TeamConfigPicker({ onChange }: Props) {
   const t = useT();
   const [nonce, setNonce] = useState(0);
   const [search, setSearch] = useState("");
-  const [repo, setRepo] = useState("");
-  const [repoTouched, setRepoTouched] = useState(false);
+  // The person's choices (and which steps they confirmed). Kept per viewer: a reload or a refresh of the discovery data must
+  // never throw them back to the preselected suggestion. Read after mounting so server and client render the same first.
+  const [choice, setChoice] = useState<SetupChoice>(EMPTY_CHOICE);
+  const [hydrated, setHydrated] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const [branch, setBranch] = useState("");
-  const [file, setFile] = useState("");
-  const [mode, setMode] = useState<TeamMode>("pull");
-  const [strategy, setStrategy] = useState<PushStrategy>("pull-request");
+  const { repo, branch, file, mode, strategy, confirmed } = choice;
   const [token, setToken] = useState("");
   // Bumped when a team token was created: the mode checks run again with it.
   const [accessNonce, setAccessNonce] = useState(0);
@@ -92,30 +92,38 @@ export function TeamConfigPicker({ onChange }: Props) {
   const branches = useQuery<BranchDiscovery>(repo ? `team-discovery-branches-${nonce}-${repo}` : null, () => api<BranchDiscovery>("GET", `team-sync/discovery/branches?repo=${enc(repo)}`));
   const files = useQuery<FileDiscovery>(repo && branch ? `team-discovery-files-${nonce}-${repo}-${branch}` : null, () => api<FileDiscovery>("GET", `team-sync/discovery/files?repo=${enc(repo)}&branch=${enc(branch)}`));
 
-  // Preselect the repository once the list arrives (unless the person already chose one). Only an accessible private repository qualifies.
   useEffect(() => {
-    if (!repoTouched && !repo) setRepo(initialRepo(repos.data));
-  }, [repos.data, repoTouched, repo]);
+    setChoice(readChoice());
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (hydrated) writeChoice(choice);
+  }, [hydrated, choice]);
+
+  // Suggestions only fill an empty field and never replace a choice; none of them completes a step (the person confirms).
+  // Repository: only an accessible private repository qualifies.
+  useEffect(() => {
+    if (hydrated && !repo) setChoice((c) => (c.repo ? c : { ...c, repo: initialRepo(repos.data) }));
+  }, [hydrated, repos.data, repo]);
   // Default branch of the chosen repository.
   useEffect(() => {
-    setBranch("");
-    setFile("");
-  }, [repo]);
-  useEffect(() => {
-    if (branches.data && !branch && branches.data.defaultBranch) setBranch(branches.data.defaultBranch);
-  }, [branches.data, branch]);
+    const suggestion = branches.data?.defaultBranch;
+    if (hydrated && suggestion && !branch) setChoice((c) => ({ ...c, branch: keepChoice(c.branch, suggestion) }));
+  }, [hydrated, branches.data, branch]);
   // Conventional file, or the create option when none exists.
   useEffect(() => {
-    setFile("");
-  }, [branch]);
-  useEffect(() => {
-    if (files.data && !file) setFile(files.data.preselected ?? (files.data.canCreate ? CREATE_FILE : ""));
-  }, [files.data, file]);
+    if (!hydrated || !files.data || file) return;
+    const suggestion = files.data.preselected ?? (files.data.canCreate ? CREATE_FILE : "");
+    if (suggestion) setChoice((c) => ({ ...c, file: keepChoice(c.file, suggestion) }));
+  }, [hydrated, files.data, file]);
 
   const createFile = file === CREATE_FILE;
   const path = createFile ? (files.data?.createPath ?? "") : file;
   const shownMode = effectiveMode(mode, createFile);
-  const ready = Boolean(repo && branch && path);
+  const dataReady = Boolean(repo && branch && path);
+  // The access checks need the repository and the file confirmed; the selection goes to the page only after all three steps.
+  const ready = dataReady && confirmed.repo && confirmed.file;
+  const allConfirmed = ready && confirmed.mode;
 
   const accessKey = (m: TeamMode) => (ready ? `team-discovery-access-${nonce}-${accessNonce}-${repo}-${branch}-${path}-${m}-${strategy}` : null);
   const accessPath = (m: TeamMode) => `team-sync/discovery/access?repo=${enc(repo)}&branch=${enc(branch)}&path=${enc(path)}&mode=${m}&strategy=${strategy}`;
@@ -124,17 +132,16 @@ export function TeamConfigPicker({ onChange }: Props) {
   const current = shownMode === "pull" ? readAccess.data : writeAccess.data;
 
   useEffect(() => {
-    onChange(ready ? { repo, branch, path, createFile, mode: shownMode, strategy } : null, current);
+    onChange(allConfirmed ? { repo, branch, path, createFile, mode: shownMode, strategy } : null, current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, repo, branch, path, createFile, shownMode, strategy, current]);
+  }, [allConfirmed, repo, branch, path, createFile, shownMode, strategy, current]);
 
   const groups = useMemo(() => groupRepos(repos.data?.repos ?? [], search), [repos.data, search]);
   const shown = useMemo(() => limitRepos(groups.usable, REPO_ROWS, repo, showAll || search.trim() !== ""), [groups, repo, showAll, search]);
   const saveToken = useMutation(async () => {
     await api("POST", "connections/team-sync/token", { token });
     setToken("");
-    setRepo("");
-    setRepoTouched(false);
+    setChoice(EMPTY_CHOICE);
     setNonce((n) => n + 1);
   });
   const retry = () => setNonce((n) => n + 1);
@@ -150,7 +157,7 @@ export function TeamConfigPicker({ onChange }: Props) {
     const warn = status === "needs" && showPermissionWarning(true, tokenAvailable);
     return (
       <label key={m} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${disabledByFile ? "opacity-60" : ""}`}>
-        <input type="radio" name="team-mode" checked={shownMode === m} disabled={disabledByFile} onChange={() => setMode(m)} />
+        <input type="radio" name="team-mode" checked={shownMode === m} disabled={disabledByFile} onChange={() => setChoice((c) => withMode(c, m, c.strategy))} />
         <span className="min-w-0 flex-1">
           <span className="font-medium">{t(`teamSync.mode.${m}`)}</span>
           <span className="text-muted-text"> · {t(`teamPicker.mode.${m}.text`)}</span>
@@ -177,11 +184,11 @@ export function TeamConfigPicker({ onChange }: Props) {
     );
   };
 
-  const steps = stepperState({ repo, branch, path: ready ? path : "", modeAllowed: modeAllowed(current) });
+  const steps = stepperState({ repo, branch, path: dataReady ? path : "", modeAllowed: modeAllowed(current), confirmed });
   const statusOf = (id: StepId): StepStatus => steps.find((x) => x.id === id)?.status ?? "todo";
   // The repository list collapses to one line once a repository is chosen; "Change" opens it again.
   const [changingRepo, setChangingRepo] = useState(false);
-  const repoListOpen = !repo || changingRepo;
+  const repoListOpen = !repo || !confirmed.repo || changingRepo;
 
   return (
     <div className="space-y-4">
@@ -200,13 +207,13 @@ export function TeamConfigPicker({ onChange }: Props) {
             <div className="space-y-2">
               <TextField label={t("teamPicker.repo.search")} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="acme-org/team-config" autoComplete="off" disabled={!repos.data || Boolean(repos.data.problem)} />
               {repos.loading ? <p className="text-sm text-muted-text">{t("common.loading")}</p> : null}
-              {repos.data && !repos.data.problem && !repo && !repoTouched && groups.usable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.choose")}</p> : null}
+              {repos.data && !repos.data.problem && !repo && groups.usable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.choose")}</p> : null}
               {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length === 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.none")}</p> : null}
               {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.noneUsable")}</p> : null}
               <div role="radiogroup" aria-label={t("teamSync.repo")} className="space-y-2">
                 {shown.map((r) => (
                   <label key={r.fullName} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${repo === r.fullName ? "border-primary" : "border-line"}`}>
-                    <input type="radio" name="team-repo" checked={repo === r.fullName} onChange={() => { setRepo(r.fullName); setRepoTouched(true); setChangingRepo(false); }} />
+                    <input type="radio" name="team-repo" checked={repo === r.fullName} onChange={() => setChoice((c) => withRepo(c, r.fullName))} />
                     <span className="min-w-0 flex-1 break-all font-mono">{r.fullName}</span>
                     <span className="flex shrink-0 items-center gap-2 text-xs text-muted-text">
                       {r.pushedAt ? <span>{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
@@ -215,6 +222,7 @@ export function TeamConfigPicker({ onChange }: Props) {
                   </label>
                 ))}
               </div>
+              <Button variant="primary" disabled={!repo} onClick={() => { setChoice((c) => confirmStep(c, "repo")); setChangingRepo(false); }}>{t("teamPicker.repo.use")}</Button>
               {groups.usable.length > REPO_ROWS && !showAll && search.trim() === "" ? (
                 <Button onClick={() => setShowAll(true)}>{t("teamPicker.repo.showMore", { count: groups.usable.length - REPO_ROWS })}</Button>
               ) : null}
@@ -237,19 +245,20 @@ export function TeamConfigPicker({ onChange }: Props) {
         </SetupStep>
 
         <SetupStep number={2} title={t("teamPicker.step.file")} status={statusOf("file")}>
-          {repo ? (
+          {confirmed.repo && repo ? (
             <div className="space-y-2">
               <div className="grid gap-3 sm:grid-cols-2">
-                <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!branches.data || (branches.data.branches.length ?? 0) === 0}>
+                <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setChoice((c) => withBranch(c, e.target.value))} disabled={!branches.data || (branches.data.branches.length ?? 0) === 0}>
                   {(branches.data?.branches ?? []).map((b) => <option key={b} value={b}>{b === branches.data?.defaultBranch ? `${b} (${t("teamPicker.branch.default")})` : b}</option>)}
                 </SelectField>
                 {branch ? (
-                  <SelectField label={t("teamSync.config.path")} value={file} onChange={(e) => setFile(e.target.value)} disabled={!files.data}>
+                  <SelectField label={t("teamSync.config.path")} value={file} onChange={(e) => setChoice((c) => withFile(c, e.target.value))} disabled={!files.data}>
                     {(files.data?.files ?? []).map((f) => <option key={f} value={f}>{f}</option>)}
                     {files.data?.canCreate ? <option value={CREATE_FILE}>{t("teamPicker.file.create", { path: files.data.createPath })}</option> : null}
                   </SelectField>
                 ) : null}
               </div>
+              {!confirmed.file ? <Button variant="primary" disabled={!dataReady} onClick={() => setChoice((c) => confirmStep(c, "file"))}>{t("teamPicker.file.use")}</Button> : null}
               {createFile ? (
                 <details className="text-xs text-muted-text">
                   <summary className="cursor-pointer">{t("teamPicker.file.createShort")}</summary>
@@ -266,17 +275,18 @@ export function TeamConfigPicker({ onChange }: Props) {
               {modeOption("pull", readAccess.data, readAccess.loading)}
               {modeOption("pull-push", writeAccess.data, writeAccess.loading)}
               {shownMode === "pull-push" ? (
-                <SelectField label={t("teamSync.config.strategy")} value={strategy} onChange={(e) => setStrategy(e.target.value as PushStrategy)}>
+                <SelectField label={t("teamSync.config.strategy")} value={strategy} onChange={(e) => setChoice((c) => withMode(c, c.mode, e.target.value as PushStrategy))}>
                   <option value="pull-request">{t("teamSync.config.strategy.pull-request")}</option>
                   <option value="direct">{t("teamSync.config.strategy.direct")}</option>
                 </SelectField>
               ) : null}
+              {!confirmed.mode ? <Button variant="primary" onClick={() => setChoice((c) => confirmStep(c, "mode"))}>{t("teamPicker.mode.use")}</Button> : null}
             </div>
           ) : null}
         </SetupStep>
 
         <SetupStep number={4} title={t("teamPicker.step.token")} status={statusOf("token")}>
-          {ready ? <TeamTokenControl repo={repo} branch={branch} mode={shownMode} strategy={strategy} onCreated={() => { setAccessNonce((n) => n + 1); tokenInfo.reload(); }} /> : null}
+          {allConfirmed ? <TeamTokenControl repo={repo} branch={branch} mode={shownMode} strategy={strategy} onCreated={() => { setAccessNonce((n) => n + 1); tokenInfo.reload(); }} /> : null}
         </SetupStep>
       </ol>
 

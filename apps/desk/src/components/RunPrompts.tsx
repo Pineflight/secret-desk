@@ -18,6 +18,7 @@ export function CodePrompt({ name, pending, onSend }: { name: string; pending: b
       className="space-y-2 rounded-xl border border-line p-3"
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!codeValid(code)) return;
         const c = code;
         setCode("");
@@ -75,6 +76,7 @@ export function CredentialsPrompt({ name, methods, pending, onSend }: { name: st
       className="space-y-3 rounded-xl border border-line p-3"
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!ready) return;
         const body = { method, username: email.trim(), password };
         setEmail("");
@@ -125,6 +127,7 @@ export function AccessPrompt({ name, ask, pending, onSend }: { name: string; ask
       className="space-y-3 rounded-xl border border-line p-3"
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!valid) return;
         const v = value;
         setValue("");

@@ -5,12 +5,23 @@ export type StepStatus = "done" | "current" | "todo";
 
 export const STEP_IDS: readonly StepId[] = ["repo", "file", "mode", "token"];
 
+/** Which suggested steps the human has confirmed. A preselected value alone never completes a step. */
+export interface StepConfirmations {
+  repo: boolean;
+  file: boolean;
+  mode: boolean;
+}
+
+export const NO_CONFIRMATIONS: StepConfirmations = { repo: false, file: false, mode: false };
+
 export interface StepperInput {
   repo: string;
   branch: string;
   path: string;
   /** The integration (or the team token) already allows the chosen mode. */
   modeAllowed: boolean;
+  /** Steps the human confirmed ("Use this"); a step is only done after that. */
+  confirmed: StepConfirmations;
 }
 
 export interface StepView {
@@ -19,16 +30,15 @@ export interface StepView {
 }
 
 /**
- * Steps in order: every step before the first unfinished one is done, that one is current, the rest wait. The mode always has
- * a default, so it is done as soon as the file is; the token step is done when the mode is already allowed.
+ * Steps in order: every step before the first unfinished one is done, that one is current, the rest wait. Repository, branch
+ * and file and mode have suggestions, but each one is only done after the human confirmed it; the token step is done when the
+ * mode is allowed.
  */
 export function stepperState(input: StepperInput): StepView[] {
-  const complete: Record<StepId, boolean> = {
-    repo: Boolean(input.repo),
-    file: Boolean(input.repo && input.branch && input.path),
-    mode: Boolean(input.repo && input.branch && input.path),
-    token: Boolean(input.repo && input.branch && input.path && input.modeAllowed),
-  };
+  const repo = Boolean(input.repo && input.confirmed.repo);
+  const file = repo && Boolean(input.branch && input.path && input.confirmed.file);
+  const mode = file && input.confirmed.mode;
+  const complete: Record<StepId, boolean> = { repo, file, mode, token: mode && input.modeAllowed };
   let currentSet = false;
   return STEP_IDS.map((id) => {
     if (complete[id]) return { id, status: "done" as const };
