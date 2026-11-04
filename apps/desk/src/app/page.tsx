@@ -8,6 +8,8 @@ import { useQuery } from "@/lib/hooks";
 import { Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, Skeleton, Stat, StageBadge, StatusBadge, Tabs } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { IntegrationsOverview } from "@/components/IntegrationsOverview";
+import { RenewalNotice } from "@/components/RenewalWarnings";
+import { useRenewalWarnings } from "@/lib/use-renewal-warnings";
 import { useT } from "@/lib/i18n";
 import { useStageDefs } from "@/lib/use-stages";
 import { labelOf } from "@/lib/stages";
@@ -19,6 +21,7 @@ export default function OverviewPage() {
   const defs = useStageDefs();
   const q = useQuery<Overview>("overview", () => api<Overview>("GET", "overview"), { refreshMs: 30000 });
   const [tab, setTab] = useState<StageTab>("all");
+  const renewals = useRenewalWarnings();
   const o = q.data;
 
   const tabs: { id: StageTab; label: string; count?: number }[] = [
@@ -31,8 +34,9 @@ export default function OverviewPage() {
     <>
       <PageHeader title={t("home.title")} subtitle={t("home.subtitle")} />
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : null}
-      {o && (o.pendingReviews > 0 || o.pendingApprovals > 0) ? (
+      {o && (o.pendingReviews > 0 || o.pendingApprovals > 0 || renewals.length > 0) ? (
         <div className="mb-6 space-y-2">
+          <RenewalNotice warnings={renewals} />
           {o.pendingReviews > 0 ? (
             <Notice tone="warn" title={t("home.reviewsWaiting", { count: o.pendingReviews })}>
               {t("home.reviewsHint")} <Link href="/reviews" className="font-medium underline">{t("home.reviewNow")}</Link>

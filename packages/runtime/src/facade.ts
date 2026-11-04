@@ -469,6 +469,7 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
     // The credentials are not needed any more.
     creds.username = "";
     creds.password = "";
+    rt.automation.noteSignIn(recipe.host, true, "connect");
     await runConnect(rt, actor, d, recipe, key, signal, t, projectId, inputs, result.url);
   } catch (err) {
     finishFailed(rt, key, t, failureOf(err, known, signal.aborted));
@@ -584,7 +585,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     );
     value = result.value;
     // The recipe ran inside the signed-in browser: remember the sign-in at this host.
-    rt.automation.noteSignIn(recipe.host, true);
+    rt.automation.noteSignIn(recipe.host, true, "run");
   } catch (err) {
     if (challenged) {
       const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
@@ -721,6 +722,11 @@ export async function checkRecipeSession(rt: Runtime, actor: Actor, recipeId: st
   const recipe = rt.automation.recipe(recipeId);
   if (!recipe?.login?.form) throw new InventoryError(`The recipe ${recipeId} has no guided sign-in, so its browser session cannot be checked.`);
   return checkRecipeHost(rt, `recipe-check:${recipeId}`, recipeId, recipe, options);
+}
+
+/** The check the background scheduler makes: same as a human's, without an actor (nothing is typed, no value is read). */
+export function checkRecipeSessionScheduled(rt: Runtime, recipe: Recipe, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
+  return checkRecipeHost(rt, `recipe-check:${recipe.id}`, recipe.id, recipe, options);
 }
 
 async function checkRecipeHost(rt: Runtime, key: string, id: string, recipe: Recipe, options: { timeoutSeconds?: number }): Promise<FacadeSessionCheck> {

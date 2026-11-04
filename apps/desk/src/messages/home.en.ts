@@ -39,4 +39,12 @@ export default {
   "home.linkedExpires": "Token expires {when}",
   "home.linkedDueSoon": "Due soon",
   "home.linkedConnected": "Connected",
+  "renewal.title.one": "Sign-in needed before {count} renewal",
+  "renewal.title.other": "Sign-in needed before {count} renewals",
+  "renewal.hint": "The browser is signed out at the provider, or nobody knows. The renewal would stop at the sign-in page.",
+  "renewal.line": "{name} at {provider}: renewal on {date}",
+  "renewal.badge": "Sign-in needed before renewal on {date}",
+  "renewal.badgeUnknown": "Sign-in unknown, needed before renewal on {date}",
+  "renewal.signIn": "Sign in",
+  "renewal.signInAt": "Sign in at {provider}",
 } satisfies Record<string, string>;

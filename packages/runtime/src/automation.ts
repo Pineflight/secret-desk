@@ -35,6 +35,9 @@ import {
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
+
+export type { SessionLifetime, SignInCheck, SignInSource };
 
 /**
  * What the portal has to ask the human right now in a run that signs in and confirms through the portal (team token). Never holds
@@ -111,14 +114,6 @@ export interface AutomationRecipeInfo {
   canCheckSignIn: boolean;
 }
 
-/** The last time the browser was seen signed in or out at a host (checked, or a recipe run succeeded). Kept in memory. */
-export interface SignInCheck {
-  host: string;
-  signedIn: boolean;
-  /** ISO time of the check. */
-  checkedAt: string;
-}
-
 /** Which browser runs the recipes. In remote mode the endpoint is shown without credentials, query or fragment. */
 export interface AutomationBrowserInfo {
   mode: "local" | "remote";
@@ -141,8 +136,14 @@ export interface AutomationInfo {
   loginTimeoutMinutes: number;
   /** Hours a sign-in check counts as current (`automation.signInFreshHours`). */
   signInFreshHours: number;
+  /** Hours between the scheduled sign-in checks (`automation.signInCheckHours`, 0 = off). */
+  signInCheckHours: number;
+  /** Days before a renewal at which a signed-out browser is flagged (`automation.renewalWarnDays`, 0 = off). */
+  renewalWarnDays: number;
   /** Last known browser sign-in state per recipe host. */
   signInChecks: SignInCheck[];
+  /** How long sign-ins lasted per recipe host (only hosts with at least one measurement). */
+  signInLifetimes: SessionLifetime[];
   recipes: AutomationRecipeInfo[];
   /** Ob Rezepte aus eigenen Ordnern geladen werden (automation.allowExternalRecipes). */
   allowExternalRecipes: boolean;
@@ -181,6 +182,8 @@ export interface AutomationOptions {
   /** Tests only: replaces the reachability check of the remote browser. */
   probe?: typeof probeCdp;
   now?: () => Date;
+  /** File that keeps the sign-in memory across restarts. Without it the memory lives in this process only. */
+  signInStateFile?: string;
 }
 
 const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
@@ -231,7 +234,9 @@ export class AutomationManager {
   readonly profileDir: string;
   readonly loginTimeoutMinutes: number;
   readonly signInFreshHours: number;
-  readonly #signIn = new Map<string, SignInCheck>();
+  readonly signInCheckHours: number;
+  readonly renewalWarnDays: number;
+  readonly #signIn: SignInStore;
   readonly problems: { file: string; message: string }[] = [];
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
@@ -253,12 +258,16 @@ export class AutomationManager {
     this.profileDir = path(c.profileDir ?? PROFILE_DEFAULT, opts.configDir);
     this.loginTimeoutMinutes = c.loginTimeoutMinutes;
     this.signInFreshHours = c.signInFreshHours;
+    this.signInCheckHours = c.signInCheckHours;
+    this.renewalWarnDays = c.renewalWarnDays;
+    this.#signIn = new SignInStore(opts.signInStateFile ?? null);
     this.#now = opts.now ?? (() => new Date());
   }
 
   /** Rezepte laden und je Rezept einen Browser-Anbieter `<id>-browser` registrieren. Ungueltige Rezepte landen in `problems`. */
   async load(): Promise<void> {
     if (!this.enabled) return;
+    await this.#signIn.load();
     const { config, configDir, inventoryDir, providers } = this.opts;
     const bundled = this.opts.bundledDir === undefined ? bundledRecipesDir() : this.opts.bundledDir;
     const dirs: string[] = [];
@@ -298,7 +307,7 @@ export class AutomationManager {
         ...base,
         id: `${recipe.id}-browser`,
         label: `${recipe.label} (Browser)`,
-        ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); this.noteSignIn(recipe.host, true); return issued; } } : {}),
+        ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); this.noteSignIn(recipe.host, true, "run"); return issued; } } : {}),
       };
       // The Anthropic key recipe also gets what the Admin API can do (workspaces, key check, revoke); see providers/anthropic.ts.
       const provider = recipe.id === ANTHROPIC_KEY_RECIPE ? withAnthropicAdmin(wrapped) : wrapped;
@@ -310,13 +319,28 @@ export class AutomationManager {
   }
 
   /** Remembers that the browser was signed in (or out) at a host just now. Never stores values. */
-  noteSignIn(host: string, signedIn: boolean): void {
-    this.#signIn.set(host, { host, signedIn, checkedAt: this.#now().toISOString() });
+  noteSignIn(host: string, signedIn: boolean, source: SignInSource = "check"): void {
+    this.#signIn.note(host, signedIn, this.#now(), source);
   }
 
-  /** The last known sign-in state of every host seen in this process. */
+  /** The last known sign-in state of every host seen so far (also from earlier runs of the portal). */
   signInChecks(): SignInCheck[] {
-    return [...this.#signIn.values()];
+    return this.#signIn.checks();
+  }
+
+  /** How long sign-ins lasted, per host with at least one measurement. */
+  signInLifetimes(): SessionLifetime[] {
+    return this.#signIn.lifetimes();
+  }
+
+  /** Waits until the sign-in memory is on disk (tests, shutdown). */
+  flushSignIn(): Promise<void> {
+    return this.#signIn.flush();
+  }
+
+  /** The clock this manager uses (the scheduler follows it, so tests can drive both). */
+  now(): Date {
+    return this.#now();
   }
 
   /** A loaded recipe by id (the guided sign-in and its key recipe live in one recipe). */
@@ -505,6 +529,6 @@ export class AutomationManager {
         chrome = { found: false, path: null, hint: (err as Error).message };
       }
     }
-    return { enabled: this.enabled, browser: this.#browserInfo(), chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, signInFreshHours: this.signInFreshHours, signInChecks: this.signInChecks(), recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
+    return { enabled: this.enabled, browser: this.#browserInfo(), chrome, profileDir: this.profileDir, loginTimeoutMinutes: this.loginTimeoutMinutes, signInFreshHours: this.signInFreshHours, signInCheckHours: this.signInCheckHours, renewalWarnDays: this.renewalWarnDays, signInChecks: this.signInChecks(), signInLifetimes: this.signInLifetimes(), recipes: this.recipes, allowExternalRecipes: this.opts.config.automation.allowExternalRecipes, problems: this.problems, runs: this.runs() };
   }
 }

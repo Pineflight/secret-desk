@@ -159,6 +159,13 @@ export const ConfigSchema = z.object({
       loginTimeoutMinutes: z.number().min(1).max(120).default(10),
       /** How many hours a browser sign-in check (or a successful recipe run) counts as current. Provider sessions are short-lived. */
       signInFreshHours: z.number().min(1).max(168).default(12),
+      /**
+       * Every this many hours the portal checks the browser sign-in of each provider whose last answer is older, in the background
+       * (one check at a time, never while a run is active). 0 turns the scheduled checks off.
+       */
+      signInCheckHours: z.number().min(0).max(168).default(6),
+      /** An entry whose renewal needs a recipe and falls due within this many days gets a warning while the browser is signed out or unknown. 0 = no warnings. */
+      renewalWarnDays: z.number().int().min(0).max(90).default(7),
       /** Verlangsamt jede Browseraktion (Millisekunden), zum Zuschauen. */
       slowMoMs: z.number().int().min(0).max(5000).optional(),
       /** Zusaetzliche Ordner mit Rezepten (*.yaml). Zusaetzlich immer <Ordner des Inventars>/recipes. */
@@ -166,7 +173,7 @@ export const ConfigSchema = z.object({
       /** Rezepte aus anderen Ordnern als den mitgelieferten laden. Rezepte sind ausfuehrbare Browserskripte: nur fuer Quellen, denen du vertraust. */
       allowExternalRecipes: z.boolean().default(false),
     })
-    .default({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, allowExternalRecipes: false }),
+    .default({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, signInCheckHours: 6, renewalWarnDays: 7, allowExternalRecipes: false }),
   /** Stage-Vergleich. */
   compare: z
     .object({

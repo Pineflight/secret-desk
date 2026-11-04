@@ -244,6 +244,7 @@ describe("recipe routes: check sign-in", () => {
     const before = await call(ui(deps, "GET", "automation"));
     expect(before.body["signInChecks"]).toEqual([]);
     expect(before.body["signInFreshHours"]).toBe(12);
+    expect(before.body).toMatchObject({ signInCheckHours: 6, renewalWarnDays: 7, signInLifetimes: [] });
     expect(before.body["recipes"].find((r: { id: string }) => r.id === "revenuecat-secret-api-key")).toMatchObject({ canCheckSignIn: true });
     expect(before.body["recipes"].find((r: { id: string }) => r.id === "openai-api-key")).toMatchObject({ canCheckSignIn: false });
   });

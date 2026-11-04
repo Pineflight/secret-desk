@@ -70,9 +70,9 @@ export function Button({ variant = "secondary", loading = false, className = "",
   );
 }
 
-export function LinkButton({ href, children, variant = "secondary", className = "" }: { href: string; children: ReactNode; variant?: Variant; className?: string }) {
+export function LinkButton({ href, children, variant = "secondary", className = "", "aria-label": ariaLabel }: { href: string; children: ReactNode; variant?: Variant; className?: string; "aria-label"?: string }) {
   return (
-    <Link href={href} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${VARIANT[variant]} ${className}`}>
+    <Link href={href} {...(ariaLabel ? { "aria-label": ariaLabel } : {})} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${VARIANT[variant]} ${className}`}>
       {children}
     </Link>
   );

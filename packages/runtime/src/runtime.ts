@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   ConnectionStore,
   GitHubClient,
@@ -52,6 +53,11 @@ export interface RuntimeOptions {
   watchInventory?: boolean;
   /** Eigener Tresor (Tests); sonst nach config.vault. */
   vault?: SecretVault | null;
+  /**
+   * Long-running processes (the portal): keep the browser sign-in memory in `sign-in-state.json` next to the repository links file
+   * (`linksFile`, default `~/.secret-desk/`). Without it the memory lives in the process only.
+   */
+  persistSignIn?: boolean;
   /** Nur Tests: ersetzt den echten Browser durch einen Treiber ohne Fenster. */
   automationDriver?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: anderer Ordner (oder null = keiner) statt der mitgelieferten Rezepte. */
@@ -123,6 +129,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers,
     evidence,
     env,
+    ...(options.persistSignIn ? { signInStateFile: join(dirname(resolve(expandHome(config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json")))), "sign-in-state.json") } : {}),
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
     ...(options.automationAccess ? { access: options.automationAccess } : {}),

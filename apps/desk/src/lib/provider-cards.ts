@@ -1,5 +1,5 @@
 import { expiryLevel, type ExpiryLevel } from "./connection-health";
-import { ageParts, browserReadiness, newestCheck, DEFAULT_FRESH_HOURS, type AgeParts, type Readiness, type SignInCheckRow } from "./browser-ready";
+import { ageParts, browserReadiness, newestCheck, sessionHoursOf, DEFAULT_FRESH_HOURS, type AgeParts, type Readiness, type SessionLifetimeRow, type SignInCheckRow } from "./browser-ready";
 
 /**
  * One card per provider (vendor) on the Integrations page. The technical connections, provider definitions and browser recipes
@@ -104,6 +104,8 @@ export interface BrowserWay {
   secrets: number;
   /** The earliest expiry among those entries, like connected keys have. */
   expiry: EarliestExpiry | null;
+  /** How long a sign-in here has lasted, in whole hours (at least 1), from measurements; null until there is one. */
+  sessionHours: number | null;
 }
 
 /**
@@ -147,6 +149,8 @@ export interface CardInput {
   signInChecks?: readonly SignInCheckRow[];
   /** Hours a sign-in answer counts as current (`automation.signInFreshHours`). */
   signInFreshHours?: number;
+  /** How long sign-ins lasted per recipe host, as measured by the server. */
+  signInLifetimes?: readonly SessionLifetimeRow[];
   /** Time source; the caller passes one so the badge is testable. */
   now?: Date;
   /** Browser automation is on. Without it no recipe is usable. */
@@ -175,7 +179,7 @@ export function buildCards(input: CardInput): ProviderCard[] {
     const hosts = recipes.flatMap((r) => (r.host ? [r.host] : []));
     const managed = (input.secrets ?? []).filter((s) => s.vendor === v.id && s.browser === true);
     const browser: BrowserWay | null = usable
-      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), input.now ?? new Date(), input.signInFreshHours ?? DEFAULT_FRESH_HOURS), secrets: managed.length, expiry: earliestAmong(managed) }
+      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), input.now ?? new Date(), input.signInFreshHours ?? DEFAULT_FRESH_HOURS), secrets: managed.length, expiry: earliestAmong(managed), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], hosts) }
       : null;
     const byHand = input.providers.filter((p) => p.vendor === v.id && p.kind === "manual" && p.guide && !p.browser && !covered);
     cards.push({

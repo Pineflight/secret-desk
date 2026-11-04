@@ -25,6 +25,7 @@ const FILES = [
   "components/ProviderFacade.tsx",
   "components/ProviderCards.tsx",
   "components/BrowserAutomationPanel.tsx",
+  "components/RenewalWarnings.tsx",
   "lib/sign-in-check.ts",
 ];
 

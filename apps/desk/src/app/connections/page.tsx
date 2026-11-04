@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signInParam } from "@/lib/renewal-warning";
 import type { SecretView, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
@@ -62,6 +64,10 @@ export default function ConnectionsPage() {
   const { t, locale } = useI18n();
   const toast = useToast();
   const [picking, setPicking] = useState<Picking>(false);
+  // "Sign in" on a renewal warning leads here with ?signin=<provider>: open that provider's sign-in dialog once, then clean the address.
+  const params = useSearchParams();
+  const router = useRouter();
+  const signinParam = signInParam(params.get("signin"));
   const [adding, setAdding] = useState(false);
   // Which cards (and keys) are open. Read after mounting so the server render and the first client render agree.
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -120,13 +126,18 @@ export default function ConnectionsPage() {
             signedIn,
             automationEnabled: auto.data?.enabled ?? false,
             signInChecks: auto.data?.signInChecks ?? [],
-            ...(auto.data ? { signInFreshHours: auto.data.signInFreshHours } : {}),
+            ...(auto.data ? { signInFreshHours: auto.data.signInFreshHours, signInLifetimes: auto.data.signInLifetimes ?? [] } : {}),
             now: new Date(),
           })
         : null,
     [vendors.data, conns.data, provs.data, auto.data, facades.data, secrets.data, vars.data, signedIn],
   );
   cardsRef.current = cards;
+  useEffect(() => {
+    if (!signinParam || !cards) return;
+    if (cards.some((c) => c.id === signinParam)) setPicking({ vendor: signinParam, signIn: true });
+    router.replace("/connections");
+  }, [signinParam, cards, router]);
   const used = (cards ?? []).filter(isInUse);
   const groups = cards && vendors.data ? groupByCategory(used, vendors.data.categories) : [];
   const reloadAll = () => { conns.reload(); facades.reload(); };

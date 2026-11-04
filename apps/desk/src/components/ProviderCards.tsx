@@ -143,6 +143,7 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
       {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
       {note ? <span>{t(note.key, { when: note.age ? ageText(note.age, t) : "" })}</span> : null}
+      {card.browser?.sessionHours ? <span>{t("providers.card.sessionLasts", { hours: card.browser.sessionHours })}</span> : null}
       {signIn ? <span role={signIn === "waiting" || signIn === "checking" ? "status" : undefined}>{t(SIGN_IN_TEXT[signIn])}</span> : null}
     </span>
   );

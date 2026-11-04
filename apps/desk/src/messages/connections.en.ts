@@ -115,4 +115,13 @@ export default {
   "connections.recipeHostsNone": "no others",
   "connections.recipeExternalOff": "External recipes are switched off (automation.allowExternalRecipes). Recipes from your own folders are not loaded.",
   "connections.recipeExternalOn": "External recipes are switched on. Check host and SHA-256 before you use a recipe.",
+  "connections.sessionsTitle": "Sign-in sessions",
+  "connections.sessionsHint": "The last answer per recipe host and how long a sign-in lasted there. Checked every {hours} h in the background.",
+  "connections.sessionsHintOff": "The last answer per recipe host and how long a sign-in lasted there. The background checks are off (automation.signInCheckHours).",
+  "connections.sessionsNone": "No sign-in answer yet.",
+  "connections.sessionIn": "signed in",
+  "connections.sessionOut": "signed out",
+  "connections.sessionChecked": "checked {when}",
+  "connections.sessionLasts": "sessions last about {hours} h ({count} measured)",
+  "connections.sessionLastsNone": "no session lifetime measured yet",
 } satisfies Record<string, string>;
