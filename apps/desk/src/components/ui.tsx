@@ -31,11 +31,14 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   );
 }
 
-export function Badge({ info, className = "" }: { info: Info; className?: string }) {
+export function Badge({ info, className = "", compact = false }: { info: Info; className?: string; compact?: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-4 ${toneClass(info.tone)} ${className}`}>
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full ${compact ? "px-1.5" : "px-2"} py-px text-[11px] font-medium leading-4 ${toneClass(info.tone)} ${className}`}
+      {...(compact ? { title: info.label } : {})}
+    >
       <Icon name={info.icon} className="h-3 w-3" />
-      {info.label}
+      {compact ? <span className="sr-only">{info.label}</span> : info.label}
     </span>
   );
 }
