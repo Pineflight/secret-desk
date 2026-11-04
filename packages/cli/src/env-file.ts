@@ -1,0 +1,60 @@
+import { execFile } from "node:child_process";
+import { mkdir, stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { StageSchema, localPathProblem, writePrivateFile, type Stage } from "@secret-desk/core";
+import { createRuntime, exportEnvContent, type EnvExportFormat, type EnvExportInclude } from "@secret-desk/runtime";
+
+interface Io {
+  out: (line: string) => void;
+  err: (line: string) => void;
+}
+
+/** true = Git tracks the file, false = it does not, null = cannot tell (no repository, no git). */
+export function isTrackedByGit(path: string): Promise<boolean | null> {
+  return new Promise((res) => {
+    execFile("git", ["ls-files", "--error-unmatch", "--", path], { cwd: dirname(path), timeout: 5000, windowsHide: true }, (err) => {
+      if (!err) return res(true);
+      const code = (err as { code?: number | string }).code;
+      res(code === 1 ? false : null);
+    });
+  });
+}
+
+/**
+ * `secret-desk env export` content mode: one file with the variables (and, with `--include all`, the dev secrets that
+ * have a value) of a repository and stage. Mode 0600, no overwrite and no tracked path without `--force`.
+ */
+export async function envExportContent(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { config: { type: "string" }, repo: { type: "string" }, stage: { type: "string" }, out: { type: "string" }, format: { type: "string" }, include: { type: "string" }, force: { type: "boolean" } },
+  });
+  if (!values.config || !values.repo) throw new Error("env export --config <datei> --repo <repo> [--stage <s>] [--out <pfad>] [--format dotenv|json] [--include variables|all] [--force]");
+  const format = values.format ?? "dotenv";
+  const include = values.include ?? "variables";
+  if (format !== "dotenv" && format !== "json") throw new Error("--format: dotenv oder json");
+  if (include !== "variables" && include !== "all") throw new Error("--include: variables oder all");
+  const rt = await createRuntime(values.config);
+  const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
+  const r = exportEnvContent(rt, { kind: "human", name: "cli" }, { repo: values.repo, stage, format: format as EnvExportFormat, include: include as EnvExportInclude });
+  const target = resolve(values.out ?? r.filename);
+  const problem = localPathProblem(target);
+  if (problem) throw new Error(problem);
+  const exists = await stat(target).then(() => true, () => false);
+  if (exists && !values.force) {
+    io.err(`Datei existiert schon: ${target}. Mit --force ueberschreiben.`);
+    return 1;
+  }
+  const tracked = await isTrackedByGit(target);
+  if (tracked === true && !values.force) {
+    io.err(`Git verfolgt diesen Pfad: ${target}. Keine Werte in eine verfolgte Datei schreiben (mit --force trotzdem).`);
+    return 1;
+  }
+  if (tracked === true) io.err(`Warnung: Git verfolgt diesen Pfad (${target}).`);
+  await mkdir(dirname(target), { recursive: true });
+  await writePrivateFile(target, r.content);
+  io.out(`geschrieben: ${target} (${r.keys.length} Werte, ${r.missing.length} fehlend, Modus 600)`);
+  for (const m of r.missing) io.err(`fehlt: ${m.name} (${m.reason})`);
+  return 0;
+}

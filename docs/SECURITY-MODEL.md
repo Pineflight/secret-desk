@@ -19,6 +19,7 @@ Values are never stored. The portal holds them in memory only, only for as long 
 - Only folders **below** the home folder or `policy.envRoots` (after resolving symlinks) that contain a `.git` are allowed.
   The remote is read with `execFile` (no shell); a differing remote only produces a warning.
 - Only the portal sets and removes links. Agents see the list without paths and cannot link anything.
+- `env/export` (content export, `desk_env_export`): agents only for the stages of `policy.agentStages`; secret values of a stage that is not of kind `dev` are never exported, for anybody; secrets get a value only from a dev template (no provider call). The MCP tool writes with mode 600, never over an existing file, never into a path Git tracks, only inside the working directory.
 - For `env-export`, a linked folder counts as an allowed root, but only for its own repository. The link is re-checked on every
   use (folder exists, still below home or `envRoots`).
 

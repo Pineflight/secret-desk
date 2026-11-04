@@ -12,6 +12,7 @@ import {
   parseTeamBundle,
   type Stage,
 } from "@secret-desk/core";
+import { envExportContent } from "./env-file.js";
 import { generateVapidKeys } from "@secret-desk/providers";
 import {
   adoptVariableFromGitHub,
@@ -71,6 +72,8 @@ Aufruf: secret-desk <befehl> [optionen]
                    --to-github --config <datei> [--dry-run] [--yes] [--repo <name>]
   env export     Dev-.env erzeugen (Werte entstehen jetzt, werden nirgends gespeichert)
                    --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
+  env export     Variablen (und Dev-Werte) als Datei, jede Stage; mit einer dieser Optionen:
+                   --config <datei> --repo <r> [--stage <s>] [--out <pfad>] [--format dotenv|json] [--include variables|all] [--force]
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
   team status    Stand des Team-Syncs (ohne Netzwerk)      --config <datei>
@@ -129,7 +132,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "sync":
         return await syncCmd(rest, io);
       case "env":
-        return rest[0] === "export" ? await envExport(rest.slice(1), io) : usage(io);
+        if (rest[0] !== "export") return usage(io);
+        // Content mode (variables, dev secrets with a value, any stage) when one of its options is given; otherwise the template mode.
+        return rest.some((a) => /^--(format|include|force)(=|$)/.test(a)) ? await envExportContent(rest.slice(1), io) : await envExport(rest.slice(1), io);
       case "team":
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : rest[0] === "status" ? await teamStatusCmd(rest.slice(1), io) : rest[0] === "pull" ? await teamPullCmd(rest.slice(1), io) : rest[0] === "push" ? await teamPushCmd(rest.slice(1), io) : usage(io);
       case "inventory":

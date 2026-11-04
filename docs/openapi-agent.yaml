@@ -465,6 +465,42 @@ paths:
                       keys: { type: array, items: { type: string } }
                       message: { type: string }
         default: { $ref: "#/components/responses/Error" }
+  /env/export:
+    post:
+      tags: [Dev environment]
+      summary: Export a repository and stage as .env or JSON content (agents only for policy.agentStages)
+      operationId: exportEnvContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, stage]
+              properties:
+                repo: { type: string }
+                stage: { type: string }
+                format: { type: string, enum: [dotenv, json], default: dotenv }
+                include: { type: string, enum: [variables, all], default: variables }
+      responses:
+        "200":
+          description: The file content (holds values; secret values only for dev stages) and the names without a value
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repo, stage, format, filename, content, keys, missing]
+                properties:
+                  repo: { type: string }
+                  stage: { type: string }
+                  format: { type: string }
+                  filename: { type: string }
+                  content: { type: string }
+                  keys: { type: array, items: { type: string } }
+                  missing:
+                    type: array
+                    items: { type: object, required: [name, reason], properties: { name: { type: string }, reason: { type: string } } }
+        default: { $ref: "#/components/responses/Error" }
   /repos:
     get:
       tags: [Other]
