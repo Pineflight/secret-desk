@@ -38,8 +38,19 @@ export function countdown(ms: number): string {
   return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
 }
 
-export function placeText(p: { repo: string; scope: string; environment?: string | undefined }): string {
-  return `${p.repo} / ${p.scope === "environment" ? (p.environment ?? translate("common.env")) : p.scope === "organization" ? translate("common.org") : translate("common.repo")}`;
+/** What the views know of a place: a GitHub place has `repo`, a Cloudflare Worker place has `script`. */
+export interface PlaceLike {
+  scope: string;
+  repo?: string | undefined;
+  environment?: string | undefined;
+  script?: string | undefined;
+  accountId?: string | undefined;
+  name?: string | undefined;
+}
+
+export function placeText(p: PlaceLike): string {
+  if (p.scope === "cloudflare-worker") return `${p.script ?? ""} / ${translate("common.worker")}`;
+  return `${p.repo ?? ""} / ${p.scope === "environment" ? (p.environment ?? translate("common.env")) : p.scope === "organization" ? translate("common.org") : translate("common.repo")}`;
 }
 
 export function matchesQuery(query: string, ...fields: (string | null | undefined)[]): boolean {

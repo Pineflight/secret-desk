@@ -1,4 +1,4 @@
-import type { Check, CompanionValue, EvidenceStore, IssueContext, IssuedSecret, ParamSpec, Provider, RevokeContext, SecretEntry, Stage } from "@secret-desk/core";
+import { githubPlacesOf, type Check, type CompanionValue, type EvidenceStore, type IssueContext, type IssuedSecret, type ParamSpec, type Provider, type RevokeContext, type SecretEntry, type Stage } from "@secret-desk/core";
 import type { BrowserDriver } from "./driver.js";
 import type { Recipe } from "./recipe.js";
 import { recipeParamVars, revokeRecipe, runRecipe, type RunHooks, type RunOptions, type Screenshot } from "./run.js";
@@ -50,7 +50,7 @@ export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: 
   const days = Math.min(366, Math.max(1, secret.ttlDays ?? 30));
   const perms = secret.params["permissions"];
   const permEntries = typeof perms === "object" && perms !== null && !Array.isArray(perms) ? Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string") : [];
-  const repos = [...new Set(secret.places.map((p) => p.repo.split("/").pop() ?? p.repo))];
+  const repos = [...new Set(githubPlacesOf(secret.places).map((p) => p.repo.split("/").pop() ?? p.repo))];
   return {
     name: tokenName(secret.id, now),
     // GitHub-Konto bzw. Organisation: params.owner, sonst der Verantwortliche des Eintrags.

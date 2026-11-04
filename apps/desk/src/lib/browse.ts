@@ -19,7 +19,7 @@ export interface Browsable {
 
 /** Repositories eines Eintrags, sortiert und ohne Dopplungen. */
 export function repoNames(places: Place[]): string[] {
-  return [...new Set(places.map((p) => p.repo))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(places.flatMap((p) => ("repo" in p ? [p.repo] : [])))].sort((a, b) => a.localeCompare(b));
 }
 
 export function allRepos(items: Browsable[]): string[] {

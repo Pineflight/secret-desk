@@ -4,9 +4,11 @@ import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import { hashOf, issuanceSnapshot } from "./snapshot.js";
-import type { SecretEntry, VariableEntry } from "./types.js";
+import { isWorkerPlace, type SecretEntry, type VariableEntry } from "./types.js";
 import type { EvidenceStore } from "./evidence.js";
 import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
+import { checkPlaceWritable, listPlaceSecrets, putPlaceSecret, type PlaceClients } from "./place-io.js";
+import type { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
@@ -17,6 +19,8 @@ import { fingerprintOf, overallStatus, type Check, type CompanionSummary, type C
 export interface IssuanceDeps {
   inventory: InventoryStore;
   github: GitHubClient;
+  /** Writes Cloudflare Worker secrets; without it Worker places fail the target check with a clear message. */
+  workers?: WorkerSecretsClient;
   providers: ProviderRegistry;
   connections: ConnectionStore;
   owner: string;
@@ -56,6 +60,8 @@ export interface PendingCompanion {
   /** Hash of the receiving entry's places and stage at review time; a change before confirm makes the issuance stale. */
   snapshot: string;
 }
+
+const clientsOf = (deps: Pick<IssuanceDeps, "github" | "workers" | "owner">): PlaceClients => ({ github: deps.github, ...(deps.workers ? { workers: deps.workers } : {}), owner: deps.owner });
 
 const companionSnapshot = (e: SecretEntry | VariableEntry): string => hashOf({ places: e.places, stage: e.stage });
 
@@ -179,7 +185,7 @@ export async function prepareIssuance(
   );
   for (const place of secret.places) {
     try {
-      await deps.github.publicKey(placeToTarget(deps.owner, place));
+      await checkPlaceWritable(clientsOf(deps), place);
       checks.push({ id: `target:${describePlace(place)}`, label: `Ziel erreichbar mit Schreibrecht: ${describePlace(place)}`, status: "pass" });
     } catch (err) {
       checks.push({ id: `target:${describePlace(place)}`, label: `Ziel nicht erreichbar: ${describePlace(place)}`, status: "fail", detail: (err as Error).message });
@@ -192,8 +198,9 @@ export async function prepareIssuance(
     for (const place of target.places) {
       try {
         // A variable is written with the same right as a secret but through another endpoint: reading it proves access.
-        if (c.kind === "variable") await deps.github.listVariables(placeToTarget(deps.owner, place));
-        else await deps.github.publicKey(placeToTarget(deps.owner, place));
+        // A variable entry only has GitHub places (the schema allows nothing else).
+        if (c.kind === "variable" && !isWorkerPlace(place)) await deps.github.listVariables(placeToTarget(deps.owner, place));
+        else await checkPlaceWritable(clientsOf(deps), place);
         checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts erreichbar mit Schreibrecht: ${describePlace(place)}`, status: "pass" });
       } catch (err) {
         checks.push({ id: `companion-target:${c.entryId}:${describePlace(place)}`, label: `Ziel des Begleitwerts nicht erreichbar: ${describePlace(place)}`, status: "fail", detail: (err as Error).message });
@@ -216,6 +223,10 @@ export async function prepareIssuance(
 
   const items = provider?.reviewChecklist?.(secret, { stageKind: kind0 }) ?? DEFAULT_CHECKLIST;
   const checklist: ChecklistItem[] = items.map((text, i) => ({ id: `c${i + 1}`, text }));
+  // A Worker secret is written to a deployed Worker: name it in the review so the human sees exactly where it goes.
+  for (const place of secret.places) {
+    if (isWorkerPlace(place)) checklist.push({ id: `c${checklist.length + 1}`, text: `Das Secret ${place.name ?? secret.name} wird als Worker-Secret auf dem Worker ${place.script} (Konto ${place.accountId}) geschrieben.` });
+  }
   if (kind0 === "live") checklist.push({ id: `c${checklist.length + 1}`, text: "Ich weiss, dass dieser Wert die Produktion betrifft." });
 
   const report: VerificationReport = {
@@ -334,8 +345,10 @@ async function commitIssuanceOnce(
   ];
   for (const w of writes) {
     try {
-      const target = placeToTarget(deps.owner, w.place);
-      const outcome = w.variable ? await deps.github.putVariable(target, w.name, w.value.reveal()) : await deps.github.putSecret(target, w.name, w.value);
+      const outcome =
+        w.variable && !isWorkerPlace(w.place)
+          ? await deps.github.putVariable(placeToTarget(deps.owner, w.place), w.name, w.value.reveal())
+          : await putPlaceSecret(clientsOf(deps), w.place, w.name, w.value);
       outcomes.push({ place: w.label, outcome });
     } catch (err) {
       outcomes.push({ place: w.label, outcome: "failed", error: (err as Error).message });
@@ -351,11 +364,13 @@ async function commitIssuanceOnce(
   for (const w of writes) {
     const { place, label } = w;
     try {
-      const live = w.variable
-        ? (await deps.github.listVariables(placeToTarget(deps.owner, place))).find((s) => s.name === w.name && s.value === w.value.reveal())
-        : (await deps.github.listSecrets(placeToTarget(deps.owner, place))).find((s) => s.name === w.name);
-      const fresh = live !== undefined && Date.parse(live.updatedAt) >= since;
-      pending.report.checks.push({ id: `written:${label}`, label: `In GitHub geschrieben: ${label}`, status: fresh ? "pass" : "warn", ...(live ? { actual: `geaendert ${live.updatedAt}` } : { detail: "Name nicht gefunden" }) });
+      const live: { updatedAt?: string } | undefined =
+        w.variable && !isWorkerPlace(place)
+          ? (await deps.github.listVariables(placeToTarget(deps.owner, place))).find((s) => s.name === w.name && s.value === w.value.reveal())
+          : (await listPlaceSecrets(clientsOf(deps), place)).find((s) => s.name === w.name);
+      // A Worker lists names without change times: the name being there right after the write is all that can be seen.
+      const fresh = live !== undefined && (live.updatedAt === undefined || Date.parse(live.updatedAt) >= since);
+      pending.report.checks.push({ id: `written:${label}`, label: isWorkerPlace(place) ? `Auf dem Worker geschrieben: ${label}` : `In GitHub geschrieben: ${label}`, status: fresh ? "pass" : "warn", ...(live ? (live.updatedAt ? { actual: `geaendert ${live.updatedAt}` } : { actual: "Name vorhanden" }) : { detail: "Name nicht gefunden" }) });
     } catch (err) {
       pending.report.checks.push({ id: `written:${label}`, label: `Nachpruefung nicht moeglich: ${label}`, status: "warn", detail: (err as Error).message });
     }

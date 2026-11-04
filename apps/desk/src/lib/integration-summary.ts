@@ -11,11 +11,11 @@ export interface ConnectionLike {
 export interface SecretLike extends WithParams {
   connection: string | null;
   automatic: boolean;
-  places: readonly { repo: string }[];
+  places: readonly { scope?: string; repo?: string | undefined }[];
 }
 export interface VariableLike {
   from: { connection: string } | null;
-  places: readonly { repo: string }[];
+  places: readonly { scope?: string; repo?: string | undefined }[];
 }
 
 export interface IntegrationRow {
@@ -74,7 +74,7 @@ export function summarize(connections: readonly ConnectionLike[], secrets: reado
     .sort((a, b) => Number(b.connected) - Number(a.connected) || b.secrets + b.variables - (a.secrets + a.variables) || a.label.localeCompare(b.label));
 
   const repos = new Set<string>();
-  for (const x of [...secrets, ...variables]) for (const p of x.places) repos.add(p.repo);
+  for (const x of [...secrets, ...variables]) for (const p of x.places) if (p.repo) repos.add(p.repo);
   const withParams = secrets.filter((s) => s.params.status !== "none");
   const paramsMissing = withParams.filter(needsParams).length;
   return {

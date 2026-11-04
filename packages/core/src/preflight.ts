@@ -18,7 +18,7 @@ import {
 import { NotConnectedError } from "./connections.js";
 import type { Provider, ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
-import type { SecretEntry } from "./types.js";
+import { githubPlacesOf, type SecretEntry } from "./types.js";
 
 export interface ParamsDeps {
   inventory: InventoryStore;
@@ -94,7 +94,7 @@ export interface DiscoveryResult {
 
 /** Hinweis fuer Vorschlaege aus einem Eintrag: Repositories der Ziele, Stage und deren Art. */
 export function hintFor(inventory: InventoryStore, secret: Pick<SecretEntry, "places" | "stage">): DiscoverHint {
-  return { repos: [...new Set(secret.places.map((p) => p.repo))], stage: secret.stage, stageKind: stageKind(inventory.stages, secret.stage), ...(inventory.data.resourceMap ? { resourceMap: inventory.data.resourceMap } : {}) };
+  return { repos: [...new Set(githubPlacesOf(secret.places).map((p) => p.repo))], stage: secret.stage, stageKind: stageKind(inventory.stages, secret.stage), ...(inventory.data.resourceMap ? { resourceMap: inventory.data.resourceMap } : {}) };
 }
 
 /** Entdeckung mit Vorschlag. Fehler werden zum Status, nicht zur Ausnahme (ausser Programmierfehlern). */

@@ -91,6 +91,8 @@ A variable can take its expected value from a resource of an integration instead
 
 RevenueCat apps and SDK keys belong to a project. Several projects work like this: `revenuecat.project` lists the projects of the key; for `revenuecat.app` and `revenuecat.publicApiKey` the call (`params.projectId`) or the integration default `projectId` names the project. Without either, the apps of **all** projects of the key are listed (label: name and type; detail: app id and project name), and the project of the chosen app is found by looking it up. The key is limited to 60 requests per minute (Project configuration domain), so with many projects name the project.
 
+The place editor of the secret form also uses the discovery kind `cloudflare.workerScript` (the Workers of an account, needs `param.accountId`; the token needs *Workers Scripts Read*). It is read only when the editor asks for it, not on the Integrations page, so a token without that right causes no warning there.
+
 Not offered: the Grafana stack address and a Stripe publishable key (no usable read endpoint).
 
 ## Parameters per provider

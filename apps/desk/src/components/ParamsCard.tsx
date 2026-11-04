@@ -19,7 +19,8 @@ export function ParamsCard({ secret, focusSignal, notice, onChanged }: { secret:
   const base = useQuery<ParamsView>(`secret-params:${secret.id}`, () => api<ParamsView>("GET", `secrets/${enc(secret.id)}/params`));
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>({});
-  const repo = secret.places[0]?.repo ?? "";
+  const first = secret.places.find((p) => "repo" in p);
+  const repo = first && "repo" in first ? first.repo : "";
   const pv = useDraftParams(editing ? (base.data?.provider ?? null) : null, repo, secret.stage, draft);
   const save = useMutation(async (params: Record<string, unknown>) => api<ParamsView>("PUT", `secrets/${enc(secret.id)}/params`, { params }));
   const data = base.data;
