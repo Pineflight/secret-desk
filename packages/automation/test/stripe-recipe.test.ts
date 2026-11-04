@@ -188,10 +188,10 @@ const CREATE_EXACT = 'button "Create key" (exact)';
 const COPY_LINK = (name: string) => `css tr:has-text("${name}") a[aria-label="Click to copy"]`;
 
 /** A fake of the older single-page form: filter, Write in the row, "Create key" returns to the list with the key as the text of the copy link. */
-function singlePage(opts: { key?: string } = {}): FakeDriver {
+function singlePage(opts: { key?: string; extraVisible?: string[] } = {}): FakeDriver {
   return new FakeDriver({
     pollMs: 2,
-    visible: [BANNER, 'css #key-name', FILTER, CREATE_EXACT],
+    visible: [BANNER, 'css #key-name', FILTER, CREATE_EXACT, ...(opts.extraVisible ?? [])],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
@@ -241,6 +241,40 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     expect(d.calls.some((c) => c.startsWith("fill"))).toBe(false);
     expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
     expect(d.closed).toBe(true);
+  });
+
+  it("creates a refunds key: Write on Charges and Refunds, Read on Payment Intents and Invoices, first column only", async () => {
+    const r = await recipe();
+    const rowOf = (name: string) => `css tr:has-text("${name}"):not(:has-text("View documentation"))`;
+    const button = (name: string, level: string) => `${rowOf(name)} >> role=button[name="${level}"s] >> nth=0`;
+    const rows = [["Charges and Refunds", "Write"], ["Payment Intents", "Read"], ["Invoices", "Read"]] as const;
+    const d = singlePage({ extraVisible: rows.flatMap(([row, level]) => [rowOf(row), button(row, level)]) });
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "refunds" }), d, {}, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(d.calls).toContain(`click ${button("Charges and Refunds", "Write")}`);
+    expect(d.calls).toContain(`click ${button("Payment Intents", "Read")}`);
+    expect(d.calls).toContain(`click ${button("Invoices", "Read")}`);
+    // The webhook row is not touched for this preset.
+    expect(d.calls).not.toContain(`click ${WRITE}`);
+  });
+
+  it("refuses the refunds preset on the wizard before any key exists", async () => {
+    const r = await recipe();
+    const d = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER],
+      on: (e, drv) => {
+        if (e.action === "goto") {
+          drv.url = e.key;
+          drv.pageText.add("Choose how you");
+          drv.visible.add('Text "Choose how you"');
+        }
+      },
+    });
+    const err = (await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "refunds" }), d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect(err.message).toMatch(/single-page form only/);
+    expect(err.createdName).toBeUndefined();
   });
 
   it("a dry run stops before Create key", async () => {

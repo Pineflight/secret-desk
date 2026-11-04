@@ -44,9 +44,9 @@ params:
   - key: preset
     label: Rechte
     labelEn: Permissions
-    options: ["webhooks", "full-except-sensitive"]
+    options: ["webhooks", "full-except-sensitive", "refunds"]
     default: webhooks
-    help: "webhooks: only Webhook Endpoints, Event Destinations with Write. full-except-sensitive: Stripe's full access without sensitive operations."
+    help: "webhooks: only Webhook Endpoints, Event Destinations with Write. full-except-sensitive: Stripe's full access without sensitive operations. refunds: Charges and Refunds with Write, Payment Intents and Invoices with Read (for partial refunds)."
 login:
   # Signed in = a dashboard page of an account. Signed out, the dashboard redirects to /login.
   expect: { url: "^https://dashboard\\.stripe\\.com/acct_[A-Za-z0-9]+/" }
@@ -110,6 +110,12 @@ steps:
       all:
         - { var: variant, equals: single-page }
         - { var: preset, equals: full-except-sensitive }
+  # The refunds preset is explored on the single-page form only (2026-11-04): refuse on the wizard before anything exists.
+  - fail: "This account shows the key wizard; the preset refunds is supported on the single-page form only. Use the preset webhooks or full-except-sensitive."
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: refunds }
   - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
 
   # ---- Wizard ----
@@ -176,12 +182,68 @@ steps:
   - fill: { css: "#key-name", value: "{{name}}" }
     when: { var: variant, equals: single-page }
   - fill: { placeholder: "Filter resources", value: "Webhook Endpoints" }
-    when: { var: variant, equals: single-page }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: webhooks }
   # After the filter the row holds three buttons None / Read / Write (a segmented control without aria-pressed).
   - waitFor: { visible: { css: 'tr:has-text("Webhook Endpoints, Event Destinations")' }, timeoutSeconds: 30 }
-    when: { var: variant, equals: single-page }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: webhooks }
   - click: { css: 'tr:has-text("Webhook Endpoints, Event Destinations") >> role=button[name="Write"s]' }
-    when: { var: variant, equals: single-page }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: webhooks }
+  # Preset refunds (rows probed 2026-11-04): each row has the column Permissions first, then Connect permissions, so the
+  # first button with the level belongs to the account itself; the section header rows ("... View documentation") are excluded.
+  - fill: { placeholder: "Filter resources", value: "Charges" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - waitFor: { visible: { css: 'tr:has-text("Charges and Refunds"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - click: { css: 'tr:has-text("Charges and Refunds"):not(:has-text("View documentation")) >> role=button[name="Write"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - fill: { placeholder: "Filter resources", value: "Payment Intents" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - waitFor: { visible: { css: 'tr:has-text("Payment Intents"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - click: { css: 'tr:has-text("Payment Intents"):not(:has-text("View documentation")) >> role=button[name="Read"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - fill: { placeholder: "Filter resources", value: "Invoices" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - waitFor: { visible: { css: 'tr:has-text("Invoices"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
+  - click: { css: 'tr:has-text("Invoices"):not(:has-text("View documentation")) >> role=button[name="Read"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: refunds }
 
   # ---- Both ----
   # The live mode may ask to confirm the password before the key is created.
