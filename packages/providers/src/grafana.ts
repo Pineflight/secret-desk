@@ -106,11 +106,11 @@ export const grafanaProvider: Provider = {
   async issue(ctx) {
     const base = baseUrl(ctx.params, ctx.providerConfig);
     const accountId = requireInt(ID, ctx.params, "serviceAccountId");
-    const ttl = ctx.secret.ttlDays;
+    const ttl = ctx.secret.ttlDays ?? SERVICE_ACCOUNT_TOKEN_DEFAULT_TTL_DAYS;
     const res = await callWithToken<{ id?: number; key?: string }>(ID, ctx, "grafana", `${base}/api/serviceaccounts/${accountId}/tokens`, {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ name: ctx.label, ...(ttl ? { secondsToLive: ttl * 86_400 } : {}) }),
+      body: JSON.stringify({ name: ctx.label, secondsToLive: ttl * 86_400 }),
     });
     if (!res || typeof res.key !== "string" || res.id === undefined) throw badResponse(ID);
     return { value: new SecretValue(res.key), externalId: String(res.id), expiresAt: expiryFrom(ctx.now, ttl) ?? null };
@@ -144,7 +144,7 @@ export const grafanaProvider: Provider = {
     return [
       acc ? `Der Token gehoert zum Service-Account ${String(acc)}` : "Der Token gehoert zum vorgesehenen Service-Account",
       "Die Rolle des Service-Accounts ist so klein wie moeglich",
-      secret.ttlDays ? `Ablauf ist ${secret.ttlDays} Tage nach heute` : "Ablauf ist wie vorgesehen gesetzt",
+      secret.ttlDays ? `Ablauf ist ${secret.ttlDays} Tage nach heute` : `Ablauf ist ${SERVICE_ACCOUNT_TOKEN_DEFAULT_TTL_DAYS} Tage nach heute (Standard)`,
     ];
   },
   async revoke(ctx) {
@@ -163,6 +163,8 @@ const POLICY_CONNECTION = "grafana-cloud";
 /** The Cloud API host is fixed: the connection token never goes to a host taken from the inventory. */
 const GRAFANA_COM = "https://www.grafana.com/api/v1";
 const POLICY_TTL_DEFAULT = 90;
+/** A service account token never expires without `secondsToLive`: the expiry is always set, 90 days by default. */
+const SERVICE_ACCOUNT_TOKEN_DEFAULT_TTL_DAYS = 90;
 
 const policySpecs: ParamSpec[] = [
   {

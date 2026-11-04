@@ -988,6 +988,7 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Name beim Anbieter beginnt mit "(.+?)" und traegt das heutige Datum$/, "Name at the provider starts with \"$1\" and carries today's date"],
   [/^Nur das Konto (.+) ist freigegeben$/, "Only the account $1 is allowed"],
   [/^Ablauf ist (\S+) Tage nach heute$/, "Expiry is $1 days from today"],
+  [/^Ablauf ist (\S+) Tage nach heute \(Standard\)$/, "Expiry is $1 days from today (default)"],
   [/^Widget und Sitekey (.+) stimmen mit dem Dienst ueberein$/, "Widget and sitekey $1 match the service"],
   [/^Kennung (.+)$/, "ID $1"],
   [/^Der Token gehoert zum Service-Account (.+)$/, "The token belongs to the service account $1"],

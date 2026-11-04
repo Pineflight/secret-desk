@@ -20,11 +20,11 @@ describe("grafana-service-account-token", () => {
     expect(r.expiresAt).toBe("2026-12-01T10:00:00Z");
     expect(m.calls[0]!.signal).toBeInstanceOf(AbortSignal);
   });
-  it("sends no secondsToLive without ttlDays", async () => {
+  it("always sets secondsToLive: 90 days without ttlDays", async () => {
     const m = mockFetch({ body: { id: 1, key: ISSUED } });
     const r = await p.issue!(issueCtx(m.fetch, params, { conns: ["grafana"] }));
-    expect(JSON.parse(m.calls[0]!.body!)).not.toHaveProperty("secondsToLive");
-    expect(r.expiresAt).toBeNull();
+    expect(JSON.parse(m.calls[0]!.body!).secondsToLive).toBe(90 * 86400);
+    expect(r.expiresAt).toBe("2027-01-30T10:00:00Z");
   });
   it("rejects http addresses", async () => {
     await expect(p.issue!(issueCtx(mockFetch().fetch, { ...params, baseUrl: "http://x.example" }, { conns: ["grafana"] }))).rejects.toThrow(ProviderError);

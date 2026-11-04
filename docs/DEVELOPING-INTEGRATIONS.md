@@ -5,7 +5,7 @@ state of the browser and its recipes under *Settings*, *Developer*.
 
 Read first: [RECIPES.md](RECIPES.md) (the recipe format), [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md) (the design),
 [PROVIDERS.md](PROVIDERS.md) (what exists) and [SECURITY-MODEL.md](SECURITY-MODEL.md). The rule that overrides everything
-below: **a secret value must never reach a log, report, response, error message, screenshot, fixture or commit.**
+below: **a secret value must never reach a log, report, response, error message, screenshot, fixture or commit.** Test fixtures that look like a secret are assembled at run time (`["sk", "live", "a".repeat(24)].join("_")`), because `scripts/scan-values.sh` (part of `pnpm run verify` and CI) rejects such literals in any tracked file.
 
 ## 1. Which parts does a provider need?
 
