@@ -22,7 +22,7 @@ Notes that apply to all commands:
 | [`status`](#status) | List secrets with status, optionally live against GitHub |
 | [`renew`](#renew) | Create, review, confirm and write a new value |
 | [`vars list / status / set / apply / adopt / add`](#vars) | Manage variables |
-| [`env export`](#env-export) | Write a dev `.env` |
+| [`env export`](#env-export) | Write a dev `.env`, or a file of variables and dev values |
 | [`team export / import`](#team) | Share the configuration without values |
 | [`browser doctor / run`](#browser) | Check and dry-run browser recipes |
 | [`vapid`](#vapid) | Generate a VAPID key pair |
@@ -146,6 +146,24 @@ Creates a dev `.env` from a template. The values come into existence now and are
 | `--prompt KEY=VALUE` | Value for a `prompt` entry; repeatable. The environment variable `SECRET_DESK_PROMPT_<KEY>` works too. |
 
 If `prompt` values are missing the command lists the keys and exits `1`. It warns if Git does not ignore the file.
+
+### env export: file of variables and dev values
+
+```bash
+secret-desk env export --config <file> --repo <name> [--stage <id>] [--out <path>] [--format dotenv|json] [--include variables|all] [--force]
+```
+
+Giving `--format`, `--include` or `--force` selects this mode (the template mode above ignores them). It writes the variables with a place in the repository and stage and, with `--include all`, the dev secrets and template keys that have a value (source `default`, `generate` or `variable`). Everything without a value is a comment line `# NAME= (missing: reason)`; secret values of stages that are not of kind `dev` are never written. Nothing is issued at a provider.
+
+| Option | Description |
+|---|---|
+| `--stage <id>` | Default: the first stage of kind `dev`. Variables can be exported for any stage. |
+| `--out <path>` | Default `.env.local` for dev, `.env.<stage>` otherwise, `env.<stage>.json` for JSON, in the current directory. |
+| `--format dotenv\|json` | File format. Default `dotenv`. |
+| `--include variables\|all` | `variables` (default) or also secrets with a dev value. |
+| `--force` | Overwrite an existing file, or write to a path that Git tracks (with a warning). |
+
+The file gets mode 600. Without `--force` the command exits `1` when the file exists or Git tracks the path (`git ls-files --error-unmatch`). Missing names are listed on stderr; no value is printed.
 
 ## team
 

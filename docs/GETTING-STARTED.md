@@ -183,6 +183,16 @@ node packages/cli/dist/bin.js env export --config secret-desk.config.yaml --repo
 
 The target folder must lie inside `policy.envRoots` (or the linked folder of that repository).
 
+### Export everything a repository needs, for one stage
+
+Besides the template flow, **Export .env** (on the Dev environment page and per repository on **Repositories**) downloads the variables of a repository and stage, and with *Variables and dev secrets with a value* also the dev secrets for which the dev template has a value. No value is shown on screen; missing values are comment lines (`# NAME= (missing: reason)`). Variables can be exported for any stage. Secret values exist only for dev stages and are never exported for staging or production. The same from the command line (any of `--format`, `--include` or `--force` selects this mode; without them the template mode above runs):
+
+```bash
+node packages/cli/dist/bin.js env export --config secret-desk.config.yaml --repo acme-app --stage dev --include all --out .env.local
+```
+
+The file gets mode 600; the command refuses to overwrite a file and refuses a path Git tracks, both unless `--force`. Agents use the `desk_env_export` MCP tool ([AGENTS.md](AGENTS.md)).
+
 ## 9. Optional: expiry reminders as GitHub issues
 
 `secret-desk check --inventory inventory.yaml` works offline, prints one finding per level (30, 14, 7 days, expired, date missing) and exits `1` when something is expired or due. The template [`examples/workflows/secret-desk-expiry.yml`](../examples/workflows/secret-desk-expiry.yml) runs it daily and opens one issue per finding. The template calls `npx secret-desk@latest`; secret-desk is not published to npm, so adapt the install step to check out and build this repository (`pnpm install && pnpm build`) and call `node packages/cli/dist/bin.js check ...`.

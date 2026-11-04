@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DeskClient } from "./client.js";
+import { envExportTool } from "./env-export.js";
 
 /** Id einer konfigurierten Stage (siehe desk_list_stages). Gueltigkeit prueft das Inventar. */
 const StageEnum = z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/);
@@ -206,6 +207,19 @@ export const TOOLS: ToolDef[] = [
       "Erzeugt die .env fuer die lokale Entwicklung eines Repos (nur Stages der Art dev). Schreibt die Datei in den angegebenen Pfad (muss in einem freigegebenen Ordner liegen und .env oder .env.* heissen; bestehende Dateien werden nie ueberschrieben), Modus 600. Antwort enthaelt nur Pfad, Schluessel und Herkunft, nie Werte. Lies die Datei danach nicht aus. Fehlen Eingaben (prompt-Eintraege), meldet das Werkzeug needs-input: Die muss ein Mensch im Portal oder in der CLI eintragen.",
     inputSchema: { repo: z.string(), template: z.string().optional(), path: z.string() },
     run: (c, i) => c.request("POST", "/env-export", i),
+  },
+  {
+    name: "desk_env_export",
+    description:
+      "Exportiert die Umgebungsdatei (.env oder JSON) eines Repos fuer eine Stage: Variablen mit Wert, mit include=all auch Dev-Secrets, fuer die secret-desk einen Dev-Wert kennt (Standardwert, erzeugter oder aus einer Variable). Fehlende Werte stehen als Kommentarzeile `# NAME= (missing: Grund)`. Nur Stages aus policy.agentStages (heute dev); Secret-Werte anderer Stages gibt es nie. Ohne `out` kommt der Dateiinhalt zurueck. Mit `out` (relativer Pfad im Arbeitsordner, Name .env oder .env.*) wird die Datei dort mit Modus 600 geschrieben und nur Pfad, Namen und fehlende Eintraege kommen zurueck; nie ueberschreiben, nie in eine von Git verfolgte Datei. Lies die Datei danach nicht aus.",
+    inputSchema: {
+      repo: z.string(),
+      stage: StageEnum.optional(),
+      format: z.enum(["dotenv", "json"]).optional(),
+      include: z.enum(["variables", "all"]).optional(),
+      out: z.string().optional(),
+    },
+    run: (c, i) => envExportTool(c, i),
   },
   {
     name: "desk_team_export",

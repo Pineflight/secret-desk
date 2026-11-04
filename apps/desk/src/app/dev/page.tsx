@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { Skeleton, EmptyState, ErrorState, Field } from "@/components/ui";
 import { RepoPicker } from "@/components/RepoPicker";
+import { EnvDownload } from "@/components/EnvDownload";
 import { useRepoList } from "@/lib/repo-list";
 import { defaultEnvPath } from "@/lib/repos";
 import { useToast } from "@/lib/toast";
@@ -214,6 +215,24 @@ function TemplateCard({ t: tpl }: { t: Template }) {
   );
 }
 
+/** "Export .env": variables of any stage, dev secrets with a value; no value on screen. */
+function EnvExportCard() {
+  const t = useT();
+  const [repo, setRepo] = useState("");
+  const repoId = useId();
+  return (
+    <Card>
+      <p className="font-medium">{t("dev.exportTitle")}</p>
+      <div className="mt-3 space-y-3">
+        <Field label={t("dev.repository")} htmlFor={repoId}>
+          <RepoPicker id={repoId} value={repo} onChange={setRepo} />
+        </Field>
+        {repo.trim() ? <EnvDownload repo={repo.trim()} /> : null}
+      </div>
+    </Card>
+  );
+}
+
 export default function DevPage() {
   const t = useT();
   const q = useQuery<Template[]>("dev-templates", () => api<Template[]>("GET", "dev-templates"));
@@ -223,6 +242,7 @@ export default function DevPage() {
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : null}
       {q.loading && !q.data ? <Skeleton className="h-48" /> : null}
       {q.data && q.data.length === 0 ? <EmptyState title={t("dev.noTemplates")} icon="terminal">{t("dev.noTemplatesText")}</EmptyState> : null}
+      <div className="mb-6"><EnvExportCard /></div>
       <div className="grid gap-6 lg:grid-cols-2">{(q.data ?? []).map((tpl) => <TemplateCard key={tpl.id} t={tpl} />)}</div>
       <details className="mt-8 rounded-2xl border border-line bg-card p-5">
         <summary className="cursor-pointer text-sm font-medium">{t("dev.freeExport")}</summary>

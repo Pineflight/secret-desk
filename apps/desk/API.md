@@ -52,6 +52,7 @@ Types come from `@secret-desk/runtime` and `@secret-desk/core` (`import type` on
 | POST `repos/:name/rename` `{ to }` | Rename a repository in the inventory (changes nothing in GitHub) |
 | GET `automation`, GET `automation/runs/:secretId`, POST `automation/runs/:secretId/cancel` | Browser automation info and run state (human only) |
 | POST `env-export` `{ repo, stage?, template?, path?, overwrite?, prompts? }` | `DevEnvResult` (writes the file with mode 600) |
+| POST `env/export` `{ repo, stage, format?, include? }` | `EnvExportResult` (content and names, nothing written) |
 | GET `team-export` | YAML download without values |
 | POST `team-import` `{ text, replace?, confirmReplace? }` | `{ added, skipped, addedStages? }` (`replace` needs `confirmReplace: true`) |
 

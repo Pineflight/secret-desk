@@ -88,6 +88,7 @@ import {
   confirmIssuance,
   evidenceSvg,
   exportEnv,
+  exportEnvContent,
   getApproval,
   getEvidence,
   getIssuance,
@@ -266,6 +267,14 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^approvals\/([^/]+)$/, ({ rt, params }) => getApproval(rt, params[0]!)],
   // Agenten sehen die Liste, aber keine lokalen Pfade.
   ["GET", /^repos$/, ({ rt, actor, query }) => listRepos(rt, { live: query.get("live") === "1", includePaths: actor.kind === "human" })],
+  // Content export (no file written): the caller gets the text, the portal turns it into a download.
+  ["POST", /^env\/export$/, ({ rt, actor, body }) => {
+    const format = optStr(body, "format") ?? "dotenv";
+    const include = optStr(body, "include") ?? "variables";
+    if (format !== "dotenv" && format !== "json") throw new InventoryError("format: dotenv oder json");
+    if (include !== "variables" && include !== "all") throw new InventoryError("include: variables oder all");
+    return exportEnvContent(rt, actor, { repo: str(body, "repo"), stage: str(body, "stage"), format, include });
+  }],
   ["POST", /^env-export$/, ({ rt, actor, body }) => exportEnv(rt, actor, { repo: str(body, "repo"), ...(optStr(body, "path") ? { path: optStr(body, "path")! } : {}), ...(optStr(body, "template") ? { template: optStr(body, "template")! } : {}), ...(optStr(body, "stage") ? { stage: optStr(body, "stage") as Stage } : {}), overwrite: body.overwrite === true, ...(body.prompts && typeof body.prompts === "object" ? { prompts: body.prompts as Record<string, string> } : {}) })],
 ];
 

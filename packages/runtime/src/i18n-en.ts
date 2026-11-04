@@ -1040,6 +1040,7 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Anfrage ist schon erledigt: (.+)$/, "Request is already done: $1"],
   [/^Pruefung (.+?) wartet auf Bestaetigung$/, "Review $1 is waiting for confirmation"],
   [/^Agenten duerfen fuer (.+) keine \.env erzeugen\.$/, "Agents may not create a .env for $1."],
+  [/^Agenten duerfen fuer (.+) keine \.env exportieren\.$/, "Agents may not export a .env for $1."],
   [/^Keine Vorlage fuer (.+?) \((.+?)\) gefunden\.$/, "No template found for $1 ($2)."],
   [/^Kein Pfad angegeben und kein Ordner fuer (.+) verknuepft\.$/, "No path given and no folder linked for $1."],
   [/^Die Vorlage (.+?) verweist mit "(.+?)" aus dem verknuepften Ordner hinaus\.$/, "The template $1 points outside the linked folder with \"$2\"."],
