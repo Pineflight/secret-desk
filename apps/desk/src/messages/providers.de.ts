@@ -18,6 +18,7 @@ export default {
   "vendor.telegram.purpose": "Bot-Tokens für Benachrichtigungen",
   "vendor.grafana.purpose": "Service-Account-Tokens für Dashboards und Alarme",
   "vendor.openai.purpose": "API-Schlüssel für KI-Modelle",
+  "vendor.anthropic.purpose": "API-Schlüssel für Claude-Modelle (im Browser angelegt, per API geprüft)",
   "vendor.vesselapi.purpose": "API-Schlüssel für Schiffs- und Hafendaten",
   "vendor.peecho.purpose": "Print-on-Demand-Bestellungen und API-Schlüssel",
   "providers.custom.purpose": "Von Hand hinzugefügt",

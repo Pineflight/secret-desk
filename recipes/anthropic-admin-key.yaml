@@ -1,0 +1,84 @@
+# STATUS: nothing of this recipe is verified live (sign-in form, email code step, Google button, key creation and revoke are all best guesses; every selector is a guess)
+# Creates an organization Admin API key on platform.claude.com (Settings, Admin keys). The portal stores it as the `anthropic`
+# connection and uses it to list workspaces and to check and deactivate API keys. The Admin API cannot create API keys, so the
+# keys themselves come from the recipe `anthropic-api-key`. The Admin key is shown once, in a dialog. Every selector below is
+# a best guess; each step waits for its element, so a wrong guess fails visibly instead of clicking something else. Needs the
+# organization admin role. The Console moved from console.anthropic.com to platform.claude.com; both hosts are accepted.
+id: anthropic-admin-key
+label: Anthropic Admin API Key
+host: platform.claude.com
+# not verified: the old Console address redirects to the new one.
+allowHosts: [console.anthropic.com]
+params: []
+login:
+  # Sign-in methods besides the form below (the email method). The identity-provider part is built in; the recipe declares only
+  # the button on the Console sign-in page. not verified: the button name.
+  methods:
+    - id: google
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Google" }
+  # Signed in = any Console page after the sign-in (not verified: the list of paths).
+  expect: { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+  message: Bei Anthropic anmelden (platform.claude.com).
+  # Guided sign-in. The Console signs in by email: it sends a one-time code (and a link) instead of asking for a password,
+  # so this form has no password step and the portal asks for the code.
+  # STATUS: not verified: nothing of this form has been run against the live site yet (every selector below is a best guess).
+  form:
+    passwordless: true
+    start: "https://platform.claude.com/login"
+    home: "https://platform.claude.com/settings/keys"
+    steps:
+      # not verified: the email field and the continue button.
+      - waitFor: { visible: { css: 'input[type="email"], input[name="email"]' }, timeoutSeconds: 20 }
+      - fill: { css: 'input[type="email"], input[name="email"]', value: "{{login.username}}" }
+      - click: { role: button, name: "Continue with email" }
+    # not verified: selectors of the one-time code step (the email carries a code; the field takes it).
+    mfa:
+      detect: { visible: { css: 'input[autocomplete="one-time-code"], input[name="code"], input[inputmode="numeric"]' } }
+      field: { css: 'input[autocomplete="one-time-code"], input[name="code"], input[inputmode="numeric"]' }
+      submit: { css: 'button[type="submit"]' }
+    # not verified: wording of the page that says the email with the link was sent.
+    approval:
+      detect: { text: "Check your email" }
+      message: Anthropic hat einen Anmeldelink per E-Mail geschickt. Bitte den Link oeffnen oder den Code eingeben, dann geht es hier weiter.
+      messageEn: Anthropic sent a sign-in link by email. Open the link or enter the code, and the sign-in continues here.
+    # not verified: a challenge the script cannot solve; the portal says so and the human tries again later.
+    captcha:
+      detect: { visible: { css: 'iframe[src*="challenges.cloudflare.com"], iframe[title*="reCAPTCHA challenge"], iframe[src*="hcaptcha.com/captcha"]' } }
+      message: Anthropic zeigt eine Sicherheitspruefung (CAPTCHA). Bitte spaeter erneut versuchen.
+      messageEn: Anthropic shows a security check (CAPTCHA). Try again later.
+    # not verified: error texts.
+    failure:
+      - detect: { text: "Invalid code" }
+        message: Anthropic hat den Code abgelehnt.
+        messageEn: Anthropic rejected the code.
+      - detect: { text: "Too many" }
+        message: Anthropic hat die Anmeldung vorerst gesperrt (zu viele Versuche). Spaeter erneut versuchen.
+        messageEn: Anthropic has blocked the sign-in for now (too many attempts). Try again later.
+steps:
+  # not verified: the address of the Admin keys page and every name below.
+  - goto: "https://platform.claude.com/settings/admin-keys"
+  - waitFor: { visible: { role: button, name: "Create Admin Key" } }
+  - click: { role: button, name: "Create Admin Key" }
+  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
+  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
+  - screenshot: formular-vorher
+  - click: { css: '[role=dialog] button:has-text("Create")', createsToken: true }
+  - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
+capture:
+  token:
+    find: { css: "[role=dialog] input[readonly], [role=dialog] code" }
+    pattern: "^sk-ant-admin[0-9]*-[A-Za-z0-9_-]+$"
+  externalId: { from: name }
+mask:
+  - { css: "[role=dialog] input[readonly], [role=dialog] code" }
+revoke:
+  # not verified: the row is found by the key's name; the menu and the confirm button are guesses.
+  steps:
+    - goto: "https://platform.claude.com/settings/admin-keys"
+    - waitFor: { visible: { css: '[role=row]:has-text("{{externalId}}")' } }
+    - click: { css: '[role=row]:has-text("{{externalId}}") button[aria-label="More"]' }
+    - click: { role: menuitem, name: "Delete" }
+    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - waitFor: { hidden: { css: '[role=row]:has-text("{{externalId}}")' } }

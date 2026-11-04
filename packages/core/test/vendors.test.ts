@@ -23,6 +23,14 @@ describe("vendor catalog", () => {
     expect(vendorOfProvider("openai-admin-key-browser")?.id).toBe("openai");
     expect(vendorOfRecipe("openai-admin-key")?.id).toBe("openai");
   });
+  it("counts the Anthropic connection, the key provider and both recipes under the Anthropic card", () => {
+    const a = vendorById("anthropic")!;
+    expect(a).toMatchObject({ category: "ai", connections: ["anthropic"], providers: ["anthropic-api-key-browser"], recipes: ["anthropic-admin-key", "anthropic-api-key"] });
+    expect(vendorOfConnection("anthropic")?.id).toBe("anthropic");
+    expect(vendorOfProvider("anthropic-api-key-browser")?.id).toBe("anthropic");
+    expect(vendorOfProvider("anthropic-admin-key-browser")?.id).toBe("anthropic");
+    expect(vendorOfRecipe("anthropic-api-key")?.id).toBe("anthropic");
+  });
   it("covers every category from the brief", () => {
     expect(new Set(VENDORS.map((v) => v.category))).toEqual(new Set(["code", "hosting", "database", "payments", "messaging", "observability", "ai", "data", "print"]));
   });

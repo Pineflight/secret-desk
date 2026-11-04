@@ -1,0 +1,50 @@
+# STATUS: nothing of this recipe is verified live (key creation and revoke are best guesses; every selector is a guess)
+# Creates an Anthropic API key on platform.claude.com (Settings, API keys, "Create Key") in a workspace. The key is shown once,
+# in a dialog. The Admin API cannot create API keys, so this recipe is the only way to make one. Revoke goes through the Admin
+# API when the `anthropic` connection exists (the provider does that); the revoke section below is the fallback in the browser.
+# Every selector is a best guess; each step waits for its element, so a wrong guess fails visibly instead of clicking something
+# else. The Console moved from console.anthropic.com to platform.claude.com; both hosts are accepted.
+id: anthropic-api-key
+label: Anthropic API Key
+host: platform.claude.com
+# not verified: the old Console address redirects to the new one.
+allowHosts: [console.anthropic.com]
+params:
+  - key: workspace
+    label: Workspace
+    labelEn: Workspace
+    required: false
+    default: "Default"
+    help: "Name of the workspace the key belongs to. Without a choice the Default workspace is used (not verified: the name of the default workspace in the Console)."
+login:
+  expect: { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+  message: Bei Anthropic anmelden (platform.claude.com).
+steps:
+  # not verified: the address of the API keys page and every name below.
+  - goto: "https://platform.claude.com/settings/keys"
+  - waitFor: { visible: { role: button, name: "Create Key" } }
+  - click: { role: button, name: "Create Key" }
+  - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }
+  - fill: { css: "[role=dialog] input[type=text] >> nth=0", value: "{{name}}" }
+  # not verified: the workspace dropdown of the dialog.
+  - click: { css: "[role=dialog] [role=combobox]" }
+  - click: { role: option, name: "{{workspace}}", exact: true }
+  - screenshot: formular-vorher
+  - click: { css: '[role=dialog] button:has-text("Add")', createsToken: true }
+  - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
+capture:
+  token:
+    find: { css: "[role=dialog] input[readonly], [role=dialog] code" }
+    pattern: "^sk-ant-api[0-9]*-[A-Za-z0-9_-]+$"
+  externalId: { from: name }
+mask:
+  - { css: "[role=dialog] input[readonly], [role=dialog] code" }
+revoke:
+  # not verified: the row is found by the key's name; the menu and the confirm button are guesses.
+  steps:
+    - goto: "https://platform.claude.com/settings/keys"
+    - waitFor: { visible: { css: '[role=row]:has-text("{{externalId}}")' } }
+    - click: { css: '[role=row]:has-text("{{externalId}}") button[aria-label="More"]' }
+    - click: { role: menuitem, name: "Delete" }
+    - click: { css: '[role=dialog] button:has-text("Delete")' }
+    - waitFor: { hidden: { css: '[role=row]:has-text("{{externalId}}")' } }

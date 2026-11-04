@@ -10,7 +10,7 @@ const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 describe("bundled recipes", () => {
   it("load and are valid", async () => {
     const recipes = await loadRecipes([RECIPES]);
-    expect(recipes.map((r) => r.id).sort()).toEqual(["github-fine-grained-token", "openai-admin-key", "openai-api-key", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
+    expect(recipes.map((r) => r.id).sort()).toEqual(["anthropic-admin-key", "anthropic-api-key", "github-fine-grained-token", "openai-admin-key", "openai-api-key", "revenuecat-secret-api-key", "stripe-restricted-key", "supabase-access-token", "vesselapi-api-key"]);
   });
   it("openai-admin-key has a guided sign-in, captures only an admin key and says it is unverified", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "openai-admin-key")!;
@@ -24,6 +24,39 @@ describe("bundled recipes", () => {
     expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google", "apple", "microsoft"]);
     expect(new RegExp(r.capture.token.pattern!).test("sk-proj-abc")).toBe(false);
     expect((await readFile(join(RECIPES, "openai-admin-key.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: key creation verified live on 2026-11-03/);
+  });
+  it("anthropic-admin-key has a passwordless email sign-in with a code step, a Google button, and captures only an admin key", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-admin-key")!;
+    expect(r.host).toBe("platform.claude.com");
+    expect(r.allowHosts).toEqual(["console.anthropic.com"]);
+    expect(r.login?.form).toMatchObject({ passwordless: true, start: "https://platform.claude.com/login" });
+    expect(r.login?.form?.mfa).toBeDefined();
+    expect(JSON.stringify(r.login?.form?.steps)).not.toContain("login.password");
+    expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google"]);
+    expect(r.login?.methods?.find((m) => m.id === "google")?.steps?.[1]).toMatchObject({ click: { role: "button", name: "Continue with Google" } });
+    const pattern = new RegExp(r.capture.token.pattern!);
+    expect(pattern.test("sk-ant-admin01-AbC_d-123")).toBe(true);
+    expect(pattern.test("sk-ant-api03-AbC_d-123")).toBe(false);
+    expect(r.revoke?.steps.length).toBeGreaterThan(0);
+    expect(r.steps.find((s) => "click" in s && s.click.createsToken)).toBeDefined();
+    expect(r.mask.length).toBeGreaterThan(0);
+  });
+  it("anthropic-api-key takes an optional workspace (default: Default), names the key and captures only an API key", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-api-key")!;
+    expect(r.host).toBe("platform.claude.com");
+    expect(r.params).toMatchObject([{ key: "workspace", required: false, default: "Default" }]);
+    expect(r.steps.find((s) => "fill" in s)).toMatchObject({ fill: { value: "{{name}}" } });
+    expect(r.steps.some((s) => "click" in s && s.click.role === "option" && s.click.name === "{{workspace}}")).toBe(true);
+    expect(r.capture.externalId).toEqual({ from: "name" });
+    const pattern = new RegExp(r.capture.token.pattern!);
+    expect(pattern.test("sk-ant-api03-AbC_d-123")).toBe(true);
+    expect(pattern.test("sk-ant-admin01-AbC_d-123")).toBe(false);
+    expect(r.revoke?.steps.length).toBeGreaterThan(0);
+  });
+  it("the anthropic recipes say that nothing is verified live", async () => {
+    for (const f of ["anthropic-admin-key.yaml", "anthropic-api-key.yaml"]) {
+      expect((await readFile(join(RECIPES, f), "utf8")).split("\n")[0], f).toMatch(/^# STATUS: nothing of this recipe is verified live/);
+    }
   });
   it("carry the status comment (format only: first line starts with `# STATUS:`)", async () => {
     const files = (await readdir(RECIPES)).filter((f) => /\.ya?ml$/.test(f));

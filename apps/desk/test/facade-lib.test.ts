@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
+import { browserSignInOf, chosenMethod, needsPassword, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
 import { messages } from "../src/messages";
 
 const base: FacadeState = { secretId: "facade:revenuecat", providerId: "revenuecat", status: "running", text: "", startedAt: "2026-11-02T10:00:00.000Z", updatedAt: "2026-11-02T10:00:00.000Z" };
@@ -168,6 +168,14 @@ describe("connect dialog state", () => {
     expect(signInButtonState(facade(), "a@b.test", "", {}, false)).toBe("disabled");
     expect(signInButtonState(facade(), "a@b.test", "pw", {}, false)).toBe("ready");
     expect(signInButtonState(facade(), "a@b.test", "pw", {}, true)).toBe("busy");
+    // a passwordless email sign-in needs only the email; single-sign-on methods still need the password
+    const code = facade({ passwordless: true });
+    expect(needsPassword(code, "email")).toBe(false);
+    expect(needsPassword(code, "google")).toBe(true);
+    expect(needsPassword(facade(), "email")).toBe(true);
+    expect(signInButtonState(code, "a@b.test", "", {}, false, "email")).toBe("ready");
+    expect(signInButtonState(code, "", "", {}, false, "email")).toBe("disabled");
+    expect(signInButtonState(code, "a@b.test", "", {}, false, "google")).toBe("disabled");
     expect(signInButtonState(facade({ available: false }), "a@b.test", "pw", {}, false)).toBe("disabled");
   });
 
@@ -181,7 +189,7 @@ describe("connect dialog state", () => {
       for (const m of ["email", "google", "apple", "microsoft", "github"]) {
         for (const k of ["method", "methodEmail", "methodPassword"]) expect(messages[lang][`facade.${k}.${m}`], `${lang} ${k} ${m}`).toBeTruthy();
       }
-      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "checkingBrowser", "connectSignedIn", "otherWay", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
+      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "promise.anthropic", "passwordless", "checkingBrowser", "connectSignedIn", "otherWay", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
         expect(messages[lang][`facade.${k}`], `${lang} ${k}`).toBeTruthy();
       }
     }

@@ -31,6 +31,7 @@ import {
   type Provider,
   type ProviderRegistry,
 } from "@secret-desk/core";
+import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
 
 export type AutomationStatus = "idle" | "running" | "waiting-human" | "done" | "failed" | "cancelled";
 
@@ -272,12 +273,14 @@ export class AutomationManager {
       });
       const issueRun = base.issue;
       // A recipe run that created a key proves the browser was signed in at the recipe's host just now.
-      const provider: BrowserProvider = {
+      const wrapped: BrowserProvider = {
         ...base,
         id: `${recipe.id}-browser`,
         label: `${recipe.label} (Browser)`,
         ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); this.noteSignIn(recipe.host, true); return issued; } } : {}),
       };
+      // The Anthropic key recipe also gets what the Admin API can do (workspaces, key check, revoke); see providers/anthropic.ts.
+      const provider = recipe.id === ANTHROPIC_KEY_RECIPE ? withAnthropicAdmin(wrapped) : wrapped;
       providers.register(provider);
       this.#providers.set(provider.id, provider);
       this.#recipes.set(recipe.id, recipe);

@@ -159,14 +159,14 @@ describe("facade routes: flow", () => {
     const { call, bodies } = recorder(deps);
     const list = await call(ui(deps, "GET", "facades"));
     expect(list.status).toBe(200);
-    expect(list.body).toMatchObject([{ id: "revenuecat", available: true, connected: false }, { id: "openai", available: true, connected: false }, { id: "stripe", available: true, connected: false }]);
+    expect(list.body).toMatchObject([{ id: "revenuecat", available: true, connected: false }, { id: "openai", available: true, connected: false }, { id: "anthropic", available: true, connected: false }, { id: "stripe", available: true, connected: false }]);
     const start = await call(ui(deps, "POST", "facades/revenuecat/sign-in", { ...signIn }));
     expect(start.status).toBe(200);
     expect(start.body).toMatchObject({ status: "running", kind: "signin" });
     await until(async () => ["done", "failed"].includes((await call(ui(deps, "GET", "facades/revenuecat/state"))).body["status"]));
     const end = await call(ui(deps, "GET", "facades/revenuecat/state", undefined, { "x-secret-desk-lang": "en" }));
     expect(end.body).toMatchObject({ status: "done", phase: "connected", result: { connected: true, counts: { projects: 1, apps: 1 } } });
-    expect((await call(ui(deps, "GET", "facades"))).body).toMatchObject([{ id: "revenuecat", connected: true }, { id: "openai", connected: false }, { id: "stripe", connected: false }]);
+    expect((await call(ui(deps, "GET", "facades"))).body).toMatchObject([{ id: "revenuecat", connected: true }, { id: "openai", connected: false }, { id: "anthropic", connected: false }, { id: "stripe", connected: false }]);
     expectNoLeak("responses", bodies);
     expectNoLeak("logs", spies.flatMap((s) => s.mock.calls.map((c) => JSON.stringify(c))));
     spies.forEach((s) => s.mockRestore());
