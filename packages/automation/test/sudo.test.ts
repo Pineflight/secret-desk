@@ -400,7 +400,7 @@ describe("github email sign-in", () => {
 const EMAIL_OPTION = 'Text "Verify by email + more verification"';
 const DIALOG = "css [role=dialog]";
 const DIALOG_CONTINUE = 'css [role=dialog] >> role=button[name="Continue"s]';
-const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"], [role=dialog] input[type="text"]';
+const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]';
 const DIALOG_PASSWORD = 'css [role=dialog] input[type="password"]';
 const DIALOG_SUBMIT = "css [role=dialog] >> role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
 const STRIPE = SUDO_FLOWS["stripe-verify"];
@@ -490,6 +490,15 @@ describe("confirmAccess (stripe-verify)", () => {
     expect(plain.calls).toContain(`click ${EMAIL_OPTION}`);
   });
 
+  it("a dialog whose only input is a plain text input is not guessed at: unrecognized, the human finishes", async () => {
+    const d = new FakeDriver({ pollMs: 2, pageText: ["Verification required"], visible: [DIALOG, EMAIL_OPTION, DIALOG_CONTINUE, 'css [role=dialog] input[type="text"]'] });
+    const { run, args } = io(d, []);
+    const err = (await confirmAccess(STRIPE, { ...args, discoverTimeoutMs: 40 }).catch((e: unknown) => e)) as SudoError;
+    expect(err.kind).toBe("unrecognized");
+    expect(run.asks).toHaveLength(0);
+    expect(d.filled.size).toBe(0);
+  });
+
   it("an offered way the portal cannot use ends clearly: the message names the provider, not GitHub", async () => {
     const d = stripePage({ code: EMAIL_CODE });
     const answers: SudoAnswer[] = [1, 2, 3, 4, 5].map(() => ({ method: "code", code: "000000" }));
@@ -524,6 +533,21 @@ describe("confirmAccess (generic-verify)", () => {
     expect(await sudoPageShown(page({ field: CODE_FIELD, accepts: CODE }), GENERIC)).toBe(true);
     expect(await sudoPageShown(new FakeDriver({ pageText: ["Please verify it is you"] }), GENERIC)).toBe(false);
     expect(await sudoPageShown(new FakeDriver({ visible: [PASSWORD_FIELD], pageText: ["Welcome"] }), GENERIC)).toBe(false);
+  });
+
+  it("stays out of a normal page that has a password field and only the bare word password", async () => {
+    const d = new FakeDriver({ pageText: ["Change your password"], visible: [PASSWORD_FIELD] });
+    expect(await sudoPageShown(d, GENERIC)).toBe(false);
+    const codeOnly = new FakeDriver({ pageText: ["Invite code"], visible: [CODE_FIELD] });
+    expect(await sudoPageShown(codeOnly, GENERIC)).toBe(false);
+  });
+
+  it("a field inside a dialog counts without wording; a page field needs a tight verification wording", async () => {
+    const inDialog = new FakeDriver({ pageText: ["Hello"], visible: ['css [role=dialog] input[type="password"]'] });
+    expect(await sudoPageShown(inDialog, GENERIC)).toBe(true);
+    for (const wording of ["Please re-enter your password", "Two-factor authentication", "Enter the code we sent", "Confirm your identity"]) {
+      expect(await sudoPageShown(new FakeDriver({ pageText: [wording], visible: [PASSWORD_FIELD] }), GENERIC), wording).toBe(true);
+    }
   });
 
   it("asks for the password when the page shows a password field, types it and submits", async () => {

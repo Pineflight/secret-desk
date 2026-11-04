@@ -377,6 +377,11 @@ export class AutomationManager {
    * Starts a tracked run that is not tied to an inventory entry (guided sign-in). Only one browser run at a time. Returns the
    * signal that cancel() fires.
    */
+  /** The signal of the run now registered under `key` (its identity), or undefined when none. */
+  runSignal(key: string): AbortSignal | undefined {
+    return this.#controllers.get(key)?.signal;
+  }
+
   begin(key: string, providerId: string, init: Partial<AutomationRunState> & { text: string }): AbortSignal {
     if (this.#active !== null) {
       throw new IssuanceError(this.#active === key ? "A browser run for this provider is already in progress." : "A browser run is already in progress. Wait for it or cancel it first.");

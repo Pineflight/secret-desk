@@ -266,7 +266,7 @@ const codeWaiters = new Map<string, { resolve: (code: string) => void; reject: (
 const confirmWaiters = new Map<string, { resolve: (accepted: boolean) => void; reject: (err: Error) => void }>();
 
 /** One pending identity-verification question ("Verification required", "Confirm access") per facade run. */
-const accessWaiters = new Map<string, { resolve: (answer: SudoAnswer) => void; reject: (err: Error) => void }>();
+const accessWaiters = new Map<string, { run: AbortSignal; resolve: (answer: SudoAnswer) => void; reject: (err: Error) => void }>();
 
 const MAX_TEXT = 400;
 
@@ -675,6 +675,7 @@ function finishFailed(rt: Runtime, key: string, t: Tracker, f: Failure): void {
     status: cancelled ? "cancelled" : "failed",
     text: f.messageEn,
     needs: null,
+    ask: null,
     timeline: t.fail(),
     failure: { code: f.code, message: f.message, messageEn: f.messageEn },
     ...(f.createdName ? { createdName: f.createdName } : {}),
@@ -697,6 +698,15 @@ async function detectProject(rt: Runtime, d: FacadeDescriptor, recipe: Recipe, s
 }
 
 async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, key: string, signal: AbortSignal, t: Tracker, projectGiven: string | undefined, inputs: Record<string, string>, signedInUrl: string | undefined): Promise<void> {
+  try {
+    await runConnectSteps(rt, actor, d, recipe, key, signal, t, projectGiven, inputs, signedInUrl);
+  } finally {
+    // Success, failure or cancel: no question of this run stays answerable.
+    if (accessWaiters.get(key)?.run === signal) accessWaiters.delete(key);
+  }
+}
+
+async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, key: string, signal: AbortSignal, t: Tracker, projectGiven: string | undefined, inputs: Record<string, string>, signedInUrl: string | undefined): Promise<void> {
   const projectId = projectGiven ?? (await detectProject(rt, d, recipe, signal, signedInUrl));
   if (d.project && !projectId) {
     return finishFailed(rt, key, t, { code: "project-unknown", message: "Signed in, but the project could not be determined. Enter the project id.", messageEn: "Signed in, but the project could not be determined. Enter the project id." });
@@ -743,8 +753,24 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
               ask: { type: "access", stage: "choose", methods: [...ask.methods], attempt: ask.attempt, maxAttempts: ask.maxAttempts, ...(ask.problem ? { problem: ask.problem } : {}) },
             });
             return new Promise<SudoAnswer>((resolve, reject) => {
-              accessWaiters.set(key, { resolve, reject });
-              signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+              const onAbort = (): void => {
+                accessWaiters.delete(key);
+                reject(new Error("cancelled"));
+              };
+              if (signal.aborted) return onAbort();
+              signal.addEventListener("abort", onAbort, { once: true });
+              // The waiter belongs to this run (its signal); answered, it drops the listener so questions do not pile them up.
+              accessWaiters.set(key, {
+                run: signal,
+                resolve: (answer) => {
+                  signal.removeEventListener("abort", onAbort);
+                  resolve(answer);
+                },
+                reject: (err) => {
+                  signal.removeEventListener("abort", onAbort);
+                  reject(err);
+                },
+              });
             });
           },
           onEvent: (e) => {
@@ -753,6 +779,8 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
           },
         },
         onWaitingForHuman: (w) => {
+          // A hand-over to the human ends the portal's question (no stale question stays in the state).
+          rt.automation.update(key, { ask: null });
           if (w.kind === "pause") {
             // The recipe asks for the human in the browser (for example a password confirmation): the portal does not send the
             // human to the browser, so the run ends with a message and the human tries again.
@@ -787,7 +815,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
       const text = "Signed in. This account has no admin keys (they need an organization); API keys are created in the browser.";
       const result: FacadeResult = { connected: false, browserOnly: true, connectionId: d.connectionId, storedIn: rt.connections.vault ? "vault" : "session", keyName: "", projectId: null, check: null, counts: {} };
       t.phase("connected", { text });
-      return rt.automation.end(key, { status: "done", text, needs: null, timeline: t.done(), result });
+      return rt.automation.end(key, { status: "done", text, needs: null, ask: null, timeline: t.done(), result });
     }
     return finishFailed(rt, key, t, failureOf(err, [], signal.aborted));
   }
@@ -842,7 +870,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     return finishFailed(rt, key, t, { code: "test", message: "The key was stored, but the connection test failed. Use Test connection for details.", messageEn: "The key was stored, but the connection test failed. Use Test connection for details." });
   }
   t.phase("connected", { text: "Connected." });
-  rt.automation.end(key, { status: "done", text: "Connected.", needs: null, timeline: t.done(), result });
+  rt.automation.end(key, { status: "done", text: "Connected.", needs: null, ask: null, timeline: t.done(), result });
 }
 
 // ------------------------------------------------------------------------------------------ side routes
@@ -873,7 +901,9 @@ export function submitFacadeAccess(rt: Runtime, actor: Actor, id: string, body: 
   const key = stateKey(id);
   const waiter = accessWaiters.get(key);
   const ask = rt.automation.state(key).ask;
-  if (!waiter || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("The provider is not waiting for a verification.");
+  const current = rt.automation.runSignal(key);
+  // Only the run that asked can be answered: a waiter of an ended or replaced run is refused.
+  if (!waiter || waiter.run !== current || current?.aborted || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("The provider is not waiting for a verification.");
   const answer = sudoAnswerFrom(body, ask.methods);
   accessWaiters.delete(key);
   waiter.resolve(answer);
