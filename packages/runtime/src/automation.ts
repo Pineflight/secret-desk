@@ -9,6 +9,7 @@ import {
   chromeInstallHint,
   createBrowserProvider,
   findChrome,
+  loginMethodsOf,
   hostForParams,
   loadRecipesDetailed,
   probeCdp,
@@ -117,6 +118,10 @@ export interface AutomationRecipeInfo {
   bundled: boolean;
   /** The recipe has a guided sign-in (`login.form`), so the portal can check the browser session for its host. */
   canCheckSignIn: boolean;
+  /** The ways to sign in at this recipe's portal (the provider's own form first); empty without a guided sign-in. */
+  signInMethods: LoginMethodInfo[];
+  /** The email sign-in has no password (the provider sends a one-time code). */
+  signInPasswordless: boolean;
 }
 
 /** Which browser runs the recipes. In remote mode the endpoint is shown without credentials, query or fragment. */
@@ -319,7 +324,7 @@ export class AutomationManager {
       providers.register(provider);
       this.#providers.set(provider.id, provider);
       this.#recipes.set(recipe.id, recipe);
-      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, hostBy: recipe.hostBy ?? null, hosts: Object.entries(recipe.hosts ?? {}).map(([value, host]) => ({ value, host })), status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled, canCheckSignIn: Boolean(recipe.login?.form) });
+      this.recipes.push({ id: recipe.id, providerId: provider.id, label: recipe.label, host: recipe.host, hostBy: recipe.hostBy ?? null, hosts: Object.entries(recipe.hosts ?? {}).map(([value, host]) => ({ value, host })), status: await statusComment(file), file, sha256, allowHosts, bundled: isBundled, canCheckSignIn: Boolean(recipe.login?.form), signInMethods: recipe.login?.form ? loginMethodsOf(recipe) : [], signInPasswordless: recipe.login?.form?.passwordless === true });
     }
   }
 

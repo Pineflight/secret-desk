@@ -11,8 +11,9 @@ import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionC
 import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
 import { FacadeCheckContext, FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderLogo, ProviderPageCard, ProviderTile, CardStatusBadge, usePurpose } from "@/components/ProviderCards";
-import type { FacadeInfo } from "@/lib/facade";
-import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
+import { RecipeSignInFlow } from "@/components/RecipeSignIn";
+import { recipeSignInSubject, type FacadeInfo } from "@/lib/facade";
+import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
 import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
@@ -58,7 +59,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", github: "connections.srcGithub", none: "connections.srcNone" };
 
 /** Where the picker opens: a provider (or the full list), optionally straight into one of its ways in. */
-type Picking = false | { vendor: string | null; key?: string; signIn?: boolean };
+type Picking = false | { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null };
 
 export default function ConnectionsPage() {
   const { t, locale } = useI18n();
@@ -142,7 +143,7 @@ export default function ConnectionsPage() {
   }, [signinParam, cards, router]);
   const used = (cards ?? []).filter(isInUse);
   const groups = cards && vendors.data ? groupByCategory(used, vendors.data.categories) : [];
-  const reloadAll = () => { conns.reload(); facades.reload(); };
+  const reloadAll = () => { conns.reload(); facades.reload(); auto.reload(); };
   return (
     <FacadeCheckContext.Provider value={checkContext}>
       <PageHeader
@@ -179,6 +180,8 @@ export default function ConnectionsPage() {
                   open={open.has(cardKey(card.id))}
                   onToggle={() => setOpen((o) => toggled(o, cardKey(card.id)))}
                   signIn={signInStatus(card, phase, outcome)}
+                  signInPrompts={signInPrompts(card)}
+                  onSignIn={(portal) => setPicking({ vendor: card.id, signIn: true, portal })}
                   actions={
                     <>
                       {card.signIn.facade ? (
@@ -357,11 +360,11 @@ function withExpiry(url: string, days: number | null): string {
 const labelOf = (c: Connection) => c.label || NAMES[c.id] || c.id;
 
 /** The picker: all providers as tiles by category; a provider opens its ways in. */
-function IntegrationPicker({ initial, cards, conns, facades, categories, signedIn, onClose, onChanged, onNewProvider }: { initial: { vendor: string | null; key?: string; signIn?: boolean }; cards: ProviderCard[]; conns: Connection[]; facades: FacadeInfo[]; categories: string[]; signedIn: ReadonlySet<string>; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
+function IntegrationPicker({ initial, cards, conns, facades, categories, signedIn, onClose, onChanged, onNewProvider }: { initial: { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null }; cards: ProviderCard[]; conns: Connection[]; facades: FacadeInfo[]; categories: string[]; signedIn: ReadonlySet<string>; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
   const t = useT();
   const purposeOf = usePurpose();
   const [vendor, setVendor] = useState<string | null>(initial.vendor);
-  const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin" } : null);
+  const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin", portal: initial.portal ?? null } : null);
   const [q, setQ] = useState("");
   const card = vendor ? (cards.find((c) => c.id === vendor) ?? null) : null;
 
@@ -392,7 +395,7 @@ function IntegrationPicker({ initial, cards, conns, facades, categories, signedI
   );
 }
 
-type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin" };
+type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin"; portal?: string | null };
 
 /** A provider's ways in, each with one plain sentence. */
 function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, onDone }: { card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onDone: () => void }) {
@@ -413,6 +416,13 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
     // The guided sign-in: pasting a key is only the collapsed way out.
     return <FacadeFlow facade={facade} onChanged={onChanged} onDone={onDone} {...(fallback ? { fallback } : {})} />;
   }
+  const signInRecipe = signInRecipeOf(card);
+  if (sub?.kind === "signin" && signInRecipe) {
+    // A browser-only vendor: the same sign-in, without creating a key. The portal that needs it is preselected.
+    const subject = recipeSignInSubject(signInRecipe, card.signIn.available);
+    const portal = sub.portal ?? signInPrompts(card)[0]?.portal ?? null;
+    return <RecipeSignInFlow subject={subject} name={card.label} portal={portal} onChanged={onChanged} onDone={onDone} />;
+  }
   const keys = card.keys.filter((k) => k.connected || (k.role !== "legacy" && !card.signIn.facade));
   return (
     <div className="space-y-5 text-sm">
@@ -427,6 +437,10 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
               <Button variant="primary" disabled={!facade.available} onClick={() => setSub({ kind: "signin" })}>{facade.connected ? t("facade.reconnect") : t("providers.signIn.start")}</Button>
               {signedIn.has(card.id) ? <span className="text-xs text-muted" role="status">{t("providers.signIn.signedInYes")}</span> : null}
               {!facade.available ? <span className="text-xs text-warn-text">{t("facade.unavailable", { reason: facade.reason ?? "" })}</span> : null}
+            </div>
+          ) : signInRecipe ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button variant="primary" disabled={!card.signIn.available} onClick={() => setSub({ kind: "signin", portal: null })}>{t("providers.signIn.button")}</Button>
             </div>
           ) : null}
         </section>

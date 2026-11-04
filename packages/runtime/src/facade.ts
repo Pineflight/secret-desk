@@ -475,33 +475,9 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
 async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
   const known = [creds.username, creds.password].filter((x) => x !== "");
   const t = new Tracker(rt, key);
-  const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(Date.now() + minutes * 60_000).toISOString();
   try {
-    const driver = await rt.automation.newDriver();
-    const result = await signIn(
-      recipe,
-      creds,
-      driver,
-      {
-        onEvent: (e) => mapSignInEvent(t, rt, e, timeoutAt),
-        requestCode: () =>
-          new Promise<string>((resolve, reject) => {
-            codeWaiters.set(key, { resolve, reject });
-            signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
-          }),
-        requestConfirm: () =>
-          new Promise<boolean>((resolve, reject) => {
-            confirmWaiters.set(key, { resolve, reject });
-            signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
-          }),
-      },
-      { timeoutMinutes: minutes, signal, method },
-    );
-    // The credentials are not needed any more.
-    creds.username = "";
-    creds.password = "";
-    rt.automation.noteSignIn(recipe.host, true, "connect");
-    await runConnect(rt, actor, d, recipe, key, signal, t, projectId, inputs, result.url);
+    const url = await driveSignIn(rt, recipe, creds, key, signal, minutes, method, t);
+    await runConnect(rt, actor, d, recipe, key, signal, t, projectId, inputs, url);
   } catch (err) {
     finishFailed(rt, key, t, failureOf(err, known, signal.aborted));
   } finally {
@@ -510,6 +486,125 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
     codeWaiters.delete(key);
     confirmWaiters.delete(key);
   }
+}
+
+/**
+ * The sign-in engine both runs share (the facade's and the plain recipe sign-in): drives the recipe's sign-in form, asks the human
+ * for a code, an approval or a consent through the run's waiters, wipes the credentials and remembers the sign-in at the host.
+ * Returns the address the sign-in landed on.
+ */
+async function driveSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredentials, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId, t: Tracker): Promise<string | undefined> {
+  const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(Date.now() + minutes * 60_000).toISOString();
+  const driver = await rt.automation.newDriver();
+  const result = await signIn(
+    recipe,
+    creds,
+    driver,
+    {
+      onEvent: (e) => mapSignInEvent(t, rt, e, timeoutAt),
+      requestCode: () =>
+        new Promise<string>((resolve, reject) => {
+          codeWaiters.set(key, { resolve, reject });
+          signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+        }),
+      requestConfirm: () =>
+        new Promise<boolean>((resolve, reject) => {
+          confirmWaiters.set(key, { resolve, reject });
+          signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+        }),
+    },
+    { timeoutMinutes: minutes, signal, method },
+  );
+  // The credentials are not needed any more.
+  creds.username = "";
+  creds.password = "";
+  rt.automation.noteSignIn(recipe.host, true, "connect");
+  return result.url;
+}
+
+// ------------------------------------------------------------------------------------------ recipe sign-in
+
+const recipeSignInKey = (recipeId: string): string => `recipe-signin:${recipeId}`;
+
+/** A loaded recipe with a guided sign-in, for the plain sign-in of a browser-only vendor. */
+function signInRecipeOf(rt: Runtime, recipeId: string): Recipe {
+  if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
+  const recipe = rt.automation.recipe(recipeId);
+  if (!recipe?.login?.form) throw new InventoryError(`The recipe ${recipeId} has no guided sign-in.`);
+  return recipe;
+}
+
+/** The recipe must exist (state, code, confirm and cancel need no guided sign-in check beyond the run key). */
+function knownRecipe(rt: Runtime, recipeId: string): void {
+  if (!rt.automation.recipe(recipeId)) throw new InventoryError(`Unknown recipe: ${recipeId}`);
+}
+
+export function getRecipeSignInState(rt: Runtime, actor: Actor, recipeId: string): AutomationRunState {
+  requireHuman(actor, "Open the provider sign-in");
+  knownRecipe(rt, recipeId);
+  return rt.automation.state(recipeSignInKey(recipeId));
+}
+
+/**
+ * Signs in at a browser-only vendor and nothing else: no key is created, nothing is stored. Same engine, prompts and memory rules
+ * as the facade sign-in: the credentials come from the request body, live in this run only and are wiped when it ends. A recipe
+ * with several hosts needs `host` (a host or a value of the recipe's host parameter). On success the sign-in is remembered at the
+ * host (source `connect`). One browser run at a time: a busy browser is a conflict.
+ */
+export function startRecipeSignIn(rt: Runtime, actor: Actor, recipeId: string, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Sign in at the provider");
+  const whole = signInRecipeOf(rt, recipeId);
+  const recipe = portalFrom(whole, body);
+  const method = methodFrom(recipe, body);
+  const creds = credentialsFrom(body, !(method === "email" && recipe.login?.form?.passwordless === true));
+  const key = recipeSignInKey(recipeId);
+  rt.automation.forget(key);
+  const minutes = rt.automation.loginTimeoutMinutes;
+  let signal: AbortSignal;
+  try {
+    signal = rt.automation.begin(key, recipeId, { text: "Opening the sign-in page.", kind: "signin", needs: null, phase: "opening", timeline: [], timeoutAt: new Date(Date.now() + minutes * 60_000).toISOString() });
+  } catch (err) {
+    creds.username = "";
+    creds.password = "";
+    throw err;
+  }
+  const state = rt.automation.state(key);
+  void runRecipeSignIn(rt, recipe, creds, key, signal, minutes, method);
+  return state;
+}
+
+async function runRecipeSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredentials, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
+  const known = [creds.username, creds.password].filter((x) => x !== "");
+  const t = new Tracker(rt, key);
+  try {
+    await driveSignIn(rt, recipe, creds, key, signal, minutes, method, t);
+    rt.automation.end(key, { status: "done", text: "Signed in.", needs: null, timeline: t.done() });
+  } catch (err) {
+    finishFailed(rt, key, t, failureOf(err, known, signal.aborted));
+  } finally {
+    creds.username = "";
+    creds.password = "";
+    codeWaiters.delete(key);
+    confirmWaiters.delete(key);
+  }
+}
+
+export function submitRecipeCode(rt: Runtime, actor: Actor, recipeId: string, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Enter a one-time code");
+  knownRecipe(rt, recipeId);
+  return submitCodeAt(rt, recipeSignInKey(recipeId), body);
+}
+
+export function submitRecipeConfirm(rt: Runtime, actor: Actor, recipeId: string, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Confirm the authorization");
+  knownRecipe(rt, recipeId);
+  return submitConfirmAt(rt, recipeSignInKey(recipeId), body);
+}
+
+export function cancelRecipeSignIn(rt: Runtime, actor: Actor, recipeId: string): AutomationRunState {
+  requireHuman(actor, "Cancel the provider sign-in");
+  knownRecipe(rt, recipeId);
+  return cancelAt(rt, recipeSignInKey(recipeId));
 }
 
 /** Uses the browser session that is already signed in: creates the key, stores and tests it. Needs no credentials. */
@@ -688,7 +783,10 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
 export function submitFacadeCode(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Enter a one-time code");
   if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
-  const key = stateKey(id);
+  return submitCodeAt(rt, stateKey(id), body);
+}
+
+function submitCodeAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
   const waiter = codeWaiters.get(key);
   const state = rt.automation.state(key);
   if (!waiter || state.needs !== "mfa-code") throw new IssuanceError("The provider is not waiting for a one-time code.");
@@ -704,7 +802,10 @@ export function submitFacadeCode(rt: Runtime, actor: Actor, id: string, body: Re
 export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Confirm the authorization");
   if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
-  const key = stateKey(id);
+  return submitConfirmAt(rt, stateKey(id), body);
+}
+
+function submitConfirmAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
   const waiter = confirmWaiters.get(key);
   if (!waiter || rt.automation.state(key).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
   if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
@@ -716,7 +817,10 @@ export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body:
 export function cancelFacade(rt: Runtime, actor: Actor, id: string): AutomationRunState {
   requireHuman(actor, "Cancel the provider sign-in");
   if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
-  const key = stateKey(id);
+  return cancelAt(rt, stateKey(id));
+}
+
+function cancelAt(rt: Runtime, key: string): AutomationRunState {
   const cur = rt.automation.state(key);
   if (cur.status !== "running" && cur.status !== "waiting-human") throw new IssuanceError("No sign-in is running.");
   codeWaiters.get(key)?.reject(new Error("cancelled"));

@@ -144,4 +144,12 @@ export default {
   "facade.consentAccept": "Autorisieren",
   "facade.consentDecline": "Ablehnen",
   "facade.fail.captcha": "Der Anbieter zeigt eine Sicherheitsprüfung (CAPTCHA), die secret-desk nicht lösen kann. Es wurde nichts geändert. Versuche es später erneut.",
+  "recipeSignIn.intro": "secret-desk meldet sich für dich bei {name} an, damit es deine Werte im Browser lesen und erneuern kann. Jetzt passiert nur die Anmeldung; es wird kein Schlüssel angelegt. Du siehst jeden Schritt und verlässt das Portal nie.",
+  "recipeSignIn.portal": "Portal",
+  "recipeSignIn.portalHint": "{name} hat mehr als ein Portal, jedes mit eigenem Konto. Wähle das Portal, bei dem du dich anmeldest.",
+  "recipeSignIn.portalHost": "dem Host des gewählten Portals",
+  "recipeSignIn.unavailable": "Die Browser-Automatisierung ist aus oder das Rezept mit der Anmeldung ist nicht geladen.",
+  "recipeSignIn.start": "Anmelden",
+  "recipeSignIn.doneTitle": "Bei {name} angemeldet.",
+  "recipeSignIn.doneHint": "secret-desk merkt sich die Anmeldung und zeigt sie auf der Anbieterkarte. Es wurde kein Schlüssel angelegt.",
 } as Record<string, string>;

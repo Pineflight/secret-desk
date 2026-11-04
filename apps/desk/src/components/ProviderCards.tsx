@@ -1,10 +1,10 @@
 "use client";
 import { useId, type ReactNode } from "react";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Button, Card } from "@/components/ui";
 import { BRAND_ICONS } from "@/lib/brand-icons.generated";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
-import { browserNote, hostLineNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
+import { browserNote, hostLineNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
 import type { AgeParts } from "@/lib/browser-ready";
 import type { ExpiryLevel } from "@/lib/connection-health";
 import { daysLabel, formatDate } from "@/lib/format";
@@ -158,7 +158,7 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
  * The provider on the page. Collapsed it shows logo, name, purpose, status and the summary; the header is one button that opens
  * the details (the ways in, as given by the caller). The controls inside the details are never part of that button.
  */
-export function ProviderPageCard({ card, open, onToggle, signIn, actions, children }: { card: ProviderCard; open: boolean; onToggle: () => void; signIn: SignInStatus | null; actions?: ReactNode; children?: ReactNode }) {
+export function ProviderPageCard({ card, open, onToggle, signIn, signInPrompts = [], onSignIn, actions, children }: { card: ProviderCard; open: boolean; onToggle: () => void; signIn: SignInStatus | null; signInPrompts?: readonly SignInPrompt[]; onSignIn?: (portal: string | null) => void; actions?: ReactNode; children?: ReactNode }) {
   const t = useT();
   const purposeOf = usePurpose();
   const bodyId = useId();
@@ -185,6 +185,16 @@ export function ProviderPageCard({ card, open, onToggle, signIn, actions, childr
           <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
       </h4>
+      {/* Beside the header, not in it: a button inside the header button would be invalid. */}
+      {onSignIn && signInPrompts.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2 pl-[3.25rem]">
+          {signInPrompts.map((p) => (
+            <Button key={p.portal ?? "all"} onClick={() => onSignIn(p.portal)} aria-label={p.portal ? t("providers.signIn.buttonLabelAt", { name: card.label, portal: p.portal }) : t("providers.signIn.buttonLabel", { name: card.label })}>
+              {p.portal ? t("providers.signIn.buttonAt", { portal: p.portal }) : t("providers.signIn.button")}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <div id={bodyId} hidden={!open}>
         {open ? (
           <>

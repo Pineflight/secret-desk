@@ -51,8 +51,12 @@ export interface RecipeRow {
   /** A recipe with several portals: the parameter that picks one, and the host of each value. */
   hostBy?: string | null;
   hosts?: readonly { value: string; host: string }[];
-  /** The recipe has a guided sign-in, so its browser session can be checked. */
+  /** The recipe has a guided sign-in, so its browser session can be checked and the human can sign in from the portal. */
   canCheckSignIn?: boolean;
+  /** The ways to sign in (the provider's own form first). Absent or empty: email only. */
+  signInMethods?: readonly { id: string; label: string | null; labelEn: string | null }[];
+  /** The email sign-in has no password (a one-time code is sent). */
+  signInPasswordless?: boolean;
 }
 export interface FacadeRow {
   id: string;
@@ -380,4 +384,29 @@ export function hostLineNote(line: Pick<HostLine, "readiness">): HostLineNote {
   if (r.state === "ready") return { key: "providers.card.hostReady", age };
   if (r.state === "signed-out") return { key: "providers.card.hostSignedOut", age: null };
   return { key: r.checkedAt === null ? "providers.card.hostUnknownNever" : "providers.card.hostUnknownChecked", age };
+}
+
+/** A place on a card where the human can start the sign-in: one portal (several portals), or the provider as a whole. */
+export interface SignInPrompt {
+  /** The value of the recipe's host parameter, or null for a recipe with one portal. */
+  portal: string | null;
+}
+
+/** The recipe a browser-only card signs in at (a facade card has its own dialog). */
+export function signInRecipeOf(card: Pick<ProviderCard, "signIn">): RecipeRow | null {
+  if (card.signIn.facade) return null;
+  return card.signIn.recipes.find((r) => r.canCheckSignIn === true) ?? null;
+}
+
+/**
+ * The "Sign in" buttons of a collapsed card: one for every line that says the sign-in is needed or unknown (per portal for a
+ * recipe with several), none when the sign-in is current, when an API connection makes the browser unnecessary, or when the
+ * sign-in cannot run (automation off, recipe without a guided sign-in, facade card).
+ */
+export function signInPrompts(card: Pick<ProviderCard, "status" | "signIn" | "browser">): SignInPrompt[] {
+  const recipe = signInRecipeOf(card);
+  if (!recipe || !card.signIn.available || card.status === "connected" || !card.browser) return [];
+  const lines = card.browser.hostLines;
+  if (lines.length > 0) return lines.filter((l) => l.readiness.state !== "ready").map((l) => ({ portal: l.value }));
+  return card.browser.readiness.state === "ready" ? [] : [{ portal: null }];
 }

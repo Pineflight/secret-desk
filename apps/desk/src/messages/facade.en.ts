@@ -144,4 +144,12 @@ export default {
   "facade.consentAccept": "Authorize",
   "facade.consentDecline": "Decline",
   "facade.fail.captcha": "The provider shows a security check (CAPTCHA) that secret-desk cannot solve. Nothing was changed. Try again later.",
+  "recipeSignIn.intro": "secret-desk signs in to {name} for you so it can read and renew your values in the browser. Only the sign-in happens now; no key is created. You see every step and never leave the portal.",
+  "recipeSignIn.portal": "Portal",
+  "recipeSignIn.portalHint": "{name} has more than one portal, each with its own account. Choose the one to sign in at.",
+  "recipeSignIn.portalHost": "the host of the chosen portal",
+  "recipeSignIn.unavailable": "browser automation is off or the recipe with the sign-in is not loaded.",
+  "recipeSignIn.start": "Sign in",
+  "recipeSignIn.doneTitle": "Signed in at {name}.",
+  "recipeSignIn.doneHint": "secret-desk remembers the sign-in and shows it on the provider card. No key was created.",
 } as Record<string, string>;
