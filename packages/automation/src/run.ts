@@ -2,6 +2,7 @@ import { SecretValue, redact } from "@secret-desk/core";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
 import { hostAllowed, paramValueProblem, type Condition, type Recipe, type Step } from "./recipe.js";
 import { describeSelector, pickSelector, type Selector } from "./selector.js";
+import { SUDO_FLOWS, SudoError, confirmAccess, sudoPageShown, type SudoHooks } from "./sudo.js";
 import { renderTemplate } from "./template.js";
 import { WaitAbortedError, WaitTimeoutError, conditionMet } from "./wait.js";
 
@@ -18,6 +19,18 @@ export interface RunHooks {
   onWaitingForHuman?(info: HumanWait): void | Promise<void>;
   onResumed?(): void;
   onProgress?(info: { index: number; total: number; label: string }): void;
+  /**
+   * The portal answers confirmations the provider asks for in the middle of a run (`confirmAccess` steps, for example GitHub's
+   * "Confirm access"): how to confirm, the code or password, the number to tap. Without it such a step waits for the human in
+   * the browser window (`onWaitingForHuman`, kind `pause`).
+   */
+  access?: SudoHooks;
+  /**
+   * The browser is signed out when the recipe needs it (`login.expect` does not hold after the first `goto`) and the recipe has
+   * a guided sign-in (`login.form`): signs in on the same open driver, asking the portal for the credentials. Resolves once
+   * signed in. Without it the run waits for the human in the browser window (kind `login`). Its errors end the run unchanged.
+   */
+  signIn?(driver: BrowserDriver): Promise<void>;
 }
 
 export interface RunOptions {
@@ -26,6 +39,15 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Abstand der Pruefungen beim Warten, Standard 250 ms. */
   pollMs?: number;
+  /** Timing of `confirmAccess` steps (tests shorten it): how long GitHub Mobile may take, how long a code or password is checked, tries. */
+  access?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
+}
+
+/** A hook's own error: it ends the run as it is, not as "action not possible". */
+class HookFailure extends Error {
+  constructor(readonly original: unknown) {
+    super("hook failed");
+  }
 }
 
 export interface Screenshot {
@@ -106,6 +128,7 @@ function describeStep(step: Step): string {
   if ("press" in step) return `press ${step.press.key}`;
   if ("waitFor" in step) return "waitFor";
   if ("pause" in step) return `pause human: ${step.pause.human}`;
+  if ("confirmAccess" in step) return `confirmAccess ${step.confirmAccess.flow}`;
   return `screenshot ${step.screenshot}`;
 }
 
@@ -201,6 +224,7 @@ class Runner {
 
   #rethrow(err: unknown, i: number, step: Step): never {
     if (err instanceof RecipeRunError) throw err;
+    if (err instanceof HookFailure) throw err.original;
     if (err instanceof WaitAbortedError) this.fail("abort", "Abgebrochen.");
     const reason =
       err instanceof WaitTimeoutError || (err as Error).name === "TimeoutError"
@@ -271,6 +295,7 @@ class Runner {
       const reason = renderValue(step.pause.human, vars);
       return this.#waitForHuman("pause", reason, resolveCondition(step.pause.until, vars));
     }
+    if ("confirmAccess" in step) return this.#confirmAccess(step.confirmAccess, vars);
     await this.checkHost();
     if ("screenshot" in step) return this.shoot(step.screenshot);
     if ("fill" in step) return this.driver.fill(pickSelector(renderValue(step.fill, vars)), renderValue(step.fill.value, vars));
@@ -288,10 +313,53 @@ class Runner {
     const login = this.recipe.login;
     if (!login) return;
     const cond = resolveCondition(login.expect, this.vars);
-    if (!(await conditionMet(this.driver, cond).catch(() => false))) {
-      await this.#waitForHuman("login", login.message ?? "Bitte im Browserfenster anmelden (Passwort, 2FA, Bestaetigungen).", cond);
+    const met = (): Promise<boolean> => conditionMet(this.driver, cond).catch(() => false);
+    if (!(await met())) {
+      if (this.hooks.signIn && login.form) {
+        try {
+          await this.hooks.signIn(this.driver);
+        } catch (err) {
+          throw new HookFailure(err);
+        }
+      }
+      // Still signed out (no portal sign-in, or it left the browser elsewhere): the human does it in the browser window.
+      if (!(await met())) await this.#waitForHuman("login", login.message ?? "Bitte im Browserfenster anmelden (Passwort, 2FA, Bestaetigungen).", cond);
     }
     this.#loggedIn = true;
+  }
+
+  /** A confirmation the provider may ask for (GitHub "Confirm access"): answered in the portal, or by the human in the browser window. */
+  async #confirmAccess(spec: { flow: keyof typeof SUDO_FLOWS; until: Condition; timeoutSeconds?: number | undefined }, vars: Vars): Promise<void> {
+    const flow = SUDO_FLOWS[spec.flow];
+    const until = resolveCondition(spec.until, vars);
+    const waitMs = (spec.timeoutSeconds ?? TIMEOUT_DEFAULT_S) * 1000;
+    const pollMs = this.options.pollMs ?? 250;
+    await this.checkHost();
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      this.#aborted();
+      if (await conditionMet(this.driver, until).catch(() => false)) return;
+      if (await sudoPageShown(this.driver, flow)) break;
+      if (Date.now() >= deadline) return this.fail("step", "Weder die erwartete Seite noch die Bestaetigung des Anbieters ist erschienen.");
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    if (!this.hooks.access) return this.#waitForHuman("pause", flow.humanHint, until);
+    try {
+      await confirmAccess(flow, {
+        driver: this.driver,
+        hooks: this.hooks.access,
+        signal: this.options.signal,
+        checkHost: () => this.checkHost(),
+        addSecret: (v) => this.addSecret(v),
+        pollMs,
+        ...this.options.access,
+      });
+    } catch (err) {
+      if (!(err instanceof SudoError)) throw err;
+      if (err.kind === "abort") return this.fail("abort", "Abgebrochen.");
+      return this.fail(err.kind === "timeout" ? "timeout" : "step", err.message);
+    }
+    await this.driver.waitFor(until, waitMs, this.options.signal);
   }
 
   async #waitForHuman(kind: HumanWait["kind"], reason: string, cond: ResolvedCondition): Promise<void> {
@@ -308,9 +376,10 @@ class Runner {
     }
   }
 
-  /** Screenshot mit allen Masken aus dem Rezept (plus extra). */
+  /** Screenshot mit allen Masken aus dem Rezept (plus extra). A recipe that confirms access also masks the code and password fields. */
   async shoot(name: string, extra: Selector[] = []): Promise<void> {
-    const png = await this.driver.screenshot([...this.recipe.mask.map((m) => renderValue(m, this.vars) as Selector), ...extra]);
+    const confirms = [...this.recipe.steps, ...(this.recipe.revoke?.steps ?? [])].some((st) => "confirmAccess" in st);
+    const png = await this.driver.screenshot([...this.recipe.mask.map((m) => renderValue(m, this.vars) as Selector), ...(confirms ? Object.values(SUDO_FLOWS).flatMap((f) => [...f.masks]) : []), ...extra]);
     this.screenshots.push({ name, png });
   }
 }

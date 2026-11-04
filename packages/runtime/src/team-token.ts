@@ -1,7 +1,26 @@
-import { RecipeRunError, recipeParamVars, runRecipe, tokenName, type Recipe } from "@secret-desk/automation";
-import { GitHubClient, GitHubError, GitHubInputError, InventoryError, TEAM_SYNC_CONNECTION, patProvider, redact, type SecretValue } from "@secret-desk/core";
+import {
+  LoginError,
+  RecipeRunError,
+  SudoError,
+  loginMethodsOf,
+  recipeParamVars,
+  revokeRecipe,
+  runRecipe,
+  signIn,
+  tokenName,
+  type BrowserDriver,
+  type LoginCredentials,
+  type LoginEvent,
+  type LoginMethodId,
+  type Recipe,
+  type RunHooks,
+  type SudoAnswer,
+  type SudoEvent,
+} from "@secret-desk/automation";
+import { GitHubClient, GitHubError, GitHubInputError, InventoryError, IssuanceError, TEAM_SYNC_CONNECTION, patProvider, redact, type SecretValue } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
-import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
+import type { AutomationRunState, FacadeTimelineEntry, RunAsk } from "./automation.js";
+import { credentialsFrom, methodFrom } from "./facade.js";
 import type { Runtime } from "./runtime.js";
 import {
   readTeamTokenRecord,
@@ -15,9 +34,13 @@ import { teamRights, teamRightsLabels, teamRightsList, teamRightsQuery, type Tea
  * A separate GitHub token for team sync, created through the browser recipe `github-fine-grained-token`: limited to the one
  * team repository and to exactly the rights of the chosen mode. The general GitHub integration token is never widened.
  *
- * The browser is the human's: GitHub's own sign-in and "Confirm access" / 2FA are done by the human in the browser window (the
- * recipe pauses for it). The token is read from the page, tested with the new token itself and only then stored as the
- * connection `team-sync`, which team sync prefers over the integration. Agents never reach any of this (human routes only).
+ * The human never leaves the portal. When GitHub is signed out the portal asks for the sign-in method, email and password for this
+ * run (kept in memory only, typed only on GitHub's hosts, wiped afterwards), then for the codes and approvals GitHub asks for;
+ * when GitHub asks "Confirm access" the portal asks how to confirm (GitHub Mobile with the number to tap, authenticator code or
+ * password). The token is read from the page, tested with the new token itself and only then stored as the connection
+ * `team-sync`, which team sync prefers over the integration. The token it replaces is deleted at GitHub by the same recipe
+ * (`revoke`) once the new one works; only when that run fails the old one is listed for deletion by hand, with the reason.
+ * Agents never reach any of this (human routes only).
  */
 
 export const TEAM_TOKEN_RECIPE = "github-fine-grained-token";
@@ -31,10 +54,10 @@ const MAX_TEXT = 400;
 const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
 const DOTS = /^\.{1,2}$/;
 
-/** Phases of a team token run in the order the portal shows them. `signin` and `confirm` appear only when GitHub asks. */
-export const TEAM_TOKEN_PHASES = ["opening", "signin", "confirm", "creating", "testing", "ready"] as const;
+/** Phases of a team token run in the order the portal shows them. `signin`, `confirm` and `revoking` appear only when they happen. */
+export const TEAM_TOKEN_PHASES = ["opening", "signin", "confirm", "creating", "testing", "revoking", "ready"] as const;
 
-export type TeamTokenFailureCode = "timeout" | "cancelled" | "host" | "step" | "browser" | "key" | "test" | "store";
+export type TeamTokenFailureCode = "timeout" | "cancelled" | "host" | "step" | "browser" | "key" | "test" | "store" | "rejected" | "code" | "captcha" | "unsupported" | "page";
 
 export interface TeamTokenInfo {
   /** false: automation is off or the recipe is missing; `reason` says why. */
@@ -45,7 +68,7 @@ export interface TeamTokenInfo {
   timeoutMinutes: number;
   /** The team token this portal created (null when none, or a typed-in token is in use). */
   active: (TeamTokenMeta & { valid: boolean }) | null;
-  /** An earlier token that is replaced but has to be deleted at GitHub by hand. Never claimed to be revoked. */
+  /** An earlier token that is replaced and that the portal could not delete at GitHub: `reason` says why. Never claimed to be revoked. */
   pendingRevocation: (PendingRevocation & { url: string }) | null;
   tokensUrl: string;
   days: number;
@@ -159,6 +182,10 @@ interface Failure {
 
 function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
   const clean = (t: string): string => redact(t, known).slice(0, MAX_TEXT);
+  if (err instanceof LoginError) {
+    const code: TeamTokenFailureCode = err.kind === "abort" ? "cancelled" : err.kind;
+    return { code, message: clean(err.messageEn ?? err.message) };
+  }
   if (err instanceof RecipeRunError) {
     const code: TeamTokenFailureCode = err.kind === "abort" ? "cancelled" : err.kind === "timeout" ? "timeout" : err.kind === "host" ? "host" : err.kind === "step" ? "step" : "key";
     return { code, message: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
@@ -232,8 +259,178 @@ export function startTeamToken(rt: Runtime, actor: Actor, body: Record<string, u
   return state;
 }
 
+// ------------------------------------------------------------------------------------------ the human's answers
+
+/** What the portal can answer while a run waits. Only one team token run exists at a time, so one slot per question is enough. */
+interface Answers {
+  credentials: { creds: LoginCredentials; method: LoginMethodId };
+  access: SudoAnswer;
+  code: string;
+  confirm: boolean;
+}
+const waiting: { [K in keyof Answers]?: (answer: Answers[K]) => void } = {};
+
+/** Waits for the human's answer to one question. A cancelled run rejects it. */
+function waitFor<K extends keyof Answers>(slot: K, signal: AbortSignal): Promise<Answers[K]> {
+  return new Promise<Answers[K]>((resolve, reject) => {
+    const onAbort = (): void => {
+      delete waiting[slot];
+      reject(new Error("cancelled"));
+    };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    (waiting as Record<string, unknown>)[slot] = (answer: Answers[K]): void => {
+      signal.removeEventListener("abort", onAbort);
+      delete waiting[slot];
+      resolve(answer);
+    };
+  });
+}
+
+/** The question the run asks right now, or null. */
+const asked = (rt: Runtime): AutomationRunState["ask"] | undefined => {
+  const s = rt.automation.state(RUN_KEY);
+  return s.status === "waiting-human" ? s.ask : undefined;
+};
+
+/**
+ * The hooks that let the portal sign in and confirm access: the sign-in on the run's own open browser (asking for the method and
+ * the credentials first) and the "Confirm access" questions. `phased`: the confirmation belongs to its own timeline phase
+ * (creating the token); during the delete run it stays inside the "revoking" phase.
+ */
+function portalHooks(rt: Runtime, recipe: Recipe, t: Tracker, signal: AbortSignal, known: string[], phased: boolean): Pick<RunHooks, "access" | "signIn"> {
+  const update = (patch: Partial<AutomationRunState>): void => rt.automation.update(RUN_KEY, patch);
+  const onLogin = (e: LoginEvent): void => {
+    if (e.type === "needs") {
+      const text = e.need === "mfa-code" ? "Waiting for the one-time code." : e.need === "approval" ? (e.messageEn ?? "Approve the sign-in on your device ...") : "Waiting for your confirmation of the authorization.";
+      return t.phase("signin", { status: "waiting-human", needs: e.need, ask: null, detail: (e.detail ?? "").slice(0, MAX_TEXT), text: text.slice(0, MAX_TEXT) });
+    }
+    if (e.type === "resumed") return update({ status: "running", needs: null, detail: "", text: "Continuing." });
+    if (e.type === "signed-in") return update({ status: "running", needs: null, ask: null, text: "Signed in to GitHub." });
+  };
+  const onAccess = (e: SudoEvent): void => {
+    if (e.type === "mobile") return update({ status: "waiting-human", ask: { type: "access", stage: "mobile", number: e.number }, text: "Waiting for GitHub Mobile." });
+    if (e.type === "checking") return update({ status: "running", ask: { type: "access", stage: "checking", method: e.method }, text: "GitHub is checking the confirmation." });
+    if (e.type === "confirmed") return update({ status: "running", ask: null, text: "Access confirmed." });
+  };
+  return {
+    signIn: async (driver: BrowserDriver): Promise<void> => {
+      t.phase("signin", { status: "waiting-human", needs: null, detail: "", ask: { type: "credentials", methods: loginMethodsOf(recipe) }, text: "Sign in to GitHub: choose the way and enter your details." });
+      const { creds, method } = await waitFor("credentials", signal);
+      known.push(creds.username, creds.password);
+      update({ ask: null, status: "running", text: "Signing in to GitHub." });
+      await signIn(
+        recipe,
+        creds,
+        driver,
+        {
+          onEvent: onLogin,
+          requestCode: () => waitFor("code", signal),
+          requestConfirm: () => waitFor("confirm", signal),
+        },
+        { timeoutMinutes: rt.automation.loginTimeoutMinutes, signal, method, keepOpen: true },
+      );
+    },
+    access: {
+      request: (ask) => {
+        const patch: Partial<AutomationRunState> = {
+          status: "waiting-human",
+          needs: null,
+          text: "Confirm access at GitHub.",
+          ask: { type: "access", stage: "choose", methods: [...ask.methods], attempt: ask.attempt, maxAttempts: ask.maxAttempts, ...(ask.problem ? { problem: ask.problem } : {}) },
+        };
+        if (phased) t.phase("confirm", patch);
+        else update(patch);
+        return waitFor("access", signal);
+      },
+      onEvent: onAccess,
+    },
+  };
+}
+
+/** The confirmation the human typed in the portal for "Confirm access". It goes to the waiting run once and is not kept. */
+export function submitTeamTokenAccess(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Confirm access at GitHub");
+  const ask = asked(rt);
+  if (!waiting.access || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("GitHub is not waiting for a confirmation.");
+  const method = body["method"];
+  let answer: SudoAnswer;
+  if (method === "mobile") answer = { method };
+  else if (method === "code") {
+    const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
+    body["code"] = "";
+    if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
+    answer = { method, code };
+  } else if (method === "password") {
+    const password = typeof body["password"] === "string" ? body["password"] : "";
+    body["password"] = "";
+    if (!password || password.length > 1024 || /[\u0000-\u001f\u007f]/.test(password)) throw new InventoryError("The password is not valid.");
+    answer = { method, password };
+  } else throw new InventoryError("Field method: mobile, code or password.");
+  if (!ask.methods.includes(answer.method)) throw new InventoryError("This way to confirm is not offered.");
+  waiting.access(answer);
+  return rt.automation.state(RUN_KEY);
+}
+
+/** The sign-in method and credentials the human typed in the portal. They go to the waiting run once and are wiped when it ends. */
+export function submitTeamTokenCredentials(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Sign in at GitHub");
+  const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
+  if (!recipe || !waiting.credentials || asked(rt)?.type !== "credentials") throw new IssuanceError("GitHub is not waiting for a sign-in.");
+  const method = methodFrom(recipe, body);
+  const creds = credentialsFrom(body);
+  waiting.credentials({ creds, method });
+  return rt.automation.state(RUN_KEY);
+}
+
+/** The one-time code of the GitHub sign-in. */
+export function submitTeamTokenCode(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Enter a one-time code");
+  if (!waiting.code || rt.automation.state(RUN_KEY).needs !== "mfa-code") throw new IssuanceError("GitHub is not waiting for a one-time code.");
+  const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
+  if (typeof body["code"] === "string") body["code"] = "";
+  if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
+  waiting.code(code);
+  return rt.automation.state(RUN_KEY);
+}
+
+/** The human confirmed or declined the authorization the identity provider asks for. */
+export function submitTeamTokenConfirm(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
+  requireHuman(actor, "Confirm the authorization");
+  if (!waiting.confirm || rt.automation.state(RUN_KEY).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
+  if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
+  waiting.confirm(body["accept"]);
+  return rt.automation.state(RUN_KEY);
+}
+
+// ------------------------------------------------------------------------------------------ the run
+
+/** The delete run for the replaced token. Never throws: the result says whether the token is gone and, if not, why. */
+async function revokeReplaced(rt: Runtime, recipe: Recipe, vars: Record<string, string>, oldName: string, t: Tracker, signal: AbortSignal, known: string[]): Promise<{ done: true } | { done: false; reason: string }> {
+  try {
+    const driver = await rt.automation.newDriver();
+    await revokeRecipe(
+      recipe,
+      { ...vars, externalId: oldName },
+      driver,
+      {
+        ...portalHooks(rt, recipe, t, signal, known, false),
+        onWaitingForHuman: () => rt.automation.update(RUN_KEY, { status: "waiting-human", text: "Waiting at GitHub." }),
+        onResumed: () => rt.automation.update(RUN_KEY, { status: "running", needs: null, text: "Continuing." }),
+      },
+      { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal, access: rt.automation.accessTiming },
+    );
+    return { done: true };
+  } catch (err) {
+    if (signal.aborted && !(err instanceof RecipeRunError && err.kind !== "abort")) return { done: false, reason: "The delete run was cancelled." };
+    const reason = err instanceof SudoError || err instanceof RecipeRunError || err instanceof LoginError ? err.message : "The browser could not be used.";
+    return { done: false, reason: redact(reason, known).replace(/\s+/g, " ").slice(0, MAX_TEXT) };
+  }
+}
+
 async function runTeamToken(rt: Runtime, recipe: Recipe, req: TeamTokenRequest, vars: Record<string, string>, signal: AbortSignal, t: Tracker, now: Date): Promise<void> {
   const name = vars["name"]!;
+  const known: string[] = [];
   let value: SecretValue;
   let expires: string | null;
   try {
@@ -243,42 +440,46 @@ async function runTeamToken(rt: Runtime, recipe: Recipe, req: TeamTokenRequest, 
       vars,
       driver,
       {
+        ...portalHooks(rt, recipe, t, signal, known, true),
         onWaitingForHuman: (w) => {
-          // Both kinds are the human's turn: GitHub's sign-in ("login"), or "Confirm access" / 2FA ("pause").
+          // Only when the portal cannot answer (no guided sign-in in the recipe, or it left the browser elsewhere): the browser window.
           const signIn = w.kind === "login";
           t.phase(signIn ? "signin" : "confirm", {
             status: "waiting-human",
             needs: null,
+            ask: null,
             text: signIn ? "Sign in to GitHub in the browser window." : "Confirm access at GitHub in the browser window.",
           });
         },
         onResumed: () => rt.automation.update(RUN_KEY, { status: "running", needs: null, text: "Continuing." }),
         onProgress: (p) => {
-          // Opening the form (goto, pause) still belongs to "opening", "signin" and "confirm": creating starts with the first fill or click.
+          // Opening the form (goto, confirmation) still belongs to "opening", "signin" and "confirm": creating starts with the first fill or click.
           const form = p.label.startsWith("fill") || p.label.startsWith("click") || p.label.startsWith("select");
           if (form && rt.automation.state(RUN_KEY).status === "running") t.phase("creating", { text: "Creating the team token at GitHub.", step: { index: p.index, total: p.total } });
           else rt.automation.update(RUN_KEY, { step: { index: p.index, total: p.total } });
         },
       },
-      { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal },
+      { loginTimeoutMinutes: rt.automation.loginTimeoutMinutes, signal, access: rt.automation.accessTiming },
     );
     value = result.value;
     expires = result.expiresAt ?? new Date(now.getTime() + TEAM_TOKEN_DAYS * 86_400_000).toISOString().slice(0, 10);
   } catch (err) {
-    return finishFailed(rt, t, failureOf(err, [], signal.aborted));
+    return finishFailed(rt, t, failureOf(err, known, signal.aborted));
   }
 
   // Test with the new token itself before it becomes the active one. A failure keeps the previous state untouched.
-  t.phase("testing", { status: "running", needs: null, text: "Testing the new token." });
+  t.phase("testing", { status: "running", needs: null, ask: null, text: "Testing the new token." });
   const problem = await verifyTeamToken(rt, value, req);
   if (problem) {
     return finishFailed(rt, t, { code: "test", message: `${problem} The token ${name} was created at GitHub but not stored: delete it at ${GITHUB_TOKENS_URL}.`, createdName: name });
   }
 
+  let before: Awaited<ReturnType<typeof readTeamTokenRecord>>;
+  let meta: TeamTokenMeta;
   try {
-    const before = await readTeamTokenRecord(rt);
-    const meta: TeamTokenMeta = { repo: req.repo, mode: req.mode, strategy: req.strategy, tokenName: name, createdAt: now.toISOString(), expires };
-    // The new value goes in first; the old token is only noted for deletion afterwards, never touched at GitHub.
+    before = await readTeamTokenRecord(rt);
+    meta = { repo: req.repo, mode: req.mode, strategy: req.strategy, tokenName: name, createdAt: now.toISOString(), expires };
+    // The new value goes in first; the replaced token is noted for deletion at once, so a crash during the delete run loses nothing.
     if (rt.connections.vault) {
       await rt.connections.vault.set(TEAM_SYNC_CONNECTION, value.reveal(), expires);
       rt.connections.session.delete(TEAM_SYNC_CONNECTION);
@@ -290,8 +491,33 @@ async function runTeamToken(rt: Runtime, recipe: Recipe, req: TeamTokenRequest, 
   } catch {
     return finishFailed(rt, t, { code: "store", message: `The token ${name} was created at GitHub but could not be stored. Delete it at ${GITHUB_TOKENS_URL} and run this again.`, createdName: name });
   }
-  t.phase("ready", { text: "The team token is ready." });
-  rt.automation.end(RUN_KEY, { status: "done", text: "The team token is ready.", needs: null, timeline: t.done(), result: { tokenName: name, expires, repo: req.repo, mode: req.mode } });
+
+  // Delete the replaced token at GitHub with the recipe. A failure does not undo the new token: the old one stays listed, with the reason.
+  let revoked: boolean | null = null;
+  let revokeFailure: string | undefined;
+  if (before.active) {
+    t.phase("revoking", { status: "running", needs: null, ask: null, text: "Deleting the replaced token at GitHub." });
+    const outcome = await revokeReplaced(rt, recipe, vars, before.active.tokenName, t, signal, known);
+    revoked = outcome.done;
+    try {
+      if (outcome.done) await writeTeamTokenRecord(rt, { active: meta, pendingRevocation: before.pendingRevocation });
+      else {
+        revokeFailure = outcome.reason;
+        await writeTeamTokenRecord(rt, { active: meta, pendingRevocation: { tokenName: before.active.tokenName, repo: before.active.repo, since: now.toISOString(), reason: outcome.reason } });
+      }
+    } catch {
+      /* the note written before stays */
+    }
+  }
+  t.phase("ready", { status: "running", needs: null, ask: null, text: "The team token is ready." });
+  rt.automation.end(RUN_KEY, {
+    status: "done",
+    text: "The team token is ready.",
+    needs: null,
+    ask: null,
+    timeline: t.done(),
+    result: { tokenName: name, expires, repo: req.repo, mode: req.mode, revoked, ...(revokeFailure ? { revokeFailure } : {}) },
+  });
 }
 
 export function cancelTeamToken(rt: Runtime, actor: Actor): AutomationRunState {

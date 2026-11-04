@@ -17,11 +17,13 @@ export interface TeamTokenMeta {
   expires: string | null;
 }
 
-/** An earlier team token that is replaced but not yet deleted at GitHub (secret-desk cannot do that itself). */
+/** An earlier team token that is replaced but not yet deleted at GitHub: the portal's own delete run failed, or it was not tried. */
 export interface PendingRevocation {
   tokenName: string;
   repo: string;
   since: string;
+  /** Why the portal could not delete it (the failure of the delete run). Absent when it was never tried (a retired, typed-in token). */
+  reason?: string;
 }
 
 export interface TeamTokenRecord {
@@ -48,7 +50,9 @@ function parse(raw: string): TeamTokenRecord {
         ? { repo: a["repo"], mode: a["mode"], strategy: a["strategy"], tokenName: a["tokenName"], createdAt: a["createdAt"], expires: typeof a["expires"] === "string" && DAY.test(a["expires"]) ? a["expires"] : null }
         : null;
     const pendingRevocation: PendingRevocation | null =
-      p && text(p["tokenName"]) && typeof p["repo"] === "string" && REPO.test(p["repo"]) && text(p["since"], 40) ? { tokenName: p["tokenName"], repo: p["repo"], since: p["since"] } : null;
+      p && text(p["tokenName"]) && typeof p["repo"] === "string" && REPO.test(p["repo"]) && text(p["since"], 40)
+        ? { tokenName: p["tokenName"], repo: p["repo"], since: p["since"], ...(text(p["reason"], 400) ? { reason: p["reason"] } : {}) }
+        : null;
     return { active, pendingRevocation };
   } catch {
     return EMPTY;

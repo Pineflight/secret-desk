@@ -264,7 +264,7 @@ export function getFacadeState(rt: Runtime, actor: Actor, id: string): Automatio
 
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
-function credentialsFrom(body: Record<string, unknown>): LoginCredentials {
+export function credentialsFrom(body: Record<string, unknown>): LoginCredentials {
   const username = typeof body["username"] === "string" ? body["username"].trim() : "";
   const password = typeof body["password"] === "string" ? body["password"] : "";
   // The password leaves the request body right away: nothing but the run's own object holds it.
@@ -277,7 +277,7 @@ function credentialsFrom(body: Record<string, unknown>): LoginCredentials {
 }
 
 /** The chosen sign-in method (default: email). It must be one the recipe offers. */
-function methodFrom(recipe: Recipe, body: Record<string, unknown>): LoginMethodId {
+export function methodFrom(recipe: Recipe, body: Record<string, unknown>): LoginMethodId {
   const raw = typeof body["method"] === "string" && body["method"] ? body["method"] : "email";
   const offered = loginMethodsOf(recipe).find((m) => m.id === raw);
   if (!offered) throw new InventoryError(`This provider does not offer the sign-in method ${String(raw)}.`);

@@ -104,6 +104,17 @@ const stepVariants = {
       when: When,
     })
     .strict(),
+  /**
+   * The provider may ask to confirm access here (GitHub "Confirm access"). Runs once the page is shown; the human answers in the
+   * portal (see sudo.ts). `until` holds when the page the recipe wants is there, which also ends the step when no confirmation
+   * was asked. A run without a portal to answer in waits for the human in the browser window instead.
+   */
+  confirmAccess: z
+    .object({
+      confirmAccess: z.object({ flow: z.enum(["github-sudo"]), until: ConditionSchema, timeoutSeconds: z.number().positive().max(3600).optional() }).strict(),
+      when: When,
+    })
+    .strict(),
   screenshot: z.object({ screenshot: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/, "Name aus Buchstaben, Ziffern, . _ -"), when: When }).strict(),
 };
 
@@ -147,7 +158,7 @@ export const LoginFormSchema = z
     /** The provider asks for a one-time code: it is typed into `field` and confirmed with `submit`. */
     mfa: z.object({ detect: ConditionSchema, field: SelectorSchema, submit: SelectorSchema }).strict().optional(),
     /** The provider waits for an approval elsewhere (push, e-mail link). The portal says so and waits. */
-    approval: z.object({ detect: ConditionSchema, ...Message }).strict().optional(),
+    approval: z.object({ detect: ConditionSchema, ...Message, /** Where the page shows the number to tap on the device, if it does. */ number: SelectorSchema.optional() }).strict().optional(),
     /** A CAPTCHA or other bot check. The script cannot solve it: a challenge that stays ends the run with a message, nothing is circumvented. */
     captcha: z.object({ detect: ConditionSchema, message: z.string().min(1).optional(), messageEn: z.string().min(1).optional() }).strict().optional(),
     /** Page states that mean the sign-in was refused (wrong password, locked account). */
@@ -177,6 +188,8 @@ export type LoginMethod = z.infer<typeof LoginMethodSchema>;
 
 const Ident = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Kennung in kleinbuchstaben-mit-bindestrich");
 const Hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname ohne Schema und Pfad");
+/** A host, or `*.example.test` for every subdomain of it (a hosted sign-in page whose name carries a tenant). */
+const AllowedHost = z.string().regex(/^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname ohne Schema und Pfad, optional mit *. davor");
 
 const FromVar = z.enum(["name", "days", "date", "secretId"]);
 
@@ -218,7 +231,7 @@ export const RecipeSchema = z
     provider: Ident.optional(),
     /** Seiten ausserhalb dieses Hosts (und allowHosts) werden nicht bedient. */
     host: Hostname,
-    allowHosts: z.array(Hostname).default([]),
+    allowHosts: z.array(AllowedHost).default([]),
     /** Per-entry parameters, read from `params` of the inventory entry. Each key is usable as {{key}}. */
     params: z.array(RecipeParamSchema).default([]),
     login: z.object({ expect: ConditionSchema, message: z.string().optional(), form: LoginFormSchema.optional(), methods: z.array(LoginMethodSchema).optional() }).strict().optional(),
