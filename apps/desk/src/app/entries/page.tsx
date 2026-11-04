@@ -538,9 +538,6 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
         <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5${sourceText ? "" : " xl:h-5 xl:flex-nowrap xl:overflow-hidden"}`}>
           <span className="min-w-0 shrink truncate text-xs text-muted hidden max-xl:block @[23rem]:block xl:max-w-[8rem]"><Marked text={v.id} terms={terms} /></span>
           <span className="hidden shrink-0 items-center gap-1 xl:max-[1699px]:inline-flex"><StageBadge stage={v.stage} /></span>
-          <span className="hidden xl:max-[1699px]:contents">
-            <span className="hidden max-w-[8rem] shrink-0 truncate font-mono text-xs @[38rem]:block" title={v.value ?? undefined}>{v.value === null ? t("variables.unknownYet") : shortValue(v.value)}</span>
-          </span>
           {v.tags.length > 0 ? <span className="contents" onClick={(e) => e.stopPropagation()}><TagChips tags={v.tags} onPick={setTag} active={tag} /></span> : null}
           {sourceText ? <Pill>{t("variables.src.badge", { source: sourceText })}</Pill> : null}
         </div>
@@ -553,7 +550,7 @@ function VariableRowView({ v, terms, tag, setTag, drift, error, comparing, busy,
       </td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><KindBadge kind="variable" /></td>
       <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}><StageBadge stage={v.stage} /></td>
-      <td className={`${WIDE_CELL_CLASS} max-[1699px]:hidden`}>{value}</td>
+      <td className={WIDE_CELL_CLASS}>{value}</td>
       <td className={WIDE_CELL_CLASS}><Targets places={v.places} /></td>
       <td className={`${LIST_CELL_CLASS} whitespace-nowrap max-sm:hidden`}>{status}</td>
       <td className={ACTIONS_CELL_CLASS} onClick={(e) => e.stopPropagation()}>{actions}</td>
