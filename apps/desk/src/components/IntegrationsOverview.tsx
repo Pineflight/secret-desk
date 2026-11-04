@@ -21,7 +21,7 @@ export function IntegrationsOverview() {
   const s = ready ? summarize(conns.data!, secrets.data!, vars.data!) : null;
 
   return (
-    <Card className="mb-8">
+    <Card>
       <SectionLabel>{t("home.linked")}</SectionLabel>
       <p className="mt-1 max-w-2xl text-sm text-muted">{t("home.linkedHint")}</p>
       {error ? <div className="mt-4"><ErrorState error={error} onRetry={() => { conns.reload(); secrets.reload(); vars.reload(); }} /></div> : null}

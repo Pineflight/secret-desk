@@ -28,6 +28,8 @@ import {
 import { readyTokenExpiry, type TeamTokenInfo } from "@/lib/team-token";
 import { formatDate } from "@/lib/format";
 import { Button, Notice, SelectField, TextField } from "./ui";
+import { SetupStep } from "./SetupStep";
+import { showPermissionWarning, stepperState, type StepId, type StepStatus } from "@/lib/setup-steps";
 import { TeamTokenControl } from "./TeamTokenControl";
 
 const enc = encodeURIComponent;
@@ -139,25 +141,26 @@ export function TeamConfigPicker({ onChange }: Props) {
   const problem = repos.data?.problem ?? branches.data?.problem ?? files.data?.problem ?? null;
   const networkError = repos.error ?? branches.error ?? files.error ?? null;
 
+  const tokenAvailable = tokenInfo.data?.available === true;
   const modeOption = (m: TeamMode, access: ModeAccess | undefined, loading: boolean) => {
     const disabledByFile = m === "pull" && createFile;
     const status = modeStatus(access, loading, disabledByFile);
     const tokenExpiry = readyTokenExpiry(access, tokenInfo.data, repo);
+    // While a team token can be created, creating it is the fix: no permission warning on the row.
+    const warn = status === "needs" && showPermissionWarning(true, tokenAvailable);
     return (
-      <label key={m} className={`block cursor-pointer rounded-xl border p-4 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${disabledByFile ? "opacity-60" : ""}`}>
-        <span className="flex items-start gap-3">
-          <input type="radio" name="team-mode" className="mt-1" checked={shownMode === m} disabled={disabledByFile} onChange={() => setMode(m)} />
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="block font-medium">{t(`teamSync.mode.${m}`)}</span>
-            <span className="block text-muted-text">{t(`teamPicker.mode.${m}.text`)}</span>
-            <span className={`block text-xs ${status === "ready" ? "text-success-text" : status === "needs" ? "text-warn-text" : "text-muted-text"}`}>
-              {status === "ready" ? `✓ ${tokenExpiry === null ? t("teamPicker.mode.ready") : tokenExpiry ? t("teamToken.ready", { date: formatDate(tokenExpiry) }) : t("teamToken.readyNoDate")}` : null}
-              {status === "needs" ? `⚠ ${t("teamPicker.mode.needs", { rights: neededRightsLine(access) || "…" })}` : null}
-              {status === "checking" ? t("teamPicker.mode.checking") : null}
-              {status === "create-needs-write" ? t("teamPicker.mode.createNeedsWrite") : null}
-              {status === "needs" ? <> · <Link href="/connections" className="text-primary underline">{t("teamPicker.mode.fix")}</Link></> : null}
-            </span>
-          </span>
+      <label key={m} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${shownMode === m ? "border-primary" : "border-line"} ${disabledByFile ? "opacity-60" : ""}`}>
+        <input type="radio" name="team-mode" checked={shownMode === m} disabled={disabledByFile} onChange={() => setMode(m)} />
+        <span className="min-w-0 flex-1">
+          <span className="font-medium">{t(`teamSync.mode.${m}`)}</span>
+          <span className="text-muted-text"> · {t(`teamPicker.mode.${m}.text`)}</span>
+        </span>
+        <span className={`shrink-0 text-xs ${status === "ready" ? "text-success-text" : warn ? "text-warn-text" : "text-muted-text"}`}>
+          {status === "ready" ? `✓ ${tokenExpiry === null ? t("teamPicker.mode.ready") : tokenExpiry ? t("teamToken.ready", { date: formatDate(tokenExpiry) }) : t("teamToken.readyNoDate")}` : null}
+          {status === "needs" && !warn ? t("teamPicker.mode.tokenNeeded") : null}
+          {warn ? <>{`⚠ ${t("teamPicker.mode.needs", { rights: neededRightsLine(access) || "…" })}`} · <Link href="/connections" className="text-primary underline">{t("teamPicker.mode.fix")}</Link></> : null}
+          {status === "checking" ? t("teamPicker.mode.checking") : null}
+          {status === "create-needs-write" ? t("teamPicker.mode.createNeedsWrite") : null}
         </span>
       </label>
     );
@@ -174,74 +177,108 @@ export function TeamConfigPicker({ onChange }: Props) {
     );
   };
 
+  const steps = stepperState({ repo, branch, path: ready ? path : "", modeAllowed: modeAllowed(current) });
+  const statusOf = (id: StepId): StepStatus => steps.find((x) => x.id === id)?.status ?? "todo";
+  // The repository list collapses to one line once a repository is chosen; "Change" opens it again.
+  const [changingRepo, setChangingRepo] = useState(false);
+  const repoListOpen = !repo || changingRepo;
+
   return (
     <div className="space-y-4">
       {problem?.code === "rate-limit" ? <ShortNotice text={t("teamPicker.problem.rate-limit.title")} onRetry={retry} /> : null}
       {problem && problem.code !== "rate-limit" ? <ProblemNotice problem={problem} onRetry={retry} /> : null}
       {!problem && networkError ? <ShortNotice text={t("teamPicker.problem.network")} onRetry={retry} /> : null}
 
-      <div className="space-y-2">
-        <TextField label={t("teamPicker.repo.search")} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="acme-org/team-config" autoComplete="off" disabled={!repos.data || Boolean(repos.data.problem)} />
-        {repos.loading ? <p className="text-sm text-muted-text">{t("common.loading")}</p> : null}
-        {repos.data && !repos.data.problem && !repo && !repoTouched && groups.usable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.choose")}</p> : null}
-        {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length === 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.none")}</p> : null}
-        {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.noneUsable")}</p> : null}
-        <div role="radiogroup" aria-label={t("teamSync.repo")} className="space-y-2">
-          {shown.map((r) => (
-            <label key={r.fullName} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm ${repo === r.fullName ? "border-primary" : "border-line"}`}>
-              <input type="radio" name="team-repo" className="mt-1" checked={repo === r.fullName} onChange={() => { setRepo(r.fullName); setRepoTouched(true); }} />
-              <span className="min-w-0 flex-1">
-                <span className="block break-all font-mono">{r.fullName}</span>
-                <span className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-text">
-                  <span className="rounded-full border border-line px-2 py-0.5">{t("teamPicker.repo.private")}</span>
-                  {r.pushedAt ? <span>{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-        {groups.usable.length > REPO_ROWS && !showAll && search.trim() === "" ? (
-          <Button onClick={() => setShowAll(true)}>{t("teamPicker.repo.showMore", { count: groups.usable.length - REPO_ROWS })}</Button>
-        ) : null}
-        {groups.unusable.length > 0 ? (
-          <details className="rounded-xl border border-line p-3 text-sm">
-            <summary className="cursor-pointer text-muted-text">{t("teamPicker.repo.unusable", { count: groups.unusable.length })}</summary>
-            <ul className="mt-2 space-y-2">
-              {groups.unusable.map((r) => (
-                <li key={r.fullName} className="text-muted-text opacity-70">
-                  <span className="block break-all font-mono">{r.fullName}</span>
-                  <span className="block text-xs">{t(`teamPicker.repo.reason.${unusableReason(r)}`)}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-        {repos.data?.truncated ? <p className="text-xs text-muted-text">{t("teamPicker.repo.truncated")}</p> : null}
-      </div>
+      <ol className="space-y-4" aria-label={t("teamPicker.stepsLabel")}>
+        <SetupStep number={1} title={t("teamPicker.step.repo")} status={statusOf("repo")}>
+          {!repoListOpen ? (
+            <p className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="break-all font-mono">{repo}</span>
+              <button type="button" className="text-xs text-primary underline" onClick={() => setChangingRepo(true)}>{t("teamPicker.repo.change")}</button>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <TextField label={t("teamPicker.repo.search")} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="acme-org/team-config" autoComplete="off" disabled={!repos.data || Boolean(repos.data.problem)} />
+              {repos.loading ? <p className="text-sm text-muted-text">{t("common.loading")}</p> : null}
+              {repos.data && !repos.data.problem && !repo && !repoTouched && groups.usable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.choose")}</p> : null}
+              {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length === 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.none")}</p> : null}
+              {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.noneUsable")}</p> : null}
+              <div role="radiogroup" aria-label={t("teamSync.repo")} className="space-y-2">
+                {shown.map((r) => (
+                  <label key={r.fullName} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${repo === r.fullName ? "border-primary" : "border-line"}`}>
+                    <input type="radio" name="team-repo" checked={repo === r.fullName} onChange={() => { setRepo(r.fullName); setRepoTouched(true); setChangingRepo(false); }} />
+                    <span className="min-w-0 flex-1 break-all font-mono">{r.fullName}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-text">
+                      {r.pushedAt ? <span>{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
+                      <span className="rounded-full border border-line px-2 py-0.5">{t("teamPicker.repo.private")}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {groups.usable.length > REPO_ROWS && !showAll && search.trim() === "" ? (
+                <Button onClick={() => setShowAll(true)}>{t("teamPicker.repo.showMore", { count: groups.usable.length - REPO_ROWS })}</Button>
+              ) : null}
+              {groups.unusable.length > 0 ? (
+                <details className="rounded-xl border border-line p-3 text-sm">
+                  <summary className="cursor-pointer text-muted-text">{t("teamPicker.repo.unusable", { count: groups.unusable.length })}</summary>
+                  <ul className="mt-2 space-y-2">
+                    {groups.unusable.map((r) => (
+                      <li key={r.fullName} className="text-muted-text opacity-70">
+                        <span className="block break-all font-mono">{r.fullName}</span>
+                        <span className="block text-xs">{t(`teamPicker.repo.reason.${unusableReason(r)}`)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {repos.data?.truncated ? <p className="text-xs text-muted-text">{t("teamPicker.repo.truncated")}</p> : null}
+            </div>
+          )}
+        </SetupStep>
 
-      {repo ? (
-        <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!branches.data || (branches.data.branches.length ?? 0) === 0}>
-          {(branches.data?.branches ?? []).map((b) => <option key={b} value={b}>{b === branches.data?.defaultBranch ? `${b} (${t("teamPicker.branch.default")})` : b}</option>)}
-        </SelectField>
-      ) : null}
+        <SetupStep number={2} title={t("teamPicker.step.file")} status={statusOf("file")}>
+          {repo ? (
+            <div className="space-y-2">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!branches.data || (branches.data.branches.length ?? 0) === 0}>
+                  {(branches.data?.branches ?? []).map((b) => <option key={b} value={b}>{b === branches.data?.defaultBranch ? `${b} (${t("teamPicker.branch.default")})` : b}</option>)}
+                </SelectField>
+                {branch ? (
+                  <SelectField label={t("teamSync.config.path")} value={file} onChange={(e) => setFile(e.target.value)} disabled={!files.data}>
+                    {(files.data?.files ?? []).map((f) => <option key={f} value={f}>{f}</option>)}
+                    {files.data?.canCreate ? <option value={CREATE_FILE}>{t("teamPicker.file.create", { path: files.data.createPath })}</option> : null}
+                  </SelectField>
+                ) : null}
+              </div>
+              {createFile ? (
+                <details className="text-xs text-muted-text">
+                  <summary className="cursor-pointer">{t("teamPicker.file.createShort")}</summary>
+                  <p className="mt-1">{t("teamPicker.file.createHint", { path: files.data?.createPath ?? "" })}</p>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+        </SetupStep>
 
-      {repo && branch ? (
-        <SelectField label={t("teamSync.config.path")} value={file} onChange={(e) => setFile(e.target.value)} disabled={!files.data} hint={createFile ? t("teamPicker.file.createHint", { path: files.data?.createPath ?? "" }) : undefined}>
-          {(files.data?.files ?? []).map((f) => <option key={f} value={f}>{f}</option>)}
-          {files.data?.canCreate ? <option value={CREATE_FILE}>{t("teamPicker.file.create", { path: files.data.createPath })}</option> : null}
-        </SelectField>
-      ) : null}
+        <SetupStep number={3} title={t("teamPicker.step.mode")} status={statusOf("mode")}>
+          {ready ? (
+            <div className="space-y-2" role="radiogroup" aria-label={t("teamSync.config.mode")}>
+              {modeOption("pull", readAccess.data, readAccess.loading)}
+              {modeOption("pull-push", writeAccess.data, writeAccess.loading)}
+              {shownMode === "pull-push" ? (
+                <SelectField label={t("teamSync.config.strategy")} value={strategy} onChange={(e) => setStrategy(e.target.value as PushStrategy)}>
+                  <option value="pull-request">{t("teamSync.config.strategy.pull-request")}</option>
+                  <option value="direct">{t("teamSync.config.strategy.direct")}</option>
+                </SelectField>
+              ) : null}
+            </div>
+          ) : null}
+        </SetupStep>
 
-      {ready ? (
-        <div className="space-y-2" role="radiogroup" aria-label={t("teamSync.config.mode")}>
-          {modeOption("pull", readAccess.data, readAccess.loading)}
-          {modeOption("pull-push", writeAccess.data, writeAccess.loading)}
-        </div>
-      ) : null}
-
-      {ready ? (
-        <TeamTokenControl repo={repo} branch={branch} mode={shownMode} strategy={strategy} onCreated={() => { setAccessNonce((n) => n + 1); tokenInfo.reload(); }} />
-      ) : null}
+        <SetupStep number={4} title={t("teamPicker.step.token")} status={statusOf("token")}>
+          {ready ? <TeamTokenControl repo={repo} branch={branch} mode={shownMode} strategy={strategy} onCreated={() => { setAccessNonce((n) => n + 1); tokenInfo.reload(); }} /> : null}
+        </SetupStep>
+      </ol>
 
       {ready ? (
         <details className="rounded-xl border border-line p-3 text-sm">
@@ -252,13 +289,6 @@ export function TeamConfigPicker({ onChange }: Props) {
             {modeDetails("pull-push", writeAccess.data)}
           </div>
         </details>
-      ) : null}
-
-      {ready && shownMode === "pull-push" ? (
-        <SelectField label={t("teamSync.config.strategy")} value={strategy} onChange={(e) => setStrategy(e.target.value as PushStrategy)}>
-          <option value="pull-request">{t("teamSync.config.strategy.pull-request")}</option>
-          <option value="direct">{t("teamSync.config.strategy.direct")}</option>
-        </SelectField>
       ) : null}
 
       <details className="rounded-xl border border-line p-3 text-sm">

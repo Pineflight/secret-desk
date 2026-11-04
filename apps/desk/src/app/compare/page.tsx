@@ -1,10 +1,10 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useState } from "react";
 import type { CompareCell, CompareRepo, CompareResult, RepoNote } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { RenameRepoDialog } from "@/components/RenameRepoDialog";
 import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable } from "@/components/ListTable";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
@@ -37,7 +37,10 @@ import { useT } from "@/lib/i18n";
 import { usePersistedState } from "@/lib/persisted-state";
 import { useToast } from "@/lib/toast";
 import { useStageDefs } from "@/lib/use-stages";
+import { limitGroups } from "@/lib/paging";
 import { stageOrder } from "@/lib/stages";
+
+const RenameRepoDialog = dynamic(() => import("@/components/RenameRepoDialog").then((m) => m.RenameRepoDialog), { ssr: false });
 
 type T = ReturnType<typeof useT>;
 
@@ -115,6 +118,11 @@ export default function ComparePage() {
   const hiddenNow = useMemo(() => hiddenPresent(all, hiddenRepos), [all, hiddenRepos]);
   const visible = useMemo(() => sortRows(filterRows(shown, filters), gapsFirst), [shown, filters, gapsFirst]);
   const groups = useMemo(() => groupByRepo(visible), [visible]);
+  // Long tables render in pages; a changed filter starts over at the first page.
+  const [pages, setPages] = useState(1);
+  const filterKey = JSON.stringify(filters);
+  useEffect(() => setPages(1), [filterKey]);
+  const paged = limitGroups(groups.map((g) => ({ ...g, items: g.rows })), pages);
   const candidates = useMemo(() => adoptCandidates(visible), [visible]);
   const neededRows = visible.filter((r) => r.neededMissing).length;
   const levelRows = visible.filter((r) => r.levelMismatch).length;
@@ -358,14 +366,15 @@ export default function ComparePage() {
         <EmptyState title={t("compare.emptyTitle")} icon="check">{filters.onlyDeviations && !filters.q && !filters.repo && !filters.kind ? t("compare.noDeviations") : t("compare.emptyFiltered")}</EmptyState>
       ) : null}
 
-      {groups.map((g) => {
-        const hasOther = g.rows.some((r) => r.other);
+      {paged.groups.map((g) => {
+        const full = groups.find((x) => x.repo === g.repo) ?? g;
+        const hasOther = full.rows.some((r) => r.other);
         const repoInfo = data?.repos.find((x) => x.name === g.repo);
         return (
         <div key={g.repo} className="sd-section first-of-type:mt-0">
           <p className="sd-group-head flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold">
             {g.repo}
-            <span className="text-xs font-normal text-muted">{g.rows.length}</span>
+            <span className="text-xs font-normal text-muted">{full.rows.length}</span>
             {g.gaps > 0 ? <span className="text-xs font-medium text-danger-text">{t("compare.groupGaps", { count: g.gaps })}</span> : null}
             {repoInfo && !repoInfo.inInventory ? <span className="text-xs font-normal text-warn-text">{t("compare.repoOnlyGithub")}</span> : null}
             {hiddenRepos.includes(g.repo) ? <span className="text-xs font-normal text-muted">{t("compare.hiddenBadge")}</span> : null}
@@ -376,7 +385,7 @@ export default function ComparePage() {
             )}
           </p>
           <ListTable minWidth={420 + orderedStages.length * 130 + (hasOther ? 160 : 0)} columns={[t("compare.colName"), ...orderedStages.map((s) => s.label), ...(hasOther ? [t("compare.colOther")] : []), t("compare.colParity")]}>
-            {g.rows.map((r) => (
+            {g.items.map((r) => (
               <tr key={`${r.kind}:${r.name}`} className={LIST_ROW_CLASS}>
                 <td className={LIST_CELL_CLASS}>
                   <button type="button" onClick={() => setDetail({ row: r, stage: "" })} aria-label={t("compare.rowAria", { name: r.name })} className="text-left font-medium text-primary hover:underline">{r.name}</button>
@@ -424,6 +433,8 @@ export default function ComparePage() {
         </div>
         );
       })}
+
+      {paged.hidden > 0 ? <div className="mb-6 flex justify-center"><Button onClick={() => setPages((n) => n + 1)}>{t("common.showMore", { count: paged.next })}</Button></div> : null}
 
       {renaming?.renamedTo ? <RenameRepoDialog from={renaming.name} to={renaming.renamedTo} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); result.reload(); }} /> : null}
       {adoptAll ? <AdoptAllDialog candidates={candidates} stages={orderedStages} environmentOf={(id) => data?.stages.find((x) => x.id === id)?.environment ?? null} onClose={() => setAdoptAll(false)} onDone={() => { setAdoptAll(false); result.reload(); }} t={t} /> : null}

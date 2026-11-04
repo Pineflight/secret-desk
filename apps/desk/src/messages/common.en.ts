@@ -84,4 +84,5 @@ export default {
   "common.pageSearch": "Search this list",
   "common.pageSearchClear": "Clear search",
   "common.pageSearchCount": "{count} of {total} matches",
+  "common.showMore": "Show {count} more",
 } satisfies Record<string, string>;

@@ -193,5 +193,17 @@ const m: Record<string, string> = {
   "teamToken.fail.captcha": "GitHub shows a security check (CAPTCHA) that secret-desk cannot solve. Try again later.",
   "teamToken.fail.unsupported": "This sign-in step is not supported by the recipe.",
   "teamToken.fail.page": "The GitHub sign-in page could not be opened.",
+  "teamPicker.stepsLabel": "Team setup steps",
+  "teamPicker.step.repo": "Repository",
+  "teamPicker.step.file": "Branch and file",
+  "teamPicker.step.mode": "Mode",
+  "teamPicker.step.token": "Team token",
+  "teamPicker.repo.change": "Change",
+  "teamPicker.file.createShort": "New file, created by the first push",
+  "teamPicker.mode.tokenNeeded": "Team token needed",
+  "teamToken.explainShort": "secret-desk creates a separate token for this repository only, valid for {days} days.",
+  "teamToken.rightsLabel": "Rights of the team token",
+  "teamToken.signedOutShort": "Not signed in to GitHub in the browser.",
+  "teamToken.checking": "Checking …",
 };
 export default m;
