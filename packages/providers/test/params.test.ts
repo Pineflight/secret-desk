@@ -19,7 +19,7 @@ const cf = () =>
 
 describe("specifications", () => {
   it("every automatic provider with a connection declares its parameters; discover kinds are implemented", () => {
-    for (const id of ["cloudflare-token", "cloudflare-turnstile", "supabase-api-key", "supabase-service-role", "resend-api-key", "grafana-service-account-token", "stripe-webhook-secret", "random-hex"]) {
+    for (const id of ["cloudflare-token", "cloudflare-turnstile", "supabase-api-key", "supabase-service-role", "resend-api-key", "grafana-service-account-token", "grafana-access-policy-token", "vapid-keypair", "stripe-webhook-secret", "random-hex"]) {
       expect(get(id).params?.length, id).toBeGreaterThan(0);
     }
     for (const p of registry.list()) for (const s of p.params ?? []) if (s.discover) expect(p.discover, `${p.id}.${s.key}`).toBeTypeOf("function");

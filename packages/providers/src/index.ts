@@ -10,6 +10,7 @@ import { resendProviders } from "./resend.js";
 import { revenueCatProviders } from "./revenuecat.js";
 import { stripeProviders } from "./stripe.js";
 import { supabaseProviders } from "./supabase.js";
+import { vapidProviders } from "./vapid.js";
 
 export * from "./http.js";
 export * from "./random.js";
@@ -24,6 +25,7 @@ export * from "./revenuecat.js";
 export * from "./openai.js";
 export * from "./anthropic.js";
 export * from "./grafana.js";
+export * from "./vapid.js";
 export * from "./manual.js";
 
 export function createDefaultRegistry(): ProviderRegistry {
@@ -39,6 +41,7 @@ export function createDefaultRegistry(): ProviderRegistry {
     ...revenueCatProviders,
     ...openaiProviders,
     ...grafanaProviders,
+    ...vapidProviders,
     ...manualProviders,
   ]) {
     registry.register(p);

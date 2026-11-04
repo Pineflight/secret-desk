@@ -41,7 +41,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 ### Pasted by a human, verified and written by secret-desk
 
 Anything else: passwords, keys of providers without an API, values a provider hands out once. The portal checks the shape,
-shows the review report and writes after confirmation. A VAPID key pair for web push comes from `secret-desk vapid`.
+shows the review report and writes after confirmation. A VAPID key pair for web push comes from the provider `vapid-keypair` (private key as secret, public key as variable; `secret-desk vapid` prints a pair for a manual paste).
 
 ## In progress
 
@@ -56,7 +56,6 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 |---|---|
 | GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live, Peecho's is read-only and read live in part). OpenAI has its facade now (key creation verified live 2026-11-03). |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |
-| VAPID key pairs | As a provider that writes the private key as a secret and the public key as a variable |
 | Organization secrets | The `organization` scope exists in the schema; the portal form does not offer it yet |
 | Verified recipes and recipe-driven revocation | Every bundled recipe checked against the live page (four of six ran end to end on 2026-11-03; GitHub and the Stripe full run are open) |
 

@@ -1,6 +1,6 @@
 import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type ProviderConfig } from "@secret-desk/core";
-import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
-import { check, daysApart, day, isRecord, probeWithConnection, step } from "./checks.js";
+import { asList, getJson, needParam, readFailure, str, unknownKind } from "./discover.js";
+import { check, daysApart, day, isRecord, probeWithConnection, probeWithValue, step } from "./checks.js";
 import { TIMEOUT_MS, badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireInt, requireString, revokeIdempotent, seg } from "./http.js";
 
 const ID = "grafana-service-account-token";
@@ -154,4 +154,130 @@ export const grafanaProvider: Provider = {
   },
 };
 
-export const grafanaProviders: Provider[] = [grafanaProvider];
+// ---------------------------------------------------------------------------
+// Grafana Cloud access policy tokens (grafana.com API, not a stack)
+// ---------------------------------------------------------------------------
+
+const POLICY_ID = "grafana-access-policy-token";
+const POLICY_CONNECTION = "grafana-cloud";
+/** The Cloud API host is fixed: the connection token never goes to a host taken from the inventory. */
+const GRAFANA_COM = "https://www.grafana.com/api/v1";
+const POLICY_TTL_DEFAULT = 90;
+
+const policySpecs: ParamSpec[] = [
+  {
+    key: "region",
+    label: "Region",
+    labelEn: "Region",
+    type: "string",
+    required: true,
+    pattern: "^[a-z0-9][a-z0-9-]{1,39}$",
+    help: "Region der Zugriffsrichtlinie, zum Beispiel us oder eu (steht in den Details der Richtlinie bei grafana.com).",
+    helpEn: "Region of the access policy, for example us or eu (shown in the policy details at grafana.com).",
+    integrationDefault: true,
+  },
+  {
+    key: "accessPolicyId",
+    label: "Zugriffsrichtlinie",
+    labelEn: "Access policy",
+    type: "string",
+    required: true,
+    help: "Richtlinie, der der Token gehoert. Wird aus Grafana Cloud gelesen.",
+    helpEn: "Access policy the token belongs to. Read from Grafana Cloud.",
+    discover: "grafana.accessPolicy",
+  },
+];
+
+function policyRegion(params: Record<string, unknown>): string {
+  const region = requireString(POLICY_ID, params, "region");
+  if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(region)) throw new ProviderError(POLICY_ID, null, 'Parameter "region" ist keine gueltige Region (nur Kleinbuchstaben, Ziffern und Bindestrich)');
+  return region;
+}
+
+const policiesUrl = (region: string): string => `${GRAFANA_COM}/accesspolicies?region=${seg(region)}`;
+
+async function listAccessPolicies(ctx: Pick<DiscoverContext, "connections" | "fetch">, params: Record<string, unknown>): Promise<DiscoveredOption[]> {
+  const region = policyRegion({ region: needParam(policySpecs, params, "region") });
+  // Response shape ({ items: [{ id, name, displayName, scopes }] }) is from memory of the API: not verified live.
+  const r = await getJson<unknown>(POLICY_ID, ctx, POLICY_CONNECTION, policiesUrl(region));
+  return asList(r, "items").flatMap((a) => {
+    const id = str(a["id"]);
+    return id ? [{ value: id, label: str(a["displayName"]) ?? str(a["name"]) ?? id, detail: Array.isArray(a["scopes"]) ? a["scopes"].filter((x) => typeof x === "string").join(", ") : "" }] : [];
+  });
+}
+
+function policyTtl(ttlDays: number | undefined): number {
+  return ttlDays && ttlDays > 0 ? ttlDays : POLICY_TTL_DEFAULT;
+}
+
+export const grafanaAccessPolicyProvider: Provider = {
+  id: POLICY_ID,
+  label: "Grafana Cloud Access-Policy-Token (nicht live verifiziert)",
+  kind: "automatic",
+  connection: POLICY_CONNECTION,
+  params: policySpecs,
+  async discover(kind: string, ctx: DiscoverContext) {
+    if (kind !== "grafana.accessPolicy") return unknownKind(kind);
+    return listAccessPolicies(ctx, ctx.params);
+  },
+  async preflight(ctx: PreflightContext): Promise<PreflightResult> {
+    const findings: PreflightFinding[] = [];
+    let resource: string | null = null;
+    try {
+      const policies = await listAccessPolicies(ctx, ctx.params);
+      const id = String(ctx.params["accessPolicyId"]);
+      const hit = policies.find((p) => String(p.value) === id);
+      if (hit) {
+        resource = `Grafana-Zugriffsrichtlinie ${hit.label}`;
+        findings.push({ id: "accessPolicy", level: "ok", label: `Die Zugriffsrichtlinie ${hit.label} existiert` });
+      } else if (policies.length > 0) findings.push({ id: "accessPolicy", level: "fail", label: `Die Zugriffsrichtlinie ${id} existiert in der Region nicht`, detail: `Verfuegbar: ${policies.map((p) => p.label).join(", ")}` });
+      else findings.push({ id: "accessPolicy", level: "warn", label: "Die Region liefert keine Zugriffsrichtlinien: Zuordnung nicht pruefbar" });
+    } catch (err) {
+      if (err instanceof Error && err.name === "NotConnectedError") throw err;
+      findings.push(readFailure(err, "Zugriffsrichtlinien"));
+    }
+    return { resource, findings };
+  },
+  async issue(ctx) {
+    const region = policyRegion(ctx.params);
+    const policyId = requireString(POLICY_ID, ctx.params, "accessPolicyId");
+    const ttl = policyTtl(ctx.secret.ttlDays);
+    const expiresAt = expiryFrom(ctx.now, ttl)!;
+    // Request shape (POST /tokens?region=, body accessPolicyId, name, displayName, expiresAt) is from memory: not verified live.
+    const res = await callWithToken<{ id?: string; token?: string; expiresAt?: string }>(POLICY_ID, ctx, POLICY_CONNECTION, `${GRAFANA_COM}/tokens?region=${seg(region)}`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ accessPolicyId: policyId, name: ctx.label, displayName: ctx.label, expiresAt }),
+    });
+    if (!res || typeof res.token !== "string" || typeof res.id !== "string") throw badResponse(POLICY_ID);
+    return { value: new SecretValue(res.token), externalId: res.id, expiresAt: typeof res.expiresAt === "string" ? res.expiresAt : expiresAt };
+  },
+  verify(ctx) {
+    return step(ctx, "works", "Token funktioniert", async () => {
+      const region = policyRegion(ctx.params);
+      const out: Check[] = [];
+      const r = await probeWithValue(POLICY_ID, ctx, policiesUrl(region));
+      if (r.status >= 200 && r.status < 300) out.push(check("works", "Token funktioniert", "pass", { actual: `HTTP ${r.status}` }));
+      else if (r.status === 401) out.push(check("works", "Token funktioniert", "fail", { actual: "HTTP 401", detail: "Grafana Cloud lehnt den Token ab" }));
+      else if (r.status === 403) out.push(check("works", "Token funktioniert", "info", { actual: "HTTP 403", detail: "Mit diesem Geltungsbereich nicht pruefbar: der Token ist gueltig, darf diese Abfrage aber nicht" }));
+      else out.push(check("works", "Token funktioniert", "info", { actual: `HTTP ${r.status}`, detail: "Mit diesem Geltungsbereich nicht pruefbar" }));
+      const expected = ctx.expiresAt ?? undefined;
+      out.push(check("expires", "Ablauf des Tokens", "info", { actual: expected ? day(expected) : "kein Ablauf" }));
+      return out;
+    });
+  },
+  reviewChecklist(secret) {
+    const policy = secret.params["accessPolicyId"];
+    return [
+      policy ? `Der Token gehoert zur Zugriffsrichtlinie ${String(policy)}` : "Der Token gehoert zur vorgesehenen Zugriffsrichtlinie",
+      "Die Geltungsbereiche der Zugriffsrichtlinie sind so klein wie moeglich",
+      `Ablauf ist ${policyTtl(secret.ttlDays)} Tage nach heute`,
+    ];
+  },
+  async revoke(ctx) {
+    const region = policyRegion(ctx.params);
+    await revokeIdempotent(() => callWithToken(POLICY_ID, ctx, POLICY_CONNECTION, `${GRAFANA_COM}/tokens/${seg(ctx.externalId)}?region=${seg(region)}`, { method: "DELETE" }));
+  },
+};
+
+export const grafanaProviders: Provider[] = [grafanaProvider, grafanaAccessPolicyProvider];
