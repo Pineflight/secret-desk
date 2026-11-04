@@ -248,6 +248,16 @@ describe("recipe routes: check sign-in", () => {
     expect(before.body["recipes"].find((r: { id: string }) => r.id === "revenuecat-secret-api-key")).toMatchObject({ canCheckSignIn: true });
     expect(before.body["recipes"].find((r: { id: string }) => r.id === "openai-api-key")).toMatchObject({ canCheckSignIn: false });
   });
+  it("checks a recipe with several hosts needs the portal: none or an unknown one is a 400 and opens nothing", async () => {
+    const { deps } = await setup("ok");
+    const { call } = recorder(deps);
+    const info = (await call(ui(deps, "GET", "automation"))).body["recipes"].find((r: { id: string }) => r.id === "peecho-api-keys");
+    expect(info).toMatchObject({ hostBy: "portal", hosts: [{ value: "live", host: "www.peecho.com" }, { value: "test", host: "test.www.peecho.com" }] });
+    expect((await call(ui(deps, "POST", "recipes/peecho-api-keys/check", {}))).status).toBe(400);
+    expect((await call(ui(deps, "POST", "recipes/peecho-api-keys/check", { host: "evil.example.com" }))).status).toBe(400);
+    // Nothing was opened or remembered by the refused requests.
+    expect((await call(ui(deps, "GET", "automation"))).body["signInChecks"]).toEqual([]);
+  });
   it("answers 400 for a recipe without a guided sign-in and for an unknown one", async () => {
     const { deps } = await setup("ok");
     const { call } = recorder(deps);

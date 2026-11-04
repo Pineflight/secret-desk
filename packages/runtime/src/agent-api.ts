@@ -1,3 +1,4 @@
+import { hostForParams } from "@secret-desk/automation";
 import { join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import { neededRights } from "./team-sync.js";
@@ -129,6 +130,8 @@ export interface SecretView {
   connection: string | null;
   /** Vendor (provider card) the entry counts for: its provider definition or browser recipe belongs to it. Null for generators and unknown providers. */
   vendor: string | null;
+  /** A browser recipe with several portals: the host this entry's parameters pick (for the sign-in check of the right portal). Null otherwise. */
+  browserHost: string | null;
   notes: string | null;
   /** Stand der Anbieter-Parameter: ok, missing (Pflichtparameter fehlen), invalid, none (der Anbieter braucht keine). Nur Schluessel, nie Werte. */
   params: { status: "ok" | "missing" | "invalid" | "none"; missing: string[] };
@@ -137,6 +140,13 @@ export interface SecretView {
 }
 
 type LiveCheck = Awaited<ReturnType<Runtime["github"]["snapshotDetailed"]>>;
+
+/** The portal host a multi-host browser recipe uses for this entry (its `hostBy` parameter), else null. */
+function browserHostOf(rt: Runtime, provider: unknown, s: SecretEntry): string | null {
+  const recipeId = (provider as { automation?: { recipeId?: string } } | undefined)?.automation?.recipeId;
+  const recipe = recipeId ? rt.automation.recipe(recipeId) : undefined;
+  return recipe?.hosts ? hostForParams(recipe, s.params) : null;
+}
 
 function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): SecretView {
   const provider = rt.providers.get(s.provider);
@@ -171,6 +181,7 @@ function view(rt: Runtime, s: SecretEntry, today: Date, check?: LiveCheck): Secr
     // Browser recipes need no connection token, but a recipe behind a facade belongs to that integration (overview counts).
     connection: provider?.connection ?? facadeConnectionForRecipe((provider as { automation?: { recipeId?: string } } | undefined)?.automation?.recipeId),
     vendor: vendorOfProvider(s.provider)?.id ?? null,
+    browserHost: browserHostOf(rt, provider, s),
     notes: s.notes ?? null,
     params: paramStatus(rt, s),
     ...(liveErrors.length > 0 ? { liveErrors: [...new Set(liveErrors)] } : {}),

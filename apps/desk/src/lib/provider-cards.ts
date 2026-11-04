@@ -48,8 +48,15 @@ export interface RecipeRow {
   label: string;
   /** Host the recipe signs in at; the browser sign-in memory is kept per host. */
   host?: string;
-  /** The recipe has a guided sign-in, so its browser session can be checked. */
+  /** A recipe with several portals: the parameter that picks one, and the host of each value. */
+  hostBy?: string | null;
+  hosts?: readonly { value: string; host: string }[];
+  /** The recipe has a guided sign-in, so its browser session can be checked and the human can sign in from the portal. */
   canCheckSignIn?: boolean;
+  /** The ways to sign in (the provider's own form first). Absent or empty: email only. */
+  signInMethods?: readonly { id: string; label: string | null; labelEn: string | null }[];
+  /** The email sign-in has no password (a one-time code is sent). */
+  signInPasswordless?: boolean;
 }
 export interface FacadeRow {
   id: string;
@@ -95,6 +102,18 @@ export interface SignInWay {
   available: boolean;
   /** Without a guided sign-in: the recipe whose browser session can be checked instead, if any. */
   checkRecipe?: string | null;
+  /** The portals of the checkable recipe when it has several (each is checked on its own, with its own account). Empty: one portal. */
+  checkHosts?: readonly { value: string; host: string }[];
+}
+
+/** The sign-in state of one portal of a recipe with several portals. */
+export interface HostLine {
+  /** The value of the recipe's host parameter (for example `live`, `test`). */
+  value: string;
+  host: string;
+  readiness: Readiness;
+  /** How long sign-ins at this portal lasted, in whole hours; null until measured. */
+  sessionHours: number | null;
 }
 
 /** What the browser contributes to a card whose keys come from recipes. */
@@ -106,6 +125,8 @@ export interface BrowserWay {
   expiry: EarliestExpiry | null;
   /** How long a sign-in here has lasted, in whole hours (at least 1), from measurements; null until there is one. */
   sessionHours: number | null;
+  /** One line per portal when a recipe of this provider has several (live and test with separate accounts); empty otherwise. */
+  hostLines: HostLine[];
 }
 
 /**
@@ -176,10 +197,14 @@ export function buildCards(input: CardInput): ProviderCard[] {
     // With a loaded recipe the manual definition is just the recipe's other face; only an unloaded recipe leaves it by hand.
     const covered = v.recipes.some((r) => loaded.has(r));
     const usable = recipes.length > 0 && (input.automationEnabled ?? true);
-    const hosts = recipes.flatMap((r) => (r.host ? [r.host] : []));
+    const hostsOf = (r: RecipeRow): string[] => (r.hosts && r.hosts.length > 0 ? r.hosts.map((h) => h.host) : r.host ? [r.host] : []);
+    const hosts = recipes.flatMap(hostsOf);
+    const now = input.now ?? new Date();
+    const freshHours = input.signInFreshHours ?? DEFAULT_FRESH_HOURS;
+    const hostLines: HostLine[] = recipes.flatMap((r) => (r.hosts ?? []).map((h) => ({ value: h.value, host: h.host, readiness: browserReadiness(newestCheck(input.signInChecks ?? [], [h.host]), now, freshHours), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], [h.host]) })));
     const managed = (input.secrets ?? []).filter((s) => s.vendor === v.id && s.browser === true);
     const browser: BrowserWay | null = usable
-      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), input.now ?? new Date(), input.signInFreshHours ?? DEFAULT_FRESH_HOURS), secrets: managed.length, expiry: earliestAmong(managed), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], hosts) }
+      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), now, freshHours), secrets: managed.length, expiry: earliestAmong(managed), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], hosts), hostLines }
       : null;
     const byHand = input.providers.filter((p) => p.vendor === v.id && p.kind === "manual" && p.guide && !p.browser && !covered);
     cards.push({
@@ -189,7 +214,7 @@ export function buildCards(input: CardInput): ProviderCard[] {
       icon: v.icon,
       custom: false,
       status: statusOf(keys, facade, input.signedIn?.has(v.id) ?? false, browser),
-      signIn: { state, facade, recipes, available: facade ? facade.available : recipes.length > 0, checkRecipe: facade ? null : (recipes.find((r) => r.canCheckSignIn)?.id ?? null) },
+      signIn: { state, facade, recipes, available: facade ? facade.available : recipes.length > 0, checkRecipe: facade ? null : (recipes.find((r) => r.canCheckSignIn)?.id ?? null), checkHosts: facade ? [] : (recipes.find((r) => r.canCheckSignIn)?.hosts ?? []) },
       keys,
       byHand,
       browser,
@@ -342,4 +367,46 @@ export function browserNote(card: Pick<ProviderCard, "status" | "browser" | "wor
   if (r.state === "ready") return { key: "providers.card.browserReadyChecked", age };
   if (r.state === "signed-out") return { key: "providers.card.browserSignedOutChecked", age };
   return { key: r.checkedAt === null ? "providers.card.browserUnknownNever" : "providers.card.browserUnknownChecked", age };
+}
+
+export interface HostLineNote {
+  key: string;
+  age: AgeParts | null;
+}
+
+/**
+ * What a card says about one portal: signed in (with the age of the answer), sign-in needed, or not known (no answer, or an old
+ * one). The text names the provider and the portal ("Peecho live: signed in, checked 2 hours ago").
+ */
+export function hostLineNote(line: Pick<HostLine, "readiness">): HostLineNote {
+  const r = line.readiness;
+  const age = r.ageMinutes === null ? null : ageParts(r.ageMinutes);
+  if (r.state === "ready") return { key: "providers.card.hostReady", age };
+  if (r.state === "signed-out") return { key: "providers.card.hostSignedOut", age: null };
+  return { key: r.checkedAt === null ? "providers.card.hostUnknownNever" : "providers.card.hostUnknownChecked", age };
+}
+
+/** A place on a card where the human can start the sign-in: one portal (several portals), or the provider as a whole. */
+export interface SignInPrompt {
+  /** The value of the recipe's host parameter, or null for a recipe with one portal. */
+  portal: string | null;
+}
+
+/** The recipe a browser-only card signs in at (a facade card has its own dialog). */
+export function signInRecipeOf(card: Pick<ProviderCard, "signIn">): RecipeRow | null {
+  if (card.signIn.facade) return null;
+  return card.signIn.recipes.find((r) => r.canCheckSignIn === true) ?? null;
+}
+
+/**
+ * The "Sign in" buttons of a collapsed card: one for every line that says the sign-in is needed or unknown (per portal for a
+ * recipe with several), none when the sign-in is current, when an API connection makes the browser unnecessary, or when the
+ * sign-in cannot run (automation off, recipe without a guided sign-in, facade card).
+ */
+export function signInPrompts(card: Pick<ProviderCard, "status" | "signIn" | "browser">): SignInPrompt[] {
+  const recipe = signInRecipeOf(card);
+  if (!recipe || !card.signIn.available || card.status === "connected" || !card.browser) return [];
+  const lines = card.browser.hostLines;
+  if (lines.length > 0) return lines.filter((l) => l.readiness.state !== "ready").map((l) => ({ portal: l.value }));
+  return card.browser.readiness.state === "ready" ? [] : [{ portal: null }];
 }

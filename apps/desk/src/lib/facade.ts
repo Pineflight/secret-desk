@@ -22,6 +22,9 @@ export interface FacadeInfo {
   reason: string | null;
   recipeStatus: string | null;
   host: string | null;
+  /** A recipe with several portals: the parameter that picks one and the host of each value. */
+  hostBy?: string | null;
+  hosts?: { value: string; host: string }[];
   connected: boolean;
   needsProject: boolean;
   inputs: FacadeInput[];
@@ -116,8 +119,14 @@ export interface StepView {
 export const isRunning = (s: Pick<FacadeState, "status"> | null | undefined): boolean => s?.status === "running" || s?.status === "waiting-human";
 export const isFinished = (s: Pick<FacadeState, "status"> | null | undefined): boolean => s?.status === "done" || s?.status === "failed" || s?.status === "cancelled";
 
-/** The steps of the stepper: every fixed phase, plus the optional ones the provider asked for, with their state. */
-export function stepsOf(state: FacadeState | null | undefined): StepView[] {
+/** The phases after the sign-in: a run that only signs in (no key is created) does not show them. */
+const AFTER_SIGN_IN = new Set<string>(["key", "stored", "testing", "connected"]);
+
+/**
+ * The steps of the stepper: every fixed phase, plus the optional ones the provider asked for, with their state.
+ * `signInOnly`: the run only signs in, so the steps that create, store and test a key are left out.
+ */
+export function stepsOf(state: FacadeState | null | undefined, options: { signInOnly?: boolean } = {}): StepView[] {
   const timeline = state?.timeline ?? [];
   const seen = new Map(timeline.map((e) => [e.phase, e.state]));
   const connectRun = state?.kind === "connect";
@@ -125,6 +134,7 @@ export function stepsOf(state: FacadeState | null | undefined): StepView[] {
   for (const phase of PHASES) {
     if (OPTIONAL.has(phase) && !seen.has(phase)) continue;
     if (connectRun && SIGN_IN_ONLY.has(phase)) continue;
+    if (options.signInOnly && AFTER_SIGN_IN.has(phase)) continue;
     const s = seen.get(phase);
     let st: StepState = "pending";
     if (s === "done") st = "done";
@@ -274,4 +284,42 @@ export function consentItems(detail: string | undefined): string[] {
     .map((x) => x.trim())
     .filter(Boolean)
     .slice(0, 12);
+}
+
+// ------------------------------------------------------------------------------------------ recipe sign-in
+
+/** What the sign-in dialog of a browser-only vendor needs to know about its recipe (no key is created, so no inputs or project). */
+export interface RecipeSignInSubject {
+  id: string;
+  available: boolean;
+  methods: FacadeMethod[];
+  passwordless: boolean;
+  /** The portals of a recipe with several: the value of the recipe's host parameter and its host. Empty for one portal. */
+  hosts: readonly { value: string; host: string }[];
+}
+
+/** The recipe row as the dialog sees it. */
+export function recipeSignInSubject(recipe: { id: string; hosts?: readonly { value: string; host: string }[]; signInMethods?: readonly { id: string; label: string | null; labelEn: string | null }[]; signInPasswordless?: boolean }, available: boolean): RecipeSignInSubject {
+  const known = new Set<string>(["email", "google", "apple", "microsoft", "github"]);
+  const methods = (recipe.signInMethods ?? []).filter((m) => known.has(m.id)).map((m) => ({ id: m.id as FacadeMethodId, label: m.label, labelEn: m.labelEn }));
+  return { id: recipe.id, available, methods, passwordless: recipe.signInPasswordless === true, hosts: recipe.hosts ?? [] };
+}
+
+/** The portal to preselect: the one asked for if the recipe has it, the only one if there is one, else none (the human chooses). */
+export function initialPortal(subject: Pick<RecipeSignInSubject, "hosts">, wanted: string | null | undefined): string {
+  if (wanted && subject.hosts.some((h) => h.value === wanted)) return wanted;
+  return subject.hosts.length === 1 ? subject.hosts[0]!.value : "";
+}
+
+/** The sign-in form of a browser-only vendor can be sent: usable, a portal chosen if there are several, credentials present. */
+export function recipeSignInButtonState(subject: Pick<RecipeSignInSubject, "available" | "passwordless" | "hosts">, portal: string, email: string, password: string, busy: boolean, method = "email"): ConnectButton {
+  if (busy) return "busy";
+  const portalOk = subject.hosts.length === 0 || subject.hosts.some((h) => h.value === portal);
+  const credentials = needsPassword(subject, method) ? signInValid(email, password) : signInValid(email, "x");
+  return subject.available && portalOk && credentials ? "ready" : "disabled";
+}
+
+/** The request body of the sign-in: the portal only for a recipe with several. The caller clears the typed values afterwards. */
+export function recipeSignInBody(subject: Pick<RecipeSignInSubject, "hosts">, portal: string, method: string, email: string, password: string): { method: string; username: string; password: string; host?: string } {
+  return { method, username: email.trim(), password, ...(subject.hosts.length > 0 ? { host: portal } : {}) };
 }

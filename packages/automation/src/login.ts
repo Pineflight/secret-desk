@@ -1,7 +1,7 @@
 import { redact } from "@secret-desk/core";
 import type { BrowserDriver } from "./driver.js";
 import { IDP_FLOWS, idpHostAllowed, type IdpFlow } from "./idp.js";
-import { hostAllowed, type Condition, type LoginForm, type LoginMethodId, type Recipe } from "./recipe.js";
+import { RecipeHostError, hostAllowed, resolveRecipe, type Condition, type LoginForm, type LoginMethodId, type Recipe } from "./recipe.js";
 import { resolveCondition } from "./run.js";
 import { describeSelector, pickSelector } from "./selector.js";
 import { renderTemplate } from "./template.js";
@@ -75,6 +75,8 @@ export interface LoginHooks {
 }
 
 export interface LoginOptions {
+  /** A recipe with several hosts: the parameter value (or the host) of the portal to sign in at. */
+  host?: string;
   /** The sign-in method: `email` (login.form, default) or an identity provider declared in login.methods. */
   method?: LoginMethodId;
   /** How long a CAPTCHA may stay before the run fails, default 4 s. */
@@ -115,6 +117,16 @@ const stripUrl = (url: string): string => {
     return "";
   }
 };
+
+/** The recipe for one portal; a recipe with several hosts needs the choice. */
+function portalOf(recipe: Recipe, host: string | undefined): Recipe {
+  try {
+    return resolveRecipe(recipe, host);
+  } catch (err) {
+    if (err instanceof RecipeHostError) throw new LoginError("unsupported", err.message);
+    throw err;
+  }
+}
 
 function formOf(recipe: Recipe): LoginForm {
   const form = recipe.login?.form;
@@ -161,7 +173,8 @@ type AnyStep = { fill: Record<string, unknown> & { value: string } } | { click: 
  * Credentials are typed only on the recipe's hosts (email) or on the identity provider's hosts (single sign-on). Codes, device
  * approvals and the first-use consent are asked of the human in the portal; a CAPTCHA fails the run (the script cannot solve it).
  */
-export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: BrowserDriver, hooks: LoginHooks = {}, options: LoginOptions = {}): Promise<LoginResult> {
+export async function signIn(recipeIn: Recipe, creds: LoginCredentials, driver: BrowserDriver, hooks: LoginHooks = {}, options: LoginOptions = {}): Promise<LoginResult> {
+  const recipe = portalOf(recipeIn, options.host);
   const form = formOf(recipe);
   const methodId: LoginMethodId = options.method ?? "email";
   const idp: IdpFlow | null = methodId === "email" ? null : IDP_FLOWS[methodId];
@@ -436,7 +449,8 @@ export interface SessionCheck {
  * Is the browser still signed in? Loads the recipe's home page (login.form.home, else the sign-in page) and waits briefly for
  * `login.expect`. Needs no credentials and types nothing.
  */
-export async function checkSession(recipe: Recipe, driver: BrowserDriver, options: { timeoutSeconds?: number; signal?: AbortSignal; pollMs?: number } = {}): Promise<SessionCheck> {
+export async function checkSession(recipeIn: Recipe, driver: BrowserDriver, options: { timeoutSeconds?: number; signal?: AbortSignal; pollMs?: number; host?: string } = {}): Promise<SessionCheck> {
+  const recipe = portalOf(recipeIn, options.host);
   const form = formOf(recipe);
   const expect = resolveCondition(recipe.login!.expect, {});
   await driver.open();

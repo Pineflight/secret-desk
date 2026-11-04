@@ -61,12 +61,14 @@ describe("peecho-api-keys recipe", () => {
     const r = await recipe();
     expect(r.kind).toBe("read");
     expect(r.host).toBe("www.peecho.com");
-    expect(r.allowHosts).toEqual(["test.www.peecho.com"]);
+    expect(r.hostBy).toBe("portal");
+    expect(r.hosts).toEqual({ live: "www.peecho.com", test: "test.www.peecho.com" });
+    expect(r.allowHosts).toEqual([]);
     expect(r.revoke).toBeUndefined();
     expect(JSON.stringify(r)).not.toContain("createsToken");
     expect(r.capture.pick).toBe("value");
     expect(r.capture.companion).toBe("companionEntry");
-    expect((await readFile(FILE, "utf8")).split("\n")[0]).toMatch(/^# STATUS: navigation and DOM read live on 2026-11-04/);
+    expect((await readFile(FILE, "utf8")).split("\n")[0]).toMatch(/^# STATUS: full read verified live 2026-11-04 on both portals with an existing sign-in; the sign-in form is not verified$/);
   });
 
   it("reads both keys from the application settings of the live portal (first page absent)", async () => {

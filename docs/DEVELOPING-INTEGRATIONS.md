@@ -209,6 +209,10 @@ hosts (Apple `appleid.apple.com`, `idmsa.apple.com`; Google `accounts.google.com
 when it serves the hand-over. Every identity-provider selector and text is **not verified** until a live run; verify them
 with the viewer (above), never by typing real credentials into a recipe.
 
+## Providers with several portals
+
+When the provider runs a live and a test site with separate accounts, declare `hostBy` and `hosts` instead of `host` (see [RECIPES.md](RECIPES.md#several-hosts-hostby-and-hosts)) and use `{{host}}` in `login.form.start`, `login.form.home` and `login.expect`. Keep the parameter that picks the portal in the facade `inputs` (or send `host` in the sign-in body) so the dialog signs in at the right portal. Test it with `resolveRecipe(recipe, "test")` and a fake driver per host, as in `packages/automation/test/multihost.test.ts`; the card lines, the check keys and the renewal warning per host are covered by `apps/desk/test/multihost-cards.test.ts`. Mark the sign-in form `not verified` until it ran against each portal.
+
 ## A page that comes in two variants
 
 The same address may show different forms for different accounts (Stripe: a multi-step key wizard or an older single page). Record both while exploring, then write one recipe: `waitFor` with `any` for the heading of either variant, `set` a variable from the heading that is visible (test the more specific one first, and the other only while the variable is still `""`), give each variant's steps `when: { var: ..., equals: ... }`, and list one `capture.token.alternatives` entry per place the token shows up. A variant you have not explored gets a `fail` step before the creating click, so the run stops with a clear message instead of guessing. Test every variant with its own fake driver, including that the refusal happens before any key exists (see `packages/automation/test/stripe-recipe.test.ts`). A sign-in check that cannot rely on the address uses `login.expect` with `all` (address plus the absence of the sign-in buttons).
