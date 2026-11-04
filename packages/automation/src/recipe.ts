@@ -202,6 +202,9 @@ const Hostname = z.string().regex(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname
 /** A host, or `*.example.test` for every subdomain of it (a hosted sign-in page whose name carries a tenant). */
 const AllowedHost = z.string().regex(/^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i, "Hostname ohne Schema und Pfad, optional mit *. davor");
 
+/** A value of the parameter that picks the host (an option of the parameter). */
+const HostKey = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/, "Wert aus Buchstaben, Ziffern, Binde- und Unterstrich");
+
 const FromVar = z.enum(["name", "days", "date", "secretId"]);
 
 /** Per-entry parameter of a recipe (for example a project id). Every declared key becomes a template variable. */
@@ -268,8 +271,16 @@ export const RecipeSchema = z
     label: z.string().min(1),
     /** Anbieter-Id, die das Rezept bedient, falls nicht gleich der Rezept-Id. */
     provider: Ident.optional(),
-    /** Seiten ausserhalb dieses Hosts (und allowHosts) werden nicht bedient. */
-    host: Hostname,
+    /**
+     * Seiten ausserhalb dieses Hosts (und allowHosts) werden nicht bedient. Exactly one of `host` (one portal) or
+     * `hostBy` + `hosts` (several portals with separate accounts). After parsing `host` is always set: with `hosts` it is the
+     * first host (a label for lists); a run, a check and a sign-in use the host of the parameter value (see `resolveRecipe`).
+     */
+    host: Hostname.optional(),
+    /** The parameter (declared under `params`, with `options` = the keys of `hosts`) whose value picks the host. */
+    hostBy: ParamKey.optional(),
+    /** Host per value of the parameter `hostBy`, for example `{ live: www.example.test, test: test.www.example.test }`. */
+    hosts: z.record(HostKey, Hostname).optional(),
     allowHosts: z.array(AllowedHost).default([]),
     /** Per-entry parameters, read from `params` of the inventory entry. Each key is usable as {{key}}. */
     params: z.array(RecipeParamSchema).default([]),
@@ -304,6 +315,8 @@ export const RecipeSchema = z
   })
   .strict()
   .superRefine((r, ctx) => {
+    const hostProblems = hostFormProblems(r);
+    hostProblems.forEach((p) => ctx.addIssue({ code: "custom", path: p.path, message: p.message }));
     const known = new Set<string>(KNOWN_VARS);
     const seen = new Set<string>();
     r.params.forEach((p, i) => {
@@ -325,7 +338,7 @@ export const RecipeSchema = z
       steps.forEach((step, i) => {
         checkText(step, [base, i]);
         if ("when" in step && step.when && !known.has(step.when.var)) ctx.addIssue({ code: "custom", path: [base, i, "when", "var"], message: `Unbekannte Variable ${step.when.var}` });
-        if ("goto" in step) gotoProblem(step.goto, r).forEach((message) => ctx.addIssue({ code: "custom", path: [base, i, "goto"], message }));
+        if ("goto" in step) gotoProblem(step.goto, allHostsOf(r)).forEach((message) => ctx.addIssue({ code: "custom", path: [base, i, "goto"], message }));
       });
     check(r.steps, "steps");
     if (r.revoke) check(r.revoke.steps, "revoke");
@@ -342,7 +355,9 @@ export const RecipeSchema = z
     } else {
       readProblems(r).forEach((p) => ctx.addIssue({ code: "custom", path: p.path, message: p.message }));
     }
-  });
+  })
+  // Hand `host` to everything downstream as a string: with `hosts` it is the first host (see `resolveRecipe` for the one to use).
+  .transform((r) => ({ ...r, host: r.host ?? Object.values(r.hosts ?? {})[0] ?? "" }));
 
 export type Recipe = z.infer<typeof RecipeSchema>;
 
@@ -395,15 +410,18 @@ function readProblems(r: {
 }
 
 /** Static checks of `login.form`: allowed step kinds, hosts, and where the sign-in variables may appear. */
-function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: string[] }): { path: (string | number)[]; message: string }[] {
+function loginFormProblems(form: LoginForm, r: HostFields): { path: (string | number)[]; message: string }[] {
   const out: { path: (string | number)[]; message: string }[] = [];
   const add = (path: (string | number)[], message: string): void => void out.push({ path, message });
   const allowed = new Set<string>(LOGIN_VARS);
   for (const key of ["start", "home"] as const) {
     const url = form[key];
     if (url === undefined) continue;
-    if (url.includes("{{")) add([key], "The address must not contain variables");
-    else gotoProblem(url, r).forEach((message) => add([key], message));
+    // Only {{host}} may appear (the recipe's own host, in the host position); it is checked once per host the recipe can use.
+    if (url.replaceAll("{{host}}", "").includes("{{")) add([key], "The address must not contain variables (only {{host}})");
+    else if (url.includes("{{host}}")) {
+      for (const h of hostListOf(r)) gotoProblem(url.replaceAll("{{host}}", h), { host: h, allowHosts: r.allowHosts }).forEach((message) => add([key], `${message} (host ${h})`));
+    } else gotoProblem(url, allHostsOf(r)).forEach((message) => add([key], message));
   }
   const used = new Set<string>();
   form.steps.forEach((step, i) => {
@@ -508,4 +526,92 @@ export function hostAllowed(hostname: string, r: { host: string; allowHosts: str
     const allowed = a.toLowerCase();
     return allowed.startsWith("*.") ? h.endsWith(allowed.slice(1)) : h === allowed;
   });
+}
+
+/** The host fields of a recipe as written (before `host` is filled in). */
+export interface HostFields {
+  host?: string | undefined;
+  hostBy?: string | undefined;
+  hosts?: Record<string, string> | undefined;
+  allowHosts: string[];
+}
+
+/** Every host the recipe can sign in at: its `host`, or all values of `hosts`. */
+export function hostListOf(r: Pick<HostFields, "host" | "hosts">): string[] {
+  return r.hosts ? Object.values(r.hosts) : r.host ? [r.host] : [];
+}
+
+/** All hosts of the recipe as one allowlist (static checks of addresses, which may name any of them). */
+function allHostsOf(r: HostFields): { host: string; allowHosts: string[] } {
+  const hosts = hostListOf(r);
+  return { host: hosts[0] ?? "", allowHosts: [...hosts.slice(1), ...r.allowHosts] };
+}
+
+/** Static checks of the host fields: one form only, and `hosts` matches the options of the parameter `hostBy`. */
+function hostFormProblems(r: HostFields & { params: RecipeParam[] }): { path: (string | number)[]; message: string }[] {
+  const out: { path: (string | number)[]; message: string }[] = [];
+  const add = (path: (string | number)[], message: string): void => void out.push({ path, message });
+  const multi = r.hostBy !== undefined || r.hosts !== undefined;
+  if (r.host !== undefined && multi) add(["host"], "Use either host or hostBy with hosts, not both");
+  if (r.host === undefined && !multi) add(["host"], "host is required (or hostBy with hosts)");
+  if (!multi) return out;
+  if (r.hostBy === undefined || r.hosts === undefined) {
+    add([r.hostBy === undefined ? "hostBy" : "hosts"], "hostBy and hosts belong together");
+    return out;
+  }
+  const keys = Object.keys(r.hosts);
+  if (keys.length < 2) add(["hosts"], "hosts lists at least two hosts (use host for one)");
+  const p = r.params.find((x) => x.key === r.hostBy);
+  if (!p) return add(["hostBy"], `hostBy names the parameter ${r.hostBy}, which is not declared under params`), out;
+  if (!p.options || [...p.options].sort().join(",") !== [...keys].sort().join(",")) add(["params"], `The parameter ${r.hostBy} lists exactly the keys of hosts (${keys.join(", ")}) as options`);
+  return out;
+}
+
+/**
+ * The recipe for one portal: a recipe with `hosts` becomes a single-host recipe (`host` = the host of `selector`, `hosts` and
+ * `hostBy` gone), so the allowlist, the sign-in and the checks see exactly one portal. `selector` is a value of the parameter
+ * `hostBy` or one of the hosts. `{{host}}` in `login.form.start`, `login.form.home` and `login.expect` is replaced by that host.
+ * Throws when a recipe with several hosts gets no (or an unknown) selector.
+ */
+export function resolveRecipe(recipe: Recipe, selector?: string | undefined): Recipe {
+  let host = recipe.host;
+  if (recipe.hosts) {
+    const value = (selector ?? "").trim();
+    const found = recipe.hosts[value] ?? Object.values(recipe.hosts).find((h) => h === value.toLowerCase());
+    if (found === undefined) throw new RecipeHostError(`${recipe.id}: ${value === "" ? "no host chosen" : "unknown host"} (${recipe.hostBy}: ${Object.keys(recipe.hosts).join(", ")})`);
+    host = found;
+  }
+  const { hosts: _hosts, hostBy: _hostBy, ...rest } = recipe;
+  const out: Recipe = { ...rest, host };
+  if (recipe.login) {
+    const sub = (text: string, regex = false): string => text.replaceAll("{{host}}", regex ? host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : host);
+    const subDeep = (value: unknown, key = ""): unknown => {
+      if (typeof value === "string") return sub(value, key === "url");
+      if (Array.isArray(value)) return value.map((v) => subDeep(v));
+      if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, subDeep(v, k)]));
+      return value;
+    };
+    out.login = {
+      ...recipe.login,
+      expect: subDeep(recipe.login.expect) as NonNullable<Recipe["login"]>["expect"],
+      ...(recipe.login.form ? { form: { ...recipe.login.form, start: sub(recipe.login.form.start), ...(recipe.login.form.home !== undefined ? { home: sub(recipe.login.form.home) } : {}) } } : {}),
+    };
+  }
+  return out;
+}
+
+export class RecipeHostError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecipeHostError";
+  }
+}
+
+/** The host a run of the recipe uses for these entry parameters (no parameter needed for a single-host recipe). Null: not decidable. */
+export function hostForParams(recipe: Pick<Recipe, "host" | "hostBy" | "hosts" | "params">, params: Record<string, unknown>): string | null {
+  if (!recipe.hosts || !recipe.hostBy) return recipe.host;
+  const raw = params[recipe.hostBy];
+  const value = typeof raw === "string" ? raw.trim() : "";
+  const spec = recipe.params.find((p) => p.key === recipe.hostBy);
+  return recipe.hosts[value !== "" ? value : (spec?.default ?? "")] ?? null;
 }

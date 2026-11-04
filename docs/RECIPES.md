@@ -4,7 +4,7 @@ A **recipe** is a YAML file that tells secret-desk how to create a token in a pr
 
 This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md). The design, principles and implementation status are in [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md). Schema source: [`packages/automation/src/recipe.ts`](../packages/automation/src/recipe.ts).
 
-> **Status of the bundled recipes.** `peecho-api-keys` (read-only) has its navigation and DOM read verified live on 2026-11-04; its sign-in form and a full run are not. Four ran end to end against the live provider pages on 2026-11-03: `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You* only) and `revenuecat-secret-api-key` (the sign-in form steps after the email are still unchecked). `stripe-restricted-key` was checked in the sandbox but not run end to end, and `github-fine-grained-token` is not verified. Each recipe starts with a `# STATUS:` comment that says what is verified (the bundled recipes' comments are in German). Do a supervised trial run with a throwaway token first.
+> **Status of the bundled recipes.** `peecho-api-keys` (read-only) was read in full live on 2026-11-04 on both portals with an existing sign-in; its sign-in form is not verified. Four ran end to end against the live provider pages on 2026-11-03: `supabase-access-token`, `vesselapi-api-key`, `openai-api-key` (owner *You* only) and `revenuecat-secret-api-key` (the sign-in form steps after the email are still unchecked). `stripe-restricted-key` was checked in the sandbox but not run end to end, and `github-fine-grained-token` is not verified. Each recipe starts with a `# STATUS:` comment that says what is verified (the bundled recipes' comments are in German). Do a supervised trial run with a throwaway token first.
 
 ## Bundled recipes
 
@@ -18,7 +18,7 @@ This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRA
 | `openai-api-key` | OpenAI API key (owner, expiry, permission level); can revoke | full run verified live 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | `vesselapi-api-key` | VesselAPI API key (30, 60 or 90 days on the free plan); can delete the old key | full run verified live 2026-11-03 (two keys) |
 | `stripe-restricted-key` | Stripe restricted key for one account and mode; parameters `account` (`acct_...`), `mode` (`sandbox` or `live`), `preset` (`webhooks`: *Webhook Endpoints, Event Destinations* Write, or `full-except-sensitive`); can revoke (*Expire key*) | sandbox wizard, result view and expiry checked 2026-11-02/03 with a throwaway key; full run, sign-in form and live mode not verified |
-| `peecho-api-keys` | **Reads** (`kind: read`) the Peecho Merchant API Key and Secret key from the dashboard of the live or the test portal (parameter `portal`); creates and revokes nothing | navigation and DOM read live 2026-11-04 (application settings, tab *API*, both portals signed in); sign-in form, the `/mio-dashboard/settings/api` page and a full run not verified |
+| `peecho-api-keys` | **Reads** (`kind: read`) the Peecho Merchant API Key and Secret key from the dashboard of the live or the test portal (parameter `portal`); creates and revokes nothing | full read verified live 2026-11-04 on both portals with an existing sign-in (application settings, tab *API*); the sign-in form is not verified |
 | `revenuecat-secret-api-key` | RevenueCat secret API key (V2) with one access level per section; parameters `projectId` and `projectConfiguration`, `customerInformation`, `chartsMetrics`, `audiences`, `iam` (each `No access`, `Read only` or `Read & write`, default `No access`); can revoke | form and key list checked 2026-11-02; full run verified live 2026-11-03 (two secret keys and one integration key via the guided sign-in); password, one-time code, approval and CAPTCHA steps of the sign-in form not verified (the browser was already signed in) |
 
 ## Reading values instead of creating them (`kind: read`)
@@ -55,7 +55,7 @@ secrets:
 
 Reading `print-api-key-test` fills both entries from one run and one confirmation; reading `print-secret-key-test` alone writes only the secret key. `portal` is `live` or `test`: the two portals have separate accounts and separate keys, so keep one pair of entries per portal. The dashboard login (e-mail and password) stays a manual entry.
 
-The Peecho sign-in form is declared for the live portal only (a recipe has one `host` for the sign-in state); on the test portal the run waits for you to sign in in the browser window.
+The Peecho recipe has two portals (`hostBy: portal`, see [Several hosts](#several-hosts-hostby-and-hosts)): the guided sign-in form is declared once with `{{host}}` and works for both, and each portal has its own sign-in line, check and sign-in memory. The form is not verified live.
 
 ## Where recipes live
 
@@ -78,6 +78,7 @@ label: GitHub Fine-grained Token
 provider: github-fine-grained-token  # optional: provider id the recipe serves, if not the recipe id
 host: github.com                     # the only host the browser may be on (plus allowHosts)
 allowHosts: []                       # optional: more hosts, "*.example.com" allows subdomains (also for typing a sign-in on a hosted login page)
+                                     # (several portals with separate accounts: hostBy + hosts instead of host, see "Several hosts")
 params: []                           # optional: per-entry parameters, see "Parameters" below
 login:                               # optional
   expect: { url: "^https://github\\.com/settings/" }   # signed in when this holds
@@ -175,7 +176,7 @@ Optional, next to `login.expect` (which doubles as the success condition). Used 
 login:
   expect: { url: "^https://app\\.example\\.com/projects/[^/]+/" }
   form:
-    start: "https://app.example.com/login"    # on host; no variables
+    start: "https://app.example.com/login"    # on host; no variables (only {{host}}, see "Several hosts")
     home: "https://app.example.com/"          # optional, used by "Check sign-in"
     steps:                                     # only fill, click, waitFor
       - fill: { css: 'input[name="email"]', value: "{{login.username}}" }
@@ -191,6 +192,24 @@ login:
 ```
 
 `{{login.username}}` and `{{login.password}}` are valid only in the `value` of a `fill` step here (both must be used); selectors, conditions and messages cannot contain variables, and no other part of a recipe knows them. Priority while waiting: success, `failure`, `mfa`, `approval`, `captcha`. Mark unverified parts with `# STATUS:`.
+
+### Several hosts (`hostBy` and `hosts`)
+
+A provider can run separate portals with separate accounts, for example a live and a test site. Instead of `host` the recipe then declares which parameter picks the portal and the host of each value (exactly one of the two forms):
+
+```yaml
+hostBy: portal
+hosts: { live: app.example.com, test: sandbox.example.com }
+params:
+  - { key: portal, label: Portal, options: ["live", "test"] }   # exactly the keys of hosts
+login:
+  expect: { url: "^https://{{host}}/home" }
+  form:
+    start: "https://{{host}}/login"
+    home: "https://{{host}}/"
+```
+
+Everything that depends on the host follows the **portal of the run or the entry**: the allowlist (a run for `live` may not leave `app.example.com`, plus `allowHosts`), the sign-in check, the guided sign-in (credentials are typed only at that host), the sign-in memory and its lifetime measurement, and the renewal warning of an entry (the host of the entry's `portal`). `{{host}}` is the portal's host and is allowed in `login.form.start`, `login.form.home` and `login.expect` only (in `expect.url` it is escaped for the regular expression). `goto` addresses stay fixed hosts and may name any host of `hosts`; pick one with `when` (a `goto` to the other portal is skipped, and one that is reached anyway is stopped by the allowlist). The scheduled sign-in checks look at every host of such a recipe on its own, and the provider card shows one sign-in line per host ("Print Co live: signed in · checked 2 hours ago", "Print Co test: sign-in needed") with a *Check live* / *Check test* button each. The sign-in dialog of a guided-sign-in provider takes the portal from the recipe parameter it asks for (or `host` in the request body).
 
 ## Variables
 

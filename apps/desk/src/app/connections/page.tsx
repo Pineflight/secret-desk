@@ -17,7 +17,7 @@ import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/component
 import { daysLabel, formatDate } from "@/lib/format";
 import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
 import { createCheckQueue, type CheckPhase, type CheckQueue } from "@/lib/check-queue";
-import { checkPathOf, outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, type CheckOutcome, type CheckResponse, type SignInStatus } from "@/lib/sign-in-check";
+import { checkBodyOf, checkHostsOf, checkIdOf, checkPathOf, outcomeOf, outcomeOfError, outcomeProblem, signInStatus, signedInIds, splitCheckId, type CheckOutcome, type CheckResponse, type SignInStatus } from "@/lib/sign-in-check";
 import { daysSince, expiryLevel, staleWithoutExpiry, stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
@@ -86,10 +86,12 @@ export default function ConnectionsPage() {
     queue.current = createCheckQueue<CheckOutcome>(async (id) => {
       let outcome: CheckOutcome;
       try {
-        const card = cardsRef.current?.find((c) => c.id === id);
+        // A provider with several portals is checked per portal: the key names the host.
+        const { cardId, host } = splitCheckId(id);
+        const card = cardsRef.current?.find((c) => c.id === cardId);
         const path = card ? checkPathOf(card) : null;
         if (!path) throw new Error("");
-        outcome = outcomeOf(await api<CheckResponse>("POST", path));
+        outcome = outcomeOf(await api<CheckResponse>("POST", path, checkBodyOf(host)));
       } catch (e) {
         outcome = outcomeOfError(e);
       }
@@ -183,15 +185,27 @@ export default function ConnectionsPage() {
                         <Button variant="primary" disabled={!card.signIn.facade.available} onClick={() => setPicking({ vendor: card.id, signIn: true })}>{card.signIn.facade.connected ? t("facade.reconnect") : t("facade.connectWith")}</Button>
                       ) : null}
                       {card.signIn.facade || card.signIn.checkRecipe ? (
-                        <Button disabled={!card.signIn.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
-                          {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
-                        </Button>
+                        checkHostsOf(card).length > 0 ? (
+                          // One button per portal: each has its own account, so each is checked on its own.
+                          checkHostsOf(card).map((h) => {
+                            const hostPhase = phases.get(checkIdOf(card.id, h.host));
+                            return (
+                              <Button key={h.host} disabled={!card.signIn.available || hostPhase !== undefined} loading={hostPhase === "checking"} onClick={() => void queue.current?.enqueue(checkIdOf(card.id, h.host))}>
+                                {hostPhase === "checking" ? t("providers.signIn.hostChecking", { portal: h.value }) : hostPhase === "waiting" ? t("providers.signIn.hostWaiting", { portal: h.value }) : t("providers.signIn.hostCheck", { portal: h.value })}
+                              </Button>
+                            );
+                          })
+                        ) : (
+                          <Button disabled={!card.signIn.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
+                            {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
+                          </Button>
+                        )
                       ) : null}
                       <Button onClick={() => setPicking({ vendor: card.id })}>{t("providers.page.manage")}</Button>
                     </>
                   }
                 >
-                  <SignInLine card={card} status={signInStatus(card, phase, outcome)} problem={problem} />
+                  <SignInLine card={card} status={signInStatus(card, phase, outcome)} problem={problem} outcomes={outcomes} locale={locale} />
                   <div className="mt-3 space-y-2">
                     {card.keys.filter((k) => k.connected).map((k) => {
                       const c = (conns.data ?? []).find((x) => x.id === k.id);
@@ -224,15 +238,24 @@ export default function ConnectionsPage() {
 }
 
 /** One plain sentence about the provider's browser sign-in, and the result of the last check. */
-function SignInLine({ card, status, problem }: { card: ProviderCard; status: SignInStatus | null; problem: string | null }) {
+function SignInLine({ card, status, problem, outcomes, locale }: { card: ProviderCard; status: SignInStatus | null; problem: string | null; outcomes: Readonly<Record<string, CheckOutcome>>; locale: "de" | "en" }) {
   const t = useT();
   const s = card.signIn;
   if (s.state === "none") return null;
+  const hosts = checkHostsOf(card);
   return (
     <div className="mt-3 rounded-xl bg-page p-3 text-xs text-muted">
       <p className="font-medium text-ink">{t("providers.way.signIn")}</p>
       <p className="mt-0.5">{signInSentence(card, t)}</p>
       {status === "yes" || status === "no" ? <p className="mt-1" role="status">{t(status === "yes" ? "providers.signIn.signedInYes" : "providers.signIn.signedInNo")}</p> : null}
+      {hosts.map((h) => {
+        const o = outcomes[checkIdOf(card.id, h.host)];
+        const failed = outcomeProblem(o, locale, t);
+        if (!o) return null;
+        return failed
+          ? <p key={h.host} className="mt-1 text-danger-text" role="alert">{t("providers.signIn.hostFailed", { name: card.label, portal: h.value })} {failed}</p>
+          : <p key={h.host} className="mt-1" role="status">{t(o.signedIn ? "providers.signIn.hostYes" : "providers.signIn.hostNo", { name: card.label, portal: h.value })}</p>;
+      })}
       {problem ? <p className="mt-1 text-danger-text" role="alert">{problem}</p> : null}
     </div>
   );

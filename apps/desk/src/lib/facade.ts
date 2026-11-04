@@ -22,6 +22,9 @@ export interface FacadeInfo {
   reason: string | null;
   recipeStatus: string | null;
   host: string | null;
+  /** A recipe with several portals: the parameter that picks one and the host of each value. */
+  hostBy?: string | null;
+  hosts?: { value: string; host: string }[];
   connected: boolean;
   needsProject: boolean;
   inputs: FacadeInput[];

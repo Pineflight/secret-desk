@@ -6,7 +6,9 @@ import {
   type LoginMethodInfo,
   type LoginMethodId,
   paramValueProblem,
+  RecipeHostError,
   recipeParamVars,
+  resolveRecipe,
   runRecipe,
   signIn,
   type LoginCredentials,
@@ -202,6 +204,9 @@ export interface FacadeInfo {
   /** The recipe's STATUS comment: what is verified and what is not. */
   recipeStatus: string | null;
   host: string | null;
+  /** A recipe with several portals: the parameter that picks one and the host of each value (empty for one portal). */
+  hostBy: string | null;
+  hosts: { value: string; host: string }[];
   connected: boolean;
   /** The provider names a project the key belongs to; the portal may ask for it as a fallback. */
   needsProject: boolean;
@@ -253,6 +258,8 @@ export async function listFacades(rt: Runtime, actor: Actor): Promise<FacadeInfo
       reason,
       recipeStatus: meta?.status ?? null,
       host: recipe?.host ?? null,
+      hostBy: recipe?.hostBy ?? null,
+      hosts: Object.entries(recipe?.hosts ?? {}).map(([value, host]) => ({ value, host })),
       connected: await facadeConnected(rt, d),
       needsProject: d.project !== null,
       inputs: d.inputs.flatMap((param) => {
@@ -297,6 +304,25 @@ export function credentialsFrom(body: Record<string, unknown>, needsPassword = t
   if (!password) throw new InventoryError("The password is missing.");
   if (password.length > 1024 || CONTROL.test(password)) throw new InventoryError("The password is not valid.");
   return { username, password };
+}
+
+/**
+ * The recipe for the portal the human chose. A recipe with several hosts needs the choice: the body's `host` (a host or a value
+ * of the recipe's host parameter), else the input of that parameter. Everything after this sees one host only.
+ */
+export function portalFrom(recipe: Recipe, body: Record<string, unknown>, inputs: Record<string, string> = {}): Recipe {
+  if (!recipe.hosts) return recipe;
+  const given = typeof body["host"] === "string" ? body["host"].trim() : "";
+  return resolvePortal(recipe, given !== "" ? given : (inputs[recipe.hostBy ?? ""] ?? ""));
+}
+
+function resolvePortal(recipe: Recipe, choice: string): Recipe {
+  try {
+    return resolveRecipe(recipe, choice);
+  } catch (err) {
+    if (err instanceof RecipeHostError) throw new InventoryError("Choose the portal first: this provider has more than one, each with its own account.");
+    throw err;
+  }
 }
 
 /** The chosen sign-in method (default: email). It must be one the recipe offers. */
@@ -424,9 +450,10 @@ function mapSignInEvent(t: Tracker, rt: Runtime, e: LoginEvent, timeoutAt: strin
  */
 export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Sign in at the provider");
-  const { d, recipe } = descriptorOf(rt, id);
-  const projectId = projectFrom(d, recipe, body);
-  const inputs = inputsFrom(d, recipe, body);
+  const { d, recipe: whole } = descriptorOf(rt, id);
+  const projectId = projectFrom(d, whole, body);
+  const inputs = inputsFrom(d, whole, body);
+  const recipe = portalFrom(whole, body, inputs);
   const method = methodFrom(recipe, body);
   const creds = credentialsFrom(body, !(method === "email" && recipe.login?.form?.passwordless === true));
   const key = stateKey(id);
@@ -488,9 +515,10 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
 /** Uses the browser session that is already signed in: creates the key, stores and tests it. Needs no credentials. */
 export function startFacadeConnect(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Connect the provider");
-  const { d, recipe } = descriptorOf(rt, id);
-  const projectId = projectFrom(d, recipe, body);
-  const inputs = inputsFrom(d, recipe, body);
+  const { d, recipe: whole } = descriptorOf(rt, id);
+  const projectId = projectFrom(d, whole, body);
+  const inputs = inputsFrom(d, whole, body);
+  const recipe = portalFrom(whole, body, inputs);
   const key = stateKey(id);
   rt.automation.forget(key);
   const signal = rt.automation.begin(key, id, { text: "Using the signed-in browser.", kind: "connect", needs: null, phase: "signed-in", timeline: [], timeoutAt: null });
@@ -710,27 +738,33 @@ export interface FacadeSessionCheck {
  * browser is busy with another run, the page does not open, the browser is unreachable) answers with `failure` and a stable code
  * the portal translates, instead of an error text in one language.
  */
-export async function checkFacadeSession(rt: Runtime, actor: Actor, id: string, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
+export async function checkFacadeSession(rt: Runtime, actor: Actor, id: string, options: { timeoutSeconds?: number; host?: string } = {}): Promise<FacadeSessionCheck> {
   requireHuman(actor, "Check the provider sign-in");
   const { recipe } = descriptorOf(rt, id);
-  return checkRecipeHost(rt, checkKey(id), id, recipe, options);
+  const portal = resolvePortal(recipe, options.host ?? "");
+  return checkRecipeHost(rt, recipe.hosts ? `${checkKey(id)}:${portal.host}` : checkKey(id), id, portal, options);
 }
 
 /**
  * Same check for a browser-only vendor: any loaded recipe with a guided sign-in (`login.form`) can be checked by its recipe id.
  * The answer is remembered per recipe host, so the vendor card can show "Ready (browser)" for a while.
  */
-export async function checkRecipeSession(rt: Runtime, actor: Actor, recipeId: string, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
+export async function checkRecipeSession(rt: Runtime, actor: Actor, recipeId: string, options: { timeoutSeconds?: number; host?: string } = {}): Promise<FacadeSessionCheck> {
   requireHuman(actor, "Check the provider sign-in");
   if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
   const recipe = rt.automation.recipe(recipeId);
   if (!recipe?.login?.form) throw new InventoryError(`The recipe ${recipeId} has no guided sign-in, so its browser session cannot be checked.`);
-  return checkRecipeHost(rt, `recipe-check:${recipeId}`, recipeId, recipe, options);
+  const portal = resolvePortal(recipe, options.host ?? "");
+  return checkRecipeHost(rt, recipe.hosts ? `recipe-check:${recipeId}:${portal.host}` : `recipe-check:${recipeId}`, recipeId, portal, options);
 }
 
-/** The check the background scheduler makes: same as a human's, without an actor (nothing is typed, no value is read). */
-export function checkRecipeSessionScheduled(rt: Runtime, recipe: Recipe, options: { timeoutSeconds?: number } = {}): Promise<FacadeSessionCheck> {
-  return checkRecipeHost(rt, `recipe-check:${recipe.id}`, recipe.id, recipe, options);
+/**
+ * The check the background scheduler makes: same as a human's, without an actor (nothing is typed, no value is read). A recipe
+ * with several hosts is checked once per host: `host` picks the portal.
+ */
+export function checkRecipeSessionScheduled(rt: Runtime, recipe: Recipe, options: { timeoutSeconds?: number; host?: string } = {}): Promise<FacadeSessionCheck> {
+  const portal = resolvePortal(recipe, options.host ?? "");
+  return checkRecipeHost(rt, recipe.hosts ? `recipe-check:${recipe.id}:${portal.host}` : `recipe-check:${recipe.id}`, recipe.id, portal, options);
 }
 
 async function checkRecipeHost(rt: Runtime, key: string, id: string, recipe: Recipe, options: { timeoutSeconds?: number }): Promise<FacadeSessionCheck> {

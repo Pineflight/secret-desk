@@ -4,7 +4,7 @@ import { Badge, Card } from "@/components/ui";
 import { BRAND_ICONS } from "@/lib/brand-icons.generated";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
-import { browserNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
+import { browserNote, hostLineNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard } from "@/lib/provider-cards";
 import type { AgeParts } from "@/lib/browser-ready";
 import type { ExpiryLevel } from "@/lib/connection-health";
 import { daysLabel, formatDate } from "@/lib/format";
@@ -136,13 +136,18 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
   const keys = connectedKeyCount(card);
   const managed = card.browser?.secrets ?? 0;
   const note = browserNote(card);
+  // Several portals (live and test): one sign-in line each instead of one note for the provider.
+  const lines = card.status === "connected" ? [] : (card.browser?.hostLines ?? []);
   const bad = expiry?.level === "critical" || expiry?.level === "expired";
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
       <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</span>
       {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
-      {note ? <span>{t(note.key, { when: note.age ? ageText(note.age, t) : "" })}</span> : null}
+      {lines.length > 0 ? lines.map((l) => {
+        const n = hostLineNote(l);
+        return <span key={l.host}>{t(n.key, { name: card.label, portal: l.value, when: n.age ? ageText(n.age, t) : "" })}</span>;
+      }) : note ? <span>{t(note.key, { when: note.age ? ageText(note.age, t) : "" })}</span> : null}
       {card.browser?.sessionHours ? <span>{t("providers.card.sessionLasts", { hours: card.browser.sessionHours })}</span> : null}
       {signIn ? <span role={signIn === "waiting" || signIn === "checking" ? "status" : undefined}>{t(SIGN_IN_TEXT[signIn])}</span> : null}
     </span>

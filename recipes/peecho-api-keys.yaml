@@ -1,15 +1,18 @@
-# STATUS: navigation and DOM read live on 2026-11-04 (application settings, tab "API", both portals signed in); the sign-in form, the /mio-dashboard/settings/api page and a full run are not verified
+# STATUS: full read verified live 2026-11-04 on both portals with an existing sign-in; the sign-in form is not verified
 # Reads the Peecho API keys (the "Merchant API Key" and the "Secret key") from the dashboard. Peecho issues these keys once per
 # application, has no API to create or rotate them and shows no button for it, so this recipe only READS (kind: read): nothing is
 # created, there is nothing to revoke, and the keys do not expire. Renewing means reading again, for example after Peecho support
 # rotated the key by e-mail. There are two separate portals with separate accounts: live (www.peecho.com) and test
-# (test.www.peecho.com), chosen by the parameter `portal`. One run reads both keys: the entry picks one with `value` and the
+# (test.www.peecho.com), chosen by the parameter `portal` (`hostBy`/`hosts`: the sign-in, the sign-in checks and the allowlist
+# follow the chosen portal). One run reads both keys: the entry picks one with `value` and the
 # other goes to the entry named by `companionEntry` (optional).
 kind: read
 id: peecho-api-keys
 label: Peecho API keys
-host: www.peecho.com
-allowHosts: ["test.www.peecho.com"]
+hostBy: portal
+hosts:
+  live: www.peecho.com
+  test: test.www.peecho.com
 params:
   - key: portal
     label: Portal
@@ -30,13 +33,13 @@ params:
 login:
   # Signed in = the dashboard (signed in, /dashboard redirects to /dashboard/orders, seen on 2026-11-04). A signed-out browser is
   # expected to be sent to a sign-in page instead: not verified.
-  expect: { url: "^https://(test\\.)?www\\.peecho\\.com/dashboard/" }
+  expect: { url: "^https://{{host}}/dashboard/" }
   message: Bei Peecho anmelden (Portal live oder test, je eigenes Konto).
-  # Guided sign-in on the live portal. STATUS: not verified at all: the sign-in page, its field selectors and its failure texts
-  # are guesses. The test portal is signed in by hand in the browser window (the recipe has one `host` for the sign-in state).
+  # Guided sign-in, the same form on both portals ({{host}} is the host of the chosen portal). STATUS: not verified at all: the
+  # sign-in page, its field selectors and its failure texts are guesses.
   form:
-    start: "https://www.peecho.com/dashboard"
-    home: "https://www.peecho.com/dashboard"
+    start: "https://{{host}}/dashboard"
+    home: "https://{{host}}/dashboard"
     steps:
       - waitFor: { visible: { css: 'input[type="email"] >> visible=true' }, timeoutSeconds: 30 }
       - fill: { css: 'input[type="email"] >> visible=true', value: "{{login.username}}" }

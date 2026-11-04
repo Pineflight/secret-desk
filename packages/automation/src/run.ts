@@ -1,6 +1,6 @@
 import { SecretValue, redact } from "@secret-desk/core";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { hostAllowed, paramValueProblem, type CaptureValue, type Condition, type Recipe, type Step } from "./recipe.js";
+import { hostAllowed, paramValueProblem, resolveRecipe, type CaptureValue, type Condition, type Recipe, type Step } from "./recipe.js";
 import { describeSelector, pickSelector, type Selector } from "./selector.js";
 import { SUDO_FLOWS, SudoError, confirmAccess, sudoPageShown, type SudoHooks } from "./sudo.js";
 import { renderTemplate } from "./template.js";
@@ -175,14 +175,18 @@ class Runner {
   #index = 0;
   #total = 0;
 
+  /** The recipe for the one portal this run uses (see `resolveRecipe`): host, allowlist and sign-in follow the parameter value. */
+  readonly recipe: Recipe;
+
   constructor(
-    readonly recipe: Recipe,
+    recipe: Recipe,
     readonly vars: Vars,
     readonly driver: BrowserDriver,
     readonly hooks: RunHooks,
     readonly options: RunOptions,
   ) {
     checkRecipeParams(recipe, vars);
+    this.recipe = resolveRecipe(recipe, recipe.hostBy ? vars[recipe.hostBy] : undefined);
     this.#loggedIn = recipe.login === undefined;
   }
 

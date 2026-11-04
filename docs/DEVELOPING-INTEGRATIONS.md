@@ -209,6 +209,10 @@ hosts (Apple `appleid.apple.com`, `idmsa.apple.com`; Google `accounts.google.com
 when it serves the hand-over. Every identity-provider selector and text is **not verified** until a live run; verify them
 with the viewer (above), never by typing real credentials into a recipe.
 
+## Providers with several portals
+
+When the provider runs a live and a test site with separate accounts, declare `hostBy` and `hosts` instead of `host` (see [RECIPES.md](RECIPES.md#several-hosts-hostby-and-hosts)) and use `{{host}}` in `login.form.start`, `login.form.home` and `login.expect`. Keep the parameter that picks the portal in the facade `inputs` (or send `host` in the sign-in body) so the dialog signs in at the right portal. Test it with `resolveRecipe(recipe, "test")` and a fake driver per host, as in `packages/automation/test/multihost.test.ts`; the card lines, the check keys and the renewal warning per host are covered by `apps/desk/test/multihost-cards.test.ts`. Mark the sign-in form `not verified` until it ran against each portal.
+
 ## Confirmations in the middle of a recipe
 
 When a provider asks to confirm access while a recipe runs (GitHub *Confirm access*), do not use `pause` (it sends the human to the browser window). Use `confirmAccess` with a built-in flow; the portal answers the questions. To add a flow, add it to `SUDO_FLOWS` in `packages/automation/src/sudo.ts` with its selectors (mark what you did not verify), and test it with the fake driver as in `packages/automation/test/sudo.test.ts`. A recipe run that starts signed out can sign in through the portal on its own open browser with `RunHooks.signIn` (see `packages/runtime/src/team-token.ts`); the recipe needs `login.form`. Sign-in methods per recipe come from a live survey of the provider's sign-in page: only the provider-side button is declared in `login.methods`, everything else stays marked not verified.

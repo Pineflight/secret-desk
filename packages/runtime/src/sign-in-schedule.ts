@@ -1,4 +1,4 @@
-import type { Recipe } from "@secret-desk/automation";
+import { hostListOf, type Recipe } from "@secret-desk/automation";
 import { checkRecipeSessionScheduled } from "./facade.js";
 import type { Runtime } from "./runtime.js";
 
@@ -29,7 +29,7 @@ export interface SignInTick {
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_RETRY_MINUTES = 30;
 
-/** One recipe per host that can be checked, oldest answer first (hosts without an answer come first). */
+/** One recipe per host that can be checked (a recipe with several hosts once per host), oldest answer first (hosts without an answer come first). */
 export function dueSignInChecks(rt: Runtime, now: Date, attempts: ReadonlyMap<string, number> = new Map(), retryMinutes = DEFAULT_RETRY_MINUTES): { host: string; recipe: Recipe }[] {
   const hours = rt.automation.signInCheckHours;
   if (!rt.automation.enabled || !(hours > 0)) return [];
@@ -37,15 +37,18 @@ export function dueSignInChecks(rt: Runtime, now: Date, attempts: ReadonlyMap<st
   const seen = new Set<string>();
   const due: { host: string; recipe: Recipe; at: number }[] = [];
   for (const info of rt.automation.recipes) {
-    if (!info.canCheckSignIn || seen.has(info.host)) continue;
+    if (!info.canCheckSignIn) continue;
     const recipe = rt.automation.recipe(info.id);
     if (!recipe) continue;
-    seen.add(info.host);
-    const at = known.get(info.host);
-    const stale = at === undefined || Number.isNaN(at) || now.getTime() - at >= hours * 3_600_000;
-    const tried = attempts.get(info.host);
-    const coolingDown = tried !== undefined && now.getTime() - tried < retryMinutes * 60_000;
-    if (stale && !coolingDown) due.push({ host: info.host, recipe, at: at === undefined || Number.isNaN(at) ? -Infinity : at });
+    for (const host of hostListOf(recipe)) {
+      if (seen.has(host)) continue;
+      seen.add(host);
+      const at = known.get(host);
+      const stale = at === undefined || Number.isNaN(at) || now.getTime() - at >= hours * 3_600_000;
+      const tried = attempts.get(host);
+      const coolingDown = tried !== undefined && now.getTime() - tried < retryMinutes * 60_000;
+      if (stale && !coolingDown) due.push({ host, recipe, at: at === undefined || Number.isNaN(at) ? -Infinity : at });
+    }
   }
   return due.sort((a, b) => a.at - b.at).map(({ host, recipe }) => ({ host, recipe }));
 }
@@ -80,7 +83,7 @@ export class SignInScheduler {
       for (const { host, recipe } of dueSignInChecks(this.#rt, automation.now(), this.#attempts, this.#retry)) {
         if (automation.isBusy()) return { skipped: checked.length === 0 ? "busy" : null, checked };
         this.#attempts.set(host, automation.now().getTime());
-        const r = await checkRecipeSessionScheduled(this.#rt, recipe, this.#timeoutSeconds === undefined ? {} : { timeoutSeconds: this.#timeoutSeconds });
+        const r = await checkRecipeSessionScheduled(this.#rt, recipe, { host, ...(this.#timeoutSeconds === undefined ? {} : { timeoutSeconds: this.#timeoutSeconds }) });
         const result = r.failure ? "failed" : r.signedIn ? "signed-in" : "signed-out";
         checked.push({ host, result });
         this.#log(`secret-desk: scheduled sign-in check ${host}: ${r.failure ? `failed (${r.failure.code})` : r.signedIn ? "signed in" : "signed out"}`);
