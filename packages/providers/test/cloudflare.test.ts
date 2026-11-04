@@ -135,6 +135,14 @@ describe("cloudflare-token across several zones", () => {
     ]);
   });
 
+  it("takes zone ids in zones as they are, without a lookup", async () => {
+    const m = routeFetch(...zoneRoutes());
+    const idA = "0123456789abcdef0123456789abcdef";
+    await token.issue!(issueCtx(m.fetch, { ...base, zones: [idA, "acme.test"] }, { conns: ["cloudflare"] }));
+    expect(m.calls.filter((c) => c.url.includes("/zones?name=")).map((c) => c.url)).toEqual(["https://api.cloudflare.com/client/v4/zones?name=acme.test&account.id=acc1&per_page=5"]);
+    expect(Object.keys(create(m).policies[1].resources)).toEqual([`com.cloudflare.api.account.zone.${idA}`, "com.cloudflare.api.account.zone.zone-b"]);
+  });
+
   it("combines zoneId and zones", async () => {
     const m = routeFetch(...zoneRoutes());
     await token.issue!(issueCtx(m.fetch, { ...base, zoneId: "zone-x", zones: ["acme.test"] }, { conns: ["cloudflare"] }));
