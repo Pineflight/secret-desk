@@ -25,7 +25,7 @@ function wizard(opts: { banner?: boolean; key?: string } = {}): FakeDriver {
   let custom = false;
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
-    visible: ['css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
+    visible: ['button "Create restricted key" (exact)', 'css input[type="search"]', 'css role=group[name="Permission level"s] >> role=radio[name="Write"s]', 'Feld "Name" (exact)', 'button "Create key"', CONTINUE, 'radio "Custom permissions"', 'radio "Full access—except sensitive operations"', ...(opts.banner === false ? [] : [BANNER])],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
@@ -83,7 +83,8 @@ describe("stripe-restricted-key recipe", () => {
     const r = await recipe();
     const d = wizard();
     await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live", preset: "full-except-sensitive" }), d, { onWaitingForHuman: () => undefined }, { pollMs: 2 });
-    expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys/create`);
+    expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys`);
+    expect(d.calls).toContain('click button "Create restricted key" (exact)');
     expect(d.calls).toContain('check radio "Full access—except sensitive operations"');
     expect(d.calls).not.toContain('check radio "Custom permissions"');
     expect(d.calls).not.toContain('check css role=group[name="Permission level"s] >> role=radio[name="Write"s]');
@@ -256,6 +257,47 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     expect(d.calls).toContain(`click ${button("Invoices", "Read")}`);
     // The webhook row is not touched for this preset.
     expect(d.calls).not.toContain(`click ${WRITE}`);
+  });
+
+  it("live: opens the side panel from the key list, picks Choose your own and creates a refunds key on the single-page form", async () => {
+    const r = await recipe();
+    const OPEN = 'button "Create restricted key" (exact)';
+    const CARD = 'css [role=dialog] :text-is("Powering an integration you built")';
+    const OWN = 'css [role=dialog] :text-is("Choose your own")';
+    const rowOf = (name: string) => `css tr:has-text("${name}"):not(:has-text("View documentation"))`;
+    const button = (name: string, level: string) => `${rowOf(name)} >> role=button[name="${level}"s] >> nth=0`;
+    const rows = [["Charges and Refunds", "Write"], ["Payment Intents", "Read"], ["Invoices", "Read"]] as const;
+    const d: FakeDriver = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER, OPEN, 'css #key-name', FILTER, CREATE_EXACT, ...rows.flatMap(([row, level]) => [rowOf(row), button(row, level)])],
+      on: (e, drv) => {
+        if (e.action === "goto") { drv.url = e.key; return; }
+        if (e.action === "click" && e.key === OPEN) {
+          drv.pageText.add("How will you be using this key?");
+          drv.visible.add('Text "How will you be using this key?"').add(CARD).add(CONTINUE);
+        }
+        if (e.action === "click" && e.key === CONTINUE) {
+          drv.pageText.add("Choose a permission template");
+          drv.visible.add(OWN);
+        }
+        if (e.action === "click" && e.key === OWN) {
+          drv.pageText.add("Create restricted API key");
+          drv.visible.add('Text "Create restricted API key"');
+        }
+        if (e.action === "click" && e.key === CREATE_EXACT) {
+          drv.visible.add(COPY_LINK(VARS.name));
+          drv.texts.set(COPY_LINK(VARS.name), ` ${KEY} `);
+        }
+      },
+    });
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live", preset: "refunds" }), d, { onWaitingForHuman: () => undefined }, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys`);
+    const order = [`click ${OPEN}`, `click ${CARD}`, `click ${CONTINUE}`, `click ${OWN}`, `click ${button("Charges and Refunds", "Write")}`, `click ${CREATE_EXACT}`].map((c) => d.calls.indexOf(c));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(d.calls).toContain(`click ${button("Payment Intents", "Read")}`);
+    expect(d.calls).toContain(`click ${button("Invoices", "Read")}`);
   });
 
   it("refuses the refunds preset on the wizard before any key exists", async () => {

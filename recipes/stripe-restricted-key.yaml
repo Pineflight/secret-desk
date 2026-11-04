@@ -23,9 +23,10 @@
 #                text of the row's `a[aria-label="Click to copy"]` link (the full key, shown in the list).
 # The full-access preset is not explored on the single-page form: the run stops there before anything is created.
 #
-# Not verified: the live mode. The live dashboard may show a different key list ("Restricted keys" / "Standard keys" with
-# "Create restricted key") and may ask to confirm the password; the pause step below waits for the human in that case. The
-# live address is assumed to use the same wizard as the sandbox.
+# Live mode (probed read-only on 2026-11-04 up to the form; no live key created yet): the create
+# address renders nothing, so the run starts at the key list, opens "Create restricted key", walks the side panel
+# (integration card, Continue, "Choose your own") and lands on the single-page form. Not verified: the key list after
+# "Create key" in live mode and the password confirmation (the pause step below waits for the human).
 id: stripe-restricted-key
 label: Stripe Restricted Key
 host: dashboard.stripe.com
@@ -88,8 +89,36 @@ steps:
   # Sandbox and live use different addresses; `when` picks the right one.
   - goto: "https://dashboard.stripe.com/{{account}}/test/apikeys/create"
     when: { var: mode, equals: sandbox }
-  - goto: "https://dashboard.stripe.com/{{account}}/apikeys/create"
+  # Live (checked on 2026-11-04): the create address renders no form. The key list opens a side
+  # panel instead: "How will you be using this key?" (cards), then "Choose a permission template"; its last card
+  # "Choose your own" leads straight to the single-page form "Create restricted API key". Nothing is created here.
+  - goto: "https://dashboard.stripe.com/{{account}}/apikeys"
     when: { var: mode, equals: live }
+  - waitFor: { visible: { role: button, name: "Create restricted key", exact: true }, timeoutSeconds: 90 }
+    when: { var: mode, equals: live }
+  - click: { role: button, name: "Create restricted key", exact: true }
+    when: { var: mode, equals: live }
+  - waitFor:
+      any:
+        - { text: "How will you be using this key?" }
+        - { text: "Choose how you" }
+        - { text: "Create restricted API key" }
+      timeoutSeconds: 60
+    when: { var: mode, equals: live }
+  - set: { var: panel, value: "yes" }
+    when:
+      all:
+        - { var: mode, equals: live }
+        - { visible: { text: "How will you be using this key?" } }
+  - click: { css: '[role=dialog] :text-is("Powering an integration you built")' }
+    when: { var: panel, equals: "yes" }
+  - click: { role: button, name: "Continue", exact: true }
+    when: { var: panel, equals: "yes" }
+  - waitFor: { text: "Choose a permission template", timeoutSeconds: 60 }
+    when: { var: panel, equals: "yes" }
+  # "choose your own" also ends the subtitle of the step, so the card title is matched exactly.
+  - click: { css: '[role=dialog] :text-is("Choose your own")' }
+    when: { var: panel, equals: "yes" }
   # Either heading (only the start of the wizard heading: the apostrophe of "you'll" may be a typographic one).
   - waitFor:
       any:
