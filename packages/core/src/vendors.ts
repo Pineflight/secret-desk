@@ -54,7 +54,7 @@ export const VENDORS: readonly VendorDef[] = [
     providers: ["github-fine-grained-token"],
     recipes: ["github-fine-grained-token"],
   }),
-  vendor({ id: "cloudflare", label: "Cloudflare", category: "hosting", icon: "cloudflare", connections: ["cloudflare"], optionalConnections: ["cloudflare-turnstile"], providers: ["cloudflare-token", "cloudflare-turnstile", "cloudflare-access-service-token"] }),
+  vendor({ id: "cloudflare", label: "Cloudflare", category: "hosting", icon: "cloudflare", connections: ["cloudflare"], optionalConnections: ["cloudflare-turnstile"], providers: ["cloudflare-token", "cloudflare-turnstile", "cloudflare-access-service-token", "cloudflare-r2-credentials"] }),
   vendor({
     id: "supabase",
     label: "Supabase",

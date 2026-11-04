@@ -8,6 +8,7 @@ Each provider supplies its own checks and review points. The *Verified* column s
 | `random-hex`, `random-base64`, `random-uuid` | automatic | none | locally |
 | `cloudflare-token` | automatic | `cloudflare` (token with *User > API Tokens > Edit*) | reference read, `expires_on` only from a third-party source |
 | `cloudflare-access-service-token` | automatic | `cloudflare` (same token, no extra permission) | documentation read, **not verified live** |
+| `cloudflare-r2-credentials` | automatic | `cloudflare` (token that may create account-owned API tokens) | documentation read, **not verified live** |
 | `cloudflare-turnstile` | automatic | `cloudflare-turnstile` | **not verified** |
 | `supabase-api-key`, `supabase-service-role` | automatic | `supabase` | documentation read, field names **not verified** |
 | `supabase-db-password` | automatic | `supabase` (token with *Database config: Write*) | documentation read, **not verified live** |
@@ -46,7 +47,8 @@ Given under `params` of the inventory entry. Source: [`packages/providers/src`](
 | `random-hex`, `random-base64` | `bytes`: integer 8 to 128, default 32 |
 | `random-uuid` | none |
 | `anthropic-api-key-browser` | `workspace` (optional, selectable from the discovered `anthropic.workspace` resources, default `Default`) |
-| `cloudflare-token` | `accountId` (string, required, may come from the integration default), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`), `zoneId` (optional, needed for zone-bound permissions) |
+| `cloudflare-token` | `accountId` (string, required, may come from the integration default), `permissions` (string[] of permission group names, required, for example `["Workers Scripts Write"]`), `zoneId` (optional, needed for zone-bound permissions), `zones` (optional string[] of zone names, resolved through the API), `allZones` (optional, `true` = every zone of the account) |
+| `cloudflare-r2-credentials` | `accountId` (required, may come from the integration default), `value` (required: `secretAccessKey` or `accessKeyId`, the half this entry receives), `companionEntry` (required: inventory id of the entry that receives the other half), `access` (required: `read`, `write`, `admin`), `buckets` (optional string[]; not with `admin`), `jurisdiction` (optional: `default`, `eu`, `fedramp`) |
 | `cloudflare-access-service-token` | `accountId` (required, may come from the integration default), `clientIdTarget` (required: inventory id of the secret entry that receives the client ID), `duration` (`8760h` default, `720h`, `2160h`, `forever`) |
 | `cloudflare-turnstile` | `accountId` (required), `sitekey` (required) |
 | `openai` | `projectId` (required, `^proj_[A-Za-z0-9]+$`, selectable from the discovered `openai.project` resources) |
@@ -92,6 +94,36 @@ Before anything is issued the entry is validated against it (`validateEntryParam
 `resend-api-key`: `domainId` is required when `permission` is `sending_access` (also when `permission` is omitted) and not used for `full_access`.
 `cloudflare-token`: `zoneId` is needed when a permission group applies to a zone only (for example *Workers Routes Write*); the token then gets a second policy on that zone. Presets: *Worker deploy* (*Workers Scripts Write*, *Account Settings Read*), *Worker deploy with custom domain* (adds *Workers Routes Write*, needs a zone).
 
+#### Several zones, Terraform and Cloudflare for SaaS
+
+The zone-bound policy can cover more than one zone:
+
+- `zoneId`: one zone by id (as before).
+- `zones`: a list of zone **names**, for example `["acme.example", "acme.test"]`. Each name is resolved through `GET /zones?name=<name>&account.id=<account>` (exact name match, lower-cased); the ids go into one policy. A name that does not resolve aborts the issuance with the names (fail closed), and no token is created. Resolving needs a connection token that may read zones. `zoneId` and `zones` can be combined.
+- `allZones: true`: the policy uses the resource `{ "com.cloudflare.api.account.<account>": { "com.cloudflare.api.account.zone.*": "*" } }`, i.e. every zone of the account, **also zones created later**. It cannot be combined with `zoneId` or `zones`, and the preflight warns about the reach. No zone lookup is made.
+
+Presets on the `permissions` parameter (the lists live in `packages/providers/src/cloudflare.ts` and are covered by a test; an entry can always set `permissions` itself):
+
+| Preset | Permission groups | Needs |
+|---|---|---|
+| `terraform-plan` | Account Settings Read, Zone Read, DNS Read, Zone Settings Read, Page Rules Read, Config Settings Read, Workers Routes Read, Workers Scripts Read, Workers R2 Storage Read, Access: Apps and Policies Read, Turnstile Sites Read, Cloudflare Pages Read | `zones` or `allZones` |
+| `terraform-apply` | Account Settings Read, Zone Read, DNS Write, Zone Settings Write, Page Rules Write, Config Settings Write, Workers Routes Write, Workers Scripts Write, Workers R2 Storage Write, Access: Apps and Policies Write, Turnstile Sites Write, Cloudflare Pages Write | `zones` or `allZones` |
+| `saas-custom-hostnames` | SSL and Certificates Write, Zone Read | `zoneId` (or `zones`) |
+
+Zone-level groups (DNS, Zone Settings, Page Rules, Config Settings, Workers Routes, SSL and Certificates, Zone) go to the zone policy, the others to the account policy. The group names are the ones the Cloudflare permission-group list is expected to show; **none was checked against a live account**. A name the account does not list stops the issuance and is named in the error (fail closed). Cloudflare for SaaS custom hostnames are managed under the zone's SSL and certificates; no separate "Custom Hostnames" group is known, and if the account lists one, add it to `permissions`. Use separate entries (and tokens) for plan and apply so the read-only token cannot change anything. The account-level `Workers R2 Storage` groups cover R2 buckets managed by Terraform, not object access: use `cloudflare-r2-credentials` for that.
+
+### Cloudflare R2 S3 credentials (access key ID and secret access key together)
+
+`cloudflare-r2-credentials` issues the S3 key pair for R2 from one API token. Cloudflare derives the S3 credentials from an API token: the **Access Key ID is the token id** and the **Secret Access Key is the SHA-256 (hex) of the token value**. The provider creates an account-owned token (`POST /accounts/<account>/tokens`) restricted to R2 and derives both values locally; the token value itself is never stored.
+
+- Attach it to **one** of the two entries. `value` says which half this entry receives (`secretAccessKey` or `accessKeyId`), `companionEntry` names the entry for the other half. Both are written in the same commit; the review lists the companion (name, targets, fingerprint, never the value). Every issuance creates a new token, so both entries change together. Two pairs (for example app storage and a Terraform state bucket) are two token entries, each with its own companion.
+- `access`: `read` (*Workers R2 Storage Bucket Item Read*), `write` (item read and write) or `admin` (account-level *Workers R2 Storage Read* and *Write*, also manages buckets). `buckets` limits read and write to `com.cloudflare.edge.r2.bucket.<account>_<jurisdiction>_<bucket>` resources; without it the account resource is used (all buckets). `admin` cannot be limited to buckets.
+- Expiry: `expires_on` is always set, from the entry's `ttlDays` (default 90).
+- Revoke deletes the token (`DELETE /accounts/<account>/tokens/<id>`; already gone counts as done).
+- Verify: the token is read through the connection (status, expiry). With a `bucket` and when the entry holds the secret access key, an S3 `ListObjectsV2` (`max-keys=1`) on the first bucket is signed with SigV4 (`node:crypto`, region `auto`, service `s3`) against `https://<account>.r2.cloudflarestorage.com` (`<account>.eu.r2...` for `eu`). Without a bucket only the token is checked: the token value is not available at verify time (the entry holds only its hash), so the planned `GET /accounts/<id>/r2/buckets` probe with the token itself is not possible.
+
+Not verified live: the permission group names, whether the connection may create account-owned tokens (it needs the account-level permission to edit API tokens; the *Create additional tokens* template is a user token), the `all buckets` resource form and the S3 derivation against a real bucket. The SigV4 signer is checked against the AWS test vector `get-vanilla`.
+
 Parameters can be defaults of the integration (`integrationDefaults` in the inventory, only parameters marked `integrationDefault`: `accountId` for Cloudflare, `baseUrl` for Grafana). They apply when an entry does not set the parameter.
 `discover` lists resources of the connected integration read-only; the portal offers **one** suggestion at most (project name contains repository and stage; zone or domain name contains the repository; a single account) and never applies it by itself. Ambiguous or weak matches give no suggestion.
 The preflight (read-only, before prepare and in the dry run for humans) checks that the chosen resource belongs to the integration and names it, for example `Supabase-Projekt acme-app-staging (ref abc)`. A sure mismatch (`fail`) stops the issue with `409` / `code: "preflight_failed"`; unreadable lists are warnings.
@@ -113,7 +145,7 @@ New read endpoints (all `GET`, with the stored token of the integration). **Not 
 | `GET api.revenuecat.com/v2/projects/<id>/apps/<app>/public_api_keys` | public SDK keys (`items[].key`, `environment` = `production` or `sandbox`, `created_at`) | API reference read. Sandbox keys are always listed; RC Checkout keys are omitted; production keys of Stripe/Web Billing apps are omitted when the linked Stripe account is test-only. **Not verified:** the key prefixes (`appl_`, `goog_`, `amzn_`, `rcb_`, `rcb_sb_`, `strp_`, `roku_`) and the exact shape of `next_page` (a URL according to the reference; secret-desk never follows it and continues with `starting_after` = id of the last item) |
 | `GET <baseUrl>/api/health`, `GET <baseUrl>/api/serviceaccounts/search` | Grafana reachability, service accounts | not verified |
 
-Variables can load their value from a source (`from: { connection, kind, resource, field }`), with a fixed allowlist of public fields only: Supabase `ref`, `url`, `publishableKey` (never `service_role` or secret keys); Cloudflare `accountId`, `zoneId`, zone `name`, Turnstile `sitekey`; Resend `domainId`, `name`; RevenueCat project `id`, `name`, app `id`, `name`, `type`, and the public SDK keys `production` and `sandbox` of an app (never a secret key; if an app has several keys for an environment, the newest by `created_at` is used). Not implemented: Grafana stack (`grafana.stack`: needs the Grafana Cloud API) and a Stripe publishable key (no read endpoint with a restricted key).
+Variables can load their value from a source (`from: { connection, kind, resource, field }`), with a fixed allowlist of public fields only: Supabase `ref`, `url`, `publishableKey` (never `service_role` or secret keys); Cloudflare `accountId` (from `GET /accounts`; a configuration value, not a secret: keep `CLOUDFLARE_ACCOUNT_ID` as a variable with this source, normalize says so for a secret of that name), `zoneId`, zone `name`, Turnstile `sitekey`; Resend `domainId`, `name`; RevenueCat project `id`, `name`, app `id`, `name`, `type`, and the public SDK keys `production` and `sandbox` of an app (never a secret key; if an app has several keys for an environment, the newest by `created_at` is used). Not implemented: Grafana stack (`grafana.stack`: needs the Grafana Cloud API) and a Stripe publishable key (no read endpoint with a restricted key).
 
 ## RevenueCat via the browser
 

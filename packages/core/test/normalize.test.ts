@@ -225,6 +225,30 @@ variables:
     expect(find(planOf(one).changes, "manual-only:secret:acc-id")!.reasons[0]!.code).toBe("cloudflare-access-companion");
   });
 
+  it("switches an R2 secret access key to its provider, proposes the matching key id and says the account id is configuration", () => {
+    const entry = (id: string, name: string, repo = "web") => `  - id: ${id}
+    name: ${name}
+    stage: shared
+    service: cloudflare
+    provider: manual
+    expiry: none
+    places: [{ repo: ${repo}, scope: repository }]
+`;
+    const yaml = (extra: string) => YAML.replace("variables:\n", `${extra}variables:\n`);
+    const two = yaml(
+      entry("r2-secret", "CLOUDFLARE_R2_SECRET_ACCESS_KEY") + entry("r2-id", "CLOUDFLARE_R2_ACCESS_KEY_ID") + entry("state-secret", "CLOUDFLARE_R2_STATE_SECRET_ACCESS_KEY") + entry("state-id", "CLOUDFLARE_R2_STATE_ACCESS_KEY_ID") + entry("acct", "CLOUDFLARE_ACCOUNT_ID"),
+    );
+    const { changes } = planOf(two);
+    // each pair picks its own id entry (same infix), the other parameters stay to be completed
+    expect(find(changes, "provider:secret:r2-secret")).toMatchObject({ autoApplicable: true, missingParams: ["accountId", "access"], after: [{ provider: "cloudflare-r2-credentials", paramKeys: ["companionEntry", "value"] }] });
+    expect(find(changes, "provider:secret:state-secret")!.missingParams).toEqual(["accountId", "access"]);
+    expect(find(changes, "manual-only:secret:r2-id")!.reasons[0]!.code).toBe("cloudflare-r2-companion");
+    expect(find(changes, "manual-only:secret:state-id")!.reasons[0]!.code).toBe("cloudflare-r2-companion");
+    expect(find(changes, "manual-only:secret:acct")!.reasons[0]!.code).toBe("cloudflare-account-id-is-config");
+    // no matching id entry: nothing is guessed
+    expect(find(planOf(yaml(entry("r2-secret", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"))).changes, "provider:secret:r2-secret")!.missingParams).toEqual(["accountId", "access", "companionEntry"]);
+  });
+
   it("proposes no stage when the places contradict the name", () => {
     const yaml = YAML.replace(`value: ${VALUE_URL}\n    places: [{ repo: web, scope: environment, environment: staging }]`, `value: ${VALUE_URL}\n    places: [{ repo: web, scope: environment, environment: production }]`);
     expect(find(planOf(yaml).changes, "stage:variable:v-url-staging")).toBeUndefined();

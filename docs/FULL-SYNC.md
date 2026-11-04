@@ -210,8 +210,9 @@ status --live` lists every secret with its status against GitHub.
 - **Read permissions of integration tokens.** A Cloudflare token from the template *Create additional tokens* cannot list
   accounts or zones, so sources of kind `cloudflare.account` and `cloudflare.zone` cannot be read with it. Keep those
   variables as fixed values, or connect a token that may read them.
-- **One zone per Cloudflare token.** Zone-bound permissions (DNS, Workers Routes, Zone Settings) need a `zoneId`; the
-  provider binds one zone per token. A token for several zones has to be created by hand.
+- **Zones of a Cloudflare token.** Zone-bound permissions (DNS, Workers Routes, Zone Settings) need `zoneId`, a list of zone
+  names in `zones` (resolved through the API, which needs a token that may read zones) or `allZones: true` (every zone of the
+  account, also future ones). See [PROVIDERS.md](PROVIDERS.md#several-zones-terraform-and-cloudflare-for-saas).
 - **Turnstile secrets.** Renewing a widget's secret starts a rotation at Cloudflare; a second renewal of the same widget
   fails until the first one is finished. Keep one entry per widget.
 - **Organization secrets** are not written by this flow; the GitHub token needs the organization permission to see them.

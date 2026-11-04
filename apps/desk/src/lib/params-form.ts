@@ -58,7 +58,7 @@ export function toDraft(specs: readonly ParamSpec[], values: Draft): Draft {
   for (const s of specs) {
     const v = values[s.key];
     if (isBlank(v)) continue;
-    out[s.key] = s.type === "integer" ? String(v) : Array.isArray(v) ? [...v] : v;
+    out[s.key] = s.type === "integer" || (s.type === "enum" && typeof v === "boolean") ? String(v) : Array.isArray(v) ? [...v] : v;
   }
   return out;
 }

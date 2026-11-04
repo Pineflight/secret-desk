@@ -77,6 +77,8 @@ const T = {
   switchStripeWebhook: "Das Webhook-Secret entsteht beim Anlegen des Endpunkts ueber die Stripe-API",
   switchAccess: "Client-ID und Secret des Access-Service-Tokens entstehen zusammen ueber die Cloudflare-API",
   switchAccessIdOnly: "Die Client-ID kommt zusammen mit CLOUDFLARE_ACCESS_CLIENT_SECRET aus einer Ausstellung: dort als Begleiteintrag eintragen",
+  switchR2: "Access Key ID und Secret Access Key entstehen zusammen ueber die Cloudflare-API (R2-Token)",
+  switchR2IdOnly: "Die Access Key ID kommt zusammen mit dem Secret Access Key aus einer Ausstellung: dort als Begleiteintrag eintragen",
   switchGrafana: "Das Token laesst sich fuer den Service-Account ueber die Grafana-API erzeugen",
   paramsNeeded: "Danach die Parameter vervollstaendigen (Projekt)",
   paramsNeededGeneric: "Danach die Parameter vervollstaendigen",
@@ -140,6 +142,25 @@ function accessClientIdOf(inv: Inventory, entry: SecretEntry): Record<string, st
   const hits = inv.secrets.filter((o) => o.name === "CLOUDFLARE_ACCESS_CLIENT_ID" && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
   return hits.length === 1 ? { clientIdTarget: hits[0]!.id } : {};
 }
+/** CLOUDFLARE_R2_[<infix>_]SECRET_ACCESS_KEY and the matching ..._ACCESS_KEY_ID (for example one pair for app storage, one for Terraform state). */
+const R2_SECRET_RE = /^CLOUDFLARE_R2_((?:[A-Z0-9]+_)*)SECRET_ACCESS_KEY$/;
+const R2_ID_NAME = (infix: string): string => `CLOUDFLARE_R2_${infix}ACCESS_KEY_ID`;
+const R2_ID_RE = /^CLOUDFLARE_R2_(?:[A-Z0-9]+_)*ACCESS_KEY_ID$/;
+
+/** The only access key id secret of the same R2 pair (same infix, repositories and stage), if there is exactly one. */
+function r2KeyIdOf(inv: Inventory, entry: SecretEntry): Record<string, string> {
+  const infix = R2_SECRET_RE.exec(entry.name)?.[1] ?? "";
+  const repos = new Set(entry.places.map((p) => p.repo));
+  const sameRepos = (o: SecretEntry): boolean => o.places.length > 0 && o.places.every((p) => repos.has(p.repo)) && [...repos].every((r) => o.places.some((p) => p.repo === r));
+  const hits = inv.secrets.filter((o) => o.name === R2_ID_NAME(infix) && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
+  return hits.length === 1 ? { companionEntry: hits[0]!.id } : {};
+}
+const r2Credentials: ProviderSwitch = { provider: "cloudflare-r2-credentials", fixed: { value: "secretAccessKey" }, required: ["accountId", "access", "companionEntry"], reason: { code: "cloudflare-r2-credentials", text: T.switchR2 }, paramsText: T.paramsNeededGeneric, propose: r2KeyIdOf };
+
+/** Provider switch for a (normalized) secret name. */
+function switchOf(target: string): ProviderSwitch | undefined {
+  return PROVIDER_SWITCHES[target] ?? (R2_SECRET_RE.test(target) ? r2Credentials : undefined);
+}
 const supabaseKey = (type: "secret" | "publishable"): ProviderSwitch => ({ provider: "supabase-api-key", fixed: { type }, required: ["projectRef"], reason: { code: "supabase-api-key", text: T.switchApiKey }, paramsText: T.paramsNeeded });
 const supabaseDbPassword: ProviderSwitch = { provider: "supabase-db-password", fixed: {}, required: ["projectRef"], reason: { code: "supabase-db-password", text: T.switchDbPassword }, paramsText: T.paramsNeeded };
 const grafanaToken: ProviderSwitch = { provider: "grafana-service-account-token", fixed: {}, required: ["baseUrl", "serviceAccountId"], reason: { code: "grafana-service-account-token", text: T.switchGrafana }, paramsText: T.paramsNeededGeneric };
@@ -164,7 +185,8 @@ const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
   { test: /ANTHROPIC/i, code: "anthropic-browser", text: "Anthropic legt Schluessel nur in der Console an: secret-desk erzeugt sie ueber den angemeldeten Browser, die Integration Anthropic prueft und deaktiviert sie per Admin-API" },
   { test: /^STRIPE_SECRET_KEY$/, code: "stripe-restricted-key", text: "Restricted Keys erzeugt Stripe nur im Dashboard: nur von Hand" },
   { test: /^CLOUDFLARE_ACCESS_CLIENT_ID$/, code: "cloudflare-access-companion", text: T.switchAccessIdOnly },
-  { test: /^CLOUDFLARE_R2_/, code: "cloudflare-not-yet", text: "Cloudflare koennte das per API, secret-desk hat dafuer noch keinen Anbieter: vorerst von Hand" },
+  { test: /^CLOUDFLARE_ACCOUNT_ID$/, code: "cloudflare-account-id-is-config", text: "Die Cloudflare-Konto-Kennung ist ein Konfigurationswert, kein Secret: als Variable anlegen, ihr Wert kommt aus der Integration (Quelle cloudflare.account, Feld accountId)" },
+  { test: R2_ID_RE, code: "cloudflare-r2-companion", text: T.switchR2IdOnly },
 ];
 /** Jeder andere Eintrag mit provider manual: in der Liste, damit sichtbar ist, was von Hand bleibt. */
 const MANUAL_FALLBACK = { code: "no-provider", text: "Fuer diesen Wert hat secret-desk keinen Anbieter: von Hand" };
@@ -331,7 +353,7 @@ export function planNormalization(inv: Inventory, config: { naming?: Partial<Nam
 function secretChanges(inv: Inventory, row: Row, before: NormalizationEntryState): NormalizationChange[] {
   const s = row.entry as SecretEntry;
   if (s.provider !== "manual") return [];
-  const sw = PROVIDER_SWITCHES[row.target];
+  const sw = switchOf(row.target);
   if (sw) {
     const proposed = sw.propose?.(inv, s) ?? {};
     const keys = [...new Set([...Object.keys(s.params), ...Object.keys(sw.fixed), ...Object.keys(proposed)])].sort();
@@ -392,7 +414,7 @@ export async function applyNormalization(inventory: InventoryStore, config: { na
     else if (c.kind === "stage") e.stage = after.stage;
     else if (c.kind === "provider") {
       e.provider = after.provider!;
-      const sw = PROVIDER_SWITCHES[analyzeName(after.name, namingOf(config)).suggested];
+      const sw = switchOf(analyzeName(after.name, namingOf(config)).suggested);
       const entry = inventory.data.secrets.find((x) => x.id === after.id);
       // Params the entry already has are never overwritten by a proposal.
       const proposed = sw && entry ? Object.fromEntries(Object.entries(sw.propose?.(inventory.data, entry) ?? {}).filter(([k]) => entry.params[k] === undefined)) : {};

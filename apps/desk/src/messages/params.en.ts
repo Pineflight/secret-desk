@@ -119,6 +119,7 @@ export default {
   "params.conn.notConnected": "Integration not connected.",
   "params.kind.cloudflare.account": "Cloudflare accounts",
   "params.kind.cloudflare.zone": "Cloudflare zones",
+  "params.kind.cloudflare.zoneName": "Cloudflare zone names",
   "params.kind.cloudflare.permissionGroups": "Cloudflare permissions",
   "params.kind.cloudflare.turnstileWidget": "Turnstile widgets",
   "params.kind.supabase.project": "Supabase projects",

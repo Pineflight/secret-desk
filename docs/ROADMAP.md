@@ -10,7 +10,7 @@ service, not only against mocks; [PROVIDERS.md](PROVIDERS.md) has the per-endpoi
 | Provider | Creates | Variables it can load | Verified live |
 |---|---|---|---|
 | Local | random hex, base64, UUID | n/a | yes |
-| Cloudflare | API tokens (account and single-zone permissions), Turnstile widget secrets, Access service tokens (client ID and secret in one issuance) | account id, zone id, Turnstile site key | API tokens and Turnstile secrets: yes (2026-11-02); Access service tokens: no |
+| Cloudflare | API tokens (account permissions and zone permissions for one zone, several named zones or all zones; presets for Terraform plan/apply and Cloudflare for SaaS), Turnstile widget secrets, Access service tokens (client ID and secret in one issuance), R2 S3 credentials (access key ID and secret access key in one issuance) | account id, zone id, Turnstile site key | API tokens and Turnstile secrets: yes (2026-11-02); several zones, presets, Access service tokens, R2 S3 credentials: no |
 | Supabase | API keys (secret, publishable), reads the service role key, database password | project ref, project URL, publishable key | secret keys and service role read: yes (2026-11-02); database password: no |
 | Stripe | webhook endpoints with their signing secret (sandbox and live), one connection per account and mode (`stripe:<acct_id>:<mode>`) with an account check | n/a | sandbox: yes (2026-11-02); per-account connections and the account check: no |
 | Resend | sending API keys limited to one domain | domain id, domain name | yes (2026-11-02) |
@@ -55,8 +55,6 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 | Item | Approach |
 |---|---|
 | GitHub, Supabase, Peecho, VesselAPI | A facade descriptor each, behind the same guided sign-in (their recipes exist; Supabase and VesselAPI are verified live, Peecho's is read-only and read live in part). OpenAI has its facade now (key creation verified live 2026-11-03). |
-| Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
-| Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |
 | VAPID key pairs | As a provider that writes the private key as a secret and the public key as a variable |
 | Organization secrets | The `organization` scope exists in the schema; the portal form does not offer it yet |
