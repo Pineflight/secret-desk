@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { cloudflareR2Provider as provider, deriveS3Credentials, R2_PERMISSIONS } from "../src/cloudflare-r2.js";
+import { cloudflareR2Provider as provider, deriveS3Credentials, R2_PERMISSIONS, S3_RETRY_PAUSES_MS } from "../src/cloudflare-r2.js";
 import { validateEntryParams } from "@secret-desk/core";
 import { CONN_TOKEN, connections, issueCtx, revokeCtx, routeFetch, verifyCtx, type Route } from "./helpers.js";
 
@@ -119,9 +119,26 @@ describe("cloudflare-r2-credentials", () => {
   });
 
   it("fails the S3 check on a 403 and uses the EU endpoint for that jurisdiction", async () => {
+    S3_RETRY_PAUSES_MS.splice(0, S3_RETRY_PAUSES_MS.length, 0, 0);
     const m = routeFetch({ url: `${TOKENS}/tok1`, reply: { body: { result: { status: "active" } } } }, { url: "https://acc1.eu.r2.cloudflarestorage.com/app-data", reply: { status: 403, body: "<Error/>" } });
     const checks = await provider.verify!(verifyCtx(m.fetch, { ...params, jurisdiction: "eu" }, { value: "s", externalId: "tok1", conns: ["cloudflare"] }));
     expect(checks.find((c) => c.id === "s3")).toMatchObject({ status: "fail", actual: "HTTP 403" });
+  });
+
+  it("retries a 401 from the S3 endpoint until the new token works there", async () => {
+    S3_RETRY_PAUSES_MS.splice(0, S3_RETRY_PAUSES_MS.length, 0, 0, 0);
+    const m = routeFetch({ url: `${TOKENS}/tok1`, reply: { body: { result: { status: "active" } } } });
+    let s3Calls = 0;
+    const fetchStub = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("r2.cloudflarestorage.com")) {
+        s3Calls += 1;
+        return new Response(s3Calls < 2 ? "<Error/>" : "<ListBucketResult/>", { status: s3Calls < 2 ? 401 : 200 });
+      }
+      return m.fetch(url, init);
+    }) as typeof fetch;
+    const checks = await provider.verify!(verifyCtx(fetchStub, params, { value: "s", externalId: "tok1", conns: ["cloudflare"] }));
+    expect(checks.find((c) => c.id === "s3")!.status).toBe("pass");
+    expect(s3Calls).toBe(2);
   });
 
   it("only checks the token without a bucket or when the entry holds the key id", async () => {

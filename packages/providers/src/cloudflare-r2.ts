@@ -172,10 +172,22 @@ async function preflight(ctx: PreflightContext): Promise<PreflightResult> {
 /** S3 ListObjectsV2 (max-keys=1) with the key pair: proves that the derived credentials work and reach the bucket. */
 async function s3List(ctx: VerifyContext, accountId: string, bucket: string, creds: { accessKeyId: string; secretAccessKey: string }): Promise<{ status: number }> {
   const url = `https://${s3Host(accountId, jurisdictionOf(ctx.params))}/${encodeURIComponent(bucket)}?list-type=2&max-keys=1`;
-  const signed = signRequest({ method: "GET", url, region: "auto", service: "s3", ...creds, now: ctx.now, contentSha256Header: true });
-  const r = await probe(ID, ctx, url, { method: "GET", headers: signed.headers }, [creds.secretAccessKey]);
-  return { status: r.status };
+  // A new token reaches the S3 endpoint only after a few seconds (live on 2026-11-04: 401 right away, 200 after 5 s), so
+  // 401/403 are retried with growing pauses before they count.
+  let status = 0;
+  const started = Date.now();
+  const base = ctx.now instanceof Date ? ctx.now.getTime() : started;
+  for (const pauseMs of S3_RETRY_PAUSES_MS) {
+    if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+    const signed = signRequest({ method: "GET", url, region: "auto", service: "s3", ...creds, now: new Date(base + (Date.now() - started)), contentSha256Header: true });
+    status = (await probe(ID, ctx, url, { method: "GET", headers: signed.headers }, [creds.secretAccessKey])).status;
+    if (status !== 401 && status !== 403) break;
+  }
+  return { status };
 }
+
+/** Pauses before each S3 attempt; exported for tests. */
+export const S3_RETRY_PAUSES_MS: number[] = [0, 3_000, 6_000, 12_000];
 
 async function verify(ctx: VerifyContext): Promise<Check[]> {
   const accountId = typeof ctx.params["accountId"] === "string" ? ctx.params["accountId"] : undefined;
