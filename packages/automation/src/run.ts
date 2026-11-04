@@ -340,7 +340,7 @@ class Runner {
       this.#aborted();
       if (await conditionMet(this.driver, until).catch(() => false)) return;
       if (await sudoPageShown(this.driver, flow)) break;
-      if (Date.now() >= deadline) return this.fail("step", "Weder die erwartete Seite noch die Bestaetigung des Anbieters ist erschienen.");
+      if (Date.now() >= deadline) return this.fail("step", "Neither the expected page nor the confirmation page of the provider appeared.");
       await new Promise((r) => setTimeout(r, pollMs));
     }
     if (!this.hooks.access) return this.#waitForHuman("pause", flow.humanHint, until);

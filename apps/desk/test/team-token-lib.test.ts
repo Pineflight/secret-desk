@@ -120,3 +120,18 @@ describe("catalog", () => {
     expect(de.sort()).toEqual(en.sort());
   });
 });
+
+describe("team token steps with the delete step", () => {
+  it("shows the revoking step only when the timeline has it", () => {
+    const plain = teamTokenSteps(run({ status: "running", timeline: [{ phase: "opening", state: "active", at: "" }] })).map((s) => s.phase);
+    expect(plain).not.toContain("revoking");
+    const replaced = teamTokenSteps(run({ status: "running", timeline: [{ phase: "revoking", state: "active", at: "" }] }));
+    expect(replaced.map((s) => s.phase)).toEqual(["opening", "creating", "testing", "revoking", "ready"]);
+  });
+  it("has catalog texts for every new key in both languages", () => {
+    for (const lang of ["en", "de"] as const) {
+      const m = messages[lang] as Record<string, string>;
+      for (const k of ["teamToken.step.revoking", "run.access.method.mobile", "run.access.problem.timeout", "run.access.mobileNumber", "run.signInTitle", "teamToken.pending.reason"]) expect(m[k], `${lang} ${k}`).toBeTruthy();
+    }
+  });
+});

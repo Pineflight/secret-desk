@@ -9,7 +9,7 @@ import { createRuntime, type Runtime } from "../src/runtime.js";
 import { checkTeamSyncAccess, teamSyncStatus, teamTokenSource } from "../src/team-sync.js";
 import { readTeamTokenRecord, retireTeamToken, writeTeamTokenRecord } from "../src/team-token-meta.js";
 import { rightsCover, teamRights, teamRightsLabels, teamRightsList, teamRightsQuery } from "../src/team-token-rights.js";
-import { cancelTeamToken, checkTeamTokenSession, dismissTeamTokenRevocation, getTeamTokenInfo, startTeamToken, teamTokenVars, verifyTeamToken } from "../src/team-token.js";
+import { cancelTeamToken, checkTeamTokenSession, dismissTeamTokenRevocation, getTeamTokenInfo, startTeamToken, submitTeamTokenAccess, submitTeamTokenCode, submitTeamTokenCredentials, teamTokenVars, verifyTeamToken } from "../src/team-token.js";
 
 const NEW_TOKEN = "github_" + "pat_made_up_new_team_token_1";
 const OLD_TOKEN = "github_" + "pat_made_up_old_team_token_0";
@@ -21,21 +21,92 @@ const human = { kind: "human", name: "alice" } as const;
 const agent = { kind: "agent", name: "claude" } as const;
 
 interface Site {
-  /** false: GitHub redirects to its sign-in page until the test flips it. */
+  /** false: GitHub redirects to its sign-in page until the sign-in form is submitted (or the test flips it). */
   signedIn: boolean;
-  /** false: the form is hidden behind "Confirm access" until the test flips it. */
+  /** false: the form is hidden behind "Confirm access" until the confirmation is accepted. */
   confirmed: boolean;
   drivers: FakeDriver[];
+  /** What the sudo page accepts. */
+  sudoCode: string;
+  sudoPassword: string;
+  /** Typed into the sign-in form, in order. */
+  typed: string[];
+  /** Tokens deleted at GitHub by the delete run. */
+  deleted: string[];
+  /** Names of tokens that exist at GitHub (listed on the tokens page). */
+  existing: string[];
+  /** The delete button throws. */
+  deleteBroken: boolean;
+  /** The delete button leads to "Confirm access" first. */
+  deleteSudo: boolean;
+  /** Called when the page shows the GitHub Mobile number; the test approves with `approve()`. */
+  approve(): void;
 }
 
-/** A fake GitHub token form: the recipe's selectors, the new token shown after the second click. */
+const FORM_FIELDS = [FIELD, 'radio "Only select repositories"', 'button "Select repositories"', 'Platzhalter "Search for a repository"', 'button "Generate token"'];
+const SUDO_VISIBLE = ['button "Use GitHub Mobile"', 'Text "Use your password"', 'Text "Use your authenticator app"'];
+const SUDO_FIELDS = ['css input[name="sudo_app_otp"]', 'css input[name="sudo_password"]'];
+const LIST = "https://github.com/settings/personal-access-tokens";
+
+/** A fake GitHub: sign-in page, "Confirm access", the token form and the token list. The recipes' selectors, the new token shown after the second click. */
 function formDriver(site: Site): FakeDriver {
+  const showSudo = (drv: FakeDriver): void => {
+    drv.pageText.add("Confirm access");
+    for (const v of SUDO_VISIBLE) drv.visible.add(v);
+    for (const v of SUDO_FIELDS) drv.visible.delete(v);
+    drv.pageText.delete("Enter the digits shown below");
+    drv.visible.delete('button "Verify" (exact)');
+    drv.visible.delete('button "Confirm" (exact)');
+  };
+  const leaveSudo = (drv: FakeDriver): void => {
+    site.confirmed = true;
+    drv.pageText.delete("Confirm access");
+    for (const v of [...SUDO_VISIBLE, ...SUDO_FIELDS, 'button "Verify" (exact)', 'button "Confirm" (exact)']) drv.visible.delete(v);
+    for (const v of FORM_FIELDS) drv.visible.add(v);
+  };
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
     on: (e, drv) => {
       if (e.action === "goto") {
+        if (e.key.startsWith("https://github.com/login")) {
+          drv.url = site.signedIn ? "https://github.com/settings/profile" : e.key;
+          if (!site.signedIn) for (const v of ["css #login_field", "css #password", 'css input[type=submit][value="Sign in"]']) drv.visible.add(v);
+          return;
+        }
         drv.url = site.signedIn ? e.key : "https://github.com/login";
-        if (site.signedIn && site.confirmed) for (const v of [FIELD, 'radio "Only select repositories"', 'button "Select repositories"', 'Platzhalter "Search for a repository"', 'button "Generate token"']) drv.visible.add(v);
+        if (site.signedIn && e.key.startsWith("https://github.com/settings/personal-access-tokens/new")) {
+          if (site.confirmed) for (const v of FORM_FIELDS) drv.visible.add(v);
+          else showSudo(drv);
+        }
+        if (site.signedIn && e.key === LIST) for (const n of site.existing) if (!site.deleted.includes(n)) drv.visible.add(`link "${n}" (exact)`);
+        return;
+      }
+      if (e.key === 'css input[type=submit][value="Sign in"]') {
+        site.signedIn = true;
+        drv.url = "https://github.com/settings/profile";
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Use GitHub Mobile"') {
+        drv.pageText.add("Enter the digits shown below");
+        drv.texts.set("css main", "Confirm access Signed in as @someone We sent you a verification request on your GitHub Mobile app. Enter the digits shown below to enter sudo mode. 17");
+        return;
+      }
+      if (e.action === "click" && e.key === 'Text "Use your authenticator app"') {
+        drv.visible.add('css input[name="sudo_app_otp"]');
+        drv.visible.add('button "Verify" (exact)');
+        return;
+      }
+      if (e.action === "click" && e.key === 'Text "Use your password"') {
+        drv.visible.add('css input[name="sudo_password"]');
+        drv.visible.add('button "Confirm" (exact)');
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Verify" (exact)') {
+        if (drv.filled.get('css input[name="sudo_app_otp"]') === site.sudoCode) leaveSudo(drv);
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Confirm" (exact)') {
+        if (drv.filled.get('css input[name="sudo_password"]') === site.sudoPassword) leaveSudo(drv);
         return;
       }
       if (e.action === "click" && e.key.startsWith("option ")) return;
@@ -50,6 +121,27 @@ function formDriver(site: Site): FakeDriver {
       if (e.action === "click" && e.key === "css [role=dialog] button[type=submit]") {
         drv.visible.add("css #new-access-token");
         drv.texts.set("css #new-access-token", NEW_TOKEN);
+        return;
+      }
+      // The delete run: list, token page, delete, confirm.
+      if (e.action === "click" && e.key.startsWith("link ")) {
+        drv.visible.add('button "Delete" (exact)');
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Delete" (exact)') {
+        if (site.deleteBroken) throw new Error("broken");
+        if (site.deleteSudo) {
+          drv.visible.delete('button "Delete" (exact)');
+          showSudo(drv);
+          return;
+        }
+        drv.visible.add('button "I understand, delete this token"');
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "I understand, delete this token"') {
+        for (const n of site.existing) if (!site.deleted.includes(n)) site.deleted.push(n);
+        for (const n of site.existing) drv.visible.delete(`link "${n}" (exact)`);
+        drv.url = LIST;
       }
     },
   });
@@ -67,7 +159,26 @@ interface Api {
 }
 
 async function setup(opts: { automation?: boolean; teamSync?: string; signedIn?: boolean; confirmed?: boolean } = {}) {
-  const site: Site = { signedIn: opts.signedIn ?? true, confirmed: opts.confirmed ?? true, drivers: [] };
+  const site: Site = {
+    signedIn: opts.signedIn ?? true,
+    confirmed: opts.confirmed ?? true,
+    drivers: [],
+    sudoCode: "424242",
+    sudoPassword: "made-up-sudo-pw-1",
+    typed: [],
+    deleted: [],
+    existing: [],
+    deleteBroken: false,
+    deleteSudo: false,
+    approve: () => {
+      for (const d of site.drivers) {
+        d.pageText.delete("Confirm access");
+        for (const v of [...SUDO_VISIBLE, ...SUDO_FIELDS]) d.visible.delete(v);
+        for (const v of FORM_FIELDS) d.visible.add(v);
+      }
+      site.confirmed = true;
+    },
+  };
   const api: Api = { bearers: [], paths: [], repo: { private: true, permissions: { push: true } }, newTokenStatus: 200 };
   const fetchMock = (async (input: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(input));
@@ -94,6 +205,7 @@ async function setup(opts: { automation?: boolean; teamSync?: string; signedIn?:
     env: { GH_TEST: MAIN_TOKEN } as unknown as NodeJS.ProcessEnv,
     fetch: fetchMock,
     automationDriver: () => formDriver(site),
+    automationAccess: { mobileTimeoutMs: 150, submitTimeoutMs: 100 },
   });
   return { rt, site, api };
 }
@@ -232,22 +344,179 @@ describe("team token run", () => {
     expect(site.drivers[0]!.calls.find((c) => c.includes("personal-access-tokens/new"))).toContain("contents=write&pull_requests=write&metadata=read");
   });
 
-  it("waits for sign-in and for the confirmation, shows both phases and goes on", async () => {
-    const { rt, site } = await setup({ signedIn: false, confirmed: false });
+  it("asks for the sign-in in the portal, types it on GitHub, wipes it and goes on", async () => {
+    const { rt, site } = await setup({ signedIn: false });
     startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
-    await until(() => rt.automation.state("team-token").status === "waiting-human");
-    expect(rt.automation.state("team-token").phase).toBe("signin");
-    // The human signs in; GitHub now asks "Confirm access".
-    site.signedIn = true;
-    const d = site.drivers[0]!;
-    d.url = "https://github.com/settings/profile";
-    await until(() => rt.automation.state("team-token").phase === "confirm");
-    expect(rt.automation.state("team-token").status).toBe("waiting-human");
-    for (const v of [FIELD, 'radio "Only select repositories"', 'button "Select repositories"', 'Platzhalter "Search for a repository"', 'button "Generate token"']) d.visible.add(v);
+    await until(() => rt.automation.state("team-token").ask?.type === "credentials");
+    const asked = rt.automation.state("team-token");
+    expect(asked.status).toBe("waiting-human");
+    expect(asked.phase).toBe("signin");
+    expect(asked.ask).toMatchObject({ type: "credentials", methods: [{ id: "email" }, { id: "google" }, { id: "apple" }] });
+    // Wrong method, missing password and an unknown method are refused before anything is typed.
+    expect(() => submitTeamTokenCredentials(rt, human, { method: "microsoft", username: "me@example.test", password: "x" })).toThrow(InventoryError);
+    expect(() => submitTeamTokenCredentials(rt, human, { method: "email", username: "me@example.test" })).toThrow(InventoryError);
+    expect(() => submitTeamTokenCredentials(rt, agent, { method: "email", username: "me@example.test", password: "x" })).toThrow(PolicyError);
+    const body = { method: "email", username: "me@example.test", password: "made-up-gh-password" };
+    submitTeamTokenCredentials(rt, human, body);
+    expect(body.password).toBe("");
     await until(() => finished(rt));
     const run = rt.automation.state("team-token");
     expect(run.status).toBe("done");
-    expect(run.timeline?.map((x) => x.phase)).toEqual(["opening", "signin", "confirm", "creating", "testing", "ready"]);
+    expect(run.timeline?.map((x) => x.phase)).toEqual(["opening", "signin", "creating", "testing", "ready"]);
+    const d = site.drivers[0]!;
+    expect(d.filled.get("css #login_field")).toBe("me@example.test");
+    expect(d.filled.get("css #password")).toBe("made-up-gh-password");
+    expect(d.closed).toBe(true);
+    expect(JSON.stringify([asked, run, await getTeamTokenInfo(rt, human)])).not.toContain("made-up-gh-password");
+    // Nothing is waiting any more.
+    expect(() => submitTeamTokenCredentials(rt, human, body)).toThrow(IssuanceError);
+  });
+
+  it("a GitHub sign-in that asks for a code is answered in the portal", async () => {
+    const { rt, site } = await setup({ signedIn: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "credentials");
+    const d = site.drivers[0]!;
+    // After the password GitHub shows the authenticator page instead of letting the browser in.
+    const submit = d.click.bind(d);
+    d.click = async (sel) => {
+      if (sel.css === 'input[type=submit][value="Sign in"]') {
+        d.visible.add("css #app_totp, #sms_totp, #otp");
+        d.visible.add("css button[type=submit]");
+        return;
+      }
+      if (sel.css === "button[type=submit]") {
+        site.signedIn = true;
+        d.visible.delete("css #app_totp, #sms_totp, #otp");
+        d.url = "https://github.com/settings/profile";
+        return;
+      }
+      return submit(sel);
+    };
+    submitTeamTokenCredentials(rt, human, { method: "email", username: "me@example.test", password: "made-up-gh-password" });
+    await until(() => rt.automation.state("team-token").needs === "mfa-code");
+    expect(rt.automation.state("team-token").status).toBe("waiting-human");
+    expect(() => submitTeamTokenCode(rt, human, { code: "x" })).toThrow(InventoryError);
+    submitTeamTokenCode(rt, human, { code: "123 456" });
+    await until(() => finished(rt));
+    expect(d.filled.get("css #app_totp, #sms_totp, #otp")).toBe("123456");
+    expect(rt.automation.state("team-token").status).toBe("done");
+  });
+
+  it("a refused sign-in ends the run with the reason and no password in it", async () => {
+    const { rt, site } = await setup({ signedIn: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "credentials");
+    const d = site.drivers[0]!;
+    const click = d.click.bind(d);
+    d.click = async (sel) => {
+      if (sel.css === 'input[type=submit][value="Sign in"]') return void d.pageText.add("Incorrect username or password");
+      return click(sel);
+    };
+    submitTeamTokenCredentials(rt, human, { method: "email", username: "me@example.test", password: "made-up-gh-password" });
+    await until(() => finished(rt));
+    const run = rt.automation.state("team-token");
+    expect(run.status).toBe("failed");
+    expect(run.failure?.code).toBe("rejected");
+    expect(JSON.stringify(run)).not.toContain("made-up-gh-password");
+  });
+
+  it("Confirm access with GitHub Mobile: the number is shown, the run goes on once the page leaves", async () => {
+    const { rt, site } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    const q = rt.automation.state("team-token");
+    expect(q.phase).toBe("confirm");
+    expect(q.status).toBe("waiting-human");
+    expect(q.ask).toMatchObject({ type: "access", stage: "choose", methods: ["mobile", "code", "password"], attempt: 1 });
+    expect(() => submitTeamTokenAccess(rt, human, { method: "passkey" })).toThrow(InventoryError);
+    expect(() => submitTeamTokenAccess(rt, human, { method: "code", code: "no" })).toThrow(InventoryError);
+    expect(() => submitTeamTokenAccess(rt, agent, { method: "mobile" })).toThrow(PolicyError);
+    submitTeamTokenAccess(rt, human, { method: "mobile" });
+    await until(() => (rt.automation.state("team-token").ask as { stage?: string } | null)?.stage === "mobile");
+    expect(rt.automation.state("team-token").ask).toEqual({ type: "access", stage: "mobile", number: "17" });
+    site.approve();
+    await until(() => finished(rt));
+    const run = rt.automation.state("team-token");
+    expect(run.status).toBe("done");
+    expect(run.timeline?.map((x) => x.phase)).toEqual(["opening", "confirm", "creating", "testing", "ready"]);
+    expect(run.ask ?? null).toBeNull();
+  });
+
+  it("GitHub Mobile not approved in time: a clear message and Try again, then another way works", async () => {
+    const { rt, site } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    submitTeamTokenAccess(rt, human, { method: "mobile" });
+    await until(() => {
+      const a = rt.automation.state("team-token").ask as { stage?: string; attempt?: number; problem?: string } | null;
+      return a?.stage === "choose" && a.attempt === 2;
+    });
+    expect(rt.automation.state("team-token").ask).toMatchObject({ problem: "timeout", attempt: 2 });
+    const body = { method: "password", password: site.sudoPassword };
+    submitTeamTokenAccess(rt, human, body);
+    expect(body.password).toBe("");
+    await until(() => finished(rt));
+    expect(rt.automation.state("team-token").status).toBe("done");
+  });
+
+  it("Confirm access with a code: a wrong code asks again, the right one goes on, the code is never kept", async () => {
+    const { rt, site } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    submitTeamTokenAccess(rt, human, { method: "code", code: "000000" });
+    await until(() => {
+      const a = rt.automation.state("team-token").ask as { stage?: string; attempt?: number } | null;
+      return a?.stage === "choose" && a.attempt === 2;
+    });
+    expect(rt.automation.state("team-token").ask).toMatchObject({ problem: "rejected" });
+    submitTeamTokenAccess(rt, human, { method: "code", code: site.sudoCode });
+    await until(() => finished(rt));
+    const run = rt.automation.state("team-token");
+    expect(run.status).toBe("done");
+    expect(site.drivers[0]!.filled.get('css input[name="sudo_app_otp"]')).toBe(site.sudoCode);
+    expect(JSON.stringify(run)).not.toContain(site.sudoCode);
+  });
+
+  it("Confirm access with the password: typed once, masked in the screenshots, absent from state and info", async () => {
+    const { rt, site } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    submitTeamTokenAccess(rt, human, { method: "password", password: site.sudoPassword });
+    await until(() => finished(rt));
+    const d = site.drivers[0]!;
+    expect(rt.automation.state("team-token").failure ?? "ok").toBe("ok");
+    expect(d.filled.get('css input[name="sudo_password"]')).toBe(site.sudoPassword);
+    expect(d.shots.length).toBeGreaterThan(0);
+    expect(d.shots.every((s) => s.masks.includes('css input[name="sudo_password"]'))).toBe(true);
+    expect(JSON.stringify([rt.automation.state("team-token"), await getTeamTokenInfo(rt, human), rt.automation.info()])).not.toContain(site.sudoPassword);
+    expect(d.calls.join("\n")).not.toContain(site.sudoPassword);
+  });
+
+  it("Confirm access that fails every time ends the run with a clear message", async () => {
+    const { rt } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await until(() => {
+        const a = rt.automation.state("team-token").ask as { stage?: string; attempt?: number } | null;
+        return a?.stage === "choose" && a.attempt === attempt;
+      });
+      submitTeamTokenAccess(rt, human, { method: "password", password: "wrong-one" });
+    }
+    await until(() => finished(rt));
+    const run = rt.automation.state("team-token");
+    expect(run.status).toBe("failed");
+    expect(run.failure?.code).toBe("step");
+    expect(run.failure?.messageEn).toContain("did not accept");
+  });
+
+  it("cancelling while a question is open ends the run", async () => {
+    const { rt } = await setup({ confirmed: false });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    cancelTeamToken(rt, human);
+    await until(() => finished(rt));
+    expect(rt.automation.state("team-token").status).toBe("cancelled");
   });
 
   it("a failed test keeps the previous state: the old token stays, the new one is not stored", async () => {
@@ -294,21 +563,62 @@ describe("team token run", () => {
     expect(problem).not.toContain(NEW_TOKEN);
   });
 
-  it("a second token marks the first one for deletion at GitHub and never claims it was revoked", async () => {
-    const { rt } = await setup({ teamSync: TEAM_SYNC });
+  it("a second token deletes the first one at GitHub with the recipe and shows the extra step", async () => {
+    const { rt, site } = await setup({ teamSync: TEAM_SYNC });
     startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
     await until(() => finished(rt));
     const first = (await readTeamTokenRecord(rt)).active!.tokenName;
+    site.existing.push(first);
     // Later the person wants push as well: a new token for the same repository.
     startTeamToken(rt, human, { repo: REPO, mode: "pull-push", branch: "main" });
     await until(() => rt.automation.state("team-token").status === "done" && !rt.automation.isBusy());
+    const run = rt.automation.state("team-token");
+    expect(run.timeline?.map((x) => x.phase)).toEqual(["opening", "creating", "testing", "revoking", "ready"]);
+    expect(run.result).toMatchObject({ revoked: true });
+    expect(site.deleted).toEqual([first]);
+    const info = await getTeamTokenInfo(rt, human);
+    expect(info.active).toMatchObject({ mode: "pull-push", valid: true });
+    expect(info.pendingRevocation).toBeNull();
+  });
+
+  it("the delete run asks to confirm access in the portal, inside the revoking step", async () => {
+    const { rt, site } = await setup({ teamSync: TEAM_SYNC });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => finished(rt));
+    site.existing.push((await readTeamTokenRecord(rt)).active!.tokenName);
+    site.deleteSudo = true;
+    startTeamToken(rt, human, { repo: REPO, mode: "pull-push", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    expect(rt.automation.state("team-token").phase).toBe("revoking");
+    submitTeamTokenAccess(rt, human, { method: "mobile" });
+    await until(() => (rt.automation.state("team-token").ask as { stage?: string } | null)?.stage === "mobile");
+    // The person taps the number: the page leaves "Confirm access" and shows the confirmation of the delete.
+    const page = site.drivers.at(-1)!;
+    page.pageText.delete("Confirm access");
+    for (const v of SUDO_VISIBLE) page.visible.delete(v);
+    page.visible.add('button "I understand, delete this token"');
+    await until(() => finished(rt));
+    expect(rt.automation.state("team-token").status).toBe("done");
+    expect(rt.automation.state("team-token").result).toMatchObject({ revoked: true });
+  });
+
+  it("a failed delete run keeps the new token and lists the old one for deletion by hand, with the reason", async () => {
+    const { rt, site } = await setup({ teamSync: TEAM_SYNC });
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => finished(rt));
+    const first = (await readTeamTokenRecord(rt)).active!.tokenName;
+    site.existing.push(first);
+    site.deleteBroken = true;
+    startTeamToken(rt, human, { repo: REPO, mode: "pull-push", branch: "main" });
+    await until(() => rt.automation.state("team-token").status === "done" && !rt.automation.isBusy());
+    expect(rt.automation.state("team-token").result).toMatchObject({ revoked: false });
     const info = await getTeamTokenInfo(rt, human);
     expect(info.active).toMatchObject({ mode: "pull-push", valid: true });
     expect(info.pendingRevocation).toMatchObject({ tokenName: first, repo: REPO, url: "https://github.com/settings/personal-access-tokens" });
-    expect(JSON.stringify(info)).not.toMatch(/revoked/i);
+    expect(info.pendingRevocation?.reason).toMatch(/Schritt \d+/);
+    expect(JSON.stringify(info.pendingRevocation)).not.toMatch(/revoked/i);
     const after = await dismissTeamTokenRevocation(rt, human);
     expect(after.pendingRevocation).toBeNull();
-    expect(after.active).not.toBeNull();
   });
 
   it("a typed-in token retires the portal's token and lists it for deletion", async () => {

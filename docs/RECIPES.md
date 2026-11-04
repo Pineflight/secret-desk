@@ -38,7 +38,7 @@ id: github-fine-grained-token        # lowercase-with-hyphens
 label: GitHub Fine-grained Token
 provider: github-fine-grained-token  # optional: provider id the recipe serves, if not the recipe id
 host: github.com                     # the only host the browser may be on (plus allowHosts)
-allowHosts: []                       # optional: more hosts, "*.example.com" allows subdomains
+allowHosts: []                       # optional: more hosts, "*.example.com" allows subdomains (also for typing a sign-in on a hosted login page)
 params: []                           # optional: per-entry parameters, see "Parameters" below
 login:                               # optional
   expect: { url: "^https://github\\.com/settings/" }   # signed in when this holds
@@ -90,6 +90,7 @@ Every step has exactly one kind.
 | `press` | `press: { key: "Enter", <selector>? }` | Presses a key, optionally on an element. |
 | `waitFor` | `waitFor: { url \| visible \| text, timeoutSeconds? }` | Waits for a URL (regular expression), a visible selector, or text on the page. Max 3600 s. |
 | `pause` | `pause: { human: "Do X in the window", until: <condition> }` | Waits for **you** to do something (shown in the portal) until the condition holds. |
+| `confirmAccess` | `confirmAccess: { flow: github-sudo, until: <condition>, timeoutSeconds? }` | The provider may ask to confirm access here (GitHub *Confirm access*). Does nothing when `until` already holds; when the confirmation page shows, the portal asks the human how to confirm and the built-in flow clicks and types (see [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md#confirming-access-confirmaccess)). A run without a portal to answer in waits for the human in the browser window like `pause`. Not allowed in `login.form`. |
 | `screenshot` | `screenshot: form-before` | Saves an evidence image under that name (`[A-Za-z0-9][A-Za-z0-9._-]{0,60}`). Take it **before** the value becomes visible. |
 
 Every step can carry `when: { var: <variable>, equals: <value> }`: it runs only if that variable (a recipe parameter or a fixed variable) has exactly that value, otherwise it is skipped. This is how one recipe serves several modes, for example a sandbox and a live address (`stripe-restricted-key` picks its `goto` by `mode`). The variable must be known; `when` is not allowed in `login.form`.

@@ -255,6 +255,8 @@ export async function confirmAccess(flow: SudoFlow, io: SudoIo): Promise<void> {
       }
     } catch (err) {
       if (err instanceof SudoError) throw err;
+      // The host check of the run (a RecipeRunError) ends the run as it is.
+      if (err instanceof Error && err.name === "RecipeRunError") throw err;
       if (err instanceof WaitAbortedError) throw new SudoError("abort", "Cancelled.");
       if (signal?.aborted) throw new SudoError("abort", "Cancelled.");
       throw new SudoError("step", "A step of the confirmation failed: the page did not look as expected.");

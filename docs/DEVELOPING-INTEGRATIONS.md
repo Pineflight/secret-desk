@@ -205,6 +205,11 @@ or declines there (`POST facades/:id/confirm`). A CAPTCHA fails the run with a m
 
 Hosts: credentials are typed only on the recipe's `host`/`allowHosts` (method `email`) or on the identity provider's
 hosts (Apple `appleid.apple.com`, `idmsa.apple.com`; Google `accounts.google.com`; Microsoft `login.microsoftonline.com`,
-`login.live.com`; GitHub `github.com`). Add the provider's own sign-in host (for example an `auth.` host) to `allowHosts`
+`login.live.com`; GitHub `github.com`). Add the provider's own sign-in host (for example an `auth.` host, or `*.auth.us-east-1.amazoncognito.com` for a hosted Cognito login page, whose tenant name varies) to `allowHosts`
 when it serves the hand-over. Every identity-provider selector and text is **not verified** until a live run; verify them
 with the viewer (above), never by typing real credentials into a recipe.
+
+## Confirmations in the middle of a recipe
+
+When a provider asks to confirm access while a recipe runs (GitHub *Confirm access*), do not use `pause` (it sends the human to the browser window). Use `confirmAccess` with a built-in flow; the portal answers the questions. To add a flow, add it to `SUDO_FLOWS` in `packages/automation/src/sudo.ts` with its selectors (mark what you did not verify), and test it with the fake driver as in `packages/automation/test/sudo.test.ts`. A recipe run that starts signed out can sign in through the portal on its own open browser with `RunHooks.signIn` (see `packages/runtime/src/team-token.ts`); the recipe needs `login.form`. Sign-in methods per recipe come from a live survey of the provider's sign-in page: only the provider-side button is declared in `login.methods`, everything else stays marked not verified.
+

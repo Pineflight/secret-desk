@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icons";
+import { AccessPrompt, ApprovalNotice, CodePrompt, ConsentPrompt, CredentialsPrompt } from "@/components/RunPrompts";
 import { Button, Notice } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { StepState } from "@/lib/facade";
@@ -70,6 +71,11 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
     setSignedIn(r);
     return r;
   });
+  const answer = useMutation(async (route: string, body?: Record<string, unknown>) => {
+    const r = await api("POST", `team-sync/token/${route}`, body);
+    info.reload();
+    return r;
+  });
   const revoked = useMutation(async () => {
     await api("POST", "team-sync/token/revocation-done");
     info.reload();
@@ -114,13 +120,28 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
         </ol>
       ) : null}
 
-      {view === "waiting" ? (
-        <Notice tone="warn" title={t("teamToken.waitingTitle")}>
-          <p>{run.phase === "signin" ? t("teamToken.waiting.signin") : t("teamToken.waiting.confirm")}</p>
-        </Notice>
+      {view === "waiting" || view === "running" ? (
+        <>
+          {run.ask?.type === "credentials" ? (
+            <CredentialsPrompt name="GitHub" methods={run.ask.methods} pending={answer.pending} onSend={(body) => void answer.run("credentials", body)} />
+          ) : null}
+          {run.ask?.type === "access" ? <AccessPrompt name="GitHub" ask={run.ask} pending={answer.pending} onSend={(body) => void answer.run("access", body)} /> : null}
+          {run.needs === "mfa-code" ? <CodePrompt name="GitHub" pending={answer.pending} onSend={(code) => void answer.run("code", { code })} /> : null}
+          {run.needs === "approval" ? <ApprovalNotice name="GitHub" number={run.detail} /> : null}
+          {run.needs === "consent" ? (
+            <ConsentPrompt idp="Google" name="GitHub" scopes={run.detail} pending={answer.pending} onAnswer={(accept) => void answer.run("confirm", { accept })} />
+          ) : null}
+          {view === "waiting" && !run.ask && !run.needs ? (
+            <Notice tone="warn" title={t("teamToken.waitingTitle")}>
+              <p>{run.phase === "signin" ? t("teamToken.waiting.signin") : t("teamToken.waiting.confirm")}</p>
+            </Notice>
+          ) : null}
+        </>
       ) : null}
+      {answer.error ? <Notice tone="danger">{answer.error.message}</Notice> : null}
 
       {view === "done" ? <Notice tone="success">{t("teamToken.done", { name: data.active?.tokenName ?? "", date: expires })}</Notice> : null}
+      {view === "done" && run.result && typeof run.result === "object" && (run.result as { revoked?: boolean | null }).revoked === true ? <Notice tone="success">{t("teamToken.revoked")}</Notice> : null}
 
       {view === "failed" && run.failure ? (
         <Notice tone={run.status === "cancelled" ? "info" : "danger"} {...(run.status === "cancelled" ? {} : { title: t("teamToken.failedTitle") })}>
@@ -139,6 +160,7 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
       {data.pendingRevocation ? (
         <Notice tone="warn" title={t("teamToken.pending.title")}>
           <p>{t("teamToken.pending.text", { name: data.pendingRevocation.tokenName, repo: data.pendingRevocation.repo })}</p>
+          {data.pendingRevocation.reason ? <p className="mt-1 text-xs">{t("teamToken.pending.reason", { reason: data.pendingRevocation.reason })}</p> : null}
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <a className="inline-flex items-center gap-1 font-medium underline" href={data.pendingRevocation.url} target="_blank" rel="noopener noreferrer">
               {t("teamToken.pending.link")}
