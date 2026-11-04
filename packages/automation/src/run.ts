@@ -68,7 +68,8 @@ export interface RunResult {
   createdName?: string;
 }
 
-export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture" | "params";
+/** `unsupported`: the account or page does not offer what the recipe needs (a `fail` step marked `unsupported`), not a broken recipe. */
+export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture" | "params" | "unsupported";
 
 export class RecipeRunError extends Error {
   readonly kind: RunErrorKind;
@@ -251,9 +252,23 @@ class Runner {
       for (const one of when.all) if (!(await this.#whenHolds(one))) return false;
       return true;
     }
-    if ("var" in when) return (this.vars[when.var] ?? "").trim() === when.equals;
-    const sel = pickSelector(renderValue(when.visible, this.vars));
+    if ("var" in when) {
+      const value = (this.vars[when.var] ?? "").trim();
+      return when.equals !== undefined ? value === when.equals : value !== when.notEquals;
+    }
     const waitMs = (when.timeoutSeconds ?? 0) * 1000;
+    if ("absent" in when) {
+      const sel = pickSelector(renderValue(when.absent, this.vars));
+      if (waitMs <= 0) return !(await this.driver.isVisible(sel).catch(() => false));
+      try {
+        await this.driver.waitFor({ visible: sel }, waitMs, this.options.signal);
+        return false;
+      } catch (err) {
+        if (err instanceof WaitTimeoutError) return true;
+        throw err;
+      }
+    }
+    const sel = pickSelector(renderValue(when.visible, this.vars));
     if (waitMs <= 0) return this.driver.isVisible(sel).catch(() => false);
     try {
       await this.driver.waitFor({ visible: sel }, waitMs, this.options.signal);
@@ -302,6 +317,16 @@ class Runner {
         if (err instanceof WaitTimeoutError) return false;
         throw err;
       }
+      // The element is there but cannot be acted on (covered, disabled, detached on the way): nothing to do either. The run
+      // still stops for an abort and for a page outside the recipe's hosts.
+      try {
+        await this.#perform(step, vars);
+      } catch (err) {
+        if (err instanceof RecipeRunError || err instanceof WaitAbortedError || err instanceof HookFailure) throw err;
+        this.#aborted();
+        return false;
+      }
+      return true;
     }
     await this.#perform(step, vars);
     return true;
@@ -338,7 +363,7 @@ class Runner {
       this.vars[step.set.var] = step.set.value;
       return;
     }
-    if ("fail" in step) return this.fail("step", step.fail);
+    if ("fail" in step) return this.fail(step.unsupported ? "unsupported" : "step", step.fail);
     await this.checkHost();
     if ("screenshot" in step) return this.shoot(step.screenshot);
     if ("fill" in step) return this.driver.fill(pickSelector(renderValue(step.fill, vars)), renderValue(step.fill.value, vars));

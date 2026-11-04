@@ -56,7 +56,12 @@ const withSelector = <T extends z.ZodRawShape>(extra: T) =>
 /** Schritt fuer jeden Eintrag einer Liste, zum Beispiel jedes Repository. */
 const Each = z.enum(["repos"]).optional();
 
-const WhenVar = z.object({ var: z.string().min(1), equals: z.string() }).strict();
+const WhenVar = z
+  .object({ var: z.string().min(1), equals: z.string().optional(), notEquals: z.string().optional() })
+  .strict()
+  .superRefine((w, ctx) => {
+    if ((w.equals === undefined) === (w.notEquals === undefined)) ctx.addIssue({ code: "custom", message: "Give exactly one of equals and notEquals" });
+  });
 const WhenVisible = z
   .object({
     visible: SelectorSchema,
@@ -64,7 +69,14 @@ const WhenVisible = z
     timeoutSeconds: z.number().min(0).max(120).optional(),
   })
   .strict();
-const WhenAll = z.object({ all: z.array(z.union([WhenVar, WhenVisible])).min(2).max(5) }).strict();
+const WhenAbsent = z
+  .object({
+    absent: SelectorSchema,
+    /** How long to wait for the element to show up (default 0 = look once, now). It holds when it never does. */
+    timeoutSeconds: z.number().min(0).max(120).optional(),
+  })
+  .strict();
+const WhenAll = z.object({ all: z.array(z.union([WhenVar, WhenVisible, WhenAbsent])).min(2).max(5) }).strict();
 
 /**
  * Runs the step only when the condition holds, evaluated when the step is reached; otherwise the step is skipped.
@@ -72,9 +84,12 @@ const WhenAll = z.object({ all: z.array(z.union([WhenVar, WhenVisible])).min(2).
  *   how one recipe serves several modes, for example a sandbox and a live address. The variable is named, not rendered.
  * - `{ visible, timeoutSeconds? }`: an element matching the selector is visible on the page now (waits up to the timeout for it).
  *   This is how one recipe serves a page that comes in two variants.
+ * - `{ var, notEquals }`: the variable differs from the value (for example a parameter that is not empty).
+ * - `{ absent, timeoutSeconds? }`: no element matching the selector shows up within the timeout (it holds at once when the
+ *   element is not there and the timeout is 0). This is how a page that lacks a feature (no create button) is detected.
  * - `{ all: [...] }`: every listed condition holds.
  */
-const When = z.union([WhenVar, WhenVisible, WhenAll]).optional();
+const When = z.union([WhenVar, WhenVisible, WhenAbsent, WhenAll]).optional();
 export type When = z.infer<typeof When>;
 
 /** Names of the variables a `when` reads. */
@@ -166,8 +181,11 @@ const stepVariants = {
    * The name must be new: a parameter or a fixed variable cannot be overwritten.
    */
   set: z.object({ set: z.object({ var: VarName, value: z.string() }).strict(), when: When }).strict(),
-  /** Ends the run with this message (a variant the recipe does not support). Put it before the click that creates anything. */
-  fail: z.object({ fail: z.string().min(1), when: When }).strict(),
+  /**
+   * Ends the run with this message (a variant the recipe does not support). Put it before the click that creates anything.
+   * `unsupported: true`: the account or page cannot do what the recipe needs (not a broken recipe); the run ends as "unsupported".
+   */
+  fail: z.object({ fail: z.string().min(1), unsupported: z.boolean().optional(), when: When }).strict(),
   screenshot: z.object({ screenshot: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/, "Name aus Buchstaben, Ziffern, . _ -"), when: When }).strict(),
 };
 
@@ -179,7 +197,7 @@ export const StepSchema = z.unknown().transform<Step>((raw, ctx) => {
     ctx.issues.push({ code: "custom", message: "Schritt muss ein Objekt sein", input: raw });
     return z.NEVER;
   }
-  const keys = Object.keys(raw).filter((k) => k !== "each" && k !== "when");
+  const keys = Object.keys(raw).filter((k) => k !== "each" && k !== "when" && k !== "unsupported");
   const key = keys[0] as keyof typeof stepVariants | undefined;
   if (keys.length !== 1 || key === undefined || !Object.hasOwn(stepVariants, key)) {
     ctx.issues.push({ code: "custom", message: `Schritt braucht genau eine Art: ${Object.keys(stepVariants).join(", ")}`, input: raw });
@@ -491,7 +509,7 @@ function loginFormProblems(form: LoginForm, r: HostFields): { path: (string | nu
   }
   const used = new Set<string>();
   form.steps.forEach((step, i) => {
-    const kind = Object.keys(step).find((k) => k !== "each" && k !== "when");
+    const kind = Object.keys(step).find((k) => k !== "each" && k !== "when" && k !== "unsupported");
     if (kind !== "fill" && kind !== "click" && kind !== "waitFor") return add(["steps", i], "A sign-in step is fill, click or waitFor");
     if ("each" in step && step.each) add(["steps", i, "each"], "A sign-in step must not repeat per item");
     if ("when" in step && step.when) add(["steps", i, "when"], "A sign-in step must not be conditional");
@@ -535,7 +553,7 @@ function loginMethodProblems(methods: LoginMethod[], hasForm: boolean): { path: 
     }
     if (!m.steps || m.steps.length === 0) return add([i, "steps"], `Method ${m.id} needs the provider-side steps (for example clicking its button)`);
     m.steps.forEach((step, j) => {
-      const kind = Object.keys(step).find((k) => k !== "each" && k !== "when");
+      const kind = Object.keys(step).find((k) => k !== "each" && k !== "when" && k !== "unsupported");
       if (kind !== "click" && kind !== "waitFor") return add([i, "steps", j], "A single-sign-on step is click or waitFor");
       if ("each" in step && step.each) add([i, "steps", j, "each"], "A sign-in step must not repeat per item");
       if ("when" in step && step.when) add([i, "steps", j, "when"], "A sign-in step must not be conditional");

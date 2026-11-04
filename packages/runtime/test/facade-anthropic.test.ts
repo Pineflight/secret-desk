@@ -14,13 +14,15 @@ const human = { kind: "human", name: "alice" } as const;
 const FIELD = 'css input[type="email"], input[name="email"]';
 const CODE_FIELD = 'css input[autocomplete="one-time-code"], input[name="code"], input[inputmode="numeric"]';
 const NAME_FIELD = "css [role=dialog] input[type=text] >> nth=0";
-const CREATE_BUTTON = 'css [role=dialog] button:has-text("Create")';
+const CREATE_BUTTON = "css [role=dialog] button[type=submit]";
 const DIALOG_KEY = "css [role=dialog] input[readonly], [role=dialog] code";
 
 interface Site {
   signedIn: boolean;
   keyName: string | null;
   apiStatus: number;
+  /** false: an individual organization, whose Admin keys page has no create button. */
+  organization: boolean;
 }
 
 function driverFor(site: Site): FakeDriver {
@@ -38,7 +40,7 @@ function driverFor(site: Site): FakeDriver {
           if (!site.signedIn) drv.visible.add(FIELD);
         } else if (e.key.includes("/admin-keys")) {
           if (!site.signedIn) drv.url = "https://platform.claude.com/login";
-          else drv.visible.add('button "Create Admin Key"');
+          else if (site.organization) drv.visible.add('button "Admin-Schlüssel erstellen"');
         }
         return;
       }
@@ -48,13 +50,14 @@ function driverFor(site: Site): FakeDriver {
       }
       if (e.key === 'css button[type="submit"]') {
         drv.visible.delete(CODE_FIELD);
+        drv.visible.delete(FIELD);
         site.signedIn = true;
         drv.visible.delete('button "Continue with email"');
         drv.url = "https://platform.claude.com/settings/keys";
         return;
       }
-      if (e.action === "click" && e.key === 'button "Create Admin Key"') { drv.visible.add("css [role=dialog] input[type=text]"); drv.visible.add(NAME_FIELD); drv.visible.add(CREATE_BUTTON); }
-      if (e.action === "click" && e.key.includes('[role=dialog] button:has-text("Create")')) {
+      if (e.action === "click" && e.key === 'button "Admin-Schlüssel erstellen"') { drv.visible.add("css [role=dialog] input[type=text]"); drv.visible.add(NAME_FIELD); drv.visible.add(CREATE_BUTTON); }
+      if (e.action === "click" && e.key === CREATE_BUTTON) {
         site.keyName = drv.filled.get(NAME_FIELD) ?? "";
         drv.visible.add(DIALOG_KEY);
         drv.texts.set(DIALOG_KEY, ADMIN_KEY);
@@ -63,8 +66,8 @@ function driverFor(site: Site): FakeDriver {
   });
 }
 
-async function setup(opts: { signedIn?: boolean; apiStatus?: number } = {}) {
-  const site: Site = { signedIn: opts.signedIn ?? true, keyName: null, apiStatus: opts.apiStatus ?? 200 };
+async function setup(opts: { signedIn?: boolean; apiStatus?: number; organization?: boolean } = {}) {
+  const site: Site = { signedIn: opts.signedIn ?? true, keyName: null, apiStatus: opts.apiStatus ?? 200, organization: opts.organization ?? true };
   const dir = await mkdtemp(join(tmpdir(), "sd-facade-anthropic-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   await writeFile(join(dir, "secret-desk.config.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
@@ -104,7 +107,8 @@ describe("facade: anthropic", () => {
     const { rt } = await setup();
     const f = (await listFacades(rt, human)).find((x) => x.id === "anthropic")!;
     expect(f).toMatchObject({ id: "anthropic", recipeId: "anthropic-admin-key", connectionId: "anthropic", available: true, connected: false, needsProject: false, host: "platform.claude.com", inputs: [], passwordless: true });
-    expect(f.recipeStatus).toMatch(/nothing of this recipe is verified live/);
+    expect(f.recipeStatus).toMatch(/sign-in verified live 2026-11-04/);
+    expect(f.recipeStatus).toMatch(/NOT verified/);
     expect(f.promise).toBe("facade.promise.anthropic");
     expect(f.methods.map((m) => m.id)).toEqual(["email", "google"]);
     expect((await listFacades(rt, human)).filter((x) => x.id !== "anthropic").every((x) => x.passwordless === false)).toBe(true);
@@ -128,6 +132,38 @@ describe("facade: anthropic", () => {
     expect(rt.automation.info().signInChecks).toMatchObject([{ host: "platform.claude.com", signedIn: true }]);
     expect((await listFacades(rt, human)).find((x) => x.id === "anthropic")!.connected).toBe(true);
   });
+
+  it("ends as ready (browser) instead of failing when the account has no admin keys (individual organization)", async () => {
+    const { rt, site, calls } = await setup({ organization: false });
+    startFacadeConnect(rt, human, "anthropic", {});
+    // the recipe waits several seconds for a create button that never shows up
+    await until(() => finished(rt), 15_000);
+    const end = getFacadeState(rt, human, "anthropic");
+    expect(end.failure).toBeUndefined();
+    expect(end.status).toBe("done");
+    expect(end.text).toMatch(/no admin keys.*API keys are created in the browser/);
+    expect(end.result).toMatchObject({ connected: false, browserOnly: true, connectionId: "anthropic", keyName: "", counts: {} });
+    // nothing was created, stored or called
+    expect(site.keyName).toBeNull();
+    expect(calls).toHaveLength(0);
+    expect((await rt.connections.status("anthropic")).connected).toBe(false);
+    expect((await listFacades(rt, human)).find((x) => x.id === "anthropic")!.connected).toBe(false);
+    // the browser counts as signed in, so the card shows "Ready (browser)"
+    expect(rt.automation.info().signInChecks).toMatchObject([{ host: "platform.claude.com", signedIn: true }]);
+  }, 20_000);
+
+  it("signs in by email code and still finishes as ready (browser) on an individual organization", async () => {
+    const { rt, site } = await setup({ signedIn: false, organization: false });
+    startFacadeSignIn(rt, human, "anthropic", { username: "a@b.test" });
+    await until(() => getFacadeState(rt, human, "anthropic").needs === "mfa-code");
+    submitFacadeCode(rt, human, "anthropic", { code: CODE });
+    await until(() => finished(rt), 15_000);
+    const end = getFacadeState(rt, human, "anthropic");
+    expect(end.failure).toBeUndefined();
+    expect(end.status).toBe("done");
+    expect(end.result).toMatchObject({ connected: false, browserOnly: true });
+    expect(site.keyName).toBeNull();
+  }, 20_000);
 
   it("reports a rejected admin key (401) as a failed connection test", async () => {
     const { rt } = await setup({ apiStatus: 401 });

@@ -1,5 +1,5 @@
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { describeSelector, type Selector } from "./selector.js";
+import { describeSelector, textPattern, type Selector } from "./selector.js";
 import { pollCondition } from "./wait.js";
 
 export interface FakeEvent {
@@ -59,8 +59,8 @@ export class FakeDriver implements BrowserDriver {
   }
 
   async fill(sel: Selector, value: string): Promise<void> {
-    await this.#act("fill", sel);
-    this.filled.set(describeSelector(sel), value);
+    const key = await this.#act("fill", sel);
+    this.filled.set(key, value);
   }
 
   async select(sel: Selector, _value: string): Promise<void> {
@@ -85,7 +85,7 @@ export class FakeDriver implements BrowserDriver {
   }
 
   async isVisible(sel: Selector): Promise<boolean> {
-    return this.visible.has(describeSelector(sel));
+    return this.#match(sel) !== undefined;
   }
 
   async hasText(text: string): Promise<boolean> {
@@ -122,10 +122,35 @@ export class FakeDriver implements BrowserDriver {
     this.calls.push("close");
   }
 
-  async #act(action: "fill" | "select" | "check" | "click", sel: Selector): Promise<void> {
-    const key = describeSelector(sel);
-    this.calls.push(`${action} ${key}`);
-    if (!this.visible.has(key)) throw new Error(`Element nicht sichtbar: ${key}`);
+  /**
+   * The visible entry a selector finds. A selector without a /pattern/flags text finds exactly its own description; one with
+   * a pattern finds the visible entry whose text (between the first and the last quote) the pattern matches, for example
+   * `button "Create key"` for a name of /^(Create key|Schlüssel erstellen)$/i. Events then carry that entry.
+   */
+  #match(sel: Selector): string | undefined {
+    const own = describeSelector(sel);
+    if (this.visible.has(own)) return own;
+    for (const field of ["name", "label", "text", "placeholder"] as const) {
+      const value = sel[field];
+      const rx = value === undefined ? null : textPattern(value);
+      if (!rx) continue;
+      for (const entry of this.visible) {
+        const from = entry.indexOf('"');
+        const to = entry.lastIndexOf('"');
+        if (from < 0 || to <= from) continue;
+        const inner = entry.slice(from + 1, to);
+        if (rx.test(inner) && describeSelector({ ...sel, [field]: inner }) === entry) return entry;
+      }
+    }
+    return undefined;
+  }
+
+  async #act(action: "fill" | "select" | "check" | "click", sel: Selector): Promise<string> {
+    const own = describeSelector(sel);
+    this.calls.push(`${action} ${own}`);
+    const key = this.#match(sel);
+    if (key === undefined) throw new Error(`Element nicht sichtbar: ${own}`);
     await this.#on?.({ action, key }, this);
+    return key;
   }
 }

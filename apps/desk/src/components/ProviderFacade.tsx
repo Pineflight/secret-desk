@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckList } from "@/components/ConnectionCheck";
+import { FacadeBrowserOnly } from "@/components/FacadeBrowserOnly";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun";
 import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
@@ -145,6 +146,8 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
     signIn.reset();
     connect.reset();
   };
+
+  if (run?.status === "done" && run.result?.browserOnly === true) return <FacadeBrowserOnly run={run} onDone={onDone} />;
 
   if (connectedOk && run?.result) {
     const r = run.result;

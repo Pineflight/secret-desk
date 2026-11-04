@@ -13,6 +13,8 @@ export const selectorShape = {
   testid: z.string().min(1).optional(),
   /** Letzte Wahl: bricht bei jeder Umgestaltung der Seite. */
   css: z.string().min(1).optional(),
+  /** Several elements may match (for example a button that appears twice): take the first visible one instead of failing. */
+  first: z.boolean().optional(),
 };
 
 const PRIMARY = ["role", "label", "text", "placeholder", "testid", "css"] as const;
@@ -26,6 +28,38 @@ export interface Selector {
   placeholder?: string | undefined;
   testid?: string | undefined;
   css?: string | undefined;
+  first?: boolean | undefined;
+}
+
+/**
+ * Text fields of a selector (`name`, `label`, `text`, `placeholder`) are plain text, or a regular expression written as
+ * `/pattern/flags`. A recipe uses the second form to match the wording of more than one interface language, for example
+ * `/^(Create key|Schlüssel erstellen)$/i`. Flags: i, m, s, u only (anything else is a plain text).
+ */
+const REGEX_TEXT = /^\/(.+)\/([a-z]*)$/s;
+
+/** The regular expression behind a `/pattern/flags` text, or null for a plain text. Throws for an invalid pattern. */
+export function textPattern(value: string): RegExp | null {
+  const m = REGEX_TEXT.exec(value);
+  if (!m) return null;
+  const flags = m[2] ?? "";
+  // Other letters after the last slash (`/path/to`) mean a plain text, not a pattern.
+  if (!/^[imsu]*$/.test(flags)) return null;
+  return new RegExp(m[1] ?? "", flags);
+}
+
+/** What a driver hands to the browser: the regular expression for a `/pattern/flags` text, else the text itself. */
+export const textMatcher = (value: string): string | RegExp => textPattern(value) ?? value;
+
+/** Problem text when a `/pattern/flags` value does not compile; `{{variables}}` are replaced by a letter first. */
+function patternProblem(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    textPattern(value.replace(/\{\{[^}]*\}\}/g, "x"));
+    return undefined;
+  } catch {
+    return "Invalid regular expression in a /pattern/flags text";
+  }
 }
 
 /** Meldung, wenn die Selektorfelder nicht genau eine Suchart angeben; sonst undefined. */
@@ -34,7 +68,7 @@ export function selectorProblem(s: Selector): string | undefined {
   if (used.length !== 1) return "Genau eines von role, label, text, placeholder, testid oder css angeben";
   if (s.name !== undefined && s.role === undefined) return "name gehoert nur zu role";
   if (s.exact !== undefined && s.name === undefined && s.label === undefined) return "exact gehoert nur zu role mit name oder zu label";
-  return undefined;
+  return patternProblem(s.name) ?? patternProblem(s.label) ?? patternProblem(s.text) ?? patternProblem(s.placeholder);
 }
 
 export const SelectorSchema = z
@@ -63,5 +97,6 @@ export function pickSelector(o: Record<string, unknown>): Selector {
     if (typeof v === "string") out[k] = v;
   }
   if (typeof o["exact"] === "boolean") out.exact = o["exact"];
+  if (typeof o["first"] === "boolean") out.first = o["first"];
   return out;
 }

@@ -6,7 +6,7 @@ import { redactCdpEndpoint } from "@secret-desk/core";
 import { resolveCdpEndpoint } from "./cdp.js";
 import { ChromeNotFoundError, findChrome } from "./chrome.js";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { describeSelector, type Selector } from "./selector.js";
+import { describeSelector, textMatcher, type Selector } from "./selector.js";
 import { pollCondition } from "./wait.js";
 
 export interface PlaywrightDriverOptions {
@@ -104,11 +104,19 @@ export class PlaywrightDriver implements BrowserDriver {
   }
 
   #loc(s: Selector): Locator {
+    const loc = this.#locate(s);
+    return s.first ? loc.first() : loc;
+  }
+
+  #locate(s: Selector): Locator {
     const p = this.#p;
-    if (s.role !== undefined) return p.getByRole(s.role as Role, s.name !== undefined ? { name: s.name, ...(s.exact ? { exact: true } : {}) } : {});
-    if (s.label !== undefined) return p.getByLabel(s.label, s.exact ? { exact: true } : {});
-    if (s.text !== undefined) return p.getByText(s.text);
-    if (s.placeholder !== undefined) return p.getByPlaceholder(s.placeholder);
+    // A /pattern/flags text is a regular expression (several interface languages); `exact` only applies to plain texts.
+    const rx = (v: string): string | RegExp => textMatcher(v);
+    const exact = (v: string): { exact: true } | Record<string, never> => (s.exact && typeof rx(v) === "string" ? { exact: true } : {});
+    if (s.role !== undefined) return p.getByRole(s.role as Role, s.name !== undefined ? { name: rx(s.name), ...exact(s.name) } : {});
+    if (s.label !== undefined) return p.getByLabel(rx(s.label), exact(s.label));
+    if (s.text !== undefined) return p.getByText(rx(s.text));
+    if (s.placeholder !== undefined) return p.getByPlaceholder(rx(s.placeholder));
     if (s.testid !== undefined) return p.getByTestId(s.testid);
     if (s.css !== undefined) return p.locator(s.css);
     throw new Error(`Selektor ohne Suchart: ${describeSelector(s)}`);
@@ -155,7 +163,7 @@ export class PlaywrightDriver implements BrowserDriver {
   }
 
   async hasText(text: string): Promise<boolean> {
-    return this.#p.getByText(text).first().isVisible();
+    return this.#p.getByText(textMatcher(text)).first().isVisible();
   }
 
   async readText(sel: Selector): Promise<string> {
