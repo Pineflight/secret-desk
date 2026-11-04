@@ -300,6 +300,38 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     expect(d.calls).toContain(`click ${button("Invoices", "Read")}`);
   });
 
+  it("live: hands over to the human when the new row does not show after Create key, then reads the key", async () => {
+    const r = await recipe();
+    const OPEN = 'button "Create restricted key" (exact)';
+    const CARD = 'css [role=dialog] :text-is("Powering an integration you built")';
+    const OWN = 'css [role=dialog] :text-is("Choose your own")';
+    const d: FakeDriver = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER, OPEN, 'css #key-name', FILTER, CREATE_EXACT, ROW, WRITE],
+      on: (e, drv) => {
+        if (e.action === "goto") { drv.url = e.key; return; }
+        if (e.action === "click" && e.key === OPEN) {
+          drv.pageText.add("How will you be using this key?");
+          drv.visible.add('Text "How will you be using this key?"').add(CARD).add(CONTINUE);
+        }
+        if (e.action === "click" && e.key === CONTINUE) { drv.pageText.add("Choose a permission template"); drv.visible.add(OWN); }
+        if (e.action === "click" && e.key === OWN) { drv.pageText.add("Create restricted API key"); drv.visible.add('Text "Create restricted API key"'); }
+        // "Create key" shows no row: Stripe asks for a confirmation first.
+      },
+    });
+    const reasons: string[] = [];
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live" }), d, {
+      onWaitingForHuman: (w) => {
+        reasons.push(`${w.kind}:${w.reason.slice(0, 6)}`);
+        d.visible.add(COPY_LINK(VARS.name));
+        d.texts.set(COPY_LINK(VARS.name), ` ${KEY} `);
+      },
+    }, { pollMs: 2 });
+    expect(reasons).toEqual(["pause:Stripe"]);
+    expect(res.value.reveal()).toBe(KEY);
+    expect(d.calls.indexOf(`click ${CREATE_EXACT}`)).toBeGreaterThan(0);
+  });
+
   it("refuses the refunds preset on the wizard before any key exists", async () => {
     const r = await recipe();
     const d = new FakeDriver({

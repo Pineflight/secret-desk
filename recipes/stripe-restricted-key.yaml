@@ -287,6 +287,16 @@ steps:
     when: { var: variant, equals: wizard }
   - click: { role: button, name: "Create key", exact: true, createsToken: true }
     when: { var: variant, equals: single-page }
+  # Live (run on 2026-11-04): after "Create key" the new row did not show within 60 s and no key existed, so Stripe asks
+  # for something first (a security check or a confirmation; the dashboard loads hCaptcha). The run hands over to the
+  # human and goes on once the new row is there; when the row is already there, the pause ends at once.
+  - pause:
+      human: Stripe verlangt nach "Create key" eine Bestaetigung (Sicherheitspruefung, Passwort oder Code). Im Browserfenster bestaetigen, dann geht es hier weiter.
+      until: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' } }
+    when:
+      all:
+        - { var: mode, equals: live }
+        - { var: variant, equals: single-page }
   # The page returns to the key list (no dialog); the new key is the row with the name.
   - waitFor: { visible: { css: 'tr:has-text("{{name}}") a[aria-label="Click to copy"]' }, timeoutSeconds: 60 }
     when: { var: variant, equals: single-page }
