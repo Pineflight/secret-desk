@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { NameHint } from "@/components/NormalizeDialog";
-import { Badge, Button, Checkbox, Notice, Pill, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Checkbox, Notice, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { placeText } from "@/lib/format";
 import { useMutation } from "@/lib/hooks";
@@ -122,7 +122,7 @@ export function VariableDetail({ v, sources, drift, comparing, compareError, aut
         <div className="flex flex-wrap items-center gap-2"><StageBadge stage={v.stage} /><NameHint entryId={v.id} /></div>
         {v.description ? <p className="text-sm text-muted-text">{v.description}</p> : <p className="text-xs text-muted">{t("variables.noDescription")}</p>}
         {v.owner || v.link ? <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-text">{v.owner ? <span>{t("variables.owner", { name: v.owner })}</span> : null}{v.link ? <ExternalLink href={v.link} /> : null}</p> : null}
-        <div className="flex flex-wrap gap-1">{v.places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>)}</div>
+        <div className="flex flex-wrap gap-1">{v.places.map((p, i) => <span key={i} className="inline-block max-w-full truncate whitespace-nowrap rounded-full bg-page px-2 py-px text-[11px] leading-4 text-ink ring-1 ring-inset ring-line" title={placeText(p)}>{placeText(p)}</span>)}</div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-[16rem] flex-1">
             <label htmlFor={`val-${v.id}`} className="mb-1 block text-sm font-medium">{t("variables.expected")}</label>

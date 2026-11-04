@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Denser rows on the entries page:** name and description share the first line (description cut with an ellipsis, full text in the tooltip and on the detail page), id and tags share the second; rows are about 50 px high from 1280 px up (below 1700 px kind, value and targets move into the first column or shrink); place chips stay on one line, cut with an ellipsis, show at most two places plus "+N" and carry the full text in a tooltip.
+
 ### Fixed
 
 - **Cloudflare presets use the live permission-group names; tokens always expire:** the presets `terraform-plan` and `terraform-apply` asked for *Cloudflare Pages Read/Write*, which the live list (user tokens, checked 2026-11-04) does not have; they now use *Pages Read* and *Pages Write*, and a test pins every preset name to that list. `cloudflare-token` without `ttlDays` created a token that never expires; it now expires after 90 days by default, and the review checklist shows the default. `grafana-service-account-token` had the same gap and now also defaults to 90 days. `cloudflare-access-service-token` already defaults to 1 year (`8760h`); only an explicit `duration: forever` skips the expiry.
