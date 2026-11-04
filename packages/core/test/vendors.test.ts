@@ -61,15 +61,19 @@ describe("vendor catalog", () => {
     expect(vendorOfRecipe("revenuecat-secret-api-key")?.id).toBe("revenuecat");
     expect(vendorOfRecipe("nope")).toBeUndefined();
   });
-  it("gives Peecho a card without any way in yet", () => {
+  it("gives Peecho a card whose only way in is the read-only recipe", () => {
     const p = vendorById("peecho")!;
-    expect([p.connections, p.providers, p.recipes].every((x) => x.length === 0)).toBe(true);
+    expect([p.connections, p.providers].every((x) => x.length === 0)).toBe(true);
+    expect(p.recipes).toEqual(["peecho-api-keys"]);
+    expect(p.category).toBe("print");
+    expect(vendorOfProvider("peecho-api-keys-browser")?.id).toBe("peecho");
+    expect(vendorOfRecipe("peecho-api-keys")?.id).toBe("peecho");
   });
 });
 
 describe("planned sign-in", () => {
   it("is set only where no recipe exists yet", () => {
     for (const v of VENDORS) if (v.signInPlanned) expect(v.recipes).toEqual([]);
-    expect(vendorById("peecho")!.signInPlanned).toBe(true);
+    expect(vendorById("peecho")!.signInPlanned).toBe(false);
   });
 });

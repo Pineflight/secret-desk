@@ -56,6 +56,8 @@ describe("status", () => {
     expect(stageInfo("shared").tone).toBe("neutral");
     expect(providerInfo(true).label).toBe("automatisch");
     expect(providerInfo(false).label).toBe("von Hand");
+    expect(providerInfo(true, true, true)).toMatchObject({ label: "vom Anbieter gelesen", icon: "eye" });
+    expect(providerInfo(true, true).label).toBe("Browser");
     expect(checkInfo("fail").label).toBe("Fehlgeschlagen");
     expect(overallInfo("warn").label).toBe("mit Hinweisen");
     expect(driftInfo("in-sync").label).toBe("Stimmt überein");

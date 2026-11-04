@@ -1,6 +1,6 @@
 import { SecretValue, redact } from "@secret-desk/core";
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
-import { hostAllowed, paramValueProblem, type Condition, type Recipe, type Step } from "./recipe.js";
+import { hostAllowed, paramValueProblem, type CaptureValue, type Condition, type Recipe, type Step } from "./recipe.js";
 import { describeSelector, pickSelector, type Selector } from "./selector.js";
 import { SUDO_FLOWS, SudoError, confirmAccess, sudoPageShown, type SudoHooks } from "./sudo.js";
 import { renderTemplate } from "./template.js";
@@ -56,7 +56,10 @@ export interface Screenshot {
 }
 
 export interface RunResult {
+  /** The new token (kind create) or the value the entry picks (kind read). */
   value: SecretValue;
+  /** kind read: every value read in the run, by name (the picked one included). */
+  values?: Record<string, SecretValue>;
   externalId?: string;
   /** JJJJ-MM-TT */
   expiresAt?: string;
@@ -121,6 +124,7 @@ const OPTIONAL_TIMEOUT_S = 3;
 
 function describeStep(step: Step): string {
   if ("goto" in step) return "goto";
+  if ("follow" in step) return `follow ${describeSelector(pickSelector(step.follow))}`;
   if ("fill" in step) return `fill ${describeSelector(pickSelector(step.fill))}`;
   if ("select" in step) return `select ${describeSelector(pickSelector(step.select))}`;
   if ("check" in step) return `check ${describeSelector(pickSelector(step.check))}`;
@@ -266,22 +270,18 @@ class Runner {
   }
 
   async #perform(step: Step, vars: Vars): Promise<void> {
-    if ("goto" in step) {
-      const url = renderTemplate(step.goto, vars, { url: true });
-      let u: URL;
+    if ("goto" in step) return this.#open(renderTemplate(step.goto, vars, { url: true }));
+    if ("follow" in step) {
+      await this.checkHost();
+      const href = await this.driver.readAttribute(pickSelector(renderValue(step.follow, vars)), "href").catch(() => "");
+      if (href.trim() === "") return this.fail("step", "The link to follow was not found or has no address.");
+      let target: string;
       try {
-        u = new URL(url);
+        target = new URL(href.trim(), await this.driver.currentUrl()).toString();
       } catch {
-        return this.fail("host", "Adresse im Rezept ist ungueltig.");
+        return this.fail("host", "The link to follow is not a valid address.");
       }
-      if (!hostAllowed(u.hostname, this.recipe)) return this.fail("host", `Adresse ausserhalb von ${this.recipe.host}: ${u.hostname}.`);
-      await this.driver.goto(url);
-      if (!this.#loggedIn) {
-        await this.#ensureLogin();
-        // Nach der Anmeldung landet man oft woanders: Zielseite noch einmal laden.
-        await this.driver.goto(url);
-      }
-      return;
+      return this.#open(target);
     }
     if ("waitFor" in step) {
       const w = step.waitFor;
@@ -307,6 +307,24 @@ class Runner {
     }
     if (step.click.createsToken) this.createdName = vars["name"];
     return this.driver.click(pickSelector(renderValue(step.click, vars)));
+  }
+
+  /** Opens a page on an allowed host (the first one also waits for the sign-in). */
+  async #open(url: string): Promise<void> {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      return this.fail("host", "Adresse im Rezept ist ungueltig.");
+    }
+    if (u.protocol !== "https:" && !(u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))) return this.fail("host", "Adresse im Rezept ist ungueltig.");
+    if (!hostAllowed(u.hostname, this.recipe)) return this.fail("host", `Adresse ausserhalb von ${this.recipe.host}: ${u.hostname}.`);
+    await this.driver.goto(url);
+    if (!this.#loggedIn) {
+      await this.#ensureLogin();
+      // Nach der Anmeldung landet man oft woanders: Zielseite noch einmal laden.
+      await this.driver.goto(url);
+    }
   }
 
   async #ensureLogin(): Promise<void> {
@@ -445,8 +463,67 @@ function renderTemplateSelector(sel: Selector, vars: Vars, r: Runner): Selector 
   }
 }
 
-async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
+/**
+ * kind read: reads every declared value of the page. The first set of selectors is tried first; if one of its elements does not
+ * show up in time, the fallback set (another page, reached by its own steps) is tried. A value that is missing everywhere, does not
+ * match its pattern or equals the other value ends the run (fail closed). Nothing is written and nothing is created.
+ */
+async function captureRead(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
   const cap = recipe.capture;
+  const primary = cap.values ?? {};
+  const names = Object.keys(primary);
+
+  const present = async (set: Record<string, CaptureValue>): Promise<boolean> => {
+    await r.checkHost();
+    for (const name of names) {
+      const spec = set[name] as CaptureValue;
+      try {
+        await driver.waitFor({ visible: renderTemplateSelector(spec.find, vars, r) }, spec.timeoutSeconds * 1000, options.signal);
+      } catch (err) {
+        if (err instanceof WaitAbortedError) return r.fail("abort", "Abgebrochen.");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  let used = primary;
+  if (!(await present(primary))) {
+    if (!cap.fallback) return r.fail("capture", "The values were not found on the page.");
+    await r.execute(cap.fallback.steps, false);
+    used = cap.fallback.values;
+    if (!(await present(used))) return r.fail("capture", "The values were not found on the page.");
+  }
+
+  await r.checkHost();
+  const read: Record<string, string> = {};
+  for (const name of names) {
+    const spec = used[name] as CaptureValue;
+    const find = renderTemplateSelector(spec.find, vars, r);
+    const value = await readValue(r, find, spec.pattern, `Value ${name}`, spec.attribute);
+    if (!value) return r.fail("capture", `Value ${name} is empty.`);
+    r.addSecret(value);
+    read[name] = value;
+  }
+  if (new Set(Object.values(read)).size !== names.length) return r.fail("capture", "Two values read from the page are identical: the page is not as expected.");
+
+  const pickKey = cap.pick;
+  const picked = pickKey === undefined ? names[0] : (vars[pickKey] ?? "").trim();
+  if (picked === undefined || !Object.hasOwn(read, picked)) return r.fail("params", "The parameter that picks the value does not name a value of the page.");
+
+  // Evidence after reading, with every value masked. A failing screenshot does not lose the values.
+  await r.shoot("nach-lesen", names.map((n) => renderTemplateSelector((used[n] as CaptureValue).find, vars, r))).catch(() => undefined);
+
+  return {
+    value: SecretValue.from(read[picked] as string),
+    values: Object.fromEntries(names.map((n) => [n, SecretValue.from(read[n] as string)])),
+    screenshots: r.screenshots,
+  };
+}
+
+async function capture(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
+  if (recipe.kind === "read") return captureRead(r, recipe, vars, driver, options);
+  const cap = recipe.capture as Recipe["capture"] & { token: NonNullable<Recipe["capture"]["token"]> };
   // The selector may name the entry's own row ({{name}}), so it is rendered like a step selector.
   const find = renderTemplateSelector(cap.token.find, vars, r);
   // Token nur lesen, wenn der Browser noch auf einer erlaubten Seite steht (ein Klick kann woandershin fuehren).

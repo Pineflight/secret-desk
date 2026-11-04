@@ -157,7 +157,7 @@ const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
 const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
   { test: /^SUPABASE_ACCESS_TOKEN$/, code: "supabase-pat", text: "Persoenliche Zugriffs-Tokens (PAT) erzeugt Supabase nur im Dashboard: nur von Hand" },
   { test: /REVENUECAT/i, code: "revenuecat", text: "RevenueCat hat keine API, die Schluessel erzeugt: nur von Hand" },
-  { test: /PEECHO/i, code: "peecho", text: "Peecho hat keine API, die Schluessel erzeugt: nur von Hand" },
+  { test: /PEECHO/i, code: "peecho", text: "Peecho hat keine API, die Schluessel erzeugt: nur von Hand, oder lesend ueber das Rezept peecho-api-keys (Anbieter peecho-api-keys-browser)" },
   { test: /VESSEL_?API/i, code: "vesselapi", text: "VesselAPI hat keine API, die Schluessel erzeugt: nur von Hand" },
   { test: /^DIP(_|$)/i, code: "dip", text: "Der DIP-Schluessel wird beantragt, es gibt keine API dafuer: nur von Hand" },
   { test: /OPENAI/i, code: "openai-admin", text: "OpenAI stellt Schluessel ueber die Admin-API aus, sobald die Integration OpenAI verbunden ist (ein Browserschritt)" },

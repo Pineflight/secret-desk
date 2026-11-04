@@ -59,6 +59,7 @@ export default {
   "common.status.unknown": "Expiry unclear",
   "common.provider.auto": "automatic",
   "common.provider.manual": "manual",
+  "common.provider.read": "read from the provider",
   "common.check.pass": "Passed",
   "common.check.warn": "Notice",
   "common.check.fail": "Failed",

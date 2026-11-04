@@ -81,7 +81,7 @@ export const VENDORS: readonly VendorDef[] = [
   vendor({ id: "openai", label: "OpenAI", category: "ai", icon: null, connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] }),
   vendor({ id: "anthropic", label: "Anthropic", category: "ai", icon: null, connections: ["anthropic"], providers: ["anthropic-api-key-browser"], recipes: ["anthropic-admin-key", "anthropic-api-key"] }),
   vendor({ id: "vesselapi", label: "VesselAPI", category: "data", icon: null, recipes: ["vesselapi-api-key"] }),
-  vendor({ id: "peecho", label: "Peecho", category: "print", icon: null, signInPlanned: true }),
+  vendor({ id: "peecho", label: "Peecho", category: "print", icon: null, recipes: ["peecho-api-keys"] }),
 ];
 
 export const vendorById = (id: string): VendorDef | undefined => VENDORS.find((v) => v.id === id);

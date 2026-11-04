@@ -156,6 +156,7 @@ Response: `SecretView[]`, most urgent first. A `SecretView`:
   "provider": "random-hex",
   "automatic": true,
   "browser": false,
+  "readOnly": false,
   "expiry": "possible",
   "expires": "2026-11-02",
   "daysLeft": 5,
@@ -280,7 +281,7 @@ Results (field `status`):
 
 | `status` | When | Other fields |
 |---|---|---|
-| `dry-run` | `dryRun: true` (checked before the approval rule; nothing is created) | `plan`: `{ secretId, stage, provider, automatic, places: string[], revokesOld, ttlDays, params: { ok, missing: string[], problems } }` |
+| `dry-run` | `dryRun: true` (checked before the approval rule; nothing is created) | `plan`: `{ secretId, stage, provider, automatic, readOnly, places: string[], revokesOld, ttlDays, params: { ok, missing: string[], problems } }` |
 | `awaiting-review` | Direct stage with targets and an API provider: the value was created and verified, and waits for a human to confirm in the portal | `issuance`: an `IssuanceView` (see below), `message` |
 | `pending-approval` | Stage not direct, no targets, or a browser provider | `approvalId`, `secretId`, `message` |
 
@@ -336,7 +337,7 @@ The review reports of a secret (newest history, with confirmation and attachment
 
 ### GET providers, POST providers
 
-`GET`: `[{ "id", "label", "kind": "automatic" | "manual", "browser": boolean, "connection": string|null, "guide": { "url", "steps" } | null }]`.
+`GET`: `[{ "id", "label", "kind": "automatic" | "manual", "browser": boolean, "readOnly": boolean, "connection": string|null, "guide": { "url", "steps" } | null }]`.
 
 `POST` adds a provider without an API: body `{ "id", "label", "url", "steps"? }` (`url` must be http(s); the id must not exist yet, not even a built-in one, else `400`). Response: the created definition.
 

@@ -76,7 +76,7 @@ describe("rotateSecret", () => {
   it("planRotation shows targets without executing anything", async () => {
     const { deps, issue } = await setup();
     const plan = planRotation("cf-deploy-acme-app", deps);
-    expect(plan).toMatchObject({ automatic: true, revokesOld: true, places: ["acme-app/repo", "acme-app-landing/repo"] });
+    expect(plan).toMatchObject({ automatic: true, readOnly: false, revokesOld: true, places: ["acme-app/repo", "acme-app-landing/repo"] });
     expect(issue).not.toHaveBeenCalled();
   });
 });

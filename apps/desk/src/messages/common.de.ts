@@ -77,6 +77,7 @@ export default {
   "common.approval.failed": "Fehlgeschlagen",
   "common.approval.stale": "Verworfen (Eintrag geändert)",
   "common.provider.browser": "Browser",
+  "common.provider.read": "vom Anbieter gelesen",
   "common.selectSearch": "Suchen…",
   "common.noMatches": "Keine Treffer",
   "common.pageSearchPlaceholder": "Suchen in dieser Liste (Taste /)",

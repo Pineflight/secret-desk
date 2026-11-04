@@ -45,7 +45,7 @@ export default function SecretDetailPage() {
   useEffect(() => setRunActive(live), [live]);
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string; params?: { ok: boolean; missing: string[]; problems: { message: string }[] }; preflight?: EntryPreflight } | null>(null);
+  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; readOnly?: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string; params?: { ok: boolean; missing: string[]; problems: { message: string }[] }; preflight?: EntryPreflight } | null>(null);
   // Fehlende Parameter: Der Klick fuehrt zur Parameterkarte, die sich dann zum Bearbeiten oeffnet.
   const [paramsFocus, setParamsFocus] = useState(0);
   const [paramsNotice, setParamsNotice] = useState<string | null>(null);
@@ -93,10 +93,10 @@ export default function SecretDetailPage() {
       <p className="mb-2 text-sm"><Link href="/entries?kind=secret" className="text-primary hover:underline">{t("secretDetail.back")}</Link></p>
       <PageHeader
         title={s.title ?? s.name}
-        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} /><NameHint entryId={s.id} /></span>}
+        subtitle={<span className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{s.name}</span><StatusBadge level={s.status} /><StageBadge stage={s.stage} /><ProviderChip automatic={s.automatic} browser={s.browser} readOnly={s.readOnly} /><NameHint entryId={s.id} /></span>}
         actions={
           <>
-            {s.automatic ? <Button variant="primary" disabled={starting || live || paramsBlocked} title={paramsBlocked ? t("params.card.fixFirst") : undefined} onClick={() => void startRenewal(false)}><Icon name="bolt" />{t("secretDetail.generate")}</Button> : null}
+            {s.automatic ? <Button variant="primary" disabled={starting || live || paramsBlocked} title={paramsBlocked ? t("params.card.fixFirst") : undefined} onClick={() => void startRenewal(false)}>{s.readOnly ? <Icon name="eye" /> : <Icon name="bolt" />}{s.readOnly ? t("secretDetail.readAgain") : t("secretDetail.generate")}</Button> : null}
             <Button variant={s.automatic ? "secondary" : "primary"} onClick={() => setManual(true)}><Icon name="key" />{t("secretDetail.pasteValue")}</Button>
             <Button variant="ghost" onClick={() => void startRenewal(true)}>{t("secretDetail.planOnly")}</Button>
           </>
@@ -115,9 +115,9 @@ export default function SecretDetailPage() {
         <div className="mb-6">
           <Notice tone="info" title={t("secretDetail.dryRunTitle")}>
             <ul className="list-disc pl-5">
-              <li>{plan.automatic ? t("secretDetail.planAuto") : t("secretDetail.planManual")}</li>
+              <li>{plan.readOnly ? t("secretDetail.planRead") : plan.automatic ? t("secretDetail.planAuto") : t("secretDetail.planManual")}</li>
               <li>{t("secretDetail.planTargets", { targets: plan.places?.length ? plan.places.join(", ") : t("secretDetail.planNoTargets") })}</li>
-              <li>{plan.revokesOld ? t("secretDetail.planRevokes") : t("secretDetail.planKeeps")}</li>
+              {plan.readOnly ? null : <li>{plan.revokesOld ? t("secretDetail.planRevokes") : t("secretDetail.planKeeps")}</li>}
               {plan.ttlDays ? <li>{t("secretDetail.planTtl", { days: plan.ttlDays })}</li> : null}
               {plan.params ? <li>{plan.params.ok ? t("params.plan.paramsOk") : plan.params.missing.length > 0 ? t("params.plan.paramsMissing", { keys: plan.params.missing.join(", ") }) : t("params.plan.paramsInvalid", { text: plan.params.problems.map((p) => p.message).join("; ") })}</li> : null}
               {plan.preflight?.resource ? <li>{t("params.plan.resource", { resource: plan.preflight.resource })}</li> : null}
@@ -153,7 +153,15 @@ export default function SecretDetailPage() {
           <dl className="mt-2 divide-y divide-line">
             <Fact label={t("secretDetail.service")}>{s.service}</Fact>
             <Fact label={t("secretDetail.provider")}>{s.provider}</Fact>
-            <Fact label={t("secretDetail.expires")}><span className="tabular">{formatDate(s.expires)}</span> <span className="font-normal text-muted-text">({daysLabel(s.daysLeft)})</span></Fact>
+            <Fact label={t("secretDetail.expires")}>
+              {s.readOnly && s.expiry === "none" ? (
+                s.verifiedAt ? t("secretDetail.neverExpiresRead", { date: formatDate(s.verifiedAt) }) : t("secretDetail.neverExpiresUnread")
+              ) : (
+                <>
+                  <span className="tabular">{formatDate(s.expires)}</span> <span className="font-normal text-muted-text">({daysLabel(s.daysLeft)})</span>
+                </>
+              )}
+            </Fact>
             <Fact label={t("secretDetail.rotatedAt")}><span className="tabular">{formatDate(s.rotatedAt)}</span></Fact>
             <Fact label={t("secretDetail.verifiedAt")}>{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? t("secretDetail.verifiedBy", { name: s.verifiedBy }) : ""}</> : t("secretDetail.never")}</Fact>
           </dl>

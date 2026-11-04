@@ -151,3 +151,26 @@ describe("companion values", () => {
     expect(b.revoke).not.toHaveBeenCalled();
   });
 });
+
+describe("a value that is read, not created (expiry none)", () => {
+  const READ_YAML = YAML.replaceAll("expiry: possible", "expiry: none").replace("    ttlDays: 30\n    externalId: tok-old\n", "");
+  const read = (): IssuedSecret => ({ value: new SecretValue(MAIN), expiresAt: null, companions: [{ entryId: "access-id", value: new SecretValue(ID_VALUE) }] });
+  const confirm = { by: "alice", ticks: ["c1", "c2", "c3", "c4"] };
+
+  it("writes both values, stamps verifiedAt, keeps no expiry and revokes nothing", async () => {
+    const { deps, inventory, revoke } = await setup(read, READ_YAML);
+    const p = await prepareIssuance("access-secret", deps);
+    expect(p.newExpires).toBeNull();
+    expect(p.report.externalId).toBeUndefined();
+    expect(p.report.checks.find((c) => c.id === "expiry")).toMatchObject({ status: "info", actual: "kein Ablauf" });
+    const ticks = p.report.checklist.map((c) => c.id);
+    const result = await commitIssuance(p, deps, { ...confirm, ticks }, {});
+    expect(result.ok).toBe(true);
+    expect(result.revokedOld).toBe(false);
+    expect(revoke).not.toHaveBeenCalled();
+    for (const id of ["access-secret", "access-id"]) {
+      expect(inventory.getSecret(id)).toMatchObject({ verifiedAt: "2026-11-01", verifiedBy: "alice", expires: null, expiry: "none" });
+      expect(inventory.getSecret(id)!.externalId).toBeUndefined();
+    }
+  });
+});

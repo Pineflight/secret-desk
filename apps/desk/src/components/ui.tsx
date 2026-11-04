@@ -42,7 +42,7 @@ export function Badge({ info, className = "" }: { info: Info; className?: string
 
 export const StatusBadge = ({ level }: { level: StatusLevel }) => <Badge info={statusInfo(level)} />;
 export const StageBadge = ({ stage }: { stage: string }) => <Badge info={stageInfo(stage, useStageDefs())} />;
-export const ProviderChip = ({ automatic, browser = false }: { automatic: boolean; browser?: boolean }) => <Badge info={providerInfo(automatic, browser)} />;
+export const ProviderChip = ({ automatic, browser = false, readOnly = false }: { automatic: boolean; browser?: boolean; readOnly?: boolean }) => <Badge info={providerInfo(automatic, browser, readOnly)} />;
 
 export function Pill({ children }: { children: ReactNode }) {
   return <span className="inline-flex items-center whitespace-nowrap rounded-full bg-page px-2 py-px text-[11px] text-ink ring-1 ring-inset ring-line">{children}</span>;

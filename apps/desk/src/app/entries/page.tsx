@@ -427,7 +427,7 @@ function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRo
   );
   const status = (
     <>
-      <div className="flex flex-wrap items-center gap-1.5"><StatusBadge level={s.status} /><ProviderChip automatic={s.automatic} browser={s.browser} /></div>
+      <div className="flex flex-wrap items-center gap-1.5"><StatusBadge level={s.status} /><ProviderChip automatic={s.automatic} browser={s.browser} readOnly={s.readOnly} /></div>
       <p className="mt-1 text-xs text-muted-text">{s.verifiedAt ? <>{t("entries.confirmed")} <span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? ` · ${s.verifiedBy}` : ""}</> : `${t("entries.confirmed")}: ${t("secrets.never")}`}</p>
     </>
   );
