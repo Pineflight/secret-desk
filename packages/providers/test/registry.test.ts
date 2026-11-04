@@ -8,7 +8,7 @@ describe("createDefaultRegistry", () => {
   it("contains every id exactly once", () => {
     const ids = list.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(expect.arrayContaining(["random-hex", "cloudflare-token", "supabase-api-key", "stripe-webhook-secret", "resend-api-key", "grafana-service-account-token", "openai"]));
+    expect(ids).toEqual(expect.arrayContaining(["random-hex", "cloudflare-token", "supabase-api-key", "stripe-webhook-secret", "resend-api-key", "grafana-service-account-token", "grafana-access-policy-token", "vapid-keypair", "openai"]));
   });
   it("all manual providers have a guide with URL", () => {
     const manual = list.filter((p) => p.kind === "manual");
