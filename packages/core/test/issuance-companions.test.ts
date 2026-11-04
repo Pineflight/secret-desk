@@ -51,12 +51,22 @@ async function setup(issue: (externalId: string | undefined) => IssuedSecret, ya
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
   const puts: string[] = [];
+  const varPuts: string[] = [];
+  const vars = new Map<string, string>();
   const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if (u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
     if ((init?.method ?? "GET") === "GET" && u.includes("/actions/secrets")) {
       const names = ["ACCESS_CLIENT_SECRET", "ACCESS_CLIENT_ID"].map((name) => ({ name, created_at: "x", updated_at: "2026-11-01T10:00:01Z" }));
       return new Response(JSON.stringify({ secrets: names }), { status: 200 });
+    }
+    if (u.includes("/actions/variables")) {
+      const method = init?.method ?? "GET";
+      if (method === "GET") return new Response(JSON.stringify({ variables: [...vars].map(([name, value]) => ({ name, value, created_at: "x", updated_at: "2026-11-01T10:00:01Z" })) }), { status: 200 });
+      const body = JSON.parse(String(init?.body)) as { name: string; value: string };
+      varPuts.push(`${method} ${u}`);
+      vars.set(body.name, body.value);
+      return new Response(null, { status: 204 });
     }
     if (init?.method === "PUT") puts.push(u);
     return new Response(null, { status: 204 });
@@ -74,7 +84,7 @@ async function setup(issue: (externalId: string | undefined) => IssuedSecret, ya
     now: () => new Date("2026-11-01T10:00:00Z"),
     evidence: new EvidenceStore(await mkdtemp(join(tmpdir(), "sd-ev-"))),
   };
-  return { deps, inventory, revoke, issueFn, puts };
+  return { deps, inventory, revoke, issueFn, puts, varPuts, vars };
 }
 
 const created = (): IssuedSecret => ({ value: new SecretValue(MAIN), externalId: "tok-new", expiresAt: "2026-12-01T00:00:00Z", companions: [{ entryId: "access-id", value: new SecretValue(ID_VALUE) }] });
@@ -172,5 +182,64 @@ describe("a value that is read, not created (expiry none)", () => {
       expect(inventory.getSecret(id)).toMatchObject({ verifiedAt: "2026-11-01", verifiedBy: "alice", expires: null, expiry: "none" });
       expect(inventory.getSecret(id)!.externalId).toBeUndefined();
     }
+  });
+});
+
+describe("variable companion (public half of a key pair)", () => {
+  const VAR_YAML = `version: 1
+secrets:
+  - id: vapid-private
+    name: VAPID_PRIVATE_KEY
+    stage: shared
+    service: push
+    provider: companion-test
+    expiry: none
+    params: { clientIdTarget: vapid-public }
+    places:
+      - { repo: acme-app, scope: repository }
+variables:
+  - id: vapid-public
+    name: VAPID_PUBLIC_KEY
+    stage: shared
+    value: null
+    places:
+      - { repo: acme-app, scope: repository }
+      - { repo: acme-app-landing, scope: repository }
+`;
+  const PUBLIC = "PUBLIC-POINT-0123456789";
+  const pair = (kind?: "secret" | "variable"): IssuedSecret => ({ value: new SecretValue(MAIN), expiresAt: null, companions: [{ entryId: "vapid-public", value: new SecretValue(PUBLIC), ...(kind ? { kind } : {}) }] });
+  const ticksOf = (p: { report: { checklist: { id: string }[] } }) => p.report.checklist.map((c) => c.id);
+
+  it("shows the variable in the review, writes it as a variable on confirm and records the expected value", async () => {
+    const { deps, inventory, puts, varPuts, vars } = await setup(() => pair("variable"), VAR_YAML);
+    const p = await prepareIssuance("vapid-private", deps);
+    expect(p.report.companions).toEqual([expect.objectContaining({ entryId: "vapid-public", kind: "variable", name: "VAPID_PUBLIC_KEY" })]);
+    expect(JSON.stringify(p.report)).not.toContain(MAIN);
+    expect(varPuts).toHaveLength(0);
+    const r = await commitIssuance(p, deps, { by: "alice", ticks: ticksOf(p) });
+    expect(r.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(varPuts).toHaveLength(2);
+    expect(vars.get("VAPID_PUBLIC_KEY")).toBe(PUBLIC);
+    expect(inventory.getVariable("vapid-public")!.value).toBe(PUBLIC);
+    expect(JSON.stringify(r)).not.toContain(MAIN);
+  });
+
+  it("refuses a variable value when the provider did not say variable, and a secret value for a variable", async () => {
+    const wrong = await setup(() => pair(), VAR_YAML);
+    await expect(prepareIssuance("vapid-private", wrong.deps)).rejects.toThrow(/nicht benannten Eintrag/);
+    expect(wrong.revoke).not.toHaveBeenCalled();
+    const asSecret = await setup(() => ({ ...created(), companions: [{ entryId: "access-id", value: new SecretValue(ID_VALUE), kind: "variable" as const }] }));
+    await expect(prepareIssuance("access-secret", asSecret.deps)).rejects.toThrow(/nicht benannten Eintrag/);
+    expect(asSecret.puts).toHaveLength(0);
+  });
+
+  it("goes stale when the variable's places change before confirm", async () => {
+    const { deps, inventory, varPuts, puts } = await setup(() => pair("variable"), VAR_YAML);
+    const p = await prepareIssuance("vapid-private", deps);
+    inventory.renameRepo("acme-app-landing", "elsewhere");
+    await expect(commitIssuance(p, deps, { by: "alice", ticks: ticksOf(p) })).rejects.toThrow(StaleIssuanceError);
+    expect(varPuts).toHaveLength(0);
+    expect(puts).toHaveLength(0);
   });
 });

@@ -28,9 +28,14 @@ export interface IssueContext {
  * written to the entry's places on confirm and discarded together with the main value.
  */
 export interface CompanionValue {
-  /** Inventory id of the receiving secret entry. Must be named in the provider's `companionParams`. */
+  /** Inventory id of the receiving entry. Must be named in the provider's `companionParams`. */
   entryId: string;
   value: SecretValue;
+  /**
+   * What the receiving entry must be. `secret` (default) writes a secret and needs a secret entry; `variable` writes a
+   * public value (for example the public half of a key pair) to a variable entry. A mismatch writes nothing.
+   */
+  kind?: "secret" | "variable";
 }
 
 export interface IssuedSecret {

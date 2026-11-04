@@ -41,7 +41,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 ### Pasted by a human, verified and written by secret-desk
 
 Anything else: passwords, keys of providers without an API, values a provider hands out once. The portal checks the shape,
-shows the review report and writes after confirmation. A VAPID key pair for web push comes from `secret-desk vapid`.
+shows the review report and writes after confirmation. A VAPID key pair for web push comes from the provider `vapid-keypair` (private key as secret, public key as variable; `secret-desk vapid` prints a pair for a manual paste).
 
 ## In progress
 
@@ -58,7 +58,6 @@ shows the review report and writes after confirmation. A VAPID key pair for web 
 | Cloudflare R2 S3 credentials | API (an R2 token's id and the SHA-256 of its value are the S3 key pair) |
 | Tokens that span several Cloudflare zones | Provider support for more than one zone per token |
 | GitHub without personal tokens | GitHub App installation tokens instead of fine-grained PATs |
-| VAPID key pairs | As a provider that writes the private key as a secret and the public key as a variable |
 | Organization secrets | The `organization` scope exists in the schema; the portal form does not offer it yet |
 | Verified recipes and recipe-driven revocation | Every bundled recipe checked against the live page (four of six ran end to end on 2026-11-03; GitHub and the Stripe full run are open) |
 
