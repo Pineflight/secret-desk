@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { SyncDiff } from "@/components/SyncDiff";
+import dynamic from "next/dynamic";
 import { TeamConfigPicker } from "@/components/TeamConfigPicker";
 import { Button, Card, Notice, PageHeader, SectionLabel } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -11,6 +11,9 @@ import { refreshCounts } from "@/lib/refresh";
 import { loadStages } from "@/lib/use-stages";
 import type { BundleDiff, SyncCheck } from "@/lib/team-sync";
 import { selectionReady, toTeamSyncConfig, type ModeAccess, type TeamSelection } from "@/lib/team-picker";
+
+// The preview comes after the form: its own chunk.
+const SyncDiff = dynamic(() => import("@/components/SyncDiff").then((m) => m.SyncDiff), { ssr: false });
 
 export default function SetupPage() {
   const t = useT();

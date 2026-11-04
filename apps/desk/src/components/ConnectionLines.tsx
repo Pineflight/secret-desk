@@ -4,7 +4,9 @@ import { Button, Notice, Pill } from "@/components/ui";
 import { CheckList, type CheckResult } from "@/components/ConnectionCheck";
 import { api, enc } from "@/lib/api";
 import { expiryLevel } from "@/lib/connection-health";
-import { useMutation } from "@/lib/hooks";
+import { clockTime, isLineBusy, lastResult } from "@/lib/card-activity";
+import { useCardActivity } from "@/lib/use-card-activity";
+import { BusySpinner, ResultMark } from "@/components/ProviderCards";
 import { useT } from "@/lib/i18n";
 import { capitalized, lineExpiry, type AccountLine, type ConnectionLines as Lines } from "@/lib/provider-cards";
 
@@ -14,13 +16,13 @@ const MODE_KEY: Record<string, string> = { sandbox: "providers.mode.sandbox", te
  * The connections of a vendor with several accounts, one compact line each: account, mode, state and the actions Test, Reconnect
  * and Remove. Older connections are one line with the hint to replace them. A key value is never shown.
  */
-export function ConnectionLinesList({ lines, onReconnect, onConnectAnother, onRemove, onOpen, removingId }: { lines: Lines; onReconnect?: (line: AccountLine) => void; onConnectAnother?: () => void; onRemove: (id: string) => void | Promise<void>; onOpen: (id: string) => void; removingId: string | null }) {
+export function ConnectionLinesList({ lines, cardId, onReconnect, onConnectAnother, onRemove, onOpen, removingId }: { lines: Lines; cardId: string; onReconnect?: (line: AccountLine) => void; onConnectAnother?: () => void; onRemove: (id: string) => void | Promise<void>; onOpen: (id: string) => void; removingId: string | null }) {
   const t = useT();
   return (
     <div>
       {lines.accounts.length > 0 || lines.legacy ? (
         <ul className="space-y-2">
-          {lines.accounts.map((l) => <AccountLineItem key={l.id} line={l} {...(onReconnect ? { onReconnect } : {})} onRemove={onRemove} removing={removingId === l.id} />)}
+          {lines.accounts.map((l) => <AccountLineItem key={l.id} cardId={cardId} line={l} {...(onReconnect ? { onReconnect } : {})} onRemove={onRemove} removing={removingId === l.id} />)}
           {lines.legacy ? (
             <li className="min-w-0 rounded-xl border border-line p-3">
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
@@ -40,10 +42,12 @@ export function ConnectionLinesList({ lines, onReconnect, onConnectAnother, onRe
   );
 }
 
-function AccountLineItem({ line, onReconnect, onRemove, removing }: { line: AccountLine; onReconnect?: (line: AccountLine) => void; onRemove: (id: string) => void | Promise<void>; removing: boolean }) {
+function AccountLineItem({ cardId, line, onReconnect, onRemove, removing }: { cardId: string; line: AccountLine; onReconnect?: (line: AccountLine) => void; onRemove: (id: string) => void | Promise<void>; removing: boolean }) {
   const t = useT();
   const [result, setResult] = useState<CheckResult | null>(null);
-  const run = useMutation(async () => api<CheckResult>("POST", `connections/${enc(line.id)}/check`, {}));
+  const activity = useCardActivity();
+  const busy = isLineBusy(activity.state, cardId, line.id);
+  const last = lastResult(activity.state, cardId, line.id);
   // The expiry the provider reports replaces the stored one while the test result is visible.
   const expires = result && result.expires !== undefined ? result.expires : line.expires;
   const daysLeft = typeof expires === "string" ? Math.ceil((Date.parse(`${expires}T00:00:00Z`) - Date.now()) / 86_400_000) : line.daysLeft;
@@ -59,14 +63,13 @@ function AccountLineItem({ line, onReconnect, onRemove, removing }: { line: Acco
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
         <span>{t("providers.line.connected")}</span>
         <span className={bad ? "font-medium text-danger" : level === "soon" ? "font-medium text-warn-text" : ""}>{lineExpiry({ expires, daysLeft }, t)}</span>
-        {result ? <span role="status">{t(result.ok ? "providers.line.testOk" : "providers.line.testProblems")}</span> : null}
+        {busy ? <BusySpinner label={t("activity.running", { name })} /> : last ? <ResultMark result={last} label={t(last.ok ? "activity.lastOk" : "activity.lastFail", { time: clockTime(last.at) })} /> : null}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button loading={run.pending} aria-label={t("providers.line.testLabel", { name })} onClick={() => void run.run().then((r) => { if (r) setResult(r); })}>{t("providers.line.test")}</Button>
+        <Button loading={busy} aria-label={t("providers.line.testLabel", { name })} onClick={() => void activity.track({ card: cardId, kind: "test", line: line.id, name, work: () => api<CheckResult>("POST", `connections/${enc(line.id)}/check`, {}), judge: (r) => ({ ok: r.ok, detail: r.checks.find((c) => c.status === "fail")?.label ?? null }) }).then((r) => { if (r) setResult(r); })}>{t("providers.line.test")}</Button>
         {onReconnect ? <Button aria-label={t("providers.line.reconnectLabel", { name })} onClick={() => onReconnect(line)}>{t("providers.line.reconnect")}</Button> : null}
         <Button loading={removing} aria-label={t("providers.line.removeLabel", { name })} onClick={() => void onRemove(line.id)}>{t("providers.line.remove")}</Button>
       </div>
-      {run.error ? <div className="mt-2"><Notice tone="danger">{run.error.message}</Notice></div> : null}
       {result ? (
         <div className="mt-1">
           <CheckList result={result} />

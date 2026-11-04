@@ -3,7 +3,9 @@ import { useState } from "react";
 import { Badge, Button, Checkbox, Notice } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { daysLabel, formatDate } from "@/lib/format";
-import { useMutation, useQuery } from "@/lib/hooks";
+import { useQuery } from "@/lib/hooks";
+import { isLineBusy } from "@/lib/card-activity";
+import { useCardActivity } from "@/lib/use-card-activity";
 import { useT } from "@/lib/i18n";
 import { checkInfo } from "@/lib/status";
 
@@ -32,12 +34,14 @@ interface WriteTarget {
 const daysLeft = (day: string): number => Math.ceil((Date.parse(`${day}T00:00:00Z`) - Date.now()) / 86_400_000);
 
 /** Knopf "Verbindung testen" mit Ergebnisliste. Meldet das vom Anbieter genannte Ablaufdatum an die Karte. */
-export function ConnectionCheckPanel({ id, onResult }: { id: string; onResult: (r: CheckResult | null) => void }) {
+export function ConnectionCheckPanel({ id, cardId, name, onResult }: { id: string; cardId?: string; name?: string; onResult: (r: CheckResult | null) => void }) {
   const t = useT();
+  const activity = useCardActivity();
+  const card = cardId ?? id;
   const [result, setResult] = useState<CheckResult | null>(null);
-  const run = useMutation(async (body: { deep?: boolean; targets?: string[] }) => api<CheckResult>("POST", `connections/${enc(id)}/check`, body));
+  const busy = isLineBusy(activity.state, card, id);
   const exec = async (body: { deep?: boolean; targets?: string[] }) => {
-    const r = await run.run(body);
+    const r = await activity.track({ card, kind: "test", line: id, name: name ?? id, work: () => api<CheckResult>("POST", `connections/${enc(id)}/check`, body), judge: (x) => ({ ok: x.ok, detail: x.checks.find((c) => c.status === "fail")?.label ?? null }) });
     if (r) {
       setResult(r);
       onResult(r);
@@ -46,12 +50,11 @@ export function ConnectionCheckPanel({ id, onResult }: { id: string; onResult: (
   return (
     <div className="mt-4 border-t border-line pt-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Button loading={run.pending} onClick={() => void exec({})}>{run.pending ? t("connections.testRunning") : t("connections.test")}</Button>
+        <Button loading={busy} onClick={() => void exec({})}>{busy ? t("connections.testRunning") : t("connections.test")}</Button>
         {result ? <button type="button" className="text-xs text-muted underline" onClick={() => { setResult(null); onResult(null); }}>{t("connections.testClose")}</button> : null}
       </div>
-      {run.error ? <div className="mt-3"><Notice tone="danger">{run.error.message}</Notice></div> : null}
       {result ? <CheckList result={result} /> : null}
-      {id === "github" ? <WriteTest busy={run.pending} onRun={(targets) => exec({ deep: true, targets })} /> : null}
+      {id === "github" ? <WriteTest busy={busy} onRun={(targets) => exec({ deep: true, targets })} /> : null}
     </div>
   );
 }

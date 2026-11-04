@@ -84,4 +84,5 @@ export default {
   "common.pageSearch": "In dieser Liste suchen",
   "common.pageSearchClear": "Suche leeren",
   "common.pageSearchCount": "{count} von {total} Treffern",
+  "common.showMore": "{count} weitere anzeigen",
 } satisfies Record<string, string>;

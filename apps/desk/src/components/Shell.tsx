@@ -8,10 +8,13 @@ import { useDebounced, useQuery } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
 import { useInventorySync } from "@/lib/inventory-sync";
 import { subscribeRefresh } from "@/lib/refresh";
-import { CommandPalette } from "./CommandPalette";
+import dynamic from "next/dynamic";
 import { Icon } from "./Icons";
 import { detectPlatform, isPaletteShortcut, isTouchDevice, shortcutLabel, type KeyPlatform } from "@/lib/platform-keys";
-import { LaunchForm } from "./LaunchForm";
+
+// Opened by a shortcut or only without a session: loaded when first shown, not with every page.
+const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
+const LaunchForm = dynamic(() => import("./LaunchForm").then((m) => m.LaunchForm), { ssr: false });
 
 interface NavItem {
   href: string;

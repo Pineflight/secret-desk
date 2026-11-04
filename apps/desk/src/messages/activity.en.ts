@@ -1,0 +1,16 @@
+export default {
+  "activity.running": "Checking {name} …",
+  "activity.lastOk": "Last check passed at {time}",
+  "activity.lastFail": "Last check failed at {time}",
+  "activity.ok.signin": "{name}: signed in.",
+  "activity.fail.signin": "{name}: not signed in or the check did not work.",
+  "activity.ok.test": "{name}: connection test passed.",
+  "activity.fail.test": "{name}: connection test found a problem.",
+  "activity.ok.reconnect": "{name}: connected again.",
+  "activity.fail.reconnect": "{name}: reconnecting did not work.",
+  "activity.ok.remove": "{name}: removed.",
+  "activity.fail.remove": "{name}: could not be removed.",
+  "activity.ok.renewal": "{name}: renewed.",
+  "activity.fail.renewal": "{name}: renewal did not work.",
+  "activity.detail": "Details: {detail}",
+} satisfies Record<string, string>;

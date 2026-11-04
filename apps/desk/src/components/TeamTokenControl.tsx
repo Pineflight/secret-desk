@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icons";
 import { AccessPrompt, ApprovalNotice, CodePrompt, ConsentPrompt, CredentialsPrompt } from "@/components/RunPrompts";
 import { Button, Notice } from "@/components/ui";
+import { showSignInCheck } from "@/lib/setup-steps";
+import { useToast } from "@/lib/toast";
 import { api } from "@/lib/api";
 import type { StepState } from "@/lib/facade";
 import { formatDate } from "@/lib/format";
@@ -27,15 +29,21 @@ interface Props {
   strategy: PushStrategy;
   /** Called once when a new team token is ready, so the page can check the modes again. */
   onCreated?: () => void;
+  /** Show the "Team token" heading (a page that has no step title around the control). */
+  heading?: boolean;
 }
+
+/** A positive sign-in answer counts as current for an hour. */
+const SIGN_IN_FRESH_MS = 3_600_000;
 
 /**
  * Creates a separate GitHub token for team sync: limited to this repository and to the rights of the chosen mode. The browser
  * does the work; GitHub's sign-in and "Confirm access" are done by the person in the browser window. Shows the run like the
  * provider sign-in does. The token itself is never shown.
  */
-export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Props) {
+export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, heading = false }: Props) {
   const { t, locale } = useI18n();
+  const toast = useToast();
   const [following, setFollowing] = useState(false);
   const [signedIn, setSignedIn] = useState<TeamTokenSessionCheck | null>(null);
   const info = useQuery<TeamTokenInfo>("team-token-info", () => api<TeamTokenInfo>("GET", "team-sync/token"), { refreshMs: following ? 1500 : 0 });
@@ -69,6 +77,9 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
   const check = useMutation(async () => {
     const r = await api<TeamTokenSessionCheck>("POST", "team-sync/token/check");
     setSignedIn(r);
+    if (r.failure) toast.error(r.failure.message);
+    else if (r.signedIn) toast.success(t("teamToken.signedIn"));
+    else toast.error(t("teamToken.signedOutShort"));
     return r;
   });
   const answer = useMutation(async (route: string, body?: Record<string, unknown>) => {
@@ -84,14 +95,19 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
   if (!data) return info.error ? <Notice tone="warn">{info.error.message}</Notice> : null;
   const run = data.run;
   const covered = tokenCovers(data.active, repo, mode, strategy);
-  const rights = data.rights[mode].join(", ");
   const canStart = Boolean(repo) && data.available && !running;
   const expires = data.active?.expires ? formatDate(data.active.expires) : "";
 
+  const checkedAt = signedIn ? Date.parse(signedIn.checkedAt) : Number.NaN;
+  const offerCheck = showSignInCheck({ available: data.available, signedIn: signedIn ? signedIn.signedIn : null, checkedAt: Number.isNaN(checkedAt) ? null : checkedAt, now: Date.now(), freshMs: SIGN_IN_FRESH_MS });
+
   return (
-    <div className="space-y-3 rounded-xl border border-line p-4 text-sm" data-testid="team-token">
-      <p className="font-medium">{t("teamToken.title")}</p>
-      <p className="text-muted-text">{t("teamToken.explain", { rights, days: data.days })}</p>
+    <div className="space-y-3 text-sm" data-testid="team-token">
+      {heading ? <p className="font-medium">{t("teamToken.title")}</p> : null}
+      <p className="text-muted-text">{t("teamToken.explainShort", { days: data.days })}</p>
+      <ul className="flex flex-wrap gap-1.5" aria-label={t("teamToken.rightsLabel")}>
+        {data.rights[mode].map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted-text ring-1 ring-inset ring-line">{r}</li>)}
+      </ul>
 
       {!data.available ? (
         <Notice tone="warn">
@@ -149,13 +165,7 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
         </Notice>
       ) : null}
 
-      {signedIn && !signedIn.signedIn && !signedIn.failure ? (
-        <Notice tone="warn">
-          <p>{t("teamToken.signedOut")}</p>
-        </Notice>
-      ) : null}
-      {signedIn?.signedIn ? <Notice tone="success">{t("teamToken.signedIn")}</Notice> : null}
-      {signedIn?.failure ? <Notice tone="warn">{signedIn.failure.message}</Notice> : null}
+      {signedIn && !signedIn.signedIn && !signedIn.failure ? <p className="text-xs text-warn-text">{t("teamToken.signedOut")}</p> : null}
 
       {data.pendingRevocation ? (
         <Notice tone="warn" title={t("teamToken.pending.title")}>
@@ -181,7 +191,7 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated }: Pr
         ) : (
           <>
             <Button variant="primary" loading={start.pending} disabled={!canStart} onClick={() => void start.run()}>{t(createLabelKey(data))}</Button>
-            {data.available ? <Button loading={check.pending} onClick={() => void check.run()}>{t("facade.checkSignin")}</Button> : null}
+            {offerCheck ? <button type="button" disabled={check.pending} className="text-xs text-muted-text underline disabled:opacity-60" onClick={() => void check.run()}>{check.pending ? t("teamToken.checking") : t("facade.checkSignin")}</button> : null}
           </>
         )}
       </div>
