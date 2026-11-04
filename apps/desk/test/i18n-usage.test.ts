@@ -26,6 +26,8 @@ const FILES = [
   "components/SignInRun.tsx",
   "components/RecipeSignIn.tsx",
   "components/ProviderCards.tsx",
+  "components/ConnectionLines.tsx",
+  "lib/provider-cards.ts",
   "components/BrowserAutomationPanel.tsx",
   "components/RenewalWarnings.tsx",
   "lib/sign-in-check.ts",

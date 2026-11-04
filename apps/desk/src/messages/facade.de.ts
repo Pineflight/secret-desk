@@ -104,7 +104,6 @@ export default {
   "connections.pasteKey": "Schlüssel einfügen",
   "facade.fail.page": "Die Seite des Anbieters ließ sich nicht öffnen. Der Browser hat sie nicht erreicht; versuche es gleich noch einmal.",
   "facade.fail.busy": "Der Browser ist gerade mit einem anderen Lauf belegt. Warte, bis er fertig ist, oder brich ihn ab, und prüfe dann erneut.",
-  "facade.checkWaiting": "Wartet …",
   "facade.promise.revenuecat": "Der Schlüssel bekommt nur „Project configuration: Read only“ und läuft nicht ab. Ein KI-Agent kann diesen Ablauf nicht starten.",
   "facade.promise.stripe": "Eingeschränkter Schlüssel mit nur den Rechten der gewählten Vorlage, für ein Konto und einen Modus.",
   "facade.promise.openai": "Admin-Schlüssel der Organisation; secret-desk nutzt ihn nur, um Projektschlüssel zu erzeugen und zu löschen.",

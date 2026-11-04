@@ -68,7 +68,7 @@ import type { z } from "zod";
 import type { Approval } from "./approvals.js";
 import type { AutomationInfo, AutomationRunState } from "./automation.js";
 import { linkedFolder } from "./repos.js";
-import { facadeConnectionForRecipe } from "./facade.js";
+import { FACADES, facadeConnectionForRecipe } from "./facade.js";
 import { paramStatus } from "./params.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
@@ -254,8 +254,9 @@ export async function overview(rt: Runtime, today = new Date()): Promise<Overvie
 }
 
 /** The vendors (one card each on the Integrations page) with the ids that belong to them. No values, no state. */
-export function listVendors(): { categories: VendorCategory[]; vendors: VendorDef[] } {
-  return { categories: [...VENDOR_CATEGORIES], vendors: VENDORS.map((v) => ({ ...v })) };
+export function listVendors(): { categories: VendorCategory[]; vendors: (VendorDef & { facade: boolean })[] } {
+  // `facade`: the vendor has a guided sign-in (same id), so its card always offers "Connect".
+  return { categories: [...VENDOR_CATEGORIES], vendors: VENDORS.map((v) => ({ ...v, facade: FACADES.some((f) => f.id === v.id) })) };
 }
 
 export function listProviders(rt: Runtime) {

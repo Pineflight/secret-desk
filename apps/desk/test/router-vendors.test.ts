@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VENDORS, vendorOfProvider, vendorOfRecipe } from "@secret-desk/core";
-import { createRuntime } from "@secret-desk/runtime";
+import { FACADES, createRuntime } from "@secret-desk/runtime";
 import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
@@ -55,10 +55,17 @@ describe("vendor catalog over the API", () => {
     expect(body.vendors.find((v: { id: string }) => v.id === "stripe")).toMatchObject({ category: "payments", legacyConnections: ["stripe", "stripe-test", "stripe-live"], connectionPrefixes: ["stripe:"] });
   });
 
+  it("marks every vendor that has a guided sign-in", async () => {
+    const { deps } = await setup();
+    const flagged = (await get(deps, "vendors")).vendors.filter((v: { facade: boolean }) => v.facade).map((v: { id: string }) => v.id).sort();
+    expect(flagged).toEqual(FACADES.map((f) => f.id).sort());
+    expect(flagged).toContain("anthropic");
+  });
+
   it("is static data: ids and labels only, no state", async () => {
     const { deps } = await setup();
     const keys = new Set((await get(deps, "vendors")).vendors.flatMap((v: object) => Object.keys(v)));
-    expect([...keys].sort()).toEqual(["category", "connectionPrefixes", "connections", "icon", "id", "label", "legacyConnections", "optionalConnections", "providers", "recipes", "signInPlanned"]);
+    expect([...keys].sort()).toEqual(["category", "connectionPrefixes", "connections", "facade", "icon", "id", "label", "legacyConnections", "optionalConnections", "providers", "recipes", "signInPlanned"]);
   });
 
   it("names the vendor on every connection row, and no row carries a value", async () => {
