@@ -26,11 +26,23 @@ describe("desk_env_export", () => {
     expect(Object.keys(tool.inputSchema).sort()).toEqual(["format", "include", "out", "repo", "stage"]);
   });
 
-  it("without out: asks the portal (stage defaults to dev) and returns the content", async () => {
+  it("without out: asks the portal (stage defaults to dev) and returns names only, never a value", async () => {
     const seen: unknown[] = [];
-    const r = (await envExportTool(client(response(), seen), { repo: "acme-app" })) as { content: string };
+    const r = await envExportTool(client(response(), seen), { repo: "acme-app" });
     expect(seen).toEqual([["POST", "/env/export", { repo: "acme-app", stage: "dev", format: "dotenv", include: "variables" }]]);
-    expect(r.content).toContain(VALUE);
+    expect(JSON.stringify(r)).not.toContain(VALUE);
+    expect(r).toMatchObject({ status: "preview", keys: ["SITE_URL"], missing: [{ name: "NO_VALUE" }] });
+    expect(r).not.toHaveProperty("content");
+    expect(JSON.stringify(r)).toContain("`out`");
+  });
+
+  it("without out and include=all: dev secret values stay out of the response", async () => {
+    const secretValue = ["dev", "secret", "value"].join("-");
+    const res = response({ content: `API_KEY=${secretValue}\nSITE_URL=${VALUE}\n`, keys: ["API_KEY", "SITE_URL"], missing: [] });
+    const r = await envExportTool(client(res), { repo: "acme-app", include: "all" });
+    expect(JSON.stringify(r)).not.toContain(secretValue);
+    expect(JSON.stringify(r)).not.toContain(VALUE);
+    expect(r).toMatchObject({ keys: ["API_KEY", "SITE_URL"] });
   });
 
   it("with out: writes mode 600 inside the working dir and returns no content", async () => {
@@ -40,6 +52,7 @@ describe("desk_env_export", () => {
     expect(await readFile(file, "utf8")).toContain(VALUE);
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(r)).not.toContain(VALUE);
+    expect(r).not.toHaveProperty("content");
     expect(r).toMatchObject({ status: "written", keys: ["SITE_URL"], missing: [{ name: "NO_VALUE" }] });
   });
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { StageSchema, localPathProblem, writePrivateFile, type Stage } from "@secret-desk/core";
@@ -53,6 +53,8 @@ export async function envExportContent(args: string[], io: Io): Promise<number> 
   }
   if (tracked === true) io.err(`Warnung: Git verfolgt diesen Pfad (${target}).`);
   await mkdir(dirname(target), { recursive: true });
+  // Replace instead of rewrite in place: an existing file with a broad mode must not stay readable while the values land in it.
+  if (exists) await rm(target, { force: true });
   await writePrivateFile(target, r.content);
   io.out(`geschrieben: ${target} (${r.keys.length} Werte, ${r.missing.length} fehlend, Modus 600)`);
   for (const m of r.missing) io.err(`fehlt: ${m.name} (${m.reason})`);

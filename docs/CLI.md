@@ -130,6 +130,8 @@ after the inventory value are left out and counted. The output shows progress pe
 
 ## env export
 
+`env export` has two modes. Without `--template`, `--overwrite` or `--prompt` it runs the [file of variables and dev values](#env-export-file-of-variables-and-dev-values) below (the default). With one of those options it creates a dev `.env` from a template:
+
 ```bash
 secret-desk env export --config <file> --repo <name> [--stage <id>] [--template <id>] [--out <path>] [--overwrite] [--prompt KEY=VALUE]...
 ```
@@ -153,7 +155,7 @@ If `prompt` values are missing the command lists the keys and exits `1`. It warn
 secret-desk env export --config <file> --repo <name> [--stage <id>] [--out <path>] [--format dotenv|json] [--include variables|all] [--force]
 ```
 
-Giving `--format`, `--include` or `--force` selects this mode (the template mode above ignores them). It writes the variables with a place in the repository and stage and, with `--include all`, the dev secrets and template keys that have a value (source `default`, `generate` or `variable`). Everything without a value is a comment line `# NAME= (missing: reason)`; secret values of stages that are not of kind `dev` are never written. Nothing is issued at a provider.
+This is the default mode; it runs unless `--template`, `--overwrite` or `--prompt` is given (the template mode above ignores `--format`, `--include` and `--force`). It writes the variables with a place in the repository and stage and, with `--include all`, the dev secrets and template keys that have a value (source `default`, `generate` or `variable`). Everything without a value is a comment line `# NAME= (missing: reason)`; secret values of stages that are not of kind `dev` are never written. Nothing is issued at a provider.
 
 | Option | Description |
 |---|---|
@@ -163,7 +165,7 @@ Giving `--format`, `--include` or `--force` selects this mode (the template mode
 | `--include variables\|all` | `variables` (default) or also secrets with a dev value. |
 | `--force` | Overwrite an existing file, or write to a path that Git tracks (with a warning). |
 
-The file gets mode 600. Without `--force` the command exits `1` when the file exists or Git tracks the path (`git ls-files --error-unmatch`). Missing names are listed on stderr; no value is printed.
+The file gets mode 600. Without `--force` the command exits `1` when the file exists or Git tracks the path (`git ls-files --error-unmatch`). Missing names are listed on stderr; no value is ever printed. There is no stdout mode: the values go only to the file, so a pipe or a log cannot capture them.
 
 ## team
 

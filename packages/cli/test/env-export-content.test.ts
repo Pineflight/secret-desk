@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -96,5 +96,41 @@ describe("secret-desk env export (content mode)", () => {
     const t = await setup();
     expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--format", "yaml"], t.io)).toBe(2);
     expect(t.err.join("\n")).toMatch(/format/);
+  });
+
+  it("is the default: no format/include/force flag still runs the content export (the item's documented command)", async () => {
+    const t = await setup();
+    const file = join(t.dir, ".env.local");
+    expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--stage", "dev", "--out", file], t.io)).toBe(0);
+    const text = await readFile(file, "utf8");
+    expect(text).toContain("SITE_URL=http://localhost:3000");
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(t.out.join("\n")).not.toContain("localhost:3000");
+  });
+
+  it("never prints values to stdout, not even when stdout is not a terminal", async () => {
+    const t = await setup();
+    const file = join(t.dir, ".env.local");
+    await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--out", file, "--include", "all"], t.io);
+    const written = await readFile(file, "utf8");
+    const secret = /\nAPI_KEY=([0-9a-f]{32})\n/.exec(written)![1]!;
+    expect([...t.out, ...t.err].join("\n")).not.toContain(secret);
+  });
+
+  it("--force narrows an existing broad-mode file to 600", async () => {
+    if (process.platform === "win32") return;
+    const t = await setup();
+    const file = join(t.dir, ".env.local");
+    await writeFile(file, "OLD=1\n");
+    await chmod(file, 0o644);
+    expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--out", file, "--force"], t.io)).toBe(0);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
+  it("--template still selects the template mode", async () => {
+    const t = await setup();
+    const file = join(t.dir, "tpl.env");
+    expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--template", "t", "--out", file], t.io)).toBe(0);
+    expect(await readFile(file, "utf8")).toMatch(/API_KEY=/);
   });
 });

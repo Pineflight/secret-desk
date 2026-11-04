@@ -211,7 +211,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_env_export",
     description:
-      "Exportiert die Umgebungsdatei (.env oder JSON) eines Repos fuer eine Stage: Variablen mit Wert, mit include=all auch Dev-Secrets, fuer die secret-desk einen Dev-Wert kennt (Standardwert, erzeugter oder aus einer Variable). Fehlende Werte stehen als Kommentarzeile `# NAME= (missing: Grund)`. Nur Stages aus policy.agentStages (heute dev); Secret-Werte anderer Stages gibt es nie. Ohne `out` kommt der Dateiinhalt zurueck. Mit `out` (relativer Pfad im Arbeitsordner, Name .env oder .env.*) wird die Datei dort mit Modus 600 geschrieben und nur Pfad, Namen und fehlende Eintraege kommen zurueck; nie ueberschreiben, nie in eine von Git verfolgte Datei. Lies die Datei danach nicht aus.",
+      "Exportiert die Umgebungsdatei (.env oder JSON) eines Repos fuer eine Stage: Variablen mit Wert, mit include=all auch Dev-Secrets, fuer die secret-desk einen Dev-Wert kennt (Standardwert, erzeugter oder aus einer Variable). Fehlende Werte stehen als Kommentarzeile `# NAME= (missing: Grund)`. Nur Stages aus policy.agentStages (heute dev); Secret-Werte anderer Stages gibt es nie. Werte kommen nie zurueck: ohne `out` nur Namen und fehlende Eintraege (Vorschau), mit `out` (relativer Pfad im Arbeitsordner, Name .env oder .env.*) wird die Datei dort mit Modus 600 geschrieben und nur Pfad, Namen und fehlende Eintraege kommen zurueck; nie ueberschreiben, nie in eine von Git verfolgte Datei. Lies die Datei danach nicht aus.",
     inputSchema: {
       repo: z.string(),
       stage: StageEnum.optional(),
