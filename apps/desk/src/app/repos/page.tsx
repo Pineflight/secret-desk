@@ -1,10 +1,10 @@
 "use client";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { LinkResult, RepoList, RepoRow, ScanSuggestion } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { RenameRepoDialog } from "@/components/RenameRepoDialog";
 import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, SectionLabel, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -12,6 +12,8 @@ import { useT } from "@/lib/i18n";
 import { invalidateRepoList } from "@/lib/repo-list";
 import { linkState } from "@/lib/repos";
 import { useToast } from "@/lib/toast";
+
+const RenameRepoDialog = dynamic(() => import("@/components/RenameRepoDialog").then((m) => m.RenameRepoDialog), { ssr: false });
 
 type T = ReturnType<typeof useT>;
 

@@ -5,9 +5,14 @@ import type { Overview } from "@secret-desk/runtime";
 import { api } from "@/lib/api";
 import { daysLabel, placeText } from "@/lib/format";
 import { useQuery } from "@/lib/hooks";
-import { Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, Skeleton, Stat, StageBadge, StatusBadge, Tabs } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, Skeleton, Stat, StageBadge, StatusBadge, Tabs } from "@/components/ui";
 import { Icon } from "@/components/Icons";
-import { IntegrationsOverview } from "@/components/IntegrationsOverview";
+import dynamic from "next/dynamic";
+import { LazySection } from "@/components/LazySection";
+import { PAGE_SIZE, pageOf } from "@/lib/paging";
+
+// Below the fold: its own chunk, and its data requests wait until it scrolls into view.
+const IntegrationsOverview = dynamic(() => import("@/components/IntegrationsOverview").then((m) => m.IntegrationsOverview), { ssr: false });
 import { RenewalNotice } from "@/components/RenewalWarnings";
 import { useRenewalWarnings } from "@/lib/use-renewal-warnings";
 import { useT } from "@/lib/i18n";
@@ -28,7 +33,10 @@ export default function OverviewPage() {
     { id: "all", label: t("home.tabAll"), ...(o ? { count: o.total } : {}) },
     ...defs.map((d) => ({ id: d.id, label: labelOf(defs, d.id), ...(o ? { count: o.byStage[d.id] ?? 0 } : {}) })),
   ];
-  const list = o ? o.attention.filter((s) => tab === "all" || s.stage === tab) : [];
+  const [pages, setPages] = useState(1);
+  const all = o ? o.attention.filter((s) => tab === "all" || s.stage === tab) : [];
+  const view = pageOf(all, pages);
+  const list = view.rows;
 
   return (
     <>
@@ -65,12 +73,12 @@ export default function OverviewPage() {
         )}
       </div>
 
-      <IntegrationsOverview />
+      <div className="mb-8"><LazySection minHeight={260}><IntegrationsOverview /></LazySection></div>
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <SectionLabel>{t("home.attention")}</SectionLabel>
-          <Tabs label={t("home.filterStage")} tabs={tabs} value={tab} onChange={setTab} />
+          <Tabs label={t("home.filterStage")} tabs={tabs} value={tab} onChange={(v) => { setTab(v); setPages(1); }} />
         </div>
         {q.loading && !o ? <ListSkeleton /> : null}
         {o && list.length === 0 ? (
@@ -94,6 +102,7 @@ export default function OverviewPage() {
             ))}
           </ul>
         ) : null}
+        {view.hidden > 0 ? <div className="mt-3 flex justify-center"><Button onClick={() => setPages((n) => n + 1)}>{t("common.showMore", { count: view.next })}</Button></div> : null}
       </Card>
     </>
   );

@@ -1,0 +1,16 @@
+export default {
+  "activity.running": "{name} wird geprüft …",
+  "activity.lastOk": "Letzte Prüfung bestanden um {time}",
+  "activity.lastFail": "Letzte Prüfung fehlgeschlagen um {time}",
+  "activity.ok.signin": "{name}: angemeldet.",
+  "activity.fail.signin": "{name}: nicht angemeldet oder die Prüfung ging nicht.",
+  "activity.ok.test": "{name}: Verbindungstest bestanden.",
+  "activity.fail.test": "{name}: Verbindungstest meldet ein Problem.",
+  "activity.ok.reconnect": "{name}: wieder verbunden.",
+  "activity.fail.reconnect": "{name}: Neu verbinden hat nicht geklappt.",
+  "activity.ok.remove": "{name}: entfernt.",
+  "activity.fail.remove": "{name}: konnte nicht entfernt werden.",
+  "activity.ok.renewal": "{name}: erneuert.",
+  "activity.fail.renewal": "{name}: Erneuern hat nicht geklappt.",
+  "activity.detail": "Details: {detail}",
+} satisfies Record<string, string>;

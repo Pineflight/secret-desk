@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FakeDriver, RecipeRunError, RecipeSchema, conditionMet, loadRecipes, resolveCondition, runRecipe } from "../src/index.js";
+import { FakeDriver, RecipeRunError, RecipeSchema, conditionMet, loadRecipes, resolveCondition, runRecipe, textPattern } from "../src/index.js";
 import { FORM_VISIBLE, TOKEN, VARS, sampleRecipe } from "./helpers.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
@@ -168,26 +168,38 @@ describe("capture.token.alternatives", () => {
 });
 
 describe("Anthropic Console sign-in check", () => {
+  // The Console follows the account language: German and English wording both count.
+  const signInButtons = {
+    de: ['button "Mit Google fortfahren"', 'button "Mit E-Mail fortfahren"'],
+    en: ['button "Continue with Google"', 'button "Continue with email"'],
+  };
   for (const id of ["anthropic-api-key", "anthropic-admin-key"]) {
-    it(`${id}: the sign-in screen at a settings address counts as signed out, a signed-in page as signed in`, async () => {
-      const r = (await loadRecipes([RECIPES])).find((x) => x.id === id)!;
-      const cond = resolveCondition(r.login!.expect, {});
-      const url = id === "anthropic-api-key" ? "https://platform.claude.com/settings/keys" : "https://platform.claude.com/settings/admin-keys";
-      const signedOut = new FakeDriver({ url, visible: ['button "Continue with Google"', 'button "Continue with email"'] });
-      expect(await conditionMet(signedOut, cond)).toBe(false);
-      const onlyEmail = new FakeDriver({ url, visible: ['button "Continue with email"'] });
-      expect(await conditionMet(onlyEmail, cond)).toBe(false);
-      const signedIn = new FakeDriver({ url, visible: ['button "Create Key"'] });
-      expect(await conditionMet(signedIn, cond)).toBe(true);
-      const elsewhere = new FakeDriver({ url: "https://platform.claude.com/login", visible: [] });
-      expect(await conditionMet(elsewhere, cond)).toBe(false);
-    });
+    for (const lang of ["de", "en"] as const) {
+      it(`${id} (${lang}): the sign-in screen at a settings address counts as signed out, a signed-in page as signed in`, async () => {
+        const r = (await loadRecipes([RECIPES])).find((x) => x.id === id)!;
+        const cond = resolveCondition(r.login!.expect, {});
+        const url = id === "anthropic-api-key" ? "https://platform.claude.com/settings/keys" : "https://platform.claude.com/settings/admin-keys";
+        const [google, email] = signInButtons[lang] as [string, string];
+        expect(await conditionMet(new FakeDriver({ url, visible: [google, email] }), cond)).toBe(false);
+        expect(await conditionMet(new FakeDriver({ url, visible: [email] }), cond)).toBe(false);
+        expect(await conditionMet(new FakeDriver({ url, visible: ['css input[type="email"], input[name="email"]'] }), cond)).toBe(false);
+        expect(await conditionMet(new FakeDriver({ url, visible: ['button "Schlüssel erstellen"', 'button "someone@example.test"'] }), cond)).toBe(true);
+        expect(await conditionMet(new FakeDriver({ url: "https://platform.claude.com/login", visible: [] }), cond)).toBe(false);
+      });
+    }
 
-    it(`${id}: rejects the cookie banner and never accepts it`, async () => {
+    it(`${id}: rejects the cookie banner in both languages and never accepts it`, async () => {
       const r = (await loadRecipes([RECIPES])).find((x) => x.id === id)!;
-      const banner = r.steps.find((s) => "click" in s && s.click.name === "Reject all cookies");
-      expect(banner).toMatchObject({ click: { role: "button", name: "Reject all cookies", optional: true } });
-      expect(JSON.stringify(r)).not.toMatch(/accept/i);
+      const banner = r.steps.find((s) => "click" in s && s.click.optional === true);
+      expect(banner).toMatchObject({ click: { role: "button", optional: true } });
+      const name = (banner as { click: { name: string } }).click.name;
+      const rx = textPattern(name)!;
+      expect(rx.test("Alle Cookies ablehnen")).toBe(true);
+      expect(rx.test("Reject all cookies")).toBe(true);
+      expect(rx.test("Alle Cookies akzeptieren")).toBe(false);
+      expect(rx.test("Accept all cookies")).toBe(false);
+      expect(rx.test("Cookie-Einstellungen anpassen")).toBe(false);
+      expect(JSON.stringify(r)).not.toMatch(/accept|akzept/i);
     });
   }
 });

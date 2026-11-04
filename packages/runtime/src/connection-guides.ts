@@ -231,7 +231,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
     case "anthropic":
       return {
         label: "Anthropic",
-        description: "Der Admin-Key der Organisation. Damit listet secret-desk Workspaces auf und prueft und deaktiviert API-Schluessel. Neue API-Schluessel kann die Admin-API nicht anlegen: das geht nur in der Console, secret-desk macht es ueber den angemeldeten Browser.",
+        description: "Optional, nur mit einer Anthropic-Organisation: der Admin-Key der Organisation. Damit listet secret-desk Workspaces auf und prueft und deaktiviert API-Schluessel. Neue API-Schluessel kann die Admin-API nicht anlegen: das geht nur in der Console, secret-desk macht es ueber den angemeldeten Browser (das geht auch ohne Admin-Key, zum Beispiel mit einem persoenlichen Konto).",
         url: "https://platform.claude.com/settings/admin-keys",
         steps: [
           "In der Anthropic-Console unter Settings, Admin keys einen Admin-Key anlegen (nur Organisations-Admins).",

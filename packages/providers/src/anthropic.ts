@@ -15,7 +15,10 @@ const ID = "anthropic";
 const VERSION = "2023-06-01";
 /** Safety stop for pagination: 20 pages of up to 100 items. */
 const MAX_PAGES = 20;
-/** Anthropic keys never expire. An entry without its own `ttlDays` is rotated on this horizon, so the expiry date is always filled. */
+/**
+ * The key dialog of the Console has an expiry. The recipe fills the date from the entry's `ttlDays` (default 30, the dialog's
+ * default). This horizon is only the fallback when a run reports no date, so the expiry date is always filled.
+ */
 export const ANTHROPIC_DEFAULT_ROTATION_DAYS = 90;
 /** Every organization has a default workspace. The Admin API list does not name it (not verified), so discovery adds it. */
 export const ANTHROPIC_DEFAULT_WORKSPACE = "Default";
@@ -136,7 +139,7 @@ export function withAnthropicAdmin<T extends Provider>(base: T): T {
       `Name beim Anbieter beginnt mit "${secret.id}" und traegt das heutige Datum`,
       "Der Schluessel gehoert zum richtigen Workspace",
       "Der Workspace hat ein Ausgabelimit",
-      "Anthropic-Schluessel laufen nicht ab: das Ablaufdatum ist die Erneuerungsfrist von secret-desk",
+      "Das Ablaufdatum im Dialog der Console entspricht dem Datum im Eintrag",
     ],
     async issue(ctx: IssueContext) {
       const issued = await base.issue!(ctx);

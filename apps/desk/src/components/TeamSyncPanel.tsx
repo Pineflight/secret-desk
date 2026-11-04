@@ -81,7 +81,7 @@ export function TeamSyncPanel() {
           </dl>
           {s.repo && s.mode ? (
             <div className="mt-4">
-              <TeamTokenControl repo={s.repo} {...(s.branch ? { branch: s.branch } : {})} mode={s.mode} strategy={s.pushStrategy ?? "pull-request"} onCreated={() => status.reload()} />
+              <TeamTokenControl heading repo={s.repo} {...(s.branch ? { branch: s.branch } : {})} mode={s.mode} strategy={s.pushStrategy ?? "pull-request"} onCreated={() => status.reload()} />
             </div>
           ) : null}
           {s.lastError ? <div className="mt-3"><Notice tone="warn" title={t("teamSync.error")}>{s.lastError}</Notice></div> : null}

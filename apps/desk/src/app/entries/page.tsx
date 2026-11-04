@@ -1,17 +1,16 @@
 "use client";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { VariableDrift } from "@secret-desk/core";
 import type { SecretView, VariableApplyResult, VariableView } from "@secret-desk/runtime";
-import { CompleteParamsDialog } from "@/components/CompleteParamsDialog";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, TagPills, metaFrom } from "@/components/Meta";
 import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, FilterRow, LIST_CELL_CLASS, WIDE_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
 import { Marked } from "@/components/Marked";
-import { NewEntryDialog } from "@/components/NewEntryDialog";
 import { NormalizeDialog, countApplicable, useNormalizationPlan } from "@/components/NormalizeDialog";
 import { RemoveDialog, VariableDetail, type Auto } from "@/components/VariableDialogs";
 import { SuggestSourcesDialog, useVariableSources } from "@/components/VariableSource";
@@ -19,6 +18,7 @@ import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseSt
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, ProviderChip, SelectField, StageBadge, StatusBadge } from "@/components/ui";
 import { filterBySearch, highlightTerms } from "@/lib/page-search";
 import { usePageSearch } from "@/lib/use-page-search";
+import { limitGroups } from "@/lib/paging";
 import { allRepos, groupItems, repoNames, sortItems, type SortKey } from "@/lib/browse";
 import { ApiError, api, enc } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
@@ -41,6 +41,10 @@ import {
   SECRET_STATUSES, VARIABLE_STATUSES, activeKinds, counts, effectiveFilters, initialNewKind, narrowingFilters, needsComparison, parseKind, secretMatches, variableMatches,
   type EntryFilters, type EntryKind, type EntryRow, type FilterName, type KindFilter, type SecretRow, type VariableRow,
 } from "@/lib/entries-list";
+
+// Dialogs open on a click: their own chunks, loaded when first needed.
+const CompleteParamsDialog = dynamic(() => import("@/components/CompleteParamsDialog").then((m) => m.CompleteParamsDialog), { ssr: false });
+const NewEntryDialog = dynamic(() => import("@/components/NewEntryDialog").then((m) => m.NewEntryDialog), { ssr: false });
 
 type Drifts = Record<string, VariableDrift[]>;
 
@@ -133,6 +137,11 @@ export default function EntriesPage() {
   }, [secretsMatch, variablesMatch, kind, browse.sort, defs]);
   const groups = useMemo(() => (rows.length ? groupItems(rows, browse.group, stageOrder(defs), (id) => labelOf(defs, id)) : []), [rows, browse.group, defs]);
   const shown = counts(rows);
+  // Long lists render in pages; a changed filter starts over at the first page.
+  const [pages, setPages] = useState(1);
+  const resetKey = `${q}|${kind}|${status}|${browse.repo}|${browse.group}|${browse.sort}`;
+  useEffect(() => setPages(1), [resetKey]);
+  const paged = limitGroups<EntryRow, (typeof groups)[number]>(groups, pages);
   const varRows = rows.filter((r): r is VariableRow => r.entryKind === "variable");
   const repos = useMemo(() => allRepos([...(secrets.data ?? []), ...(variables.data ?? [])]), [secrets.data, variables.data]);
   const missingParams = useMemo(() => countNeedingParams(secrets.data ?? []), [secrets.data]);
@@ -343,9 +352,9 @@ export default function EntriesPage() {
       {loaded && rows.length === 0 ? (
         <EmptyState title={t("entries.emptyTitle")} icon="key">{anyFilter || kind ? t("entries.emptyFiltered") : t("entries.emptyFirst")}</EmptyState>
       ) : null}
-      {groups.map((g) => (
+      {paged.groups.map((g) => (
         <div key={g.key}>
-          {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
+          {browse.group !== "none" ? <GroupHeading label={g.label} count={groups.find((x) => x.key === g.key)?.items.length ?? g.items.length} /> : null}
           <ListTable minWidth={0} columns={tableColumns} columnClasses={TABLE_COLUMN_CLASSES}>
             {g.items.map((e) => (e.entryKind === "secret" ? (
               <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} renewal={renewalByEntry.get(e.id)} terms={terms} tag={tag} setTag={setTag} onEdit={() => setEditingSecret(e)} />
@@ -371,6 +380,8 @@ export default function EntriesPage() {
           </ListTable>
         </div>
       ))}
+
+      {paged.hidden > 0 ? <div className="mb-6 flex justify-center"><Button onClick={() => setPages((n) => n + 1)}>{t("common.showMore", { count: paged.next })}</Button></div> : null}
 
       {detailVar && detail ? (
         <VariableDetail

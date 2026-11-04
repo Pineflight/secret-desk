@@ -72,6 +72,8 @@ export interface FacadeResult {
   projectId: string | null;
   check: { id: string; ok: boolean; checks: FacadeCheckItem[]; expires?: string | null; scopes?: string[] } | null;
   counts: Record<string, number>;
+  /** The sign-in worked, but this account cannot create the integration key (keys come from the browser). Nothing is stored. */
+  browserOnly?: boolean;
 }
 
 /** The state the server reports for a sign-in run. It never contains a typed value. */

@@ -1,12 +1,18 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DeveloperPanel } from "@/components/BrowserAutomationPanel";
-import { LanguagePanel, PolicyPanel, StoragePanel } from "@/components/settings/InfoPanels";
-import { StagesPanel } from "@/components/settings/StagesPanel";
+import dynamic from "next/dynamic";
 import { ListSkeleton, PageHeader, Tabs } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { parseTab } from "@/lib/tabs";
 import { useStages } from "@/lib/use-stages";
+
+// One chunk per tab: only the open tab is loaded, with a skeleton of the same kind while it arrives.
+const panelLoading = () => <ListSkeleton rows={4} />;
+const DeveloperPanel = dynamic(() => import("@/components/BrowserAutomationPanel").then((m) => m.DeveloperPanel), { loading: panelLoading });
+const LanguagePanel = dynamic(() => import("@/components/settings/InfoPanels").then((m) => m.LanguagePanel), { loading: panelLoading });
+const PolicyPanel = dynamic(() => import("@/components/settings/InfoPanels").then((m) => m.PolicyPanel), { loading: panelLoading });
+const StoragePanel = dynamic(() => import("@/components/settings/InfoPanels").then((m) => m.StoragePanel), { loading: panelLoading });
+const StagesPanel = dynamic(() => import("@/components/settings/StagesPanel").then((m) => m.StagesPanel), { loading: panelLoading });
 
 const TAB_IDS = ["stages", "policy", "storage", "language", "developer"] as const;
 type TabId = (typeof TAB_IDS)[number];

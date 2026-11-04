@@ -193,5 +193,17 @@ const m: Record<string, string> = {
   "teamToken.fail.captcha": "GitHub zeigt eine Sicherheitsprüfung (CAPTCHA), die secret-desk nicht lösen kann. Später erneut versuchen.",
   "teamToken.fail.unsupported": "Dieser Anmeldeschritt wird vom Rezept nicht unterstützt.",
   "teamToken.fail.page": "Die Anmeldeseite von GitHub ließ sich nicht öffnen.",
+  "teamPicker.stepsLabel": "Schritte der Team-Einrichtung",
+  "teamPicker.step.repo": "Repository",
+  "teamPicker.step.file": "Zweig und Datei",
+  "teamPicker.step.mode": "Modus",
+  "teamPicker.step.token": "Team-Token",
+  "teamPicker.repo.change": "Ändern",
+  "teamPicker.file.createShort": "Neue Datei, wird vom ersten Push angelegt",
+  "teamPicker.mode.tokenNeeded": "Team-Token nötig",
+  "teamToken.explainShort": "secret-desk erstellt ein eigenes Token nur für dieses Repository, {days} Tage gültig.",
+  "teamToken.rightsLabel": "Rechte des Team-Tokens",
+  "teamToken.signedOutShort": "Im Browser nicht bei GitHub angemeldet.",
+  "teamToken.checking": "Prüfe …",
 };
 export default m;
