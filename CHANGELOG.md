@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **R2 credentials use user tokens:** `cloudflare-r2-credentials` creates its token through `/user/tokens` like `cloudflare-token`; the integration's token gets 403 on the account-owned token endpoints.
+
 ### Added
 
 - **Cloudflare R2 S3 credentials, tokens for several zones, Terraform and SaaS presets:** the new provider `cloudflare-r2-credentials` creates an account-owned API token restricted to R2 (`access`: `read`, `write`, `admin`; `buckets` optional, `jurisdiction` optional) and derives the S3 key pair as Cloudflare documents it (access key ID = token id, secret access key = SHA-256 hex of the token value). One issuance writes both entries through the companion mechanism (`value`, `companionEntry`); revoke deletes the token; the expiry is always set (`ttlDays`, default 90); verify reads the token and, with a bucket, signs an S3 `ListObjectsV2` with a small SigV4 implementation on `node:crypto` (checked against the AWS test vector). `cloudflare-token` accepts `zones` (a list of zone names resolved through the API, an unknown name aborts) and `allZones: true` (every zone of the account, also future ones), plus the presets `terraform-plan`, `terraform-apply` and `saas-custom-hostnames` with a documented permission set that lives in code with a test. Normalize switches `CLOUDFLARE_R2_*SECRET_ACCESS_KEY` entries to the new provider (proposing the matching `..._ACCESS_KEY_ID` entry) and says that `CLOUDFLARE_ACCOUNT_ID` is a configuration value to keep as a variable (its source `cloudflare.account` exists). An `enum` parameter now accepts a YAML boolean when an option spells it. Nothing of this is verified live: permission group names, account-owned token creation with the connection token and the S3 derivation are unconfirmed. See [docs/PROVIDERS.md](docs/PROVIDERS.md#cloudflare-r2-s3-credentials-access-key-id-and-secret-access-key-together).

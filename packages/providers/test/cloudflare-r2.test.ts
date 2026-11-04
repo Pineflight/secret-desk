@@ -5,7 +5,7 @@ import { validateEntryParams } from "@secret-desk/core";
 import { CONN_TOKEN, connections, issueCtx, revokeCtx, routeFetch, verifyCtx, type Route } from "./helpers.js";
 
 const BASE = "https://api.cloudflare.com/client/v4";
-const TOKENS = `${BASE}/accounts/acc1/tokens`;
+const TOKENS = `${BASE}/user/tokens`;
 const TOKEN_VALUE = "made-up-token-value-0123456789";
 const GROUPS = {
   result: [
@@ -27,7 +27,7 @@ describe("cloudflare-r2-credentials", () => {
     expect(deriveS3Credentials("tok1", "abc")).toEqual({ accessKeyId: "tok1", secretAccessKey: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" });
   });
 
-  it("creates an account-owned token for the named buckets and returns both halves", async () => {
+  it("creates a user token for the named buckets and returns both halves", async () => {
     const m = routeFetch(...routes());
     const r = await provider.issue!(issueCtx(m.fetch, params, { conns: ["cloudflare"] }));
     const create = m.calls.find((c) => c.method === "POST")!;
@@ -97,7 +97,7 @@ describe("cloudflare-r2-credentials", () => {
     expect(err.message).not.toContain(CONN_TOKEN);
   });
 
-  it("revokes by deleting the account-owned token, idempotently", async () => {
+  it("revokes by deleting the token, idempotently", async () => {
     const m = routeFetch({ method: "DELETE", url: `${TOKENS}/tok1`, reply: { body: { result: { id: "tok1" } } } });
     await provider.revoke!(revokeCtx(m.fetch, { accountId: "acc1" }, "tok1", ["cloudflare"]));
     expect(m.calls[0]).toMatchObject({ method: "DELETE", url: `${TOKENS}/tok1` });
