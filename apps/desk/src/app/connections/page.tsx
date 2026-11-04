@@ -12,8 +12,9 @@ import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
 import { FacadeCheckContext, FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderLogo, ProviderPageCard, ProviderTile, CardStatusBadge, usePurpose } from "@/components/ProviderCards";
 import { RecipeSignInFlow } from "@/components/RecipeSignIn";
+import { ConnectionLinesList } from "@/components/ConnectionLines";
 import { recipeSignInSubject, type FacadeInfo } from "@/lib/facade";
-import { buildCards, cardMatches, groupByCategory, isInUse, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
+import { buildCards, cardMatches, connectionLines, groupByCategory, isInUse, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
 import { ConnectionDefaultsSummary, ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
@@ -59,7 +60,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const SOURCE_KEYS: Record<string, string> = { session: "connections.srcSession", env: "connections.srcEnv", op: "connections.srcOp", vault: "connections.srcVault", github: "connections.srcGithub", none: "connections.srcNone" };
 
 /** Where the picker opens: a provider (or the full list), optionally straight into one of its ways in. */
-type Picking = false | { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null };
+type Picking = false | { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null; inputs?: Record<string, string> };
 
 export default function ConnectionsPage() {
   const { t, locale } = useI18n();
@@ -114,6 +115,15 @@ export default function ConnectionsPage() {
   const secrets = useQuery<SecretView[]>("overview-secrets", () => api<SecretView[]>("GET", "secrets"));
   const vars = useQuery<VariableView[]>("overview-variables", () => api<VariableView[]>("GET", "variables"));
   const del = useMutation(async (id: string) => api<Connection>("DELETE", `connections/${enc(id)}/token`));
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const remove = async (id: string, name: string) => {
+    setRemovingId(id);
+    try {
+      if (await del.run(id)) { toast.success(t("connections.disconnected", { name })); conns.reload(); facades.reload(); }
+    } finally {
+      setRemovingId(null);
+    }
+  };
   reloadAutomation.current = auto.reload;
   const cards = useMemo(
     () =>
@@ -153,6 +163,7 @@ export default function ConnectionsPage() {
       />
       {conns.error ? <ErrorState error={conns.error} onRetry={conns.reload} /> : null}
       {vendors.error ? <ErrorState error={vendors.error} onRetry={vendors.reload} /> : null}
+      {facades.error ? <div className="mb-3"><Notice tone="warn">{t("providers.page.facadesFailed")} <button type="button" className="underline" onClick={facades.reload}>{t("common.retry")}</button></Notice></div> : null}
       {(conns.loading || vendors.loading) && !cards ? <ListSkeleton rows={2} /> : null}
       {cards && used.length === 0 ? (
         <EmptyState title={t("connections.emptyTitle")} icon="plug">
@@ -174,12 +185,13 @@ export default function ConnectionsPage() {
             const outcome = outcomes[card.id];
             const problem = outcomeProblem(outcome, locale, t);
             return (
-              <li key={card.id}>
+              <li key={card.id} className="min-w-0">
                 <ProviderPageCard
                   card={card}
                   open={open.has(cardKey(card.id))}
                   onToggle={() => setOpen((o) => toggled(o, cardKey(card.id)))}
                   signIn={signInStatus(card, phase, outcome)}
+                  hostPhases={phases}
                   signInPrompts={signInPrompts(card)}
                   onSignIn={(portal) => setPicking({ vendor: card.id, signIn: true, portal })}
                   actions={
@@ -189,18 +201,19 @@ export default function ConnectionsPage() {
                       ) : null}
                       {card.signIn.facade || card.signIn.checkRecipe ? (
                         checkHostsOf(card).length > 0 ? (
-                          // One button per portal: each has its own account, so each is checked on its own.
+                          // One button per portal: each has its own account, so each is checked on its own. A queued check is a
+                          // status next to the line (see the card summary), the button keeps naming its action.
                           checkHostsOf(card).map((h) => {
                             const hostPhase = phases.get(checkIdOf(card.id, h.host));
                             return (
                               <Button key={h.host} disabled={!card.signIn.available || hostPhase !== undefined} loading={hostPhase === "checking"} onClick={() => void queue.current?.enqueue(checkIdOf(card.id, h.host))}>
-                                {hostPhase === "checking" ? t("providers.signIn.hostChecking", { portal: h.value }) : hostPhase === "waiting" ? t("providers.signIn.hostWaiting", { portal: h.value }) : t("providers.signIn.hostCheck", { portal: h.value })}
+                                {t("providers.signIn.hostCheck", { portal: h.value })}
                               </Button>
                             );
                           })
                         ) : (
                           <Button disabled={!card.signIn.available || phase !== undefined} loading={phase === "checking"} onClick={() => void queue.current?.enqueue(card.id)}>
-                            {phase === "checking" ? t("facade.checking") : phase === "waiting" ? t("facade.checkWaiting") : t("facade.checkSignin")}
+                            {t("facade.checkSignin")}
                           </Button>
                         )
                       ) : null}
@@ -209,13 +222,7 @@ export default function ConnectionsPage() {
                   }
                 >
                   <SignInLine card={card} status={signInStatus(card, phase, outcome)} problem={problem} outcomes={outcomes} locale={locale} />
-                  <div className="mt-3 space-y-2">
-                    {card.keys.filter((k) => k.connected).map((k) => {
-                      const c = (conns.data ?? []).find((x) => x.id === k.id);
-                      return c ? <ConnectionCard key={c.id} c={c} nested open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={async () => { if (await del.run(c.id)) { toast.success(t("connections.disconnected", { name: labelOf(c) })); conns.reload(); } }} disconnecting={del.pending} /> : null;
-                    })}
-                    {showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
-                  </div>
+                  <CardKeys card={card} conns={conns.data ?? []} open={open} setOpen={setOpen} setPicking={setPicking} removingId={removingId} remove={remove} onDisconnect={remove} disconnecting={del.pending} />
                 </ProviderPageCard>
               </li>
             );
@@ -237,6 +244,35 @@ export default function ConnectionsPage() {
       ) : null}
       {adding ? <AddProviderDialog onClose={() => setAdding(false)} onAdded={() => { setAdding(false); provs.reload(); setPicking({ vendor: null }); }} /> : null}
     </FacadeCheckContext.Provider>
+  );
+}
+
+/**
+ * The connected keys inside a provider card. A vendor with keys per account (a connection prefix) gets one compact line per
+ * connection, with Test, Reconnect and Remove; other keys stay the collapsible rows.
+ */
+function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, onDisconnect, disconnecting }: { card: ProviderCard; conns: Connection[]; open: ReadonlySet<string>; setOpen: (f: (o: ReadonlySet<string>) => ReadonlySet<string>) => void; setPicking: (p: Picking) => void; removingId: string | null; remove: (id: string, name: string) => Promise<void>; onDisconnect: (id: string, name: string) => Promise<void>; disconnecting: boolean }) {
+  const t = useT();
+  const lines = connectionLines(card);
+  const facade = card.signIn.facade;
+  const accountInputs = (line: { accountId: string; mode: string | null }): Record<string, string> => ({ account: line.accountId, ...(line.mode ? { mode: line.mode } : {}) });
+  return (
+    <div className="mt-3 space-y-2">
+      {lines.accounts.length > 0 || lines.legacy || card.prefixes.length > 0 ? (
+        <ConnectionLinesList
+          lines={lines}
+          removingId={removingId}
+          onOpen={(id) => setPicking({ vendor: card.id, key: id })}
+          onRemove={(id) => remove(id, labelOf(conns.find((c) => c.id === id) ?? { id, label: "" } as Connection))}
+          {...(facade ? { onReconnect: (l) => setPicking({ vendor: card.id, signIn: true, inputs: accountInputs(l) }), onConnectAnother: () => setPicking({ vendor: card.id, signIn: true }) } : {})}
+        />
+      ) : null}
+      {lines.others.map((k) => {
+        const c = conns.find((x) => x.id === k.id);
+        return c ? <ConnectionCard key={c.id} c={c} nested open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={() => void onDisconnect(c.id, labelOf(c))} disconnecting={disconnecting} /> : null;
+      })}
+      {lines.accounts.length === 0 && !lines.legacy && showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
+    </div>
   );
 }
 
@@ -360,11 +396,11 @@ function withExpiry(url: string, days: number | null): string {
 const labelOf = (c: Connection) => c.label || NAMES[c.id] || c.id;
 
 /** The picker: all providers as tiles by category; a provider opens its ways in. */
-function IntegrationPicker({ initial, cards, conns, facades, categories, signedIn, onClose, onChanged, onNewProvider }: { initial: { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null }; cards: ProviderCard[]; conns: Connection[]; facades: FacadeInfo[]; categories: string[]; signedIn: ReadonlySet<string>; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
+function IntegrationPicker({ initial, cards, conns, facades, categories, signedIn, onClose, onChanged, onNewProvider }: { initial: { vendor: string | null; key?: string; signIn?: boolean; portal?: string | null; inputs?: Record<string, string> }; cards: ProviderCard[]; conns: Connection[]; facades: FacadeInfo[]; categories: string[]; signedIn: ReadonlySet<string>; onClose: () => void; onChanged: () => void; onNewProvider: () => void }) {
   const t = useT();
   const purposeOf = usePurpose();
   const [vendor, setVendor] = useState<string | null>(initial.vendor);
-  const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin", portal: initial.portal ?? null } : null);
+  const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin", portal: initial.portal ?? null, ...(initial.inputs ? { inputs: initial.inputs } : {}) } : null);
   const [q, setQ] = useState("");
   const card = vendor ? (cards.find((c) => c.id === vendor) ?? null) : null;
 
@@ -395,7 +431,7 @@ function IntegrationPicker({ initial, cards, conns, facades, categories, signedI
   );
 }
 
-type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin"; portal?: string | null };
+type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin"; portal?: string | null; inputs?: Record<string, string> };
 
 /** A provider's ways in, each with one plain sentence. */
 function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, onDone }: { card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onDone: () => void }) {
@@ -414,7 +450,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
   }
   if (sub?.kind === "signin" && facade) {
     // The guided sign-in: pasting a key is only the collapsed way out.
-    return <FacadeFlow facade={facade} onChanged={onChanged} onDone={onDone} {...(fallback ? { fallback } : {})} />;
+    return <FacadeFlow facade={facade} onChanged={onChanged} onDone={onDone} {...(fallback ? { fallback } : {})} {...(sub.inputs ? { initialInputs: sub.inputs } : {})} />;
   }
   const signInRecipe = signInRecipeOf(card);
   if (sub?.kind === "signin" && signInRecipe) {

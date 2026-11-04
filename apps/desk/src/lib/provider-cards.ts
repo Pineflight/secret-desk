@@ -1,4 +1,5 @@
 import { expiryLevel, type ExpiryLevel } from "./connection-health";
+import { daysLabel, formatDate } from "./format";
 import { ageParts, browserReadiness, newestCheck, sessionHoursOf, DEFAULT_FRESH_HOURS, type AgeParts, type Readiness, type SessionLifetimeRow, type SignInCheckRow } from "./browser-ready";
 
 /**
@@ -19,6 +20,8 @@ export interface VendorInfo {
   providers: string[];
   recipes: string[];
   signInPlanned: boolean;
+  /** The vendor has a guided sign-in (a facade): its card always offers "Connect", whatever the facade list says. */
+  facade?: boolean;
 }
 export interface VendorsResponse {
   categories: string[];
@@ -73,6 +76,8 @@ export interface SecretRow {
   daysLeft?: number | null;
   /** Day the entry expires (YYYY-MM-DD), null: never. */
   expires?: string | null;
+  /** `none`: the value does not expire (a read-only key); such entries are left out of the expiry calculation. */
+  expiry?: string;
   id?: string;
 }
 export interface VariableRow {
@@ -121,8 +126,10 @@ export interface BrowserWay {
   readiness: Readiness;
   /** Inventory entries of this provider whose values the browser creates. */
   secrets: number;
-  /** The earliest expiry among those entries, like connected keys have. */
+  /** The earliest expiry among those entries, like connected keys have. Entries that never expire are left out. */
   expiry: EarliestExpiry | null;
+  /** Every one of those entries is marked as never expiring (`expiry: none`), so the card can say so. */
+  neverExpires: boolean;
   /** How long a sign-in here has lasted, in whole hours (at least 1), from measurements; null until there is one. */
   sessionHours: number | null;
   /** One line per portal when a recipe of this provider has several (live and test with separate accounts); empty otherwise. */
@@ -148,6 +155,8 @@ export interface ProviderCard {
   keys: KeyRow[];
   /** Providers whose value only a human can create (no API, no recipe). */
   byHand: ProviderRow[];
+  /** Connection id prefixes of keys per account (`stripe:`): the card lists one line per connection of such a kind. */
+  prefixes: string[];
   /** Browser view of the card; null when the provider has no loaded recipe. */
   browser: BrowserWay | null;
   /** An API connection exists, so keys are issued without any browser sign-in. Only for providers with a guided sign-in. */
@@ -191,8 +200,10 @@ export function buildCards(input: CardInput): ProviderCard[] {
 
   for (const v of catalog.vendors) {
     const keys = input.connections.filter((c) => c.vendor === v.id).map(keyOf).sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.label.localeCompare(b.label));
-    const facade = input.facades.find((f) => f.id === v.id) ?? null;
     const recipes = input.recipes.filter((r) => v.recipes.includes(r.id));
+    // A vendor with a guided sign-in always offers it. When the facade list did not say anything about it (not loaded yet, the
+    // request failed), the card still shows "Connect": the dialog reads the real state itself and reports a problem there.
+    const facade = input.facades.find((f) => f.id === v.id) ?? (v.facade === true ? { id: v.id, label: v.label, available: recipes.length > 0 && (input.automationEnabled ?? true), connected: keys.some((k) => k.connected), reason: null, connectionId: v.connections[0] ?? v.id } : null);
     const state: SignInState = facade ? "facade" : v.recipes.length > 0 ? "recipe" : v.signInPlanned ? "coming" : "none";
     // With a loaded recipe the manual definition is just the recipe's other face; only an unloaded recipe leaves it by hand.
     const covered = v.recipes.some((r) => loaded.has(r));
@@ -204,7 +215,7 @@ export function buildCards(input: CardInput): ProviderCard[] {
     const hostLines: HostLine[] = recipes.flatMap((r) => (r.hosts ?? []).map((h) => ({ value: h.value, host: h.host, readiness: browserReadiness(newestCheck(input.signInChecks ?? [], [h.host]), now, freshHours), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], [h.host]) })));
     const managed = (input.secrets ?? []).filter((s) => s.vendor === v.id && s.browser === true);
     const browser: BrowserWay | null = usable
-      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), now, freshHours), secrets: managed.length, expiry: earliestAmong(managed), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], hosts), hostLines }
+      ? { readiness: browserReadiness(newestCheck(input.signInChecks ?? [], hosts), now, freshHours), secrets: managed.length, expiry: earliestAmong(managed), neverExpires: managed.length > 0 && managed.every((m) => m.expiry === "none"), sessionHours: sessionHoursOf(input.signInLifetimes ?? [], hosts), hostLines }
       : null;
     const byHand = input.providers.filter((p) => p.vendor === v.id && p.kind === "manual" && p.guide && !p.browser && !covered);
     cards.push({
@@ -217,6 +228,7 @@ export function buildCards(input: CardInput): ProviderCard[] {
       signIn: { state, facade, recipes, available: facade ? facade.available : recipes.length > 0, checkRecipe: facade ? null : (recipes.find((r) => r.canCheckSignIn)?.id ?? null), checkHosts: facade ? [] : (recipes.find((r) => r.canCheckSignIn)?.hosts ?? []) },
       keys,
       byHand,
+      prefixes: [...v.connectionPrefixes],
       browser,
       worksWithoutBrowser: state === "facade" && (keys.some((k) => k.connected) || facade?.connected === true),
       secrets: (input.secrets ?? []).filter((s) => s.vendor === v.id).length,
@@ -253,6 +265,7 @@ function statusOf(keys: readonly KeyRow[], facade: FacadeRow | null, signedIn: b
 function earliestAmong(rows: readonly SecretRow[]): EarliestExpiry | null {
   let best: EarliestExpiry | null = null;
   for (const r of rows) {
+    if (r.expiry === "none") continue;
     const daysLeft = r.daysLeft;
     if (daysLeft === null || daysLeft === undefined) continue;
     const level = expiryLevel(daysLeft);
@@ -273,6 +286,7 @@ function customCard(id: string, label: string, keys: KeyRow[], byHand: ProviderR
     signIn: { state: "none", facade: null, recipes: [], available: false },
     keys,
     byHand,
+    prefixes: [],
     browser: null,
     worksWithoutBrowser: false,
     secrets: 0,
@@ -409,4 +423,110 @@ export function signInPrompts(card: Pick<ProviderCard, "status" | "signIn" | "br
   const lines = card.browser.hostLines;
   if (lines.length > 0) return lines.filter((l) => l.readiness.state !== "ready").map((l) => ({ portal: l.value }));
   return card.browser.readiness.state === "ready" ? [] : [{ portal: null }];
+}
+
+/** One connection of a per-account kind (`stripe:<account>:<mode>`), as one compact line on the card. */
+export interface AccountLine {
+  /** The connection id. */
+  id: string;
+  /** What names the account: the connection label without vendor name and mode, else the account id from the connection id. */
+  account: string;
+  /** The account part of the connection id (`acct_1AbC`), for prefilling the sign-in dialog. */
+  accountId: string;
+  /** The mode of the connection (`sandbox`, `live`), or null when the id carries none. */
+  mode: string | null;
+  daysLeft: number | null;
+  /** Day the key expires (YYYY-MM-DD), null: never, undefined: not known. */
+  expires: string | null | undefined;
+  level: ExpiryLevel | null;
+}
+
+/** The connections of an older layout (`stripe`, `stripe-test`) that are still connected: one line, with a hint to replace them. */
+export interface LegacyLine {
+  ids: string[];
+  labels: string[];
+}
+
+export interface ConnectionLines {
+  /** One line per connected connection under a connection prefix, ordered by account and then sandbox before live. */
+  accounts: AccountLine[];
+  /** One line for all connected older connections, or null. */
+  legacy: LegacyLine | null;
+  /** Other connected keys (optional ones, or a vendor without prefixes): shown as before. */
+  others: KeyRow[];
+}
+
+const MODE_ORDER: Record<string, number> = { sandbox: 0, test: 0, live: 1 };
+
+/** The account a connection stands for. The label is `Vendor Name (Mode)`; what is left of it, or the id part, is the account. */
+function accountOf(key: KeyRow, rest: string, vendorLabel: string): string {
+  let name = key.label.trim();
+  if (name.toLowerCase().startsWith(`${vendorLabel.toLowerCase()} `)) name = name.slice(vendorLabel.length + 1);
+  name = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (name && name !== key.id) return name;
+  const at = rest.lastIndexOf(":");
+  return at > 0 ? rest.slice(0, at) : rest;
+}
+
+/**
+ * The card's connected keys as lines: one per connection of a per-account kind, one for the older connections, the rest as they
+ * are. A vendor without connection prefixes has no account lines (`accounts` empty, the keys are `others`).
+ */
+export function connectionLines(card: Pick<ProviderCard, "keys" | "prefixes" | "label">): ConnectionLines {
+  const connected = card.keys.filter((k) => k.connected);
+  if (card.prefixes.length === 0) return { accounts: [], legacy: null, others: connected };
+  const accounts: AccountLine[] = [];
+  const legacy: KeyRow[] = [];
+  const others: KeyRow[] = [];
+  for (const k of connected) {
+    const prefix = card.prefixes.find((p) => k.id.startsWith(p));
+    if (prefix) {
+      const rest = k.id.slice(prefix.length);
+      const at = rest.lastIndexOf(":");
+      accounts.push({ id: k.id, account: accountOf(k, rest, card.label), accountId: at > 0 ? rest.slice(0, at) : rest, mode: at > 0 ? rest.slice(at + 1) : null, daysLeft: k.daysLeft, expires: k.expires, level: k.level });
+    } else if (k.role === "legacy") legacy.push(k);
+    else others.push(k);
+  }
+  accounts.sort((a, b) => a.account.localeCompare(b.account) || (MODE_ORDER[a.mode ?? ""] ?? 2) - (MODE_ORDER[b.mode ?? ""] ?? 2));
+  return { accounts, legacy: legacy.length > 0 ? { ids: legacy.map((k) => k.id), labels: legacy.map((k) => k.label) } : null, others };
+}
+
+/** What a portal line says while a check of it is queued or running; null when no check is pending (the sign-in note applies). */
+export function hostLinePhaseKey(phase: "waiting" | "checking" | undefined): string | null {
+  return phase === "waiting" ? "providers.card.hostWaiting" : phase === "checking" ? "providers.card.hostChecking" : null;
+}
+
+/** "live" -> "Live": the portal name starts a sentence. */
+export const capitalized = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+const EXPIRY_TEXT: Record<ExpiryLevel, string> = {
+  ok: "providers.card.expiresIn",
+  soon: "providers.card.expiryWarn",
+  critical: "providers.card.expiryCritical",
+  expired: "providers.card.expiryExpired",
+};
+
+/** The expiry sentence of a collapsed card: the key that runs out first, or why there is nothing to say. */
+export function expiryLine(card: Pick<ProviderCard, "keys" | "browser">, t: Translate, now: Date = new Date()): { text: string; level: ExpiryLevel | null } | null {
+  const managed = card.browser?.secrets ?? 0;
+  if (connectedKeyCount(card) === 0 && managed === 0) return null;
+  const e = managedExpiry(card);
+  if (e) {
+    const date = e.expires ?? new Date(now.getTime() + e.daysLeft * 86_400_000).toISOString().slice(0, 10);
+    return { text: t(EXPIRY_TEXT[e.level], { date: formatDate(date), days: daysLabel(e.daysLeft) }), level: e.level };
+  }
+  // Values the browser reads and that never expire (read-only keys): say so instead of "not specified".
+  if (connectedKeyCount(card) === 0 && card.browser?.neverExpires) return { text: t("providers.card.browserNeverExpires"), level: null };
+  const connected = card.keys.filter((k) => k.connected);
+  return { text: t(connected.length > 0 && connected.every((k) => k.expires === null) ? "providers.card.neverExpires" : "providers.card.expiryUnknown"), level: null };
+}
+
+
+/** The expiry sentence of one connection line: the date the key runs out, "never expires", or that nothing is known. */
+export function lineExpiry(line: Pick<AccountLine, "expires" | "daysLeft">, t: Translate): string {
+  if (line.expires === undefined) return t("connections.expiryUnknown");
+  if (line.expires === null) return t("connections.neverExpires");
+  return t("connections.validUntil", { date: formatDate(line.expires), days: daysLabel(line.daysLeft) });
 }

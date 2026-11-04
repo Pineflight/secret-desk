@@ -104,7 +104,6 @@ export default {
   "connections.pasteKey": "Paste the key",
   "facade.fail.page": "The provider's page could not be opened. The browser did not reach it; try again in a moment.",
   "facade.fail.busy": "The browser is busy with another run. Wait for it to finish or cancel it, then check again.",
-  "facade.checkWaiting": "Waiting …",
   "facade.promise.revenuecat": "The key gets only “Project configuration: Read only” and does not expire. An AI agent cannot start this flow.",
   "facade.promise.stripe": "Restricted key with only the permissions of the chosen preset, for one account and mode.",
   "facade.promise.openai": "Organization admin key; secret-desk uses it only to create and delete project keys.",

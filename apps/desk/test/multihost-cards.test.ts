@@ -69,11 +69,11 @@ describe("the text of a portal line", () => {
     expect(line({ state: "unknown", checkedAt: "x", ageMinutes: 900, stale: true }).key).toBe("providers.card.hostUnknownChecked");
   });
   it("exists in German and English", () => {
-    for (const k of ["hostReady", "hostSignedOut", "hostUnknownChecked", "hostUnknownNever"]) {
+    for (const k of ["hostReady", "hostSignedOut", "hostUnknownChecked", "hostUnknownNever", "hostWaiting", "hostChecking"]) {
       expect(messages.de[`providers.card.${k}`], k).toBeTruthy();
       expect(messages.en[`providers.card.${k}`], k).toBeTruthy();
     }
-    for (const k of ["hostYes", "hostNo", "hostCheck", "hostChecking", "hostWaiting", "hostFailed"]) {
+    for (const k of ["hostYes", "hostNo", "hostCheck", "hostFailed"]) {
       expect(messages.de[`providers.signIn.${k}`], k).toBeTruthy();
       expect(messages.en[`providers.signIn.${k}`], k).toBeTruthy();
     }

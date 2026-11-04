@@ -4,11 +4,10 @@ import { Badge, Button, Card } from "@/components/ui";
 import { BRAND_ICONS } from "@/lib/brand-icons.generated";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
-import { browserNote, hostLineNote, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
+import { browserNote, capitalized, expiryLine, hostLineNote, hostLinePhaseKey, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
 import type { AgeParts } from "@/lib/browser-ready";
-import type { ExpiryLevel } from "@/lib/connection-health";
-import { daysLabel, formatDate } from "@/lib/format";
-import type { SignInStatus } from "@/lib/sign-in-check";
+import type { CheckPhase } from "@/lib/check-queue";
+import { checkIdOf as checkKey, type SignInStatus } from "@/lib/sign-in-check";
 import { useT } from "@/lib/i18n";
 
 /** The provider's logo from the bundled icon set, or a neutral monogram. Decorative: the name is always next to it. */
@@ -97,26 +96,6 @@ const SIGN_IN_TEXT: Record<SignInStatus, string> = {
   unchecked: "providers.card.signInUnchecked",
 };
 
-const EXPIRY_TEXT: Record<ExpiryLevel, string> = {
-  ok: "providers.card.expiresIn",
-  soon: "providers.card.expiryWarn",
-  critical: "providers.card.expiryCritical",
-  expired: "providers.card.expiryExpired",
-};
-
-/** The expiry sentence of a collapsed card: the key that runs out first, or why there is nothing to say. */
-export function expiryLine(card: Pick<ProviderCard, "keys" | "browser">, t: (key: string, vars?: Record<string, string | number>) => string, now: Date = new Date()): { text: string; level: ExpiryLevel | null } | null {
-  const managed = card.browser?.secrets ?? 0;
-  if (connectedKeyCount(card) === 0 && managed === 0) return null;
-  const e = managedExpiry(card);
-  if (e) {
-    const date = e.expires ?? new Date(now.getTime() + e.daysLeft * 86_400_000).toISOString().slice(0, 10);
-    return { text: t(EXPIRY_TEXT[e.level], { date: formatDate(date), days: daysLabel(e.daysLeft) }), level: e.level };
-  }
-  const connected = card.keys.filter((k) => k.connected);
-  return { text: t(connected.length > 0 && connected.every((k) => k.expires === null) ? "providers.card.neverExpires" : "providers.card.expiryUnknown"), level: null };
-}
-
 const TIME_TEXT: Record<AgeParts["unit"], string> = {
   now: "providers.time.now",
   minutes: "providers.time.minutes",
@@ -130,7 +109,7 @@ export function ageText(age: AgeParts, t: (key: string, vars?: Record<string, st
 }
 
 /** What a collapsed card says: counts, earliest expiry, sign-in state. Plain text lines, no controls. */
-export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: SignInStatus | null }) {
+export function CardSummary({ card, signIn, hostPhases }: { card: ProviderCard; signIn: SignInStatus | null; hostPhases?: ReadonlyMap<string, CheckPhase> }) {
   const t = useT();
   const expiry = expiryLine(card, t);
   const keys = connectedKeyCount(card);
@@ -145,6 +124,9 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
       {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
       {lines.length > 0 ? lines.map((l) => {
+        // A queued or running check is a status of this portal, not a button label.
+        const pending = hostLinePhaseKey(hostPhases?.get(checkKey(card.id, l.host)));
+        if (pending) return <span key={l.host} role="status">{t(pending, { portal: capitalized(l.value) })}</span>;
         const n = hostLineNote(l);
         return <span key={l.host}>{t(n.key, { name: card.label, portal: l.value, when: n.age ? ageText(n.age, t) : "" })}</span>;
       }) : note ? <span>{t(note.key, { when: note.age ? ageText(note.age, t) : "" })}</span> : null}
@@ -158,12 +140,12 @@ export function CardSummary({ card, signIn }: { card: ProviderCard; signIn: Sign
  * The provider on the page. Collapsed it shows logo, name, purpose, status and the summary; the header is one button that opens
  * the details (the ways in, as given by the caller). The controls inside the details are never part of that button.
  */
-export function ProviderPageCard({ card, open, onToggle, signIn, signInPrompts = [], onSignIn, actions, children }: { card: ProviderCard; open: boolean; onToggle: () => void; signIn: SignInStatus | null; signInPrompts?: readonly SignInPrompt[]; onSignIn?: (portal: string | null) => void; actions?: ReactNode; children?: ReactNode }) {
+export function ProviderPageCard({ card, open, onToggle, signIn, hostPhases, signInPrompts = [], onSignIn, actions, children }: { card: ProviderCard; open: boolean; onToggle: () => void; signIn: SignInStatus | null; hostPhases?: ReadonlyMap<string, CheckPhase>; signInPrompts?: readonly SignInPrompt[]; onSignIn?: (portal: string | null) => void; actions?: ReactNode; children?: ReactNode }) {
   const t = useT();
   const purposeOf = usePurpose();
   const bodyId = useId();
   return (
-    <Card>
+    <Card className="min-w-0 break-words">
       <h4>
         <button
           type="button"
@@ -180,7 +162,7 @@ export function ProviderPageCard({ card, open, onToggle, signIn, signInPrompts =
               <CardStatusBadge status={card.status} />
             </span>
             <span className="block text-xs text-muted">{purposeOf(card)}</span>
-            <CardSummary card={card} signIn={signIn} />
+            <CardSummary card={card} signIn={signIn} {...(hostPhases ? { hostPhases } : {})} />
           </span>
           <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
@@ -199,7 +181,7 @@ export function ProviderPageCard({ card, open, onToggle, signIn, signInPrompts =
         {open ? (
           <>
             {children}
-            {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
+            {actions ? <div className="mt-4 flex min-w-0 flex-wrap gap-2">{actions}</div> : null}
           </>
         ) : null}
       </div>

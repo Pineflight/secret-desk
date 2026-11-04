@@ -29,14 +29,14 @@ function FallbackBox({ children }: { children: ReactNode }) {
 }
 
 /** Starts and follows one sign-in run. The typed values leave the form state the moment they are sent. */
-export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: FacadeInfo; onChanged: () => void; onDone: () => void; fallback?: ReactNode }) {
+export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs }: { facade: FacadeInfo; onChanged: () => void; onDone: () => void; fallback?: ReactNode; initialInputs?: Record<string, string> }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<FacadeState | null>(null);
   const [started, setStarted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [project, setProject] = useState("");
-  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [inputValues, setInputValues] = useState<Record<string, string>>(initialInputs ?? {});
   const [cancelling, setCancelling] = useState(false);
   const [methodId, setMethodId] = useState("");
   const [pickedUp, setPickedUp] = useState(false);
