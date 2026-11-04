@@ -101,4 +101,5 @@ export default {
   "providers.time.days.other": "vor {count} Tagen",
   "providers.key.show": "Details von {name} anzeigen",
   "providers.key.hide": "Details von {name} ausblenden",
+  "providers.card.sessionLasts": "Anmeldungen halten hier etwa {hours} Std.",
 } satisfies Record<string, string>;

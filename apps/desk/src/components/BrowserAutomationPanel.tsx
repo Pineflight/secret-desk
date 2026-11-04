@@ -4,6 +4,8 @@ import { api } from "@/lib/api";
 import { useQuery } from "@/lib/hooks";
 import { shortHash } from "@/lib/connection-health";
 import { useT } from "@/lib/i18n";
+import { ageParts } from "@/lib/browser-ready";
+import { ageText } from "@/components/ProviderCards";
 
 export interface AutomationInfo {
   enabled: boolean;
@@ -13,8 +15,14 @@ export interface AutomationInfo {
   loginTimeoutMinutes: number;
   /** Hours a browser sign-in answer counts as current. */
   signInFreshHours: number;
-  /** The last known browser sign-in state per recipe host (kept in memory by the server). */
-  signInChecks: { host: string; signedIn: boolean; checkedAt: string }[];
+  /** Hours between the scheduled sign-in checks (0 = off). */
+  signInCheckHours?: number;
+  /** Days before a renewal at which a signed-out browser is flagged (0 = off). */
+  renewalWarnDays?: number;
+  /** The last known browser sign-in state per recipe host (the server keeps it across restarts). */
+  signInChecks: { host: string; signedIn: boolean; checkedAt: string; source?: "check" | "run" | "connect" }[];
+  /** How long sign-ins lasted per recipe host (only hosts with a measurement). */
+  signInLifetimes?: { host: string; averageMinutes: number; samples: number; measuredAt: string }[];
   allowExternalRecipes: boolean;
   recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean; canCheckSignIn: boolean }[];
   problems: { file: string; message: string }[];
@@ -63,6 +71,28 @@ export function BrowserAutomationSection({ q }: { q: { data: AutomationInfo | un
                     <p className="font-mono text-xs text-muted" title={t("connections.recipeShaTitle", { sha: r.sha256 })}>{t("connections.recipeSha", { sha: shortHash(r.sha256) })}</p>
                   </li>
                 ))}
+              </ul>
+            )}
+          </Card>
+          <Card className="md:col-span-2">
+            <p className="text-sm font-medium">{t("connections.sessionsTitle")}</p>
+            <p className="mt-1 text-xs text-muted">{a.signInCheckHours ? t("connections.sessionsHint", { hours: a.signInCheckHours }) : t("connections.sessionsHintOff")}</p>
+            {a.signInChecks.length === 0 ? <p className="mt-2 text-sm text-muted">{t("connections.sessionsNone")}</p> : (
+              <ul className="mt-2 divide-y divide-line text-sm">
+                {a.signInChecks.map((c) => {
+                  const life = (a.signInLifetimes ?? []).find((l) => l.host === c.host);
+                  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(c.checkedAt)) / 60_000));
+                  return (
+                    <li key={c.host} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+                      <span className="font-mono text-xs">{c.host}</span>
+                      <span className="text-xs text-muted-text">
+                        {t(c.signedIn ? "connections.sessionIn" : "connections.sessionOut")}, {t("connections.sessionChecked", { when: Number.isNaN(minutes) ? "–" : ageText(ageParts(minutes), t) })}
+                        {" · "}
+                        {life ? t("connections.sessionLasts", { hours: Math.max(1, Math.round(life.averageMinutes / 60)), count: life.samples }) : t("connections.sessionLastsNone")}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </Card>

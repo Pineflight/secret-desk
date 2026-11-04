@@ -39,4 +39,12 @@ export default {
   "home.linkedExpires": "Token läuft {when} ab",
   "home.linkedDueSoon": "Bald fällig",
   "home.linkedConnected": "Verbunden",
+  "renewal.title.one": "Anmeldung nötig vor {count} Erneuerung",
+  "renewal.title.other": "Anmeldung nötig vor {count} Erneuerungen",
+  "renewal.hint": "Der Browser ist beim Anbieter abgemeldet, oder es weiß niemand. Die Erneuerung bliebe auf der Anmeldeseite stehen.",
+  "renewal.line": "{name} bei {provider}: Erneuerung am {date}",
+  "renewal.badge": "Anmeldung nötig vor Erneuerung am {date}",
+  "renewal.badgeUnknown": "Anmeldung unbekannt, nötig vor Erneuerung am {date}",
+  "renewal.signIn": "Anmelden",
+  "renewal.signInAt": "Bei {provider} anmelden",
 } satisfies Record<string, string>;

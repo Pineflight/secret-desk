@@ -115,4 +115,13 @@ export default {
   "connections.recipeHostsNone": "keine weiteren",
   "connections.recipeExternalOff": "Externe Rezepte sind ausgeschaltet (automation.allowExternalRecipes). Rezepte aus eigenen Ordnern werden nicht geladen.",
   "connections.recipeExternalOn": "Externe Rezepte sind eingeschaltet. Prüfe Host und SHA-256, bevor du ein Rezept benutzt.",
+  "connections.sessionsTitle": "Anmeldungen im Browser",
+  "connections.sessionsHint": "Die letzte Antwort je Rezept-Host und wie lange eine Anmeldung dort gehalten hat. Wird alle {hours} Std. im Hintergrund geprüft.",
+  "connections.sessionsHintOff": "Die letzte Antwort je Rezept-Host und wie lange eine Anmeldung dort gehalten hat. Die Prüfung im Hintergrund ist aus (automation.signInCheckHours).",
+  "connections.sessionsNone": "Noch keine Antwort zur Anmeldung.",
+  "connections.sessionIn": "angemeldet",
+  "connections.sessionOut": "abgemeldet",
+  "connections.sessionChecked": "geprüft {when}",
+  "connections.sessionLasts": "Anmeldungen halten etwa {hours} Std. ({count} gemessen)",
+  "connections.sessionLastsNone": "noch keine Haltbarkeit gemessen",
 } satisfies Record<string, string>;

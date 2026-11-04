@@ -12,6 +12,20 @@ export interface SignInCheckRow {
   checkedAt: string;
 }
 
+/** The server's measurement of how long sign-ins at one recipe host lasted. */
+export interface SessionLifetimeRow {
+  host: string;
+  averageMinutes: number;
+}
+
+/** How long sign-ins lasted at these hosts, in whole hours (at least 1): the average of the hosts' averages. Null without a measurement. */
+export function sessionHoursOf(lifetimes: readonly SessionLifetimeRow[], hosts: readonly string[]): number | null {
+  const rows = lifetimes.filter((l) => hosts.includes(l.host) && Number.isFinite(l.averageMinutes) && l.averageMinutes >= 0);
+  if (rows.length === 0) return null;
+  const minutes = rows.reduce((a, l) => a + l.averageMinutes, 0) / rows.length;
+  return Math.max(1, Math.round(minutes / 60));
+}
+
 /** `ready`: signed in and fresh. `signed-out`: fresh answer, signed out. `unknown`: no answer, an unreadable one, or one that is too old. */
 export type ReadinessState = "ready" | "signed-out" | "unknown";
 

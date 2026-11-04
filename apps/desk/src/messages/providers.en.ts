@@ -101,4 +101,5 @@ export default {
   "providers.time.days.other": "{count} days ago",
   "providers.key.show": "Show details of {name}",
   "providers.key.hide": "Hide details of {name}",
+  "providers.card.sessionLasts": "Sessions here last about {hours} h",
 } satisfies Record<string, string>;

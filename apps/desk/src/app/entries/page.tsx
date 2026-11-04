@@ -29,6 +29,9 @@ import { useToast } from "@/lib/toast";
 import { useI18n, useT } from "@/lib/i18n";
 import { countNeedingParams, needsParams } from "@/lib/params-list";
 import { usePersistedState } from "@/lib/persisted-state";
+import { RenewalBadge } from "@/components/RenewalWarnings";
+import { warningsById, type RenewalWarning } from "@/lib/renewal-warning";
+import { useRenewalWarnings } from "@/lib/use-renewal-warnings";
 import { useStageDefs } from "@/lib/use-stages";
 import { readPrefill, withoutPrefill, type Prefill } from "@/lib/prefill";
 import { labelOf, stageOrder } from "@/lib/stages";
@@ -107,6 +110,8 @@ export default function EntriesPage() {
   if (tag) qs.set("tag", tag);
   const secretQs = new URLSearchParams(qs);
   if (live) secretQs.set("live", "1");
+  const renewals = useRenewalWarnings();
+  const renewalByEntry = useMemo(() => warningsById(renewals), [renewals]);
   const secrets = useQuery<SecretView[]>(`secrets?${secretQs}`, () => api<SecretView[]>("GET", `secrets?${secretQs}`));
   const variables = useQuery<VariableView[]>(`variables?${qs}`, () => api<VariableView[]>("GET", `variables?${qs}`));
 
@@ -343,7 +348,7 @@ export default function EntriesPage() {
           {browse.group !== "none" ? <GroupHeading label={g.label} count={g.items.length} /> : null}
           <ListTable minWidth={0} columns={tableColumns} columnClasses={TABLE_COLUMN_CLASSES}>
             {g.items.map((e) => (e.entryKind === "secret" ? (
-              <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} terms={terms} tag={tag} setTag={setTag} onEdit={() => setEditingSecret(e)} />
+              <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} renewal={renewalByEntry.get(e.id)} terms={terms} tag={tag} setTag={setTag} onEdit={() => setEditingSecret(e)} />
             ) : (
               <VariableRowView
                 key={`${g.key}:variable:${e.id}`}
@@ -411,7 +416,7 @@ function Targets({ places }: { places: SecretView["places"] }) {
   return <div className="flex min-w-0 flex-wrap gap-1 [&>span]:max-w-full [&>span]:break-words [&>span]:whitespace-normal">{places.length ? places.map((p, i) => <Pill key={i}>{placeText(p)}</Pill>) : <span className="text-muted-text">–</span>}</div>;
 }
 
-function SecretRowView({ s, terms, tag, setTag, onEdit }: { s: SecretRow; terms: string[]; tag: string; setTag: (v: string) => void; onEdit: () => void }) {
+function SecretRowView({ s, renewal, terms, tag, setTag, onEdit }: { s: SecretRow; renewal: RenewalWarning | undefined; terms: string[]; tag: string; setTag: (v: string) => void; onEdit: () => void }) {
   const t = useT();
   const router = useRouter();
   const actions = (
@@ -439,6 +444,7 @@ function SecretRowView({ s, terms, tag, setTag, onEdit }: { s: SecretRow; terms:
             <Badge info={{ label: s.params.status === "invalid" && s.params.missing.length === 0 ? t("params.list.badgeInvalid") : t("params.list.badge"), tone: "warn", icon: "alert" }} />
           </div>
         ) : null}
+        {renewal ? <div className="mt-1"><RenewalBadge warning={renewal} /></div> : null}
         <div className="mt-1 xl:hidden"><Targets places={s.places} /></div>
         <div className="mt-2 sm:hidden">{status}</div>
         <div className="mt-2 sm:hidden">{actions}</div>
