@@ -70,10 +70,10 @@ Aufruf: secret-desk <befehl> [optionen]
   vars add       Variable anlegen                            --id <id> --name <NAME> --stage <s> --place repo[:env]... [--value <wert>] --config <datei>
   sync           Alles aus dem Inventar nach GitHub bringen (Plan, dann schreiben; loescht nie)
                    --to-github --config <datei> [--dry-run] [--yes] [--repo <name>]
-  env export     Dev-.env erzeugen (Werte entstehen jetzt, werden nirgends gespeichert)
-                   --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
-  env export     Variablen (und Dev-Werte) als Datei, jede Stage; mit einer dieser Optionen:
+  env export     Variablen (und Dev-Werte) als Datei (Modus 600, Standard .env.local), jede Stage, Werte nie auf dem Terminal
                    --config <datei> --repo <r> [--stage <s>] [--out <pfad>] [--format dotenv|json] [--include variables|all] [--force]
+  env export     Mit --template, --overwrite oder --prompt: Dev-.env aus einer Vorlage (Werte entstehen jetzt, werden nirgends gespeichert)
+                   --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
   team status    Stand des Team-Syncs (ohne Netzwerk)      --config <datei>
@@ -133,8 +133,8 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await syncCmd(rest, io);
       case "env":
         if (rest[0] !== "export") return usage(io);
-        // Content mode (variables, dev secrets with a value, any stage) when one of its options is given; otherwise the template mode.
-        return rest.some((a) => /^--(format|include|force)(=|$)/.test(a)) ? await envExportContent(rest.slice(1), io) : await envExport(rest.slice(1), io);
+        // Content export (variables, dev secrets with a value, any stage) is the default; the template mode only runs when one of its options is given.
+        return rest.some((a) => /^--(template|overwrite|prompt)(=|$)/.test(a)) ? await envExport(rest.slice(1), io) : await envExportContent(rest.slice(1), io);
       case "team":
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : rest[0] === "status" ? await teamStatusCmd(rest.slice(1), io) : rest[0] === "pull" ? await teamPullCmd(rest.slice(1), io) : rest[0] === "push" ? await teamPushCmd(rest.slice(1), io) : usage(io);
       case "inventory":

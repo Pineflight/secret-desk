@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { DeskClient } from "./client.js";
 
@@ -42,9 +42,10 @@ async function realpathLoose(path: string): Promise<string> {
 }
 
 /**
- * `desk_env_export`: asks the portal for the export (the portal enforces the agent policy). Without `out` the content
- * comes back (dev stages only, by policy). With `out` the file is written inside the working directory of the requesting
- * repository and only path, names and missing reasons come back: the values never reach the agent.
+ * `desk_env_export`: asks the portal for the export (the portal enforces the agent policy). The tool never returns values
+ * to the agent. Without `out` only names, kinds and missing reasons come back, plus a hint that `out` writes the file. With
+ * `out` the file is written inside the working directory of the requesting repository (mode 600) and only path, names and
+ * missing reasons come back. The portal cannot tell this tool from a raw agent call, so the values are dropped here.
  */
 export async function envExportTool(client: DeskClient, input: Record<string, unknown>, cwd: string = process.cwd()): Promise<unknown> {
   const format = input.format === "json" ? "json" : "dotenv";
@@ -54,7 +55,18 @@ export async function envExportTool(client: DeskClient, input: Record<string, un
     format,
     include: input.include ?? "variables",
   });
-  if (typeof input.out !== "string" || input.out === "") return res;
+  if (typeof input.out !== "string" || input.out === "") {
+    return {
+      status: "preview",
+      repo: res.repo,
+      stage: res.stage,
+      format: res.format,
+      filename: res.filename,
+      keys: res.keys,
+      missing: res.missing,
+      hint: "Values are never returned to agents. Pass `out` (a relative .env path inside the working directory) to write the file with mode 600.",
+    };
+  }
 
   const target = resolve(cwd, input.out);
   const root = await realpath(cwd);
@@ -73,5 +85,7 @@ export async function envExportTool(client: DeskClient, input: Record<string, un
     if ((err as { code?: string }).code === "EEXIST") throw new Error(`Datei existiert schon: ${target}. Agenten ueberschreiben nie.`);
     throw err;
   }
+  // The mode flag is filtered by the umask on create; make 600 explicit.
+  await chmod(target, 0o600);
   return { status: "written", path: target, repo: res.repo, stage: res.stage, keys: res.keys, missing: res.missing };
 }
