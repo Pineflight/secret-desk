@@ -7,6 +7,10 @@ export interface ResolvedCondition {
   text?: string;
   /** Holds once no element matching the selector is visible any more. */
   hidden?: Selector;
+  /** Holds when every one of the conditions holds. */
+  all?: ResolvedCondition[];
+  /** Holds as soon as one of the conditions holds. */
+  any?: ResolvedCondition[];
 }
 
 /**

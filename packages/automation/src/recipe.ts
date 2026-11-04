@@ -14,7 +14,7 @@ const Regex = z.string().refine(
   { message: "Ungueltiger regulaerer Ausdruck" },
 );
 
-const conditionShape = {
+const simpleConditionShape = {
   /** Regulaerer Ausdruck gegen die aktuelle Adresse. */
   url: Regex.optional(),
   visible: SelectorSchema.optional(),
@@ -24,9 +24,20 @@ const conditionShape = {
   text: z.string().min(1).optional(),
 };
 
-function oneCondition(c: { url?: unknown; visible?: unknown; hidden?: unknown; text?: unknown }, ctx: z.RefinementCtx): void {
-  const n = [c.url, c.visible, c.hidden, c.text].filter((x) => x !== undefined).length;
-  if (n !== 1) ctx.addIssue({ code: "custom", message: "Genau eines von url, visible, hidden oder text angeben" });
+function exactlyOne(c: Record<string, unknown>, keys: string[], message: string, ctx: z.RefinementCtx): void {
+  if (keys.filter((k) => c[k] !== undefined).length !== 1) ctx.addIssue({ code: "custom", message });
+}
+
+const SimpleConditionSchema = z.object(simpleConditionShape).strict().superRefine((c, ctx) => exactlyOne(c, ["url", "visible", "hidden", "text"], "Genau eines von url, visible, hidden oder text angeben", ctx));
+
+const conditionShape = {
+  ...simpleConditionShape,
+  /** Holds when every listed condition holds (evaluated together, for example an address and the absence of a sign-in button). */
+  all: z.array(SimpleConditionSchema).min(2).max(6).optional(),
+};
+
+function oneCondition(c: { url?: unknown; visible?: unknown; hidden?: unknown; text?: unknown; all?: unknown }, ctx: z.RefinementCtx): void {
+  exactlyOne(c, ["url", "visible", "hidden", "text", "all"], "Genau eines von url, visible, hidden, text oder all angeben", ctx);
 }
 
 /** Bedingung fuer Anmeldung, waitFor und pause. */
@@ -45,11 +56,35 @@ const withSelector = <T extends z.ZodRawShape>(extra: T) =>
 /** Schritt fuer jeden Eintrag einer Liste, zum Beispiel jedes Repository. */
 const Each = z.enum(["repos"]).optional();
 
+const WhenVar = z.object({ var: z.string().min(1), equals: z.string() }).strict();
+const WhenVisible = z
+  .object({
+    visible: SelectorSchema,
+    /** How long to wait for the element when deciding (default 0 = look once, now). A missing element after the wait means "no". */
+    timeoutSeconds: z.number().min(0).max(120).optional(),
+  })
+  .strict();
+const WhenAll = z.object({ all: z.array(z.union([WhenVar, WhenVisible])).min(2).max(5) }).strict();
+
 /**
- * Runs the step only when the variable (a recipe parameter or a fixed variable) equals the value. This is how one recipe
- * serves several modes, for example a sandbox and a live address. The variable is not a template: it is named, not rendered.
+ * Runs the step only when the condition holds, evaluated when the step is reached; otherwise the step is skipped.
+ * - `{ var, equals }`: the variable (a recipe parameter, a fixed variable or one set by a `set` step) equals the value. This is
+ *   how one recipe serves several modes, for example a sandbox and a live address. The variable is named, not rendered.
+ * - `{ visible, timeoutSeconds? }`: an element matching the selector is visible on the page now (waits up to the timeout for it).
+ *   This is how one recipe serves a page that comes in two variants.
+ * - `{ all: [...] }`: every listed condition holds.
  */
-const When = z.object({ var: z.string().min(1), equals: z.string() }).strict().optional();
+const When = z.union([WhenVar, WhenVisible, WhenAll]).optional();
+export type When = z.infer<typeof When>;
+
+/** Names of the variables a `when` reads. */
+export function whenVars(when: When): string[] {
+  if (!when) return [];
+  if ("all" in when) return when.all.flatMap((w) => whenVars(w));
+  return "var" in when ? [when.var] : [];
+}
+
+const VarName = z.string().regex(/^[a-z][A-Za-z0-9]{0,30}$/, "Schluessel aus Buchstaben und Ziffern, beginnt mit einem Kleinbuchstaben (hoechstens 31 Zeichen)");
 
 const stepVariants = {
   goto: z.object({ goto: z.string().min(1), when: When }).strict(),
@@ -98,9 +133,14 @@ const stepVariants = {
   waitFor: z
     .object({
       waitFor: z
-        .object({ ...conditionShape, timeoutSeconds: z.number().positive().max(3600).optional() })
+        .object({
+          ...conditionShape,
+          /** Holds as soon as one of the conditions holds (a page that may show one of several variants of a form). */
+          any: z.array(ConditionSchema).min(2).max(5).optional(),
+          timeoutSeconds: z.number().positive().max(3600).optional(),
+        })
         .strict()
-        .superRefine(oneCondition),
+        .superRefine((c, ctx) => exactlyOne(c, ["url", "visible", "hidden", "text", "all", "any"], "Genau eines von url, visible, hidden, text, all oder any angeben", ctx)),
       when: When,
     })
     .strict(),
@@ -121,6 +161,13 @@ const stepVariants = {
       when: When,
     })
     .strict(),
+  /**
+   * Sets a variable of the run to a fixed value (for example which variant of a page was found), for the `when` of later steps.
+   * The name must be new: a parameter or a fixed variable cannot be overwritten.
+   */
+  set: z.object({ set: z.object({ var: VarName, value: z.string() }).strict(), when: When }).strict(),
+  /** Ends the run with this message (a variant the recipe does not support). Put it before the click that creates anything. */
+  fail: z.object({ fail: z.string().min(1), when: When }).strict(),
   screenshot: z.object({ screenshot: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/, "Name aus Buchstaben, Ziffern, . _ -"), when: When }).strict(),
 };
 
@@ -248,6 +295,14 @@ const CaptureTokenSchema = z
     /** Der Wert muss passen, sonst Abbruch. Gruppe 1, falls vorhanden. */
     pattern: Regex.optional(),
     timeoutSeconds: z.number().positive().max(600).default(30),
+    /**
+     * Other places the token may show up (a page that comes in more than one variant). The first of `find` and these that is
+     * visible wins, in this order; the `pattern` applies to all. Each has its own `attribute` (or none: the text is read).
+     */
+    alternatives: z
+      .array(z.object({ find: SelectorSchema, attribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_:-]{0,40}$/, "Attributname").optional() }).strict())
+      .max(3)
+      .optional(),
   })
   .strict();
 
@@ -321,10 +376,21 @@ export const RecipeSchema = z
     };
     checkText(r.capture, ["capture"]);
     checkText(r.mask, ["mask"]);
+    const assigned = new Set<string>();
+    const assigns = (steps: Step[], base: string): void =>
+      steps.forEach((step, i) => {
+        if (!("set" in step)) return;
+        if (known.has(step.set.var)) ctx.addIssue({ code: "custom", path: [base, i, "set", "var"], message: `Die Variable ${step.set.var} existiert schon und kann nicht gesetzt werden` });
+        assigned.add(step.set.var);
+      });
+    assigns(r.steps, "steps");
+    if (r.revoke) assigns(r.revoke.steps, "revoke");
+    if (r.capture.fallback) assigns(r.capture.fallback.steps, "fallback");
+    const whenKnown = new Set([...known, ...assigned]);
     const check = (steps: Step[], base: string): void =>
       steps.forEach((step, i) => {
         checkText(step, [base, i]);
-        if ("when" in step && step.when && !known.has(step.when.var)) ctx.addIssue({ code: "custom", path: [base, i, "when", "var"], message: `Unbekannte Variable ${step.when.var}` });
+        if ("when" in step) for (const v of whenVars(step.when)) if (!whenKnown.has(v)) ctx.addIssue({ code: "custom", path: [base, i, "when", "var"], message: `Unbekannte Variable ${v}` });
         if ("goto" in step) gotoProblem(step.goto, r).forEach((message) => ctx.addIssue({ code: "custom", path: [base, i, "goto"], message }));
       });
     check(r.steps, "steps");

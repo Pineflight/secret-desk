@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FakeDriver, loadRecipes, recipeParamVars, revokeRecipe, runRecipe, RecipeRunError, type Recipe } from "../src/index.js";
+import { FakeDriver, dryRunRecipe, loadRecipes, recipeParamVars, revokeRecipe, runRecipe, RecipeRunError, type Recipe } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 // Built from parts so secret scanners do not mistake the fake for a real key.
@@ -30,6 +30,7 @@ function wizard(opts: { banner?: boolean; key?: string } = {}): FakeDriver {
       if (e.action === "goto") {
         drv.url = e.key;
         drv.pageText.add("Choose how you"); // the recipe waits for the start of the heading
+        drv.visible.add('Text "Choose how you"');
         return;
       }
       if (e.action === "check" && e.key === 'radio "Custom permissions"') custom = true;
@@ -130,7 +131,7 @@ describe("stripe-restricted-key recipe", () => {
     const menu = `${row} a[role=button][aria-haspopup=true] >> nth=-1`;
     const d = new FakeDriver({
       pollMs: 2,
-      visible: [BANNER, menu],
+      visible: [BANNER, menu, `${row} a[role=button][aria-haspopup=true]`],
       on: (e, drv) => {
         if (e.action === "goto") {
           drv.url = e.key;
@@ -150,5 +151,121 @@ describe("stripe-restricted-key recipe", () => {
     expect(d.calls).toContain(`click ${menu}`);
     expect(d.calls).toContain('click menuitem "Expire key"');
     expect(d.calls).toContain('click button "Expire" (exact)');
+  });
+  it("expires a key through the row menu button of the single-page UI", async () => {
+    const r = await recipe();
+    const row = `css tr:has-text("${VARS.name}")`;
+    const plain = `${row} button[aria-haspopup="menu"]`;
+    const menu = `${plain} >> nth=-1`;
+    const d = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER, menu, plain],
+      on: (e, drv) => {
+        if (e.action === "goto") {
+          drv.url = e.key;
+          drv.visible.add(row);
+          return;
+        }
+        if (e.action === "click" && e.key === menu) drv.visible.add('menuitem "Expire key"');
+        if (e.action === "click" && e.key === 'menuitem "Expire key"') {
+          drv.pageText.add("Expire API key");
+          drv.visible.add('button "Expire" (exact)');
+        }
+        if (e.action === "click" && e.key === 'button "Expire" (exact)') drv.visible.delete(row);
+      },
+    });
+    await revokeRecipe(r, { ...vars(r, { account: ACCOUNT, mode: "sandbox" }), externalId: VARS.name }, d, {}, { pollMs: 2 });
+    expect(d.calls).toContain(`click ${menu}`);
+    expect(d.calls.filter((c) => c.includes("a[role=button]"))).toEqual([]);
+    expect(d.calls).toContain('click button "Expire" (exact)');
+  });
+});
+
+const FILTER = 'Platzhalter "Filter resources"';
+const ROW = 'css tr:has-text("Webhook Endpoints, Event Destinations")';
+const WRITE = `${ROW} >> role=button[name="Write"s]`;
+const CREATE_EXACT = 'button "Create key" (exact)';
+const COPY_LINK = (name: string) => `css tr:has-text("${name}") a[aria-label="Click to copy"]`;
+
+/** A fake of the older single-page form: filter, Write in the row, "Create key" returns to the list with the key as the text of the copy link. */
+function singlePage(opts: { key?: string } = {}): FakeDriver {
+  return new FakeDriver({
+    pollMs: 2,
+    visible: [BANNER, 'css #key-name', FILTER, CREATE_EXACT],
+    on: (e, drv) => {
+      if (e.action === "goto") {
+        drv.url = e.key;
+        drv.pageText.add("Create restricted API key");
+        drv.visible.add('Text "Create restricted API key"');
+        return;
+      }
+      if (e.action === "fill" && e.key === FILTER) drv.visible.add(ROW).add(WRITE);
+      if (e.action === "click" && e.key === CREATE_EXACT) {
+        drv.visible.add(COPY_LINK(VARS.name));
+        drv.texts.set(COPY_LINK(VARS.name), ` ${opts.key ?? KEY} `);
+      }
+    },
+  });
+}
+
+describe("stripe-restricted-key recipe, single-page form", () => {
+  it("creates a webhooks key: name, filter, Write in the row, key from the copy link of the list", async () => {
+    const r = await recipe();
+    const d = singlePage();
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox" }), d, {}, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(res.createdName).toBe(VARS.name);
+    expect(d.filled.get("css #key-name")).toBe(VARS.name);
+    expect(d.filled.get(FILTER)).toBe("Webhook Endpoints");
+    expect(d.calls).toContain(`click ${WRITE}`);
+    // None of the wizard's steps ran.
+    expect(d.calls).not.toContain(`click ${CONTINUE}`);
+    expect(d.calls.join("\n")).not.toContain("Custom permissions");
+    // Order: Write before Create key; the banner is rejected, never accepted.
+    expect(d.calls.indexOf(`click ${WRITE}`)).toBeLessThan(d.calls.indexOf(`click ${CREATE_EXACT}`));
+    expect(d.calls.join("\n")).not.toContain("Accept all");
+    // The key reaches no screenshot as text, and the copy link is masked.
+    expect(d.shots.length).toBeGreaterThan(0);
+    for (const s of d.shots) expect(s.masks).toContain('css a[aria-label="Click to copy"]');
+    expect(d.shots.at(-1)?.masks).toContain(COPY_LINK(VARS.name));
+  });
+
+  it("refuses the full-access preset before any key exists", async () => {
+    const r = await recipe();
+    const d = singlePage();
+    const err = (await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "full-except-sensitive" }), d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect(err.kind).toBe("step");
+    expect(err.message).toMatch(/single-page key form/);
+    expect(err.createdName).toBeUndefined();
+    expect(d.calls.some((c) => c.startsWith("fill"))).toBe(false);
+    expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
+    expect(d.closed).toBe(true);
+  });
+
+  it("a dry run stops before Create key", async () => {
+    const r = await recipe();
+    const d = singlePage();
+    await dryRunRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox" }), d, {}, { pollMs: 2 });
+    expect(d.calls).toContain(`click ${WRITE}`);
+    expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
+  });
+
+  it("refuses a copy link that does not hold a restricted key, and never shows it", async () => {
+    const r = await recipe();
+    const d = singlePage({ key: BAD_KEY });
+    const err = (await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox" }), d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err.kind).toBe("capture");
+    expect(err.message).not.toContain(BAD_KEY);
+  });
+
+  it("clicks nothing when neither form shows up", async () => {
+    const r = await recipe();
+    const d = new FakeDriver({ pollMs: 2, visible: [BANNER], on: (e, drv) => { if (e.action === "goto") drv.url = e.key; } });
+    for (const s of r.steps) if ("waitFor" in s && s.waitFor.any) s.waitFor.timeoutSeconds = 0.05;
+    const err = (await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox" }), d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
+    expect(d.calls.some((c) => c.startsWith("fill"))).toBe(false);
   });
 });

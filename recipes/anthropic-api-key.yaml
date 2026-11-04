@@ -17,11 +17,19 @@ params:
     default: "Default"
     help: "Name of the workspace the key belongs to. Without a choice the Default workspace is used (not verified: the name of the default workspace in the Console)."
 login:
-  expect: { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+  # The sign-in screen of the Console keeps the address /settings/keys (checked live on 2026-11-04: it shows "Continue with
+  # Google" and "Continue with email"), so the address alone says nothing: the sign-in buttons must be absent too.
+  expect:
+    all:
+      - { url: "^https://(platform\\.claude\\.com|console\\.anthropic\\.com)/(settings|dashboard|workbench|home|usage|logs|cost|organization)" }
+      - { hidden: { role: button, name: "Continue with email" } }
+      - { hidden: { role: button, name: "Continue with Google" } }
   message: Bei Anthropic anmelden (platform.claude.com).
 steps:
   # not verified: the address of the API keys page and every name below.
   - goto: "https://platform.claude.com/settings/keys"
+  # The Console shows a cookie banner (seen on 2026-11-04): rejected, never accepted; optional because it shows once per profile.
+  - click: { role: button, name: "Reject all cookies", optional: true, timeoutSeconds: 3 }
   - waitFor: { visible: { role: button, name: "Create Key" } }
   - click: { role: button, name: "Create Key" }
   - waitFor: { visible: { css: "[role=dialog] input[type=text]" } }

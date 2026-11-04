@@ -91,6 +91,8 @@ capture:                             # required
     timeoutSeconds: 30                          # default 30, max 600
   # token.attribute: read this attribute of the element instead of its text, for a key the page shows truncated but carries whole
   #   (Stripe: `find: { css: '[data-text^="rk_"]' }`, `attribute: data-text`)
+  # token.alternatives: other places the token may show up, each `{ find, attribute? }` (a page with two variants). The first of
+  #   `find` and the alternatives that is visible wins; `pattern` applies to all; the receipt masks all of them.
   externalId: { from: name }         # for later revocation: { from: name|days|date|secretId } or { find: <selector>, pattern? }
   expires: { from: days }            # optional
 mask:                                # regions hidden in every later screenshot
@@ -129,16 +131,24 @@ Every step has exactly one kind.
 | `check` | `check: { <selector>, checked: true }` | Ticks or clears a checkbox (default ticks). |
 | `click` | `click: { <selector>, createsToken: true }` | Clicks. **Exactly the click after which something is created at the provider must carry `createsToken: true`**; at least one is required. A dry run stops right before it. With `optional: true` (and `timeoutSeconds`, default 3, max 30) the click is made only if the element shows up in time; otherwise the step is skipped. For things that may or may not be there, such as a cookie banner (`{ role: button, name: "Reject all", exact: true, optional: true }`, never "Accept"). Not combinable with `createsToken`. |
 | `press` | `press: { key: "Enter", <selector>? }` | Presses a key, optionally on an element. |
-| `waitFor` | `waitFor: { url \| visible \| text, timeoutSeconds? }` | Waits for a URL (regular expression), a visible selector, or text on the page. Max 3600 s. |
+| `waitFor` | `waitFor: { url \| visible \| hidden \| text \| all \| any, timeoutSeconds? }` | Waits for a URL (regular expression), a visible selector, or text on the page. `any: [<condition>, ...]` (2 to 5) holds as soon as one of them holds: for a page that comes in two variants. Max 3600 s. |
+| `set` | `set: { var: variant, value: wizard }` | Sets a variable of this run for the `when` of later steps (for example which variant of a page was found). The name must be new: a parameter or a fixed variable cannot be overwritten. The caller's variables are not touched. |
+| `fail` | `fail: "Message"` | Ends the run with this message (a variant the recipe does not support). Put it before the click that creates something, so nothing exists yet. |
 | `pause` | `pause: { human: "Do X in the window", until: <condition> }` | Waits for **you** to do something (shown in the portal) until the condition holds. |
 | `confirmAccess` | `confirmAccess: { flow: github-sudo, until: <condition>, timeoutSeconds? }` | The provider may ask to confirm access here (GitHub *Confirm access*). Does nothing when `until` already holds; when the confirmation page shows, the portal asks the human how to confirm and the built-in flow clicks and types (see [BROWSER-AUTOMATION.md](BROWSER-AUTOMATION.md#confirming-access-confirmaccess)). A run without a portal to answer in waits for the human in the browser window like `pause`. Not allowed in `login.form`. |
 | `screenshot` | `screenshot: form-before` | Saves an evidence image under that name (`[A-Za-z0-9][A-Za-z0-9._-]{0,60}`). Take it **before** the value becomes visible. |
 
-Every step can carry `when: { var: <variable>, equals: <value> }`: it runs only if that variable (a recipe parameter or a fixed variable) has exactly that value, otherwise it is skipped. This is how one recipe serves several modes, for example a sandbox and a live address (`stripe-restricted-key` picks its `goto` by `mode`). The variable must be known; `when` is not allowed in `login.form`.
+Every step can carry a `when`: it runs only if the condition holds **when the step is reached**, otherwise it is skipped. Three forms:
+
+- `when: { var: <variable>, equals: <value> }`: the variable (a recipe parameter, a fixed variable or one set by a `set` step; unset reads as `""`) has exactly that value. This is how one recipe serves several modes, for example a sandbox and a live address (`stripe-restricted-key` picks its `goto` by `mode`).
+- `when: { visible: <selector>, timeoutSeconds? }`: an element matching the selector is visible on the page now. By default the page is looked at once; with `timeoutSeconds` (max 120) the step waits that long for the element and counts a missing element as "no". The selector may use `{{variables}}`.
+- `when: { all: [<var form>, <visible form>, ...] }`: every listed condition holds (2 to 5, evaluated in order).
+
+Together with `waitFor.any` and `set`, this is how one recipe serves a page that comes in two variants: wait for either heading, `set` a variable from the one that is visible, and give each variant's steps `when: { var: variant, equals: ... }` (`stripe-restricted-key` does this for the key wizard and the older single-page form, and refuses the full-access preset on the single page with a `fail` step). A dry run stops at the first `createsToken` step whose `when` holds. Every variable must be known (a parameter, a fixed variable or the target of a `set`); `when`, `set` and `fail` are not allowed in `login.form`.
 
 `fill`, `select`, `check`, `click` and `press` can carry `each: repos`: the step then runs once per repository with `{{item}}` set. An empty list aborts before the first click.
 
-A **condition** (for `login.expect`, `waitFor`, `pause.until`) has exactly one of `url` (regular expression against the current address), `visible` (a selector), `hidden` (a selector; holds once no matching element is visible, for example a table row after deleting it) or `text` (text anywhere on the page). `url` is a regular expression and is not rendered: it cannot contain `{{variables}}`.
+A **condition** (for `login.expect`, `waitFor`, `pause.until`) has exactly one of `url` (regular expression against the current address), `visible` (a selector), `hidden` (a selector; holds once no matching element is visible, for example a table row after deleting it), `text` (text anywhere on the page) or `all` (a list of two to six of the former; every one must hold). `all` is for a sign-in check where the address alone is not enough: the Anthropic Console keeps `/settings/keys` in the address while it shows its sign-in screen, so `login.expect` is `all: [ { url: ... }, { hidden: <"Continue with email" button> }, { hidden: <"Continue with Google" button> } ]`. `url` is a regular expression and is not rendered: it cannot contain `{{variables}}`.
 
 ## Parameters
 

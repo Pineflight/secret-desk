@@ -26,10 +26,13 @@ interface Site {
 function driverFor(site: Site): FakeDriver {
   return new FakeDriver({
     pollMs: 2,
-    visible: ['button "Continue with email"'],
+    visible: ['button "Continue with email"', 'button "Reject all cookies"'],
     on: (e, drv) => {
       if (e.action === "goto") {
         drv.url = e.key;
+        // The sign-in buttons are on the page only while signed out.
+        if (site.signedIn) drv.visible.delete('button "Continue with email"');
+        else drv.visible.add('button "Continue with email"');
         if (e.key.endsWith("/login")) {
           drv.url = site.signedIn ? "https://platform.claude.com/settings/keys" : e.key;
           if (!site.signedIn) drv.visible.add(FIELD);
@@ -46,6 +49,7 @@ function driverFor(site: Site): FakeDriver {
       if (e.key === 'css button[type="submit"]') {
         drv.visible.delete(CODE_FIELD);
         site.signedIn = true;
+        drv.visible.delete('button "Continue with email"');
         drv.url = "https://platform.claude.com/settings/keys";
         return;
       }
