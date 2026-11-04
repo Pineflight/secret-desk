@@ -115,7 +115,7 @@ describe("stripe-restricted-key recipe", () => {
     const d = wizard();
     const PW = "made-up-stripe-password-1";
     d.visible.add('css input[type="password"]').add("css role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]");
-    d.pageText.add("Confirm your password");
+    d.pageText.add("Please re-enter your password");
     const asks: SudoAsk[] = [];
     const res = await runRecipe(
       r,
@@ -131,7 +131,7 @@ describe("stripe-restricted-key recipe", () => {
           onEvent: (e) => {
             if (e.type === "checking") {
               d.visible.delete('css input[type="password"]');
-              d.pageText.delete("Confirm your password");
+              d.pageText.delete("Please re-enter your password");
             }
           },
         },
@@ -393,7 +393,7 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     const EMAIL_OPTION = 'Text "Verify by email + more verification"';
     const DIALOG = "css [role=dialog]";
     const DIALOG_CONTINUE = 'css [role=dialog] >> role=button[name="Continue"s]';
-    const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"], [role=dialog] input[type="text"]';
+    const DIALOG_CODE = 'css [role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]';
     const DIALOG_SUBMIT = "css [role=dialog] >> role=button[name=/^(Continue|Verify|Submit|Confirm)$/i]";
     const CODE = "135790";
     const d: FakeDriver = liveSinglePage((drv) => {

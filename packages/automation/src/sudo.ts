@@ -55,6 +55,12 @@ export interface SudoWay {
   submit: readonly Selector[];
 }
 
+/** One way to recognize the page: the text (when given) shows and one of the elements is visible. A flow may list several; any one counts. */
+export interface SudoDetect {
+  text?: string;
+  anyVisible: readonly Selector[];
+}
+
 export interface SudoFlow {
   id: SudoFlowId;
   /** Name of the provider in messages. A flow for unknown providers says "The provider". */
@@ -62,7 +68,7 @@ export interface SudoFlow {
   /** Order of the ways offered; the first is the default. With `discover`, the ways whose field is visible. */
   methods: readonly SudoMethod[];
   /** The page is a confirmation when the text shows (plain text or `/pattern/flags`) and one of the elements is visible (the first view). */
-  detect: { text: string; anyVisible: readonly Selector[] };
+  detect: SudoDetect | readonly SudoDetect[];
   /** What stays on the page for as long as the confirmation is open: a text, or elements (open while any is visible). */
   present: string | readonly Selector[];
   /** Clicks made once before the first question (for example choosing a way to verify); each waits for its element. */
@@ -93,7 +99,8 @@ const BUTTON_NAME = "name=/^(Continue|Verify|Submit|Confirm)$/i";
 const DIALOG_CONTINUE: Selector = first(`[role=dialog] >> role=button[name="Continue"s]`);
 const DIALOG_SUBMIT: Selector = first(`[role=dialog] >> role=button[${BUTTON_NAME}]`);
 const PAGE_SUBMIT: Selector = first(`role=button[${BUTTON_NAME}]`);
-const DIALOG_CODE_FIELD = first('[role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"], [role=dialog] input[type="text"]');
+const DIALOG_CODE_FIELD = first('[role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]');
+const DIALOG_OTP_FIELD = first('[role=dialog] input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]');
 const DIALOG_PASSWORD_FIELD = first('[role=dialog] input[type="password"]');
 const CODE_FIELD = first('input[autocomplete="one-time-code"], [role=dialog] input[inputmode="numeric"]');
 const PASSWORD_FIELD = first('input[type="password"]');
@@ -146,10 +153,12 @@ export const SUDO_FLOWS: Readonly<Record<SudoFlowId, SudoFlow>> = {
     id: "generic-verify",
     provider: "The provider",
     methods: ["code", "password"],
-    detect: {
-      text: "/verif|confirm|re-?enter|password|code|identity|two-factor|2FA/i",
-      anyVisible: [PASSWORD_FIELD, CODE_FIELD],
-    },
+    // Narrow on purpose: a field inside a dialog counts on its own; a field on the page needs a tight verification wording (not the
+    // bare words "password" or "code", which any sign-in or settings page has).
+    detect: [
+      { anyVisible: [DIALOG_PASSWORD_FIELD, DIALOG_OTP_FIELD] },
+      { text: "/verif|confirm your identity|two-factor|2FA|enter the code|re-?enter your password/i", anyVisible: [PASSWORD_FIELD, CODE_FIELD] },
+    ],
     present: [PASSWORD_FIELD, CODE_FIELD],
     code: { field: CODE_FIELD, submit: [DIALOG_SUBMIT, PAGE_SUBMIT] },
     password: { field: PASSWORD_FIELD, submit: [DIALOG_SUBMIT, PAGE_SUBMIT] },
@@ -212,8 +221,11 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
 
 /** Is the "Confirm access" page showing in the first view (the question that starts the flow)? */
 export async function sudoPageShown(driver: Pick<BrowserDriver, "hasText" | "isVisible">, flow: SudoFlow): Promise<boolean> {
-  if (!(await driver.hasText(flow.detect.text).catch(() => false))) return false;
-  for (const sel of flow.detect.anyVisible) if (await driver.isVisible(sel).catch(() => false)) return true;
+  const options: readonly SudoDetect[] = Array.isArray(flow.detect) ? flow.detect : [flow.detect as SudoDetect];
+  for (const d of options) {
+    if (d.text !== undefined && !(await driver.hasText(d.text).catch(() => false))) continue;
+    for (const sel of d.anyVisible) if (await driver.isVisible(sel).catch(() => false)) return true;
+  }
   return false;
 }
 

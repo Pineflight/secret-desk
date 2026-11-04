@@ -31,6 +31,8 @@ interface Site {
   passwordPrompt: boolean;
   /** The password the fake dashboard accepts on its confirmation. */
   confirmWith: string;
+  /** What the fake dashboard says above the password field. */
+  wording: string;
 }
 
 function driverFor(site: Site): FakeDriver {
@@ -80,13 +82,13 @@ function driverFor(site: Site): FakeDriver {
         site.keyMade = "named";
         if (live && site.passwordPrompt) {
           drv.visible.add('css input[type="password"]').add(PAGE_SUBMIT);
-          drv.pageText.add("Confirm your password");
+          drv.pageText.add(site.wording);
         }
       }
       if (e.action === "click" && e.key === PAGE_SUBMIT && drv.filled.get('css input[type="password"]') === site.confirmWith) {
         drv.visible.delete('css input[type="password"]');
         drv.visible.delete(PAGE_SUBMIT);
-        drv.pageText.delete("Confirm your password");
+        drv.pageText.delete(site.wording);
       }
       if (e.action === "click" && e.key === 'button "Create key"') {
         drv.pageText.add("Your new secret key");
@@ -99,9 +101,8 @@ function driverFor(site: Site): FakeDriver {
   return d;
 }
 
-async function setup(site: Partial<Site> = {}, opts: { vault?: boolean } = {}) {
-  void opts;
-  const s: Site = { signedIn: false, keyAccount: ACCT, keyMade: null, passwordPrompt: false, confirmWith: CONFIRM_PW, ...site };
+async function setup(site: Partial<Site> = {}, opts: { vault?: boolean; access?: { submitTimeoutMs?: number } } = {}) {
+  const s: Site = { signedIn: false, keyAccount: ACCT, keyMade: null, passwordPrompt: false, confirmWith: CONFIRM_PW, wording: "Please re-enter your password", ...site };
   const dir = await mkdtemp(join(tmpdir(), "sd-facade-stripe-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   await writeFile(join(dir, "secret-desk.config.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
@@ -119,6 +120,7 @@ async function setup(site: Partial<Site> = {}, opts: { vault?: boolean } = {}) {
     vault: null,
     env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv,
     fetch: fetchMock,
+    ...(opts.access ? { automationAccess: opts.access } : {}),
     automationDriver: () => {
       const d = driverFor(s);
       drivers.push(d);
@@ -241,6 +243,73 @@ describe("facade: stripe per account and mode", () => {
     await until(() => finished(rt));
     expect(getFacadeState(rt, human, "stripe").status).toBe("cancelled");
   });
+
+  it("an answer after the run ended or was cancelled is refused, and the waiter dies with the run", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true });
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    submitFacadeAccess(rt, human, "stripe", { method: "password", password: CONFIRM_PW });
+    await until(() => finished(rt));
+    // Late answer of the finished run.
+    expect(() => submitFacadeAccess(rt, human, "stripe", { method: "password", password: CONFIRM_PW })).toThrow(/not waiting/);
+    // A cancelled run: the question is gone with it.
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    cancelFacade(rt, human, "stripe");
+    await until(() => finished(rt));
+    expect(getFacadeState(rt, human, "stripe").ask ?? null).toBeNull();
+    expect(() => submitFacadeAccess(rt, human, "stripe", { method: "password", password: CONFIRM_PW })).toThrow(/not waiting/);
+  });
+
+  it("an answer for a run that was replaced is refused (the waiter belongs to its own run)", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true });
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    const first = rt.automation.runSignal("facade:stripe")!;
+    cancelFacade(rt, human, "stripe");
+    await until(() => finished(rt));
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => getFacadeState(rt, human, "stripe").ask?.type === "access");
+    expect(rt.automation.runSignal("facade:stripe")).not.toBe(first);
+    // The new run's own question is answerable.
+    submitFacadeAccess(rt, human, "stripe", { method: "password", password: CONFIRM_PW });
+    await until(() => finished(rt));
+    expect(getFacadeState(rt, human, "stripe").status).toBe("done");
+  });
+
+  it("questions do not pile up abort listeners on the run, and a failed run leaves no stale question", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true }, { access: { submitTimeoutMs: 80 } });
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    const signal = rt.automation.runSignal("facade:stripe")!;
+    let net = 0;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((type: string, ...rest: unknown[]) => ((net += type === "abort" ? 1 : 0), (add as (...a: unknown[]) => void)(type, ...rest))) as typeof signal.addEventListener;
+    signal.removeEventListener = ((type: string, ...rest: unknown[]) => ((net -= type === "abort" ? 1 : 0), (remove as (...a: unknown[]) => void)(type, ...rest))) as typeof signal.removeEventListener;
+    const attempt = () => { const a = getFacadeState(rt, human, "stripe").ask; return a?.type === "access" && a.stage === "choose" ? a.attempt : 0; };
+    await until(() => attempt() === 1);
+    const first = net;
+    submitFacadeAccess(rt, human, "stripe", { method: "password", password: "wrong-value" });
+    await until(() => attempt() === 2);
+    expect(net).toBe(first);
+    submitFacadeAccess(rt, human, "stripe", { method: "password", password: "wrong-value" });
+    await until(() => attempt() === 3);
+    expect(net).toBe(first);
+    // Cancelled while asking: the run ends and no question stays in the state.
+    cancelFacade(rt, human, "stripe");
+    await until(() => finished(rt));
+    expect(getFacadeState(rt, human, "stripe").ask ?? null).toBeNull();
+  });
+
+  it("a verification the flow cannot read hands over: the run ends without a stale question", async () => {
+    const { rt } = await setup({ signedIn: true, passwordPrompt: true, wording: "Your password" });
+    // A password field with wording that is not a verification (a normal page): the flow stays out and the recipe hands over.
+    startFacadeConnect(rt, human, "stripe", { inputs: { account: ACCT, mode: "live" } });
+    await until(() => finished(rt), 20000);
+    const end = getFacadeState(rt, human, "stripe");
+    expect(end).toMatchObject({ status: "failed", failure: { code: "captcha" } });
+    expect(end.ask ?? null).toBeNull();
+  }, 30000);
 
   it("refuses missing or malformed inputs before any browser opens", async () => {
     const { rt, drivers } = await setup();
