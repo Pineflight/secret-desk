@@ -1,4 +1,4 @@
-# STATUS: nicht gegen die echte Seite geprueft
+# STATUS: nicht gegen die echte Seite geprueft; "Confirm access" (Text, Feldnamen sudo_app_otp und sudo_password, Knopf "Use GitHub Mobile" und die Zifferneingabe) und die beiden Single-Sign-on-Knoepfe am 2026-11-03 an der echten Seite gesehen; Anmeldeformular, Zwei-Faktor-Seiten, "Verify"/"Confirm" und Widerruf nicht geprueft
 # Selektoren sind aus der Oberflaeche von GitHub abgeleitet und noch nie gegen ein echtes Konto gelaufen.
 # Erster Lauf: Wegwerf-Token, mit Aufsicht. Aendert GitHub das Formular, hier anpassen (Pull Request).
 # Name, Beschreibung, Eigentuemer, Ablauf und Rechte kommen per Query-Vorbelegung ins Formular
@@ -7,13 +7,51 @@ id: github-fine-grained-token
 label: GitHub Fine-grained Token
 host: github.com
 login:
-  # Angemeldet, wenn die Einstellungsseite erreicht ist; sonst wartet secret-desk auf den Menschen.
+  # Angemeldet, wenn die Einstellungsseite erreicht ist. Abgemeldet fuehrt das Portal die Anmeldung (login.form); fehlt dem Lauf das
+  # Portal, wartet secret-desk auf den Menschen im Browserfenster.
   expect: { url: "^https://github\\.com/settings/" }
-  message: Bei GitHub anmelden (Passwort, 2FA) und ggf. "Confirm access" bestaetigen.
+  message: Bei GitHub anmelden (Passwort, 2FA).
+  # Single sign-on buttons on GitHub's sign-in page (seen on the live page 2026-11-03). The identity-provider part is built in.
+  methods:
+    - id: google
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Google" }
+    - id: apple
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Apple" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Apple" }
+  # Guided sign-in with email (or user name) and password typed in the portal. The sign-in lands on the settings page.
+  # STATUS: the field ids and the button (#login_field, #password, "Sign in") were seen live on 2026-11-03; the two-factor pages, the
+  # GitHub Mobile approval and the error texts below are not verified.
+  form:
+    start: "https://github.com/login?return_to=https%3A%2F%2Fgithub.com%2Fsettings%2Fprofile"
+    home: "https://github.com/settings/profile"
+    steps:
+      - waitFor: { visible: { css: "#login_field" }, timeoutSeconds: 20 }
+      - fill: { css: "#login_field", value: "{{login.username}}" }
+      - fill: { css: "#password", value: "{{login.password}}" }
+      - click: { css: 'input[type=submit][value="Sign in"]' }
+    # not verified: authenticator app code or SMS code.
+    mfa:
+      detect: { visible: { css: "#app_totp, #sms_totp, #otp" } }
+      field: { css: "#app_totp, #sms_totp, #otp" }
+      submit: { css: "button[type=submit]" }
+    # not verified: the GitHub Mobile approval page and where it shows the number.
+    approval:
+      detect: { text: "GitHub Mobile" }
+      message: Bestaetige die Anmeldung in GitHub Mobile.
+      messageEn: Approve the sign-in on GitHub Mobile.
+      number: { css: ".mobile-number, [data-testid=mobile-number]" }
+    failure:
+      - detect: { text: "Incorrect username or password" }
+        message: GitHub hat Benutzername oder Passwort abgelehnt.
+        messageEn: GitHub rejected the username or password.
 steps:
   - goto: "https://github.com/settings/personal-access-tokens/new?name={{name}}&description={{description}}&target_name={{owner}}&expires_in={{days}}&{{permissionsQuery}}"
-  - pause:
-      human: GitHub verlangt eine Bestaetigung (Confirm access / 2FA). Bitte im Fenster erledigen.
+  # "Confirm access" (sudo mode) is answered in the portal: GitHub Mobile with the number, an authenticator code or the password.
+  - confirmAccess:
+      flow: github-sudo
       until: { visible: { label: "Token name" } }
   - fill: { label: "Token name", value: "{{name}}" }
   - click: { role: radio, name: "Only select repositories" }
@@ -36,4 +74,24 @@ capture:
   expires: { from: days }
 mask:
   - { css: "#new-access-token" }
-# revoke: nicht automatisiert. Alten Token unter Settings > Developer settings > Fine-grained tokens von Hand loeschen.
+# Deletes the token named {{externalId}} (Settings > Developer settings > Fine-grained tokens). GitHub may ask to confirm access
+# before or after the delete button; each confirmAccess step answers it in the portal.
+# STATUS: not verified: the list, the token page, the "Delete" button and the wording of the confirmation button were not seen.
+revoke:
+  steps:
+    - goto: "https://github.com/settings/personal-access-tokens"
+    - confirmAccess:
+        flow: github-sudo
+        until: { visible: { role: link, name: "{{externalId}}", exact: true } }
+    - click: { role: link, name: "{{externalId}}", exact: true }
+    - waitFor: { visible: { role: button, name: "Delete", exact: true } }
+    - click: { role: button, name: "Delete", exact: true }
+    - confirmAccess:
+        flow: github-sudo
+        until: { visible: { role: button, name: "I understand, delete this token" } }
+    - click: { role: button, name: "I understand, delete this token" }
+    - confirmAccess:
+        flow: github-sudo
+        until: { url: "^https://github\\.com/settings/personal-access-tokens(\\?.*)?$" }
+    - goto: "https://github.com/settings/personal-access-tokens"
+    - waitFor: { hidden: { role: link, name: "{{externalId}}", exact: true } }

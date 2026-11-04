@@ -1,4 +1,4 @@
-# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (fuenf Tokens mit Bereich angelegt, Voreinstellung per Eingabetaste auf der Option)
+# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (fuenf Tokens mit Bereich angelegt, Voreinstellung per Eingabetaste auf der Option); Anmeldeformular und Single Sign-on nicht geprueft (nur der Anbieter-Knopf wurde am 2026-11-03 gesehen)
 # Creates a scoped Supabase access token: one organization, one project, a permission preset and an expiry. Supabase shows
 # the token only once, in a read-only field of the "Token created" dialog. A scoped token reaches only the chosen project,
 # unlike the legacy token with full account access.
@@ -26,8 +26,36 @@ params:
     options: ["24 hours", "30 days", "90 days", "Never"]
     default: 90 days
 login:
-  expect: { url: "^https://supabase\\.com/dashboard/" }
+  # Signed in = a dashboard page other than the sign-in page (not verified: the sign-in path /dashboard/sign-in).
+  expect: { url: "^https://supabase\\.com/dashboard/(?!sign-in)" }
   message: Bei Supabase anmelden (Passwort, 2FA).
+  # Single sign-on: the button on Supabase's sign-in page (seen live, cookie-less context, 2026-11-03). The GitHub part is built in
+  # and not verified.
+  methods:
+    - id: github
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with GitHub" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with GitHub" }
+  # Guided sign-in with email and password typed in the portal.
+  # STATUS: not verified at all: no step of this form was checked against the real sign-in page. The selectors are generic.
+  form:
+    start: "https://supabase.com/dashboard/sign-in"
+    home: "https://supabase.com/dashboard/account/tokens"
+    steps:
+      - waitFor: { visible: { css: 'input[type="email"]' }, timeoutSeconds: 20 }
+      - fill: { css: 'input[type="email"]', value: "{{login.username}}" }
+      - fill: { css: 'input[type="password"]', value: "{{login.password}}" }
+      - click: { role: button, name: "Sign In" }
+    # not verified: selectors of the one-time code step.
+    mfa:
+      detect: { visible: { css: 'input[autocomplete="one-time-code"]' } }
+      field: { css: 'input[autocomplete="one-time-code"]' }
+      submit: { css: 'button[type="submit"]' }
+    # not verified: error text.
+    failure:
+      - detect: { text: "Invalid login credentials" }
+        message: Supabase hat E-Mail oder Passwort abgelehnt.
+        messageEn: Supabase rejected the email or password.
 steps:
   - goto: "https://supabase.com/dashboard/account/tokens"
   - waitFor: { visible: { role: button, name: "Generate new token" } }

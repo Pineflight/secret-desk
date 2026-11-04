@@ -158,7 +158,7 @@ describe("browser sign-in memory", () => {
 
   it("refuses recipes without a guided sign-in, unknown recipes and agents", async () => {
     const { rt } = await setup();
-    await expect(checkRecipeSession(rt, human, "vesselapi-api-key")).rejects.toThrow(/no guided sign-in/);
+    await expect(checkRecipeSession(rt, human, "openai-api-key")).rejects.toThrow(/no guided sign-in/);
     await expect(checkRecipeSession(rt, human, "nope")).rejects.toThrow();
     await expect(checkRecipeSession(rt, { kind: "agent", name: "claude" }, "openai-admin-key")).rejects.toThrow();
   });

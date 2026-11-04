@@ -14,8 +14,11 @@ import {
   type BrowserDriver,
   type BrowserProvider,
   type HumanWait,
+  type LoginMethodInfo,
   type LoginNeed,
   type Recipe,
+  type SudoMethod,
+  type SudoProblem,
 } from "@secret-desk/automation";
 import {
   GitHubError,
@@ -32,6 +35,20 @@ import {
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+
+/**
+ * What the portal has to ask the human right now in a run that signs in and confirms through the portal (team token). Never holds
+ * a credential: the answer goes to its own route and is not kept.
+ */
+export type RunAsk =
+  /** The browser is signed out: the sign-in method, email and password. */
+  | { type: "credentials"; methods: LoginMethodInfo[] }
+  /** The provider asks to confirm access ("Confirm access"): choose the way. */
+  | { type: "access"; stage: "choose"; methods: SudoMethod[]; attempt: number; maxAttempts: number; problem?: SudoProblem }
+  /** GitHub Mobile waits for the tap; `number` is what the page shows ("" if unknown). */
+  | { type: "access"; stage: "mobile"; number: string }
+  /** A code or password was sent and is being checked. */
+  | { type: "access"; stage: "checking"; method: SudoMethod };
 
 export type AutomationStatus = "idle" | "running" | "waiting-human" | "done" | "failed" | "cancelled";
 
@@ -66,6 +83,8 @@ export interface AutomationRunState {
   failure?: { code: string; message: string; messageEn: string };
   /** The outcome of a finished connect run. */
   result?: unknown;
+  /** Runs that sign in and confirm through the portal: the question the human has to answer (null when none). */
+  ask?: RunAsk | null;
 }
 
 export interface FacadeTimelineEntry {
@@ -155,6 +174,8 @@ export interface AutomationOptions {
   driverFactory?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: mitgelieferter Rezeptordner. */
   bundledDir?: string | null;
+  /** Tests only: shortens the waits of a "Confirm access" step. */
+  access?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
   /** Environment for SECRET_DESK_BROWSER_CDP (default process.env). */
   env?: NodeJS.ProcessEnv;
   /** Tests only: replaces the reachability check of the remote browser. */
@@ -306,6 +327,11 @@ export class AutomationManager {
   /** A fresh driver for the configured browser (remote or local). */
   newDriver(): BrowserDriver | Promise<BrowserDriver> {
     return this.#driver();
+  }
+
+  /** Timing of "Confirm access" steps (only tests change it). */
+  get accessTiming(): { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number } {
+    return this.opts.access ?? {};
   }
 
   /** Where a human sees the remote browser (noVNC), if configured. */

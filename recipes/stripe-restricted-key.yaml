@@ -43,6 +43,13 @@ login:
   # Signed in = a dashboard page of an account. Signed out, the dashboard redirects to /login.
   expect: { url: "^https://dashboard\\.stripe\\.com/acct_[A-Za-z0-9]+/" }
   message: Bei Stripe anmelden (Passwort, 2FA).
+  # Single sign-on: the button on Stripe's sign-in page (seen on the live page, cookie-less context, 2026-11-03). The
+  # Google part is built in and not verified.
+  methods:
+    - id: google
+      steps:
+        - waitFor: { visible: { role: button, name: "Google" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Google" }
   # Guided sign-in (the portal types the email and password the human entered for this run).
   # STATUS: not verified at all: no step of this form was checked against the real sign-in page. The selectors are generic.
   form:

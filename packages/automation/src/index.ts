@@ -11,5 +11,6 @@ export * from "./playwright-driver.js";
 export * from "./run.js";
 export * from "./login.js";
 export * from "./idp.js";
+export * from "./sudo.js";
 export * from "./provider.js";
 export * from "./bundled.js";

@@ -18,7 +18,7 @@ export interface TeamTokenInfo {
   viewerUrl: string | null;
   timeoutMinutes: number;
   active: TeamTokenMeta | null;
-  pendingRevocation: { tokenName: string; repo: string; since: string; url: string } | null;
+  pendingRevocation: { tokenName: string; repo: string; since: string; url: string; reason?: string } | null;
   tokensUrl: string;
   days: number;
   rights: Record<TeamMode, string[]>;
@@ -31,9 +31,9 @@ export interface TeamTokenSessionCheck {
   failure?: { code: string; message: string };
 }
 
-/** The phases of a run in the order the portal shows them. `signin` and `confirm` appear only when GitHub asks. */
-export const TEAM_TOKEN_PHASES = ["opening", "signin", "confirm", "creating", "testing", "ready"] as const;
-const OPTIONAL = new Set<string>(["signin", "confirm"]);
+/** The phases of a run in the order the portal shows them. `signin`, `confirm` and `revoking` appear only when they happen. */
+export const TEAM_TOKEN_PHASES = ["opening", "signin", "confirm", "creating", "testing", "revoking", "ready"] as const;
+const OPTIONAL = new Set<string>(["signin", "confirm", "revoking"]);
 
 /** The steps of the run's timeline: every fixed phase plus the optional ones GitHub asked for, with their state. */
 export function teamTokenSteps(run: Pick<FacadeState, "status" | "timeline"> | null | undefined): StepView[] {

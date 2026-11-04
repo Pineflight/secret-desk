@@ -245,12 +245,12 @@ describe("recipe routes: check sign-in", () => {
     expect(before.body["signInChecks"]).toEqual([]);
     expect(before.body["signInFreshHours"]).toBe(12);
     expect(before.body["recipes"].find((r: { id: string }) => r.id === "revenuecat-secret-api-key")).toMatchObject({ canCheckSignIn: true });
-    expect(before.body["recipes"].find((r: { id: string }) => r.id === "vesselapi-api-key")).toMatchObject({ canCheckSignIn: false });
+    expect(before.body["recipes"].find((r: { id: string }) => r.id === "openai-api-key")).toMatchObject({ canCheckSignIn: false });
   });
   it("answers 400 for a recipe without a guided sign-in and for an unknown one", async () => {
     const { deps } = await setup("ok");
     const { call } = recorder(deps);
-    expect((await call(ui(deps, "POST", "recipes/vesselapi-api-key/check"))).status).toBe(400);
+    expect((await call(ui(deps, "POST", "recipes/openai-api-key/check"))).status).toBe(400);
     expect((await call(ui(deps, "POST", "recipes/nope/check"))).status).toBe(400);
   });
 });

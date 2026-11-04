@@ -1,10 +1,12 @@
-# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (zwei Schluessel angelegt)
+# STATUS: voller Rezeptlauf am 2026-11-03 gegen die echte Seite geprueft (zwei Schluessel angelegt); Anmeldeformular und Single Sign-on nicht geprueft (nur der Anbieter-Knopf wurde am 2026-11-03 gesehen)
 # Creates a VesselAPI key in the dashboard at dashboard.vesselapi.com. The free plan offers 30, 60 or 90 days; "never" and a
 # custom date need a paid plan. The new key is shown once below "Your new API key:" and appears in the key list only after
 # a reload. Every key row exists twice in the page (desktop and mobile layout), so selectors take the visible one.
 id: vesselapi-api-key
 label: VesselAPI API Key
 host: dashboard.vesselapi.com
+# The sign-in is an Amazon Cognito hosted page (seen on 2026-11-03); the tenant part of its name is the region's pool domain.
+allowHosts: ["*.auth.us-east-1.amazoncognito.com"]
 params:
   - key: expiry
     label: Ablauf (Tage)
@@ -16,6 +18,29 @@ login:
   # Signed in = the dashboard itself; signed out redirects to /login.
   expect: { visible: { css: "#description" } }
   message: Bei VesselAPI anmelden (dashboard.vesselapi.com).
+  # Single sign-on: the button on the Cognito sign-in page (seen live, cookie-less context, 2026-11-03). The Google part is built in
+  # and not verified.
+  methods:
+    - id: google
+      steps:
+        - waitFor: { visible: { role: button, name: "Continue with Google" }, timeoutSeconds: 20 }
+        - click: { role: button, name: "Continue with Google" }
+  # Guided sign-in with email and password typed in the portal, on the Cognito hosted page (allowHosts above).
+  # STATUS: not verified at all: the field names `username` and `password` are Cognito's usual ones and were not checked. The page
+  # holds every form twice (desktop and mobile layout), so selectors take the visible one.
+  form:
+    start: "https://dashboard.vesselapi.com/login"
+    home: "https://dashboard.vesselapi.com/"
+    steps:
+      - waitFor: { visible: { css: 'input[name="username"] >> visible=true' }, timeoutSeconds: 30 }
+      - fill: { css: 'input[name="username"] >> visible=true', value: "{{login.username}}" }
+      - fill: { css: 'input[name="password"] >> visible=true', value: "{{login.password}}" }
+      - click: { css: 'input[name="signInSubmitButton"] >> visible=true' }
+    # not verified: Cognito's usual wording.
+    failure:
+      - detect: { text: "Incorrect username or password" }
+        message: VesselAPI hat E-Mail oder Passwort abgelehnt.
+        messageEn: VesselAPI rejected the email or password.
 steps:
   - goto: "https://dashboard.vesselapi.com/"
   - waitFor: { visible: { css: "#description" } }

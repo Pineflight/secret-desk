@@ -56,6 +56,8 @@ export interface RuntimeOptions {
   automationDriver?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: anderer Ordner (oder null = keiner) statt der mitgelieferten Rezepte. */
   bundledRecipes?: string | null;
+  /** Tests only: shortens the waits of a "Confirm access" step (GitHub Mobile, code check, tries). */
+  automationAccess?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -123,6 +125,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     env,
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
+    ...(options.automationAccess ? { access: options.automationAccess } : {}),
   });
   await automation.load();
 

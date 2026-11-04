@@ -93,6 +93,11 @@ export interface LoginOptions {
    * Providers often load the sign-in page first and redirect a signed-in browser a few seconds later.
    */
   landingMs?: number;
+  /**
+   * The driver is already open and belongs to the caller (a recipe run that signs in on its own browser): neither open nor close
+   * it. The credentials are still wiped at the end.
+   */
+  keepOpen?: boolean;
 }
 
 export interface LoginResult {
@@ -270,7 +275,7 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
     return undefined;
   }
 
-  await driver.open();
+  if (!options.keepOpen) await driver.open();
   try {
     emit({ type: "opening" });
     try {
@@ -387,7 +392,8 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
       const approval = await firstMet(approvals, (a) => a.detect);
       if (approval) {
         // The number some providers show next to "approve on your device" (read from the page, shown in the portal).
-        const number = idp && approval === idp.approval && idp.approval.number ? (await driver.readText(idp.approval.number).catch(() => "")).trim().slice(0, 20) : "";
+        const numberAt = "number" in approval ? approval.number : undefined;
+        const number = numberAt ? (await driver.readText(numberAt).catch(() => "")).trim().slice(0, 20) : "";
         setNeed("approval", approval.message, approval.messageEn ?? approval.message, number);
         captchaSince = 0;
       } else if (form.captcha && (await met(form.captcha.detect))) {
@@ -408,7 +414,7 @@ export async function signIn(recipe: Recipe, creds: LoginCredentials, driver: Br
   } finally {
     creds.username = "";
     creds.password = "";
-    await driver.close();
+    if (!options.keepOpen) await driver.close();
   }
 }
 

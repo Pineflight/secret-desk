@@ -1,11 +1,12 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckList } from "@/components/ConnectionCheck";
+import { ApprovalNotice, CodePrompt, ConsentPrompt } from "@/components/RunPrompts";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, Notice, SelectField, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { IDP_NAMES, browserSignInOf, chosenMethod, clock, codeValid, connectButtonState, consentItems, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, needsPassword, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
+import { IDP_NAMES, browserSignInOf, chosenMethod, clock, connectButtonState, countsText, dialogView, elapsedSeconds, failureText, inputsBody, isFinished, isRunning, methodsOf, needsPassword, remainingSeconds, signInButtonState, stepsOf, type FacadeInfo, type FacadeState, type StepState } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -76,7 +77,6 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
   const [password, setPassword] = useState("");
   const [project, setProject] = useState("");
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
-  const [code, setCode] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [methodId, setMethodId] = useState("");
   const [pickedUp, setPickedUp] = useState(false);
@@ -181,7 +181,6 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
   const reset = () => {
     setStarted(false);
     setState(null);
-    setCode("");
     setCancelling(false);
     signIn.reset();
     connect.reset();
@@ -215,42 +214,16 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback }: { facade: Fa
           {t("facade.elapsed", { elapsed: clock(elapsedSeconds(run.startedAt, now)) })}
           {running && remaining !== null ? ` · ${t("facade.remaining", { remaining: clock(remaining) })}` : ""}
         </p>
-        {running && run.needs === "mfa-code" ? (
-          <form
-            className="space-y-2 rounded-xl border border-line p-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!codeValid(code)) return;
-              const c = code;
-              setCode("");
-              void sendCode.run(c).then((s) => s && setState(s));
-            }}
-          >
-            <p className="font-medium">{t("facade.codeTitle")}</p>
-            <p className="text-xs text-muted">{t("facade.codeHint", { name: facade.label })}</p>
-            <label htmlFor="facade-code" className="block text-sm font-medium">{t("facade.codeLabel")}</label>
-            <input id="facade-code" data-autofocus type="text" autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} className={`${inputClass} font-mono`} />
-            <Button type="submit" variant="primary" loading={sendCode.pending} disabled={!codeValid(code)}>{t("facade.codeSend")}</Button>
-          </form>
-        ) : null}
-        {running && run.needs === "approval" ? (
-          <Notice tone="info" title={t("facade.approvalTitle")}>
-            <p>{t("facade.approvalHint", { name: facade.label })}</p>
-            {run.detail ? <p className="mt-1 font-medium">{t("facade.approvalNumber", { number: run.detail })}</p> : null}
-          </Notice>
-        ) : null}
+        {running && run.needs === "mfa-code" ? <CodePrompt name={facade.label} pending={sendCode.pending} onSend={(c) => void sendCode.run(c).then((s) => s && setState(s))} /> : null}
+        {running && run.needs === "approval" ? <ApprovalNotice name={facade.label} number={run.detail} /> : null}
         {running && run.needs === "consent" ? (
-          <div className="space-y-2 rounded-xl border border-line p-3">
-            <p className="font-medium">{t("facade.consentTitle")}</p>
-            <p className="text-xs text-muted">{t("facade.consentHint", { idp: IDP_NAMES[chosenMethod(facade, methodId)], name: facade.label })}</p>
-            <ul className="list-disc space-y-0.5 pl-5">
-              {consentItems(run.detail).map((item) => <li key={item}>{item}</li>)}
-            </ul>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="primary" loading={confirm.pending} onClick={() => void confirm.run(true).then((s) => s && setState(s))}>{t("facade.consentAccept")}</Button>
-              <Button disabled={confirm.pending} onClick={() => void confirm.run(false).then((s) => s && setState(s))}>{t("facade.consentDecline")}</Button>
-            </div>
-          </div>
+          <ConsentPrompt
+            idp={IDP_NAMES[chosenMethod(facade, methodId)]}
+            name={facade.label}
+            scopes={run.detail}
+            pending={confirm.pending}
+            onAnswer={(accept) => void confirm.run(accept).then((s) => s && setState(s))}
+          />
         ) : null}
         {failed && run.failure ? (
           <Notice tone={run.status === "cancelled" ? "info" : "danger"} {...(run.status === "cancelled" ? {} : { title: t("facade.failedTitle") })}>

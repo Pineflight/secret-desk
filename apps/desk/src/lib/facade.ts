@@ -89,7 +89,16 @@ export interface FacadeState {
   failure?: FacadeFailure;
   createdName?: string;
   result?: FacadeResult;
+  /** Runs that sign in and confirm through the portal (team token): the question to answer now. */
+  ask?: RunAsk | null;
 }
+
+export type SudoMethodId = "mobile" | "code" | "password";
+export type RunAsk =
+  | { type: "credentials"; methods: FacadeMethod[] }
+  | { type: "access"; stage: "choose"; methods: SudoMethodId[]; attempt: number; maxAttempts: number; problem?: "timeout" | "rejected" | "unavailable" }
+  | { type: "access"; stage: "mobile"; number: string }
+  | { type: "access"; stage: "checking"; method: SudoMethodId };
 
 /** The order the portal shows the phases in. */
 export const PHASES = ["opening", "username", "password", "code", "approval", "consent", "signed-in", "key", "stored", "testing", "connected"] as const;
