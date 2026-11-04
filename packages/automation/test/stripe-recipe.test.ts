@@ -43,9 +43,9 @@ function wizard(opts: { banner?: boolean; key?: string } = {}): FakeDriver {
       if (e.action === "fill" && e.key === 'css input[type="search"]') drv.pageText.add("Webhook Endpoints, Event Destinations");
       if (e.action === "click" && e.key === 'button "Create key"') {
         drv.pageText.add("Your new secret key");
-        drv.visible.add('css [data-text^="rk_"] >> visible=true >> nth=0');
-        drv.texts.set('css [data-text^="rk_"] >> visible=true >> nth=0', "rk_test_FAKE…"); // the page prints the key truncated
-        drv.attributes.set('css [data-text^="rk_"] >> visible=true >> nth=0@data-text', opts.key ?? KEY);
+        drv.visible.add('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]');
+        drv.texts.set('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]', "rk_test_FAKE…"); // the page prints the key truncated
+        drv.attributes.set('css text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]@aria-label', opts.key ?? KEY);
       }
     },
   });

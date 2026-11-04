@@ -124,6 +124,7 @@ export default {
   "params.kind.supabase.project": "Supabase projects",
   "params.kind.resend.domain": "Resend domains",
   "params.kind.openai.project": "OpenAI projects",
+  "params.kind.anthropic.workspace": "Anthropic workspaces",
   "params.kind.revenuecat.project": "RevenueCat projects",
   "params.kind.revenuecat.app": "RevenueCat apps",
   "params.kind.revenuecat.publicApiKey": "RevenueCat apps (SDK keys)",

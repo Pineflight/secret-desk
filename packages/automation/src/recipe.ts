@@ -150,6 +150,11 @@ const Message = { message: z.string().min(1), messageEn: z.string().min(1).optio
  */
 export const LoginFormSchema = z
   .object({
+    /**
+     * The provider signs in by email alone (a one-time code or a link, no password). The form then fills only
+     * {{login.username}}; the code comes through `mfa`. Single-sign-on methods still take their own credentials.
+     */
+    passwordless: z.boolean().optional(),
     /** Sign-in page, on `host`. */
     start: z.string().min(1),
     /** Page that shows whether a browser session is still signed in (default: start). */
@@ -320,7 +325,13 @@ function loginFormProblems(form: LoginForm, r: { host: string; allowHosts: strin
       }
     }
   });
-  for (const v of LOGIN_VARS) if (!used.has(v)) add(["steps"], `No fill step uses {{${v}}}`);
+  for (const v of LOGIN_VARS) {
+    if (form.passwordless && v === "login.password") {
+      if (used.has(v)) add(["steps"], "A passwordless sign-in must not use {{login.password}}");
+      continue;
+    }
+    if (!used.has(v)) add(["steps"], `No fill step uses {{${v}}}`);
+  }
   const others: [string, unknown][] = [["mfa", form.mfa], ["approval", form.approval], ["captcha", form.captcha], ["failure", form.failure]];
   for (const [name, value] of others) {
     if (value !== undefined && stringsOf(value).some((t) => placeholdersOf(t).length > 0)) add([name], "No variables allowed here");

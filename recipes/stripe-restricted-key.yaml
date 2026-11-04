@@ -124,15 +124,16 @@ steps:
   - waitFor: { text: "Your new secret key", timeoutSeconds: 60 }
 capture:
   token:
-    # The page shows the key truncated; the whole key is in `data-text` (and `aria-label`).
-    # The result view renders the key in three places (same value); the first visible one is taken (checked live on
-    # 2026-11-03: a selector that matched all three stopped the run after the key existed).
-    find: { css: '[data-text^="rk_"] >> visible=true >> nth=0' }
-    attribute: data-text
+    # Checked live on 2026-11-04: the result view and every key row of the list behind it carry a full key in the attributes
+    # `aria-label` (visible element) and `data-text` (hidden). Only the element under the heading "Your new secret key"
+    # holds the new key, so the capture starts at that heading and takes the nearest key element inside its container.
+    find: { css: 'text="Your new secret key" >> xpath=ancestor::*[.//*[starts-with(@aria-label,"rk_")]][1] >> [aria-label^="rk_"]' }
+    attribute: aria-label
     pattern: "^(rk_(test|live)_[A-Za-z0-9]+)$"
   externalId: { from: name }
 mask:
   - { css: '[data-text^="rk_"]' }
+  - { css: '[aria-label^="rk_"]' }
 revoke:
   # Checked in the sandbox on 2026-11-03: row menu -> "Expire key" -> dialog "Expire API key" -> "Expire" -> row gone.
   steps:

@@ -13,6 +13,8 @@ This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRA
 | `github-fine-grained-token` | GitHub fine-grained personal access token (also used for the team token, see [TEAM.md](TEAM.md)) | not verified |
 | `supabase-access-token` | Supabase access token | full run verified live 2026-11-03 (five scoped tokens) |
 | `openai-admin-key` | OpenAI organization Admin API key (`sk-admin-...`) on `settings/organization/admin-keys`; used by the OpenAI facade, can revoke; includes the sign-in form | key creation verified live 2026-11-03 with the signed-in browser (admin key created, stored, tested: projects readable); the sign-in form, the single-sign-on methods (email, Google, Apple, Microsoft) and revoke are not verified |
+| `anthropic-admin-key` | Anthropic organization Admin API key (`sk-ant-admin...`) on `settings/admin-keys`; used by the Anthropic facade; includes a passwordless email sign-in (one-time code) and Google | nothing verified live (every selector is a guess) |
+| `anthropic-api-key` | Anthropic API key in a workspace (parameter `workspace`, default `Default`); revoke goes through the Admin API when the `anthropic` connection exists, else this recipe's browser steps | nothing verified live (every selector is a guess) |
 | `openai-api-key` | OpenAI API key (owner, expiry, permission level); can revoke | full run verified live 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | `vesselapi-api-key` | VesselAPI API key (30, 60 or 90 days on the free plan); can delete the old key | full run verified live 2026-11-03 (two keys) |
 | `stripe-restricted-key` | Stripe restricted key for one account and mode; parameters `account` (`acct_...`), `mode` (`sandbox` or `live`), `preset` (`webhooks`: *Webhook Endpoints, Event Destinations* Write, or `full-except-sensitive`); can revoke (*Expire key*) | sandbox wizard, result view and expiry checked 2026-11-02/03 with a throwaway key; full run, sign-in form and live mode not verified |
@@ -125,6 +127,8 @@ params:
 - A recipe that reads `params.owner` or `params.permissions` through the fixed variables (the GitHub recipe) does not need to declare them.
 
 ## Guided sign-in (`login.form`)
+
+`passwordless: true` marks a provider that signs in by email code (`anthropic-admin-key`): the form fills only `{{login.username}}` (and must not use `{{login.password}}`), the portal asks for the emailed code through `mfa`, and the sign-in dialog shows no password field for the email method.
 
 Optional, next to `login.expect` (which doubles as the success condition). Used by the provider facade; the human types email and password for one run. `login.form` is the `email` method; `login.methods` adds single sign-on (`google`, `apple`, `microsoft`, `github`) by declaring only the provider-side button steps, the identity-provider flow is built in: [DEVELOPING-INTEGRATIONS.md](DEVELOPING-INTEGRATIONS.md#sign-in-methods-and-single-sign-on).
 

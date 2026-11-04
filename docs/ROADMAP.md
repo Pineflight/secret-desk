@@ -25,6 +25,7 @@ The browser runs locally or as a sidecar on a server ([DOCKER.md](DOCKER.md#brow
 | GitHub | fine-grained personal access tokens | recipe scaffold, not verified |
 | Supabase | personal access tokens with an organization, project and permission preset | verified live: full run 2026-11-03 (five scoped tokens) |
 | OpenAI (facade) | one browser step creates the organization Admin API key (`openai-admin-key`), after that project keys are issued through the Admin API (service accounts) | API-based after one browser step; **verified live 2026-11-03**: admin key created, stored and tested through the signed-in browser (sign-in form, single-sign-on methods and revoke not verified) |
+| Anthropic (facade and recipe) | browser for key creation (the Admin API cannot create keys: `anthropic-admin-key`, `anthropic-api-key`), API for the checks: workspaces, key check (`/v1/models`), deactivate and archive | **not verified live**: every selector and the revoke path are guesses; the API calls follow the Admin API reference |
 | OpenAI (recipe) | API keys (owner, expiry, permissions) | verified live: full run 2026-11-03 with owner *You* (one key); *Service account* and the project choice not verified |
 | VesselAPI | API keys (30 to 90 days on the free plan) | verified live: full run 2026-11-03 (two keys) |
 | Stripe | restricted API keys per account and mode (presets `webhooks`, `full-except-sensitive`) | sandbox wizard, result view and expiry checked 2026-11-03 with a throwaway key; full run, live mode and sign-in not verified |

@@ -278,6 +278,39 @@ describe("signIn", () => {
   });
 });
 
+describe("passwordless email sign-in", () => {
+  const FORM_CODE = { ...FORM, passwordless: true, steps: FORM.steps.slice(0, 3) };
+  const emailSite = (): FakeDriver =>
+    new FakeDriver({
+      pollMs: 2,
+      visible: ['button "Next"', 'button "Verify"'],
+      on: (e, d) => {
+        if (e.action === "goto") {
+          d.url = e.key;
+          if (e.key.endsWith("/login")) d.visible.add("css #email");
+          return;
+        }
+        if (e.key === 'button "Next"') d.visible.add("css #code");
+        if (e.key === 'button "Verify"') {
+          d.visible.delete("css #code");
+          d.url = APP;
+        }
+      },
+    });
+
+  it("types only the email, asks for the emailed code and never fills a password", async () => {
+    const d = emailSite();
+    const events: LoginEvent[] = [];
+    const r = await signIn(recipe(FORM_CODE), { username: EMAIL, password: "" }, d, { onEvent: (e) => events.push(e), requestCode: async () => CODE }, fast);
+    expect(r.url).toBe("https://example.test/app/home");
+    expect(d.filled.get("css #email")).toBe(EMAIL);
+    expect(d.filled.get("css #code")).toBe(CODE);
+    expect(d.filled.has("css #pw")).toBe(false);
+    expect(events.filter((e) => e.type === "entered")).toEqual([{ type: "entered", field: "username" }]);
+    expectClean(JSON.stringify({ events, r }));
+  });
+});
+
 describe("checkSession", () => {
   it("is signed in when the home page leads to a signed-in page", async () => {
     const d = new FakeDriver({ pollMs: 2, on: (e, dd) => void (e.action === "goto" && (dd.url = APP)) });
@@ -334,6 +367,14 @@ describe("login.form schema", () => {
     const r = RecipeSchema.safeParse({ ...sampleRecipe(), steps: [{ fill: { label: "Name", value: "{{login.password}}" } }, { click: { role: "button", name: "Create", createsToken: true } }] });
     expect(r.success).toBe(false);
     expect(JSON.stringify((r as { error: unknown }).error)).toMatch(/Unbekannte Variable/);
+  });
+
+  it("a passwordless form needs only the email variable, and must not use the password one", () => {
+    const emailOnly = FORM.steps.filter((x) => !JSON.stringify(x).includes("#pw") && !JSON.stringify(x).includes("Log in"));
+    expect(messages({ ...FORM, steps: emailOnly })).toMatch(/login\.password/);
+    expect(parse({ ...FORM, passwordless: true, steps: emailOnly }).success).toBe(true);
+    expect(messages({ ...FORM, passwordless: true })).toMatch(/passwordless sign-in must not use/);
+    expect(messages({ ...FORM, passwordless: true, steps: FORM.steps.filter((x) => !JSON.stringify(x).includes("login.username")) })).toMatch(/login\.username/);
   });
 
   it("requires both variables, step kinds fill/click/waitFor, and addresses on the recipe's host", () => {

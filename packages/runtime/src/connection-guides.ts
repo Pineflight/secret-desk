@@ -228,6 +228,18 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         ],
         permissions: ["Admin-Key der Organisation (Projekte und Service-Accounts verwalten)"],
       };
+    case "anthropic":
+      return {
+        label: "Anthropic",
+        description: "Der Admin-Key der Organisation. Damit listet secret-desk Workspaces auf und prueft und deaktiviert API-Schluessel. Neue API-Schluessel kann die Admin-API nicht anlegen: das geht nur in der Console, secret-desk macht es ueber den angemeldeten Browser.",
+        url: "https://platform.claude.com/settings/admin-keys",
+        steps: [
+          "In der Anthropic-Console unter Settings, Admin keys einen Admin-Key anlegen (nur Organisations-Admins).",
+          "Admin-Key kopieren (er beginnt mit sk-ant-admin) und unten einfuegen. Er wird nur einmal angezeigt.",
+          "Einfacher geht es ueber \"Mit Anthropic verbinden\": der angemeldete Browser legt den Key an.",
+        ],
+        permissions: ["Admin-Key der Organisation (Workspaces lesen, API-Schluessel lesen und deaktivieren)"],
+      };
     case "grafana":
       return {
         label: "Grafana Cloud",
@@ -258,6 +270,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
  */
 export function tokenPrefixProblem(id: string, token: string): string | undefined {
   if (id === "openai") return /^sk-admin-/.test(token.trim()) ? undefined : "Das ist kein OpenAI-Admin-Key (er beginnt mit sk-admin-). Normale Schluessel koennen keine Schluessel erzeugen.";
+  if (id === "anthropic") return /^sk-ant-admin/.test(token.trim()) ? undefined : "Das ist kein Anthropic-Admin-Key (er beginnt mit sk-ant-admin). Normale API-Schluessel koennen die Admin-API nicht nutzen.";
   if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
   if (!mode) return undefined;
