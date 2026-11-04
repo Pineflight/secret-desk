@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VENDORS } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
-import { BRAND_ICONS } from "../src/lib/brand-icons.generated";
+import { BRAND_ICONS } from "../src/lib/brand-icons";
+import { BRAND_ICONS as GENERATED_ICONS } from "../src/lib/brand-icons.generated";
+import { CUSTOM_BRAND_ICONS } from "../src/lib/brand-icons.custom";
 import { DARK_SURFACE, LIGHT_SURFACE, MIN_CONTRAST, brandFill, contrast, luminance, monogram } from "../src/lib/brand-color";
 
 describe("brand-color", () => {
@@ -42,6 +44,20 @@ describe("bundled logos", () => {
       expect(icon.hex, slug).toMatch(/^[0-9A-F]{6}$/);
       expect(icon.path, slug).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9 .,\-eE]+$/);
       expect(icon.path.length, slug).toBeGreaterThan(20);
+    }
+  });
+  it("resolves the hand-kept marks for OpenAI, Peecho and VesselAPI through the same map", () => {
+    for (const id of ["openai", "peecho", "vesselapi"]) {
+      const slug = VENDORS.find((v) => v.id === id)?.icon;
+      expect(slug, id).toBe(id);
+      expect(BRAND_ICONS[slug as string], id).toBe(CUSTOM_BRAND_ICONS[id]);
+      expect(GENERATED_ICONS[id], `${id} is not in simple-icons`).toBeUndefined();
+    }
+  });
+  it("draws every vendor with a logo or, without one, a monogram", () => {
+    for (const v of VENDORS) {
+      if (v.icon === null) expect(monogram(v.label), v.id).not.toBe("?");
+      else expect(BRAND_ICONS[v.icon], v.id).toBeDefined();
     }
   });
   it("comes from the licensed package: the notices list simple-icons under CC0-1.0", () => {

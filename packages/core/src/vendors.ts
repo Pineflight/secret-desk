@@ -14,7 +14,7 @@ export interface VendorDef {
   id: string;
   label: string;
   category: VendorCategory;
-  /** Slug of the logo in the `simple-icons` package, or null for a neutral monogram. */
+  /** Slug of the logo in the `simple-icons` package or in the hand-kept marks (`brand-icons.custom.ts`), or null for a neutral monogram. */
   icon: string | null;
   /** Connections that hold the API key the portal uses for this vendor. */
   connections: readonly string[];
@@ -78,10 +78,10 @@ export const VENDORS: readonly VendorDef[] = [
   vendor({ id: "resend", label: "Resend", category: "messaging", icon: "resend", connections: ["resend"], providers: ["resend-api-key"] }),
   vendor({ id: "telegram", label: "Telegram", category: "messaging", icon: "telegram", providers: ["telegram-bot"] }),
   vendor({ id: "grafana", label: "Grafana Cloud", category: "observability", icon: "grafana", connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token", "grafana-access-policy-token"], recipes: ["grafana-cloud-access-policy"] }),
-  vendor({ id: "openai", label: "OpenAI", category: "ai", icon: null, connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] }),
+  vendor({ id: "openai", label: "OpenAI", category: "ai", icon: "openai", connections: ["openai"], providers: ["openai"], recipes: ["openai-admin-key", "openai-api-key"] }),
   vendor({ id: "anthropic", label: "Anthropic", category: "ai", icon: "anthropic", connections: ["anthropic"], providers: ["anthropic-api-key-browser"], recipes: ["anthropic-admin-key", "anthropic-api-key"] }),
-  vendor({ id: "vesselapi", label: "VesselAPI", category: "data", icon: null, recipes: ["vesselapi-api-key"] }),
-  vendor({ id: "peecho", label: "Peecho", category: "print", icon: null, recipes: ["peecho-api-keys"] }),
+  vendor({ id: "vesselapi", label: "VesselAPI", category: "data", icon: "vesselapi", recipes: ["vesselapi-api-key"] }),
+  vendor({ id: "peecho", label: "Peecho", category: "print", icon: "peecho", recipes: ["peecho-api-keys"] }),
 ];
 
 export const vendorById = (id: string): VendorDef | undefined => VENDORS.find((v) => v.id === id);
