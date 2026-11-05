@@ -36,12 +36,11 @@ login:
         - click: { role: button, name: '/microsoft/i' }
   # Guided sign-in (the portal types the email and password the human entered for this run).
   # Seen live 2026-11-05: the page asks for "Email or username" first (input name=login, button #submit "Sign In") and shows the
-  # password field only after that; a cookie banner may cover the page. The password page and everything after it are not verified.
+  # password field only after that. The cookie banner's buttons stay in the page while hidden, so an optional click on them fails the sign-in (seen 2026-11-05); the banner does not block the form, so the recipe leaves it alone. The password page and everything after it are not verified.
   form:
     start: "https://grafana.com/auth/sign-in"
     home: "https://grafana.com/profile/org"
     steps:
-      - click: { css: "#onetrust-reject-all-handler", optional: true, timeoutSeconds: 5 }
       - waitFor: { visible: { css: 'input[name="login"]' }, timeoutSeconds: 30 }
       - fill: { css: 'input[name="login"]', value: "{{login.username}}" }
       - click: { css: "#submit" }
