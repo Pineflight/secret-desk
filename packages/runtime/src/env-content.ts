@@ -1,4 +1,4 @@
-import { EnvExportError, agentStageIds, commentText, findStage, formatEnvValue, generateValue, stageKind, type EnvSource } from "@secret-desk/core";
+import { EnvExportError, agentStageIds, commentText, findStage, formatEnvValue, generateEntryValue, stageKind, type EnvSource } from "@secret-desk/core";
 import { PolicyError, type Actor } from "./agent-api.js";
 import type { Runtime } from "./runtime.js";
 
@@ -58,12 +58,12 @@ function dotenvText(lines: Line[], repo: string, stage: string, now: Date): stri
 }
 
 /** Template value for one env entry of the dev stage, or the reason there is none. */
-function templateValue(rt: Runtime, from: EnvSource): { value: string } | { reason: string } {
+function templateValue(rt: Runtime, from: EnvSource, pairs: Map<string, { publicKey: string; privateKey: string }>): { value: string } | { reason: string } {
   switch (from.type) {
     case "default":
       return { value: from.value };
     case "generate":
-      return { value: generateValue(from.kind, from.bytes) };
+      return { value: generateEntryValue(from, pairs) };
     case "variable": {
       const v = rt.inventory.getVariable(from.variable);
       return v && v.value !== null ? { value: v.value } : { reason: `variable ${from.variable} has no target value` };
@@ -71,7 +71,11 @@ function templateValue(rt: Runtime, from: EnvSource): { value: string } | { reas
     case "issue":
       return { reason: "issued at the provider by the dev environment export, not by this export" };
     case "prompt":
-      return { reason: "needs a value from a human" };
+      return { reason: from.optional ? "optional, needs a value from a human" : "needs a value from a human" };
+    case "ref":
+      return { reason: `value of ${from.key} in template ${from.template}, filled by the template export` };
+    case "command":
+      return { reason: `read from ${from.command} by the CLI template export on the developer machine` };
   }
 }
 
@@ -102,6 +106,7 @@ export function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInpu
   };
 
   const templates = isDev ? data.envTemplates.filter((t) => t.repo === input.repo && t.stage === input.stage) : [];
+  const pairs = new Map<string, { publicKey: string; privateKey: string }>();
   const templateByKey = new Map<string, { from: EnvSource; description: string | undefined }>();
   for (const t of templates) for (const e of t.entries) if (!templateByKey.has(e.key)) templateByKey.set(e.key, { from: e.from, description: e.description });
 
@@ -123,13 +128,13 @@ export function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInpu
           continue;
         }
         const t = templateByKey.get(name);
-        const r = t ? templateValue(rt, t.from) : { reason: "no dev value available" };
+        const r = t ? templateValue(rt, t.from, pairs) : { reason: "no dev value available" };
         put("value" in r ? { name, value: r.value, reason: "", note: s.description } : { name, value: null, reason: r.reason, note: s.description });
       }
     }
     // Template keys that no inventory entry names (typical for a dev stage without places).
     for (const [key, t] of templateByKey) {
-      const r = templateValue(rt, t.from);
+      const r = templateValue(rt, t.from, pairs);
       put("value" in r ? { name: key, value: r.value, reason: "", note: t.description } : { name: key, value: null, reason: r.reason, note: t.description });
     }
   }

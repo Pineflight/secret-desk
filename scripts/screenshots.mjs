@@ -198,6 +198,7 @@ try {
   } else console.warn("  no pending review could be created: skipping reviews.png and review-detail.png");
   await shot("variables", "/entries?kind=variable");
   await shot("compare", "/compare");
+  await shot("dev-env", "/dev");
   await shot("compare-live", "/compare", async () => {
     await page.getByText("Check live against GitHub", { exact: false }).first().click();
     await page.waitForTimeout(1500);

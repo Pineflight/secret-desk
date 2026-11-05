@@ -38,7 +38,7 @@ describe("secret-desk env export (content mode)", () => {
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     // the value never goes to the terminal
     expect(t.out.join("\n")).not.toContain("localhost:3000");
-    expect(t.out.join("\n")).toContain("Modus 600");
+    expect(t.out.join("\n")).toContain("mode 600");
   });
 
   it("any stage for variables, staging secret omitted", async () => {
@@ -48,7 +48,7 @@ describe("secret-desk env export (content mode)", () => {
     const text = await readFile(file, "utf8");
     expect(text).toContain("STAGING_URL=https://staging.example.com");
     expect(text).toContain("# TOKEN= (missing: secret values of stage staging are never exported)");
-    expect(t.err.join("\n")).toContain("fehlt: TOKEN");
+    expect(t.err.join("\n")).toContain("missing: TOKEN");
   });
 
   it("json format", async () => {
@@ -78,7 +78,7 @@ describe("secret-desk env export (content mode)", () => {
     expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--out", file, "--include", "variables"], t.io)).toBe(1);
     t.err.length = 0;
     expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--out", file, "--include", "variables", "--force"], t.io)).toBe(0);
-    expect(t.err.join("\n")).toContain("Git verfolgt");
+    expect(t.err.join("\n")).toContain("Git tracks");
   });
 
   it("tracked guard also fires when the file does not exist on disk", async () => {
@@ -89,7 +89,7 @@ describe("secret-desk env export (content mode)", () => {
     execFileSync("git", ["add", "gone.env"], { cwd: t.dir });
     execFileSync("rm", [file]);
     expect(await main(["env", "export", "--config", t.config, "--repo", "acme-app", "--out", file, "--include", "variables"], t.io)).toBe(1);
-    expect(t.err.join("\n")).toContain("Git verfolgt");
+    expect(t.err.join("\n")).toContain("Git tracks");
   });
 
   it("rejects an unknown format", async () => {

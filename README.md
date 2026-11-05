@@ -19,6 +19,7 @@ A local-first portal that shows what expires when, issues new tokens at the prov
 - [Why secret-desk](#why-secret-desk)
 - [Features](#features)
 - [Screenshots](#screenshots)
+- [Working .env.local in one command](#working-envlocal-in-one-command)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Docker](#docker)
@@ -60,7 +61,7 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Browser automation recipes:** for providers without an API, a browser walks through the form from a YAML recipe: a local Chrome, or a browser sidecar on a server that you reach through noVNC, sign in to once, and that later runs use without anyone watching. Sign-in, 2FA and CAPTCHA stay with the human. See [Recipes](docs/RECIPES.md) and [Browser on the Pi](docs/DOCKER.md#browser-on-the-pi).
 - **Runs on a small server:** the portal and the browser sidecar run as containers on a Raspberry Pi in your LAN, behind a reverse proxy, updated automatically. See [Docker](docs/DOCKER.md).
 - **Full sync in one pass:** read what every workflow needs, normalize names, create every value a provider can create and load every variable from its source, then write all of it. See [Full sync](docs/FULL-SYNC.md).
-- **Dev `.env` export:** per-repository templates produce the file on demand (defaults, random values, personal dev tokens, variables) with mode 600, stored nowhere.
+- **Dev `.env` export:** per-repository templates produce a working `.env.local` on demand (defaults, random values, VAPID pairs, prefixed secrets, personal dev tokens, variables, keys of the local Supabase stack, values shared between repositories, optional inputs) with mode 600, stored nowhere. See [below](#working-envlocal-in-one-command) and [docs/DEV-ENV.md](docs/DEV-ENV.md).
 - **Search and command palette:** ⌘K / Ctrl K opens a palette over secrets, variables, repositories, stages, integrations, providers, pages and actions (metadata only, never values) with typo-tolerant matching, filters such as `stage:staging`, suggestions and recent items. See [Search](docs/SEARCH.md).
 - **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
 
@@ -95,6 +96,32 @@ All screenshots come from the built-in demo (simulated GitHub, made-up data) and
 | [![Compare](docs/images/compare-live.png)](docs/images/compare-live.png)<br>**Compare:** live matrix of names against stages | [![Variables](docs/images/variables.png)](docs/images/variables.png)<br>**Variables:** the same list with *Kind: Variables*, expected value against GitHub |
 | [![Integrations](docs/images/integrations.png)](docs/images/integrations.png)<br>**Integrations:** one card per provider, connection state, guides, test connection | [![Settings](docs/images/settings.png)](docs/images/settings.png)<br>**Settings:** freely configurable stages |
 | [![Repositories](docs/images/repositories.png)](docs/images/repositories.png)<br>**Repositories:** link folders on this machine | [![Reviews](docs/images/reviews.png)](docs/images/reviews.png)<br>**Reviews:** open reviews waiting for a human |
+
+## Working .env.local in one command
+
+New checkout, reset local stack, second repository that must share a token with the first: instead of copying keys out of
+`supabase status`, generating webhook secrets by hand and pasting tokens between files, one command writes every file.
+
+```bash
+supabase start                      # or the repository's own start script
+secret-desk env export --from-template --config ~/secret-desk.config.yaml --repo acme-web --repo acme-app
+```
+
+- **Right place:** each file lands in the linked checkout at the template's path (`<repo>/.env.local`), mode 600, with a
+  warning when Git does not ignore it.
+- **Local Supabase connected:** URL, anon/publishable and service role/secret keys come from the running local stack
+  (`supabase status`, the repository's own CLI first). A stopped stack produces a clear message with the repository's start
+  command, never placeholders.
+- **Shared values:** a token the website sends and the API checks is generated once and written into both files.
+- **Generated secrets:** random values with prefixes such as `whsec_`, Web Push VAPID pairs, UUIDs.
+- **Optional inputs:** keys only you can provide (test keys of third parties) are asked for, or left as a commented line when
+  optional, so the export never blocks.
+- **No values anywhere else:** nothing is stored, logged or printed; the export never returns a value to an agent, and
+  only dev stages are exported.
+
+[![Dev environment](docs/images/dev-env.png)](docs/images/dev-env.png)
+
+The whole flow, the template format and what stays manual: [docs/DEV-ENV.md](docs/DEV-ENV.md).
 
 ## Architecture
 

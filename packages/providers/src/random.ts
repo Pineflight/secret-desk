@@ -1,4 +1,4 @@
-import { createECDH, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext } from "@secret-desk/core";
 import { check } from "./checks.js";
 import { ProviderError } from "./http.js";
@@ -53,11 +53,5 @@ export const randomProviders: Provider[] = [
   local("random-uuid", "Zufalls-UUID", uuidShape, () => randomUUID()),
 ];
 
-/** VAPID-Schluesselpaar fuer Web Push: oeffentlich = unkomprimierter P-256-Punkt, privat = 32 Byte, beides base64url. */
-export function generateVapidKeys(): { publicKey: string; privateKey: string } {
-  const ecdh = createECDH("prime256v1");
-  ecdh.generateKeys();
-  const priv = Buffer.alloc(32);
-  ecdh.getPrivateKey().copy(priv, 32 - ecdh.getPrivateKey().length);
-  return { publicKey: ecdh.getPublicKey().toString("base64url"), privateKey: priv.toString("base64url") };
-}
+/** VAPID key pair for Web Push (implemented in core, re-exported for existing callers). */
+export { generateVapidKeys } from "@secret-desk/core";

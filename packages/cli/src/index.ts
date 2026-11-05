@@ -21,6 +21,7 @@ import {
   confirmIssuance,
   createRuntime,
   exportEnv,
+  translateEn,
   getNormalizationPlan,
   inspectVariableLive,
   listSecrets,
@@ -72,8 +73,10 @@ Aufruf: secret-desk <befehl> [optionen]
                    --to-github --config <datei> [--dry-run] [--yes] [--repo <name>]
   env export     Variablen (und Dev-Werte) als Datei (Modus 600, Standard .env.local), jede Stage, Werte nie auf dem Terminal
                    --config <datei> --repo <r> [--stage <s>] [--out <pfad>] [--format dotenv|json] [--include variables|all] [--force]
-  env export     Mit --template, --overwrite oder --prompt: Dev-.env aus einer Vorlage (Werte entstehen jetzt, werden nirgends gespeichert)
-                   --config <datei> --repo <r> [--stage dev] [--template <id>] [--out <pfad>] [--overwrite] [--prompt KEY=WERT]...
+  env export     With --from-template, --template, --overwrite, --prompt or --no-commands: dev .env from the repository template
+                   (values are made now and stored nowhere; default target <linked folder>/<template file>)
+                   --config <file> --repo <r> [--repo <r>]... [--stage dev] [--template <id>] [--out <path>] [--overwrite]
+                   [--prompt KEY=VALUE]... [--no-commands]
   team export    Team-Konfiguration ohne Werte ausgeben     --config <datei> [--out <datei>]
   team import    Team-Konfiguration zusammenfuehren         <datei> --inventory <datei> [--replace]
   team status    Stand des Team-Syncs (ohne Netzwerk)      --config <datei>
@@ -134,7 +137,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "env":
         if (rest[0] !== "export") return usage(io);
         // Content export (variables, dev secrets with a value, any stage) is the default; the template mode only runs when one of its options is given.
-        return rest.some((a) => /^--(template|overwrite|prompt)(=|$)/.test(a)) ? await envExport(rest.slice(1), io) : await envExportContent(rest.slice(1), io);
+        return rest.some((a) => /^--(template|from-template|overwrite|prompt|no-commands)(=|$)/.test(a)) ? await envExport(rest.slice(1), io) : await envExportContent(rest.slice(1), io);
       case "team":
         return rest[0] === "export" ? await teamExportCmd(rest.slice(1), io) : rest[0] === "import" ? await teamImportCmd(rest.slice(1), io) : rest[0] === "status" ? await teamStatusCmd(rest.slice(1), io) : rest[0] === "pull" ? await teamPullCmd(rest.slice(1), io) : rest[0] === "push" ? await teamPushCmd(rest.slice(1), io) : usage(io);
       case "inventory":
@@ -377,35 +380,94 @@ async function varsCmd(args: string[], io: Io): Promise<number> {
   }
 }
 
+/** Template order for one run: a template whose `ref` entries point to another template of the run comes after it. */
+export function orderTemplatesByRefs<T extends { id: string; entries: { from: { type: string; template?: string } }[] }>(templates: T[]): T[] {
+  const ids = new Set(templates.map((t) => t.id));
+  const done = new Set<string>();
+  const out: T[] = [];
+  const visit = (t: T, path: Set<string>): void => {
+    if (done.has(t.id) || path.has(t.id)) return;
+    path.add(t.id);
+    for (const e of t.entries) {
+      if (e.from.type !== "ref" || !e.from.template || !ids.has(e.from.template)) continue;
+      const dep = templates.find((x) => x.id === e.from.template);
+      if (dep) visit(dep, path);
+    }
+    path.delete(t.id);
+    done.add(t.id);
+    out.push(t);
+  };
+  for (const t of templates) visit(t, new Set());
+  return out;
+}
+
+/**
+ * `secret-desk env export` template mode: one dev .env per repository from its template. Developer-facing output is English.
+ * Default target is `<linked folder>/<template.file>` (else `./<template.file>`); `--out` only with a single repository.
+ * Values are never printed: only paths, key names and sources.
+ */
 async function envExport(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { config: { type: "string" }, repo: { type: "string" }, stage: { type: "string" }, template: { type: "string" }, out: { type: "string" }, overwrite: { type: "boolean" }, prompt: { type: "string", multiple: true } },
+    options: {
+      config: { type: "string" },
+      repo: { type: "string", multiple: true },
+      stage: { type: "string" },
+      template: { type: "string" },
+      "from-template": { type: "boolean" },
+      out: { type: "string" },
+      overwrite: { type: "boolean" },
+      prompt: { type: "string", multiple: true },
+      "no-commands": { type: "boolean" },
+    },
   });
-  if (!values.config || !values.repo) throw new Error("env export --config <datei> --repo <repo>");
-  const rt = await createRuntime(values.config);
-  const prompts: Record<string, string> = {};
-  for (const p of values.prompt ?? []) {
-    const i = p.indexOf("=");
-    if (i > 0) prompts[p.slice(0, i)] = p.slice(i + 1);
-  }
+  const repos = values.repo ?? [];
+  if (!values.config || (repos.length === 0 && !values.template)) throw new Error("env export --config <file> --repo <repo> [--repo <repo>]... [--template <id>] [--out <path>] [--overwrite] [--prompt KEY=VALUE]... [--no-commands]");
+  if (values.out && repos.length > 1) throw new Error("--out works with a single --repo only.");
+  try {
+    const rt = await createRuntime(values.config);
+    const prompts: Record<string, string> = {};
+    for (const p of values.prompt ?? []) {
+      const i = p.indexOf("=");
+      if (i > 0) prompts[p.slice(0, i)] = p.slice(i + 1);
+    }
   for (const [k, v] of Object.entries(process.env)) if (k.startsWith("SECRET_DESK_PROMPT_") && v) prompts[k.slice("SECRET_DESK_PROMPT_".length)] = v;
-  const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
-  const r = await exportEnv(rt, { kind: "human", name: "cli" }, {
-    repo: values.repo,
-    stage,
-    ...(values.template ? { template: values.template } : {}),
-    path: values.out ?? ".env.local",
-    overwrite: Boolean(values.overwrite),
-    prompts,
-  });
-  if (r.status === "needs-input") {
-    io.err(`${r.message}\nFehlend: ${r.keys.join(", ")}`);
-    return 1;
+    const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
+    const all = rt.inventory.data.envTemplates;
+    const picked = values.template ? all.filter((t) => t.id === values.template) : repos.map((r) => all.find((t) => t.repo === r && t.stage === stage));
+    const missingAt = picked.findIndex((t) => !t);
+    if (picked.length === 0 || missingAt !== -1) {
+      io.err(`Error: no ${stage} template for ${values.template ?? repos[missingAt] ?? repos.join(", ")}.`);
+      return 1;
+    }
+    const runValues = new Map<string, string>();
+    let failed = 0;
+    for (const template of orderTemplatesByRefs(picked.filter((t) => t !== undefined))) {
+      const r = await exportEnv(rt, { kind: "human", name: "cli" }, {
+        repo: template.repo,
+        stage: template.stage,
+        template: template.id,
+        ...(values.out ? { path: values.out } : {}),
+        fallbackDir: process.cwd(),
+        overwrite: Boolean(values.overwrite),
+        prompts,
+        runCommands: !values["no-commands"],
+        runValues,
+      });
+      if (r.status === "needs-input") {
+        io.err(`${template.repo}: input required for ${r.keys.join(", ")}. Pass --prompt KEY=VALUE or SECRET_DESK_PROMPT_<KEY>, or mark the entry optional.`);
+        failed++;
+        continue;
+      }
+      io.out(`written: ${r.path} (${r.keys.length - r.skipped.length} of ${r.keys.length} keys set, mode 600)`);
+      if (r.skipped.length > 0) io.out(`  left empty: ${r.skipped.join(", ")}`);
+      for (const w of r.warnings) io.err(`  warning: ${translateEn(w)}`);
+    }
+    return failed > 0 ? 1 : 0;
+  } catch (err) {
+    io.err(`Error: ${translateEn((err as Error).message)}`);
+    return 2;
   }
-  io.out(`geschrieben: ${r.path} (${r.keys.length} Schluessel, Modus 600)`);
-  for (const w of r.warnings) io.err(`Hinweis: ${w}`);
-  return 0;
 }
 
 async function teamExportCmd(args: string[], io: Io): Promise<number> {

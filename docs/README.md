@@ -4,6 +4,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 
 ## Guides
 
+- [DEV-ENV.md](DEV-ENV.md): how a developer gets a working `.env.local` per repository from the dev templates, and what stays manual.
 - [GETTING-STARTED.md](GETTING-STARTED.md): from a fresh checkout to the demo, your own configuration, a GitHub token with the exact permissions, the first reviewed renewal and a dev `.env`.
 - [FULL-SYNC.md](FULL-SYNC.md): bring many repositories into a known state in one pass: needs from the workflows, normalize, sources and parameters, environments, dry run, writing variables and secrets, removing old names, and the limits you may meet.
 - [TRIAL-RUN.md](TRIAL-RUN.md): a guided first run with real services in a throwaway repository, with `doctor` pre-check and an acceptance list.

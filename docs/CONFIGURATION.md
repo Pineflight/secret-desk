@@ -296,9 +296,11 @@ Each entry has `key` (`^[A-Za-z_][A-Za-z0-9_]*$`), an optional one-line `descrip
 | `from.type` | Fields | Value comes from |
 |---|---|---|
 | `default` | `value` | A fixed string. Only for non-secret values such as URLs. |
-| `generate` | `kind` (`hex` \| `base64` \| `uuid`, default `hex`), `bytes` (8 to 128, default 32) | A fresh random value. |
+| `generate` | `kind` (`hex` \| `base64` \| `base64url` \| `uuid` \| `vapid-public` \| `vapid-private`, default `hex`), `bytes` (8 to 128, default 32), `prefix` (optional, `[A-Za-z0-9_-]{1,24}`, e.g. `whsec_`), `pair` (optional slug) | A fresh random value, with `prefix` in front. `vapid-public`/`vapid-private` are the two halves of a Web Push key pair (base64url); entries with the same `pair` (default `default`) in one export share one pair. `prefix` is not allowed on VAPID keys. |
 | `issue` | `secret` (secret id) | A personal dev token created at the provider for that secret. The provider must be automatic. |
-| `prompt` | `hint` (one line, optional) | A value you enter (portal field, `--prompt KEY=VALUE`, or the environment variable `SECRET_DESK_PROMPT_<KEY>`). |
+| `prompt` | `hint` (one line, optional), `optional` (default `false`) | A value you enter (portal field, `--prompt KEY=VALUE`, or the environment variable `SECRET_DESK_PROMPT_<KEY>`). With `optional: true` a missing value does not block the export: the key is written as a commented, empty line (`# KEY= (optional: hint)`). |
+| `ref` | `template` (template id), `key` | The value the other template's entry `key` has: from the same CLI run (`--repo` given more than once), otherwise read from the file that template already produced in its linked folder. Stored nowhere else. The target must exist, must not be the template itself and must not be a `ref`. |
+| `command` | `command` (`supabase-status`), `key`, `optional` (default `false`) | A runtime-local value read from an allowlisted command, run by the CLI on the developer machine in the repository's linked folder. `supabase-status` runs `supabase status -o env` (fixed arguments, no shell) and picks `key` (e.g. `ANON_KEY`, `SERVICE_ROLE_KEY`, `API_URL`). Output and errors are never logged; a failure names the command and exit code only. In the portal, over MCP and with `--no-commands` nothing runs and the key is written as a commented, empty line. |
 | `variable` | `variable` (variable id) | The expected value of an inventory variable. |
 
 ### Custom providers

@@ -153,6 +153,19 @@ variables:
       - { repo: acme-app, scope: environment, environment: staging }
 
 envTemplates:
+  - id: acme-app-dev
+    repo: acme-app
+    stage: dev
+    file: .env.local
+    entries:
+      - { key: SUPABASE_URL, description: "Local Supabase stack", from: { type: command, command: supabase-status, key: API_URL } }
+      - { key: SUPABASE_ANON_KEY, from: { type: command, command: supabase-status, key: ANON_KEY } }
+      - { key: SUPABASE_SERVICE_ROLE_KEY, from: { type: command, command: supabase-status, key: SERVICE_ROLE_KEY } }
+      - { key: LEAD_INTAKE_TOKENS, description: "Same token the website sends", from: { type: ref, template: acme-web-dev, key: LEAD_INTAKE_TOKEN } }
+      - { key: STRIPE_WEBHOOK_SECRET, from: { type: generate, kind: base64, bytes: 24, prefix: whsec_ } }
+      - { key: VAPID_PUBLIC_KEY, from: { type: generate, kind: vapid-public } }
+      - { key: VAPID_PRIVATE_KEY, from: { type: generate, kind: vapid-private } }
+      - { key: MAPS_API_KEY, description: "Only for the map view", from: { type: prompt, optional: true, hint: "Test key from the maps console" } }
   - id: acme-web-dev
     repo: acme-web
     stage: dev
