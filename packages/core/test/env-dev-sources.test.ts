@@ -1,10 +1,10 @@
 import { createECDH } from "node:crypto";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConnectionStore } from "../src/connections.js";
-import { buildEnvFile, formatEnvValue, parseEnvText, PromptsRequiredError, runEnvCommand } from "../src/env-export.js";
+import { buildEnvFile, formatEnvValue, parseEnvText, PromptsRequiredError, runEnvCommand, supabaseStartCommand } from "../src/env-export.js";
 import { InventoryStore } from "../src/inventory.js";
 import { ProviderRegistry } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
@@ -157,6 +157,16 @@ describe("dev template sources", () => {
     expect(r.text).toContain("LEAD_INTAKE_TOKENS='abc def'\n");
   });
 
+  it("ref: a template already exported in this run never falls back to its old file", async () => {
+    const inventory = InventoryStore.fromText(INVENTORY.replace("{ key: LEAD_INTAKE_TOKEN, from: { type: generate, kind: hex, bytes: 16 } }", "{ key: LEAD_INTAKE_TOKEN, from: { type: prompt, optional: true } }"));
+    const base = { inventory, providers: new ProviderRegistry().register({ id: "fake-issuer", label: "F", kind: "automatic", issue: async () => ({ value: new SecretValue("v") }) }), connections: new ConnectionStore() };
+    const tpl = (id: string) => inventory.data.envTemplates.find((t) => t.id === id)!;
+    const runValues = new Map<string, string>();
+    await buildEnvFile(tpl("landing-dev"), { ...base, runValues });
+    const stale = "LEAD_INTAKE_TOKEN=old-value\n";
+    await expect(buildEnvFile(tpl("intake-dev"), { ...base, runValues, readTemplateFile: async () => stale })).rejects.toThrow(/Kein Wert fuer LEAD_INTAKE_TOKEN/);
+  });
+
   it("ref: no value anywhere fails before anything is issued", async () => {
     const { base, tpl, issued } = setup();
     await expect(buildEnvFile(tpl("intake-dev"), { ...base, readTemplateFile: async () => null })).rejects.toThrow(/LEAD_INTAKE_TOKENS: Kein Wert fuer LEAD_INTAKE_TOKEN aus der Vorlage landing-dev/);
@@ -173,6 +183,7 @@ describe("template schema for ref and generate", () => {
     expect(bad("{ key: Y, from: { type: ref, template: b, key: Q } }", "  - id: b\n    repo: b\n    entries:\n      - { key: Z, from: { type: generate } }\n")).toThrow(/unbekannter Schluessel in b: Q/);
     expect(bad("{ key: Y, from: { type: ref, template: b, key: Z } }", "  - id: b\n    repo: b\n    entries:\n      - { key: Z, from: { type: ref, template: a, key: X } }\n")).toThrow(/ref auf einen ref-Eintrag/);
     expect(bad("{ key: Y, from: { type: generate, kind: vapid-public, prefix: x_ } }")).toThrow(/VAPID/);
+    expect(bad("{ key: Y, from: { type: ref, template: b, key: Z } }", "  - id: b\n    repo: b\n    stage: staging\n    entries:\n      - { key: Z, from: { type: generate } }\n")).toThrow(/ref nur innerhalb derselben Stage: b ist staging/);
     expect(bad("{ key: Y, from: { type: command, command: rm-rf, key: X } }")).toThrow();
   });
 });
@@ -183,6 +194,12 @@ describe("parseEnvText", () => {
     const text = values.map((v, i) => `K${i}=${formatEnvValue(v)}`).join("\n");
     const parsed = parseEnvText(`# comment\n\n${text}\n`);
     values.forEach((v, i) => expect(parsed.get(`K${i}`)).toBe(v));
+  });
+  it("keeps a carriage return inside quotes and skips an unterminated quote without losing later keys", () => {
+    expect(parseEnvText(formatEnvValue("a\rb").replace(/^/, "K=")).get("K")).toBe("a\rb");
+    const parsed = parseEnvText("A='never closed\nB=after\r\n");
+    expect(parsed.has("A")).toBe(false);
+    expect(parsed.get("B")).toBe("after");
   });
   it("accepts export prefixes, double quotes and inline comments", () => {
     const parsed = parseEnvText('export A="x y"\nB=plain # note\n# C=hidden\n');
@@ -214,9 +231,34 @@ describe.skipIf(process.platform === "win32")("runEnvCommand", () => {
     const out = await withPath(bin, () => runEnvCommand("supabase-status", tmpdir()));
     expect(out.get("ANON_KEY")).toBe(MADE_UP_ANON);
   });
+  it("the command sees no prompt values or other tokens from the environment", async () => {
+    const bin = await fakeSupabase(`[ -z "$SECRET_DESK_PROMPT_LEAK_TEST" ] || exit 4\necho 'API_URL=ok'`);
+    process.env.SECRET_DESK_PROMPT_LEAK_TEST = "made-up";
+    try {
+      expect((await withPath(bin, () => runEnvCommand("supabase-status", tmpdir()))).get("API_URL")).toBe("ok");
+    } finally {
+      delete process.env.SECRET_DESK_PROMPT_LEAK_TEST;
+    }
+  });
   it("a failing command names only the exit code, never its output", async () => {
     const bin = await fakeSupabase(`echo 'ANON_KEY=${MADE_UP_ANON}'\necho '${MADE_UP_ANON}' >&2\nexit 3`);
     const err = await withPath(bin, () => runEnvCommand("supabase-status", tmpdir())).catch((e: Error) => e);
-    expect((err as Error).message).toBe("Befehl supabase-status fehlgeschlagen (Exit-Code 3). Laeuft der lokale Stack? (supabase start)");
+    expect((err as Error).message).toBe("Befehl supabase-status fehlgeschlagen (Exit-Code 3). Laeuft der lokale Stack? Im Repository starten mit: supabase start");
+  });
+  it("prefers the repository's own binary and names the repository's start script", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "sd-repo-"));
+    await mkdir(join(repo, "node_modules", ".bin"), { recursive: true });
+    const local = join(repo, "node_modules", ".bin", "supabase");
+    await writeFile(local, `#!/bin/sh\necho 'API_URL=http://127.0.0.1:54321'\n`);
+    await chmod(local, 0o755);
+    const globalBin = await fakeSupabase("exit 5");
+    expect((await withPath(globalBin, () => runEnvCommand("supabase-status", repo))).get("API_URL")).toBe("http://127.0.0.1:54321");
+    await writeFile(local, "#!/bin/sh\nexit 1\n");
+    await writeFile(join(repo, "pnpm-lock.yaml"), "");
+    expect(supabaseStartCommand(repo)).toBe("pnpm exec supabase start");
+    await writeFile(join(repo, "package.json"), JSON.stringify({ scripts: { dev: "next dev", "db:start": "supabase start --ignore-health-check" } }));
+    expect(supabaseStartCommand(repo)).toBe("pnpm run db:start");
+    const err = await runEnvCommand("supabase-status", repo).catch((e: Error) => e);
+    expect((err as Error).message).toBe("Befehl supabase-status fehlgeschlagen (Exit-Code 1). Laeuft der lokale Stack? Im Repository starten mit: pnpm run db:start");
   });
 });

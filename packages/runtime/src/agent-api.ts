@@ -1,5 +1,5 @@
 import { hostForParams } from "@secret-desk/automation";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import { neededRights } from "./team-sync.js";
@@ -44,6 +44,7 @@ import {
   assertPublicValue,
   buildEnvFile,
   runEnvCommand,
+  realpathLoose,
   type EnvCommand,
   type EnvTemplate,
   revokeIssuedTokens,
@@ -770,6 +771,9 @@ export async function exportEnv(
   const templates = rt.inventory.data.envTemplates.filter((t) => (input.template ? t.id === input.template : t.repo === input.repo && t.stage === stage));
   const template = templates[0];
   if (!template) throw new EnvExportError(`Keine Vorlage fuer ${input.repo} (${stage}) gefunden.`);
+  if (actor.kind === "agent" && !agentStageIds(rt.config, rt.inventory.stages).includes(template.stage)) {
+    throw new PolicyError(`Agenten duerfen fuer ${template.stage} keine .env erzeugen.`);
+  }
   const configured = rt.config.policy.envRoots;
   if (actor.kind === "agent" && configured.length === 0) {
     throw new PolicyError("policy.envRoots ist leer: Agenten duerfen keine Dateien schreiben.");
@@ -793,14 +797,19 @@ export async function exportEnv(
       if (!otherFolder) return null;
       const file = join(otherFolder, other.file);
       if (!isPathInside(otherFolder, file)) return null;
-      return readFile(file, "utf8").catch(() => null);
+      // Follow symlinks, then require a regular file that still lies inside the linked folder, at most 1 MiB.
+      const real = await realpathLoose(file);
+      if (!isPathInside(await realpathLoose(otherFolder), real)) return null;
+      const info = await stat(real).catch(() => null);
+      if (!info || !info.isFile() || info.size > 1024 * 1024) return null;
+      return readFile(real, "utf8").catch(() => null);
     };
     const commandDir = folder ?? dirname(target);
     const built = await buildEnvFile(template, {
       ...envDeps,
       ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}),
       ...(input.prompts ? { prompts: input.prompts } : {}),
-      ...(input.runValues ? { runValues: input.runValues } : {}),
+      ...(actor.kind === "human" && input.runValues ? { runValues: input.runValues } : {}),
       readTemplateFile,
       ...(actor.kind === "human" && input.runCommands ? { runCommand: (command: EnvCommand) => runEnvCommand(command, commandDir) } : {}),
     });

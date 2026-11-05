@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { parseEnvText } from "@secret-desk/core";
@@ -47,6 +47,8 @@ async function setup() {
   await gitRepo(landing, ".env.local\n");
   await mkdir(join(intake, "supabase"), { recursive: true });
   await writeFile(join(intake, "supabase", "config.toml"), "");
+  await writeFile(join(intake, "package.json"), JSON.stringify({ scripts: { "db:start": "supabase start" } }));
+  await writeFile(join(intake, "pnpm-lock.yaml"), "");
   await writeFile(join(dir, "links.json"), JSON.stringify({ version: 1, links: { intake, landing } }));
   const config = join(dir, "secret-desk.config.yaml");
   await writeFile(
@@ -113,6 +115,16 @@ describe.skipIf(process.platform === "win32")("secret-desk env export (template 
     expect(intakeText).toContain("# SUPABASE_ANON_KEY= (filled by the CLI from supabase-status)");
   });
 
+  it("a ref does not follow a symlink out of the linked folder", async () => {
+    const t = await setup();
+    const outside = await mkdtemp(join(tmpdir(), "sd-outside-"));
+    await writeFile(join(outside, "secrets.env"), "LEAD_INTAKE_TOKEN=outside-value\n");
+    await mkdir(join(t.landing, "apps", "web"), { recursive: true });
+    await symlink(join(outside, "secrets.env"), join(t.landing, "apps", "web", ".env.local"));
+    expect(await main(["env", "export", "--from-template", "--no-commands", "--config", t.config, "--repo", "intake"], t.io)).toBe(2);
+    expect(t.err.join("\n")).toContain("No value for LEAD_INTAKE_TOKEN");
+  });
+
   it("errors are English and name what to do, without values", async () => {
     const t = await setup();
     expect(await main(["env", "export", "--from-template", "--no-commands", "--config", t.config, "--repo", "intake"], t.io)).toBe(2);
@@ -124,7 +136,7 @@ describe.skipIf(process.platform === "win32")("secret-desk env export (template 
     await writeFile(join(t.bin, "supabase"), `#!/bin/sh\necho '${MADE_UP_ANON}' >&2\nexit 1\n`);
     process.env.PATH = `${t.bin}${delimiter}${oldPath ?? ""}`;
     expect(await main(["env", "export", "--from-template", "--config", t.config, "--repo", "landing", "--repo", "intake"], t.io)).toBe(2);
-    expect(t.err.at(-1)).toBe("Error: Command supabase-status failed (exit code 1). Is the local stack running? (supabase start)");
+    expect(t.err.at(-1)).toBe("Error: Command supabase-status failed (exit code 1). Is the local stack running? Start it in the repository with: pnpm run db:start");
     expect([...t.out, ...t.err].join("\n")).not.toContain(MADE_UP_ANON);
   });
 
@@ -155,10 +167,26 @@ describe.skipIf(process.platform === "win32")("exportEnv: target and commands", 
     const agentDir = join(t.dir, "agent");
     await mkdir(join(agentDir, "supabase"), { recursive: true });
     await writeFile(join(agentDir, "supabase", "config.toml"), "");
-    const a = await exportEnv(rt, { kind: "agent", name: "mcp" }, { repo: "intake", path: join(agentDir, ".env.local"), runCommands: true, runValues: new Map([["landing-dev:LEAD_INTAKE_TOKEN", "abc"]]) });
+    // runValues from an agent are ignored; the ref comes from the file the linked landing checkout holds.
+    await writeFile(join(t.dir, "links.json"), JSON.stringify({ version: 1, links: { landing: t.landing } }));
+    await mkdir(join(t.landing, "apps", "web"), { recursive: true });
+    await writeFile(join(t.landing, "apps", "web", ".env.local"), "LEAD_INTAKE_TOKEN=abc\n");
+    const a = await exportEnv(rt, { kind: "agent", name: "mcp" }, { repo: "intake", path: join(agentDir, ".env.local"), runCommands: true, runValues: new Map([["landing-dev:LEAD_INTAKE_TOKEN", "injected"]]) });
     if (a.status !== "written") throw new Error("expected written");
     expect(a.skipped).toEqual(["SUPABASE_ANON_KEY", "MAPS_KEY"]);
-    expect(await readFile(a.path, "utf8")).not.toContain(MADE_UP_ANON);
+    const agentText = await readFile(a.path, "utf8");
+    expect(agentText).not.toContain(MADE_UP_ANON);
+    expect(agentText).toContain("LEAD_INTAKE_TOKENS=abc\n");
+  });
+});
+
+describe.skipIf(process.platform === "win32")("exportEnv: agent policy", () => {
+  it("an agent cannot export a template of a stage outside agentStages by naming its id", async () => {
+    const t = await setup();
+    const text = await readFile(join(t.dir, "inventory.yaml"), "utf8");
+    await writeFile(join(t.dir, "inventory.yaml"), `${text}  - id: staging-tpl\n    repo: landing\n    stage: staging\n    entries:\n      - { key: A, from: { type: generate } }\n`);
+    const rt = await createRuntime(t.config, { vault: null });
+    await expect(exportEnv(rt, { kind: "agent", name: "mcp" }, { repo: "landing", template: "staging-tpl", path: join(t.dir, ".env.x") })).rejects.toThrow(/Agenten duerfen fuer staging keine \.env erzeugen/);
   });
 });
 

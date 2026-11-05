@@ -248,6 +248,7 @@ export const InventorySchema = InventoryObject.superRefine((inv, ctx) => {
         const refKey = e.from.key;
         if (!target) ctx.addIssue({ code: "custom", message: `unbekannte Vorlage: ${e.from.template}`, path: ["envTemplates", i, "entries", j] });
         else if (target.id === t.id) ctx.addIssue({ code: "custom", message: "ref zeigt auf die eigene Vorlage", path: ["envTemplates", i, "entries", j] });
+        else if (target.stage !== t.stage) ctx.addIssue({ code: "custom", message: `ref nur innerhalb derselben Stage: ${target.id} ist ${target.stage}`, path: ["envTemplates", i, "entries", j] });
         else {
           const hit = target.entries.find((x) => x.key === refKey);
           if (!hit) ctx.addIssue({ code: "custom", message: `unbekannter Schluessel in ${target.id}: ${refKey}`, path: ["envTemplates", i, "entries", j] });

@@ -1,8 +1,9 @@
 import { assertEntryParams, effectiveParams, integrationDefaultsOf } from "./params.js";
 import { execFile } from "node:child_process";
 import { createECDH, randomBytes, randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
@@ -134,7 +135,7 @@ export function generateEntryValue(from: GenerateSource, pairs: Map<string, { pu
  */
 export function parseEnvText(text: string): Map<string, string> {
   const out = new Map<string, string>();
-  const src = text.replace(/\r\n?/g, "\n");
+  const src = text;
   let i = 0;
   const n = src.length;
   while (i < n) {
@@ -160,6 +161,11 @@ export function parseEnvText(text: string): Map<string, string> {
         value += src[pos];
         pos++;
       }
+      if (pos >= n) {
+        // Unterminated quote: skip this key, go on with the next line instead of swallowing the rest of the file.
+        i = end === -1 ? n : end + 1;
+        continue;
+      }
       pos++; // closing quote
       const rest = src.indexOf("\n", pos);
       i = rest === -1 ? n : rest + 1;
@@ -174,22 +180,64 @@ export function parseEnvText(text: string): Map<string, string> {
   return out;
 }
 
-const COMMANDS: Record<EnvCommand, { file: string; args: string[]; hint: string }> = {
-  "supabase-status": { file: "supabase", args: ["status", "-o", "env"], hint: "Laeuft der lokale Stack? (supabase start)" },
+const COMMANDS: Record<EnvCommand, { program: string; args: string[] }> = {
+  "supabase-status": { program: "supabase", args: ["status", "-o", "env"] },
 };
 
+/** Environment names a local command may see: system basics and Docker, never prompt values or provider tokens. */
+const COMMAND_ENV_NAMES = /^(PATH|PATHEXT|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LC_[A-Z]+|TERM|DOCKER_[A-Z_]+|XDG_[A-Z_]+|SystemRoot|ComSpec|APPDATA|LOCALAPPDATA|USERPROFILE)$/;
+
+function commandEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) if (value !== undefined && COMMAND_ENV_NAMES.test(name)) out[name] = value;
+  return out;
+}
+
+/** Package manager of a repository folder, from its lock file. */
+function packageManagerOf(cwd: string): "pnpm" | "yarn" | "npm" {
+  if (existsSync(join(cwd, "pnpm-lock.yaml"))) return "pnpm";
+  if (existsSync(join(cwd, "yarn.lock"))) return "yarn";
+  return "npm";
+}
+
+/** The repository's own binary (node_modules/.bin/<program>) when it has one, else the program from PATH. */
+function programFor(program: string, cwd: string): string {
+  const local = join(cwd, "node_modules", ".bin", program);
+  return existsSync(local) ? local : program;
+}
+
 /**
- * Runs an allowlisted command (fixed program and arguments, no shell) in `cwd` and parses its KEY=VALUE output.
- * Errors name the command and the exit code only, never the output.
+ * How to start the local stack in this repository: its own package.json script that runs `supabase start`, else the
+ * repository's Supabase CLI through the package manager, else the global CLI. Only names from package.json, never values.
+ */
+export function supabaseStartCommand(cwd: string): string {
+  const pm = packageManagerOf(cwd);
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as { scripts?: Record<string, unknown> };
+    for (const [name, script] of Object.entries(pkg.scripts ?? {})) {
+      if (typeof script === "string" && /\bsupabase\s+start\b/.test(script) && /^[A-Za-z0-9:._-]{1,60}$/.test(name)) return `${pm} run ${name}`;
+    }
+  } catch {
+    // no or unreadable package.json: fall through
+  }
+  if (existsSync(join(cwd, "node_modules", ".bin", "supabase"))) return `${pm} exec supabase start`;
+  return "supabase start";
+}
+
+/**
+ * Runs an allowlisted command (fixed program and arguments, no shell) in `cwd` and parses its KEY=VALUE output. The
+ * repository's own binary in node_modules/.bin wins over PATH. Errors name the command, the exit code and how to start the
+ * stack, never the output.
  */
 export function runEnvCommand(command: EnvCommand, cwd: string, options: { timeoutMs?: number } = {}): Promise<Map<string, string>> {
   const spec = COMMANDS[command];
+  const program = programFor(spec.program, cwd);
   return new Promise((res, rej) => {
-    execFile(spec.file, spec.args, { cwd, timeout: options.timeoutMs ?? 30_000, maxBuffer: 1024 * 1024, windowsHide: true, encoding: "utf8" }, (err, stdout) => {
+    execFile(program, spec.args, { cwd, env: commandEnv(), timeout: options.timeoutMs ?? 30_000, maxBuffer: 1024 * 1024, windowsHide: true, encoding: "utf8" }, (err, stdout) => {
       if (err) {
         const code = (err as { code?: number | string }).code;
-        if (code === "ENOENT") return rej(new EnvExportError(`Befehl ${command}: Programm "${spec.file}" nicht gefunden.`));
-        return rej(new EnvExportError(`Befehl ${command} fehlgeschlagen (Exit-Code ${typeof code === "number" ? code : "unbekannt"}). ${spec.hint}`));
+        if (code === "ENOENT") return rej(new EnvExportError(`Befehl ${command}: Programm "${spec.program}" nicht gefunden (weder im Repository unter node_modules/.bin noch im PATH).`));
+        return rej(new EnvExportError(`Befehl ${command} fehlgeschlagen (Exit-Code ${typeof code === "number" ? code : "unbekannt"}). Laeuft der lokale Stack? Im Repository starten mit: ${supabaseStartCommand(cwd)}`));
       }
       res(parseEnvText(stdout));
     });
@@ -260,7 +308,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     } else if (from.type === "ref") {
       const key = `${from.template}:${from.key}`;
       let value = deps.runValues?.get(key);
-      if (value === undefined) {
+      // A template already exported in this run is authoritative: its old file must not fill a key it left empty.
+      if (value === undefined && !deps.runValues?.has(`${from.template}:`)) {
         const target = deps.inventory.data.envTemplates.find((t) => t.id === from.template);
         if (!target) throw new EnvExportError(`${entry.key}: unbekannte Vorlage ${from.template}`);
         if (!templateFiles.has(target.id)) {
@@ -341,6 +390,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     if (err instanceof Error && failed.length > 0) err.message += ` Nicht widerrufen (beim Anbieter von Hand entfernen): ${failed.join(", ")}.`;
     throw err;
   }
+  deps.runValues?.set(`${template.id}:`, "");
   return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens };
 }
 
