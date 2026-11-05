@@ -45,6 +45,10 @@ describe("recipeVars", () => {
       secretId: "demo",
     });
   });
+  it("takes the repositories from params.repos over the places", () => {
+    expect(recipeVars({ ...secret, params: { ...secret.params, repos: ["org/gamma", "delta", "gamma"] } }, "dev", now).repos).toBe("gamma,delta");
+    expect(recipeVars({ ...secret, params: { ...secret.params, repos: " gamma , delta " } }, "dev", now).repos).toBe("gamma,delta");
+  });
 });
 
 describe("createBrowserProvider", () => {
