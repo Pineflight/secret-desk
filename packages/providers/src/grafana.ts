@@ -428,6 +428,23 @@ export const grafanaAccessPolicyProvider: Provider = {
     return step(ctx, "works", "Token funktioniert", async () => {
       const region = policyRegion(ctx.params);
       const out: Check[] = [];
+      // A token whose policy may not read access policies (for example metrics:read only) cannot probe the policy list: Grafana
+      // answers 401 for it, which would look like a rejected token. Then the token is checked through the connection instead:
+      // it must exist at Grafana Cloud under its id. The policy list and the token come from the connection, never the new value.
+      const policyId = String(ctx.params["accessPolicyId"] ?? "");
+      const policies = await listAccessPolicies(ctx, ctx.params).catch(() => null);
+      const hit = policies?.find((p) => String(p.value) === policyId);
+      const scopes = hit?.detail ?? "";
+      const canReadPolicies = hit ? scopes.split(", ").includes("accesspolicies:read") : true;
+      if (!canReadPolicies) {
+        const id = ctx.externalId;
+        const found = id ? await getJson<{ id?: string }>(POLICY_ID, ctx, POLICY_CONNECTION, `${GRAFANA_COM}/tokens/${seg(id)}?region=${seg(region)}`).catch(() => undefined) : undefined;
+        if (found && found.id === id) out.push(check("works", "Token funktioniert", "pass", { actual: "Token bei Grafana Cloud vorhanden", detail: `Geltungsbereich ${scopes}: der Token selbst kann keine Richtlinien lesen, geprueft ueber die Verbindung` }));
+        else out.push(check("works", "Token funktioniert", "info", { actual: "nicht pruefbar", detail: `Geltungsbereich ${scopes}: der Token selbst kann keine Richtlinien lesen, und die Verbindung fand ihn nicht` }));
+        const expected = ctx.expiresAt ?? undefined;
+        out.push(check("expires", "Ablauf des Tokens", "info", { actual: expected ? day(expected) : "kein Ablauf" }));
+        return out;
+      }
       const r = await probeWithValue(POLICY_ID, ctx, policiesUrl(region));
       if (r.status >= 200 && r.status < 300) out.push(check("works", "Token funktioniert", "pass", { actual: `HTTP ${r.status}` }));
       else if (r.status === 401) out.push(check("works", "Token funktioniert", "fail", { actual: "HTTP 401", detail: "Grafana Cloud lehnt den Token ab" }));

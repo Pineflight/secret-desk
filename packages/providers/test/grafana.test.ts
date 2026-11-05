@@ -177,6 +177,15 @@ describe("grafana-access-policy-token", () => {
     expect(byId(await run(500))["works"]).toBe("info");
     expectNoLeak(await run(401));
   });
+  it("verify: a token whose policy cannot read policies is checked through the connection, not failed on 401", async () => {
+    const list = { body: { items: [{ id: "pol-1", displayName: "status reader", scopes: ["metrics:read"] }] } };
+    const found = routeFetch({ url: "/accesspolicies", reply: list }, { url: "/tokens/t", reply: { body: { id: "t" } } });
+    const ok = await policy.verify!(verifyCtx(found.fetch, pp, { externalId: "t", expiresAt: "2027-01-30T10:00:00Z", conns: ["grafana-cloud"] }));
+    expect(byId(ok)["works"]).toBe("pass");
+    expect(found.calls.some((c) => c.url.includes("/accesspolicies") && c.headers?.["Authorization"] === `Bearer ${ISSUED}`)).toBe(false);
+    const missing = routeFetch({ url: "/accesspolicies", reply: list }, { url: "/tokens/t", reply: { status: 404, body: "gone" } });
+    expect(byId(await policy.verify!(verifyCtx(missing.fetch, pp, { externalId: "t", conns: ["grafana-cloud"] })))["works"]).toBe("info");
+  });
   it("preflight finds the policy, fails for an unknown one and warns on an empty list", async () => {
     const pctx = (fetch: typeof globalThis.fetch, params: Record<string, unknown>) => ({ params, stage: "dev" as const, connections: connections("grafana-cloud"), fetch, secret: secretEntry() });
     const list = { body: { items: [{ id: "pol-1", displayName: "CI shipper" }] } };
