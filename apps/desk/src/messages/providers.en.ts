@@ -16,7 +16,7 @@ export default {
   "vendor.revenuecat.purpose": "Subscription projects, apps and SDK keys",
   "vendor.resend.purpose": "E-mail sending and its API keys",
   "vendor.telegram.purpose": "Bot tokens for notifications",
-  "vendor.grafana.purpose": "Service-account tokens for dashboards and alerts",
+  "vendor.grafana.purpose": "Stack and account tokens for dashboards, alerts and access policies",
   "vendor.openai.purpose": "API keys for AI models",
   "vendor.anthropic.purpose": "API keys for Claude models (created in the browser, checked through the API)",
   "vendor.vesselapi.purpose": "Vessel and port data API keys",
@@ -146,4 +146,8 @@ export default {
   "providers.meta.secretsUntil.other": "{count} secrets · valid until {date}",
   "providers.setUp": "Set up",
   "providers.setUpLabel": "Set up {name}",
+  "connectionPurpose.grafana": "Stack token: issues service-account tokens in the stack, which dashboards and alerts depend on.",
+  "connectionPurpose.grafanaCloud": "Account token: creates access policies and Cloud tokens, for example the status page read token.",
+  "connectionPurpose.cloudflare": "Creates, checks and revokes Cloudflare tokens for Workers, DNS and access.",
+  "connectionPurpose.cloudflareTurnstile": "Separate token, only to renew the secret of Turnstile widgets.",
 } satisfies Record<string, string>;

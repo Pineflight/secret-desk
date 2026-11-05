@@ -6,7 +6,7 @@ import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun";
 import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, signInButtonState, type FacadeInfo, type FacadeState, type SudoMethodId } from "@/lib/facade";
+import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, otherWays, signInButtonState, type OtherWay, type FacadeInfo, type FacadeState, type SudoMethodId } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -25,6 +25,31 @@ function FallbackBox({ children }: { children: ReactNode }) {
       <summary className="cursor-pointer text-sm font-medium">{t("facade.fallbackTitle")}</summary>
       <p className="mt-2 text-xs text-muted">{t("facade.fallbackHint")}</p>
       <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * The ways besides the recommended one, folded under one "Other ways" disclosure. Each way is its own disclosure whose summary
+ * says in one line when to use it, so the dialog shows a single primary action.
+ */
+function OtherWays({ ways, name, email, fallback }: { ways: OtherWay[]; name: string; email: ReactNode; fallback: ReactNode | undefined }) {
+  const { t } = useI18n();
+  if (ways.length === 0) return null;
+  return (
+    <details className="rounded-xl border border-line p-3">
+      <summary className="cursor-pointer text-sm font-medium">{t("facade.otherWays")}</summary>
+      <div className="mt-3 space-y-2">
+        {ways.map((w) => (
+          <details key={w} className="rounded-lg border border-line p-3">
+            <summary className="cursor-pointer">
+              <span className="text-sm font-medium">{t(w === "email" ? "facade.otherWay.email" : "facade.otherWay.key")}</span>
+              <span className="mt-0.5 block text-xs text-muted">{t(w === "email" ? "facade.otherWay.emailWhen" : "facade.otherWay.keyWhen", { name })}</span>
+            </summary>
+            <div className="mt-3">{w === "email" ? email : fallback}</div>
+          </details>
+        ))}
+      </div>
     </details>
   );
 }
@@ -311,10 +336,6 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
           >
             {connect.pending ? t("facade.starting") : t("facade.connectSignedIn")}
           </Button>
-          <details className="rounded-xl border border-line p-3">
-            <summary className="cursor-pointer text-sm font-medium">{t("facade.otherWay")}</summary>
-            <div className="mt-3">{signInForm}</div>
-          </details>
         </div>
       ) : null}
       {view === "sign-in" ? (
@@ -330,7 +351,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
           {signInForm}
         </div>
       ) : null}
-      {fallback ? <FallbackBox>{fallback}</FallbackBox> : null}
+      <OtherWays ways={otherWays(view, fallback !== undefined)} name={facade.label} email={signInForm} fallback={fallback} />
     </div>
   );
 }

@@ -116,7 +116,6 @@ export default {
   "facade.checkAgain": "Check again",
   "facade.connectSignedIn": "Connect with the signed-in browser",
   "facade.signedInHint": "The browser is already signed in at {name}. No password is needed.",
-  "facade.otherWay": "Sign in with email and password instead",
   "facade.signedOutHint": "The browser is not signed in at {name}. Sign in here; you never need to leave the portal.",
   "facade.chooseMethod": "How do you sign in at {name}?",
   "facade.method.email": "Email and password",
@@ -154,4 +153,9 @@ export default {
   "recipeSignIn.start": "Sign in",
   "recipeSignIn.doneTitle": "Signed in at {name}.",
   "recipeSignIn.doneHint": "secret-desk remembers the sign-in and shows it on the provider card. No key was created.",
+  "facade.otherWays": "Other ways",
+  "facade.otherWay.email": "Sign in with email and password",
+  "facade.otherWay.emailWhen": "Only needed when the browser is signed in to {name} with a different account or connecting with the signed-in browser fails.",
+  "facade.otherWay.key": "I already have a key",
+  "facade.otherWay.keyWhen": "When you already created the key at {name} yourself and only want to paste it.",
 } as Record<string, string>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserSignInOf, chosenMethod, needsPassword, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
+import { browserSignInOf, chosenMethod, needsPassword, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, otherWays, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
 import { messages } from "../src/messages";
 
 const base: FacadeState = { secretId: "facade:revenuecat", providerId: "revenuecat", status: "running", text: "", startedAt: "2026-11-02T10:00:00.000Z", updatedAt: "2026-11-02T10:00:00.000Z" };
@@ -189,7 +189,7 @@ describe("connect dialog state", () => {
       for (const m of ["email", "google", "apple", "microsoft", "github"]) {
         for (const k of ["method", "methodEmail", "methodPassword"]) expect(messages[lang][`facade.${k}.${m}`], `${lang} ${k} ${m}`).toBeTruthy();
       }
-      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "promise.anthropic", "passwordless", "checkingBrowser", "connectSignedIn", "otherWay", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
+      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "promise.anthropic", "passwordless", "checkingBrowser", "connectSignedIn", "otherWays", "otherWay.email", "otherWay.emailWhen", "otherWay.key", "otherWay.keyWhen", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
         expect(messages[lang][`facade.${k}`], `${lang} ${k}`).toBeTruthy();
       }
     }
@@ -207,5 +207,20 @@ describe("connect dialog state", () => {
         expect(v, `${lang} ${k}`).not.toMatch(/browser window|Browserfenster/i);
       }
     }
+  });
+});
+
+describe("otherWays: what the guided sign-in folds under Other ways", () => {
+  it("with a signed-in browser only connecting stays primary: typing the sign-in and pasting a key are both folded", () => {
+    expect(otherWays("connect", true)).toEqual(["email", "key"]);
+    expect(otherWays("connect", false)).toEqual(["email"]);
+  });
+  it("without a signed-in browser the sign-in form is the main path and only pasting is folded", () => {
+    expect(otherWays("sign-in", true)).toEqual(["key"]);
+    expect(otherWays("sign-in", false)).toEqual([]);
+  });
+  it("offers nothing while checking or during a run", () => {
+    expect(otherWays("checking", true)).toEqual([]);
+    expect(otherWays("run", true)).toEqual([]);
   });
 });

@@ -549,3 +549,44 @@ export function lineExpiry(line: Pick<AccountLine, "expires" | "daysLeft">, t: T
   if (line.expires === null) return t("connections.neverExpires");
   return t("connections.validUntil", { date: formatDate(line.expires), days: daysLabel(line.daysLeft) });
 }
+
+/**
+ * Catalog keys of the one-line purpose of a connection, for vendors whose card holds more than one connection. The line says
+ * what the connection is for and what depends on it, so two rows with almost the same name can be told apart.
+ */
+export const CONNECTION_PURPOSES: Readonly<Record<string, string>> = {
+  grafana: "connectionPurpose.grafana",
+  "grafana-cloud": "connectionPurpose.grafanaCloud",
+  cloudflare: "connectionPurpose.cloudflare",
+  "cloudflare-turnstile": "connectionPurpose.cloudflareTurnstile",
+};
+
+/** Catalog key of a connection's purpose line, or null when the connection has none (its vendor's purpose says enough). */
+export const connectionPurposeKey = (id: string): string | null => CONNECTION_PURPOSES[id] ?? null;
+
+/** The card holds more than one current connection (legacy ones do not count), so a dialog must name the one it is about. */
+export const hasSeveralConnections = (card: Pick<ProviderCard, "keys">): boolean => card.keys.filter((k) => k.role !== "legacy").length > 1;
+
+/** What the integration dialog shows in its header. `purposeKey` null: the vendor's own purpose line. */
+export interface DialogHeading {
+  title: string;
+  purposeKey: string | null;
+}
+
+/** The part of the integration dialog that is open: a pasted key, the guided sign-in, or the vendor overview (null). */
+export type DialogSubject = null | { kind: "key"; id: string } | { kind: "signin" } | { kind: "hand"; id: string };
+
+/**
+ * Header of the integration dialog. For a vendor with several connections (Grafana: stack token and account token) a view about
+ * one connection (pasting its key, or the guided sign-in that creates it) is titled with that connection and its purpose, not the
+ * vendor's: otherwise the account sign-in looks like the stack flow. A sign-in that picks its connection itself (Stripe: per
+ * account and mode) keeps the vendor header, as do the overview and vendors with a single connection.
+ */
+export function dialogHeading(card: Pick<ProviderCard, "label" | "keys" | "signIn" | "prefixes">, sub: DialogSubject): DialogHeading {
+  const vendor: DialogHeading = { title: card.label, purposeKey: null };
+  if (!sub || sub.kind === "hand" || !hasSeveralConnections(card)) return vendor;
+  const facade = card.signIn.facade;
+  const id = sub.kind === "key" ? sub.id : facade && card.prefixes.length === 0 ? facade.connectionId : null;
+  const row = id ? card.keys.find((k) => k.id === id) : undefined;
+  return row ? { title: row.label, purposeKey: connectionPurposeKey(row.id) } : vendor;
+}

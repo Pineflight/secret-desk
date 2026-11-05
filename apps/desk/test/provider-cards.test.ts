@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { browserNote, buildCards, cardMatches, connectedKeyCount, detailKeys, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
+import { messages } from "../src/messages";
+import { CONNECTION_PURPOSES, browserNote, buildCards, cardMatches, connectedKeyCount, connectionPurposeKey, detailKeys, dialogHeading, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
 
 const v = (id: string, label: string, category: string, rest: Partial<VendorInfo> = {}): VendorInfo => ({ id, label, category, icon: null, connections: [], connectionPrefixes: [], legacyConnections: [], optionalConnections: [], providers: [], recipes: [], signInPlanned: false, ...rest });
 const catalog: VendorsResponse = {
@@ -321,5 +322,45 @@ describe("detailKeys: the keys section of the integration dialog", () => {
     expect(detailKeys(card("stripe")).map((k) => [k.id, k.action])).toEqual([["stripe:acct_1AbC:live", "none"], ["stripe:acct_1AbC:sandbox", "none"], ["stripe-test", "none"]]);
     const one = buildCards({ catalog: { ...catalog, vendors: [v("aico", "AI Co", "code", { connections: ["aico"] })] }, connections: [conn("aico", "aico", "primary", false)], providers: [], recipes: [], facades: [{ id: "aico", label: "AI Co", available: true, connected: false, reason: null, connectionId: "aico" }] })[0]!;
     expect(detailKeys(one)).toEqual([]);
+  });
+});
+
+describe("dialogHeading: the integration dialog names the connection it is about", () => {
+  const cat = { ...catalog, vendors: catalog.vendors.concat([v("grafana", "Grafana Cloud", "payments", { connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token"], recipes: ["grafana-cloud-access-policy"] })]) };
+  const gFacade: FacadeRow = { id: "grafana", label: "Grafana Cloud", available: true, connected: false, reason: null, connectionId: "grafana-cloud" };
+  const labelled = (id: string, label: string, role: ConnectionRow["role"]): ConnectionRow => ({ ...conn(id, "grafana", role, false), label });
+  const grafana = (connections: ConnectionRow[]) => buildCards({ catalog: cat, connections, providers: [], recipes: [{ id: "grafana-cloud-access-policy", label: "Grafana Cloud access policy token" }], facades: [gFacade] }).find((c) => c.id === "grafana")!;
+  const both = grafana([labelled("grafana", "Grafana Cloud", "primary"), labelled("grafana-cloud", "Grafana Cloud (Konto)", "optional")]);
+
+  it("titles the Grafana account sign-in with the account connection and its purpose, not the vendor's stack purpose", () => {
+    expect(dialogHeading(both, { kind: "signin" })).toEqual({ title: "Grafana Cloud (Konto)", purposeKey: "connectionPurpose.grafanaCloud" });
+  });
+  it("titles a pasted key with its own connection", () => {
+    expect(dialogHeading(both, { kind: "key", id: "grafana" })).toEqual({ title: "Grafana Cloud", purposeKey: "connectionPurpose.grafana" });
+  });
+  it("keeps the vendor header on the overview and on a by-hand provider", () => {
+    expect(dialogHeading(both, null)).toEqual({ title: "Grafana Cloud", purposeKey: null });
+    expect(dialogHeading(both, { kind: "hand", id: "grafana-service-account-token" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+  });
+  it("keeps the vendor header for a vendor with a single connection", () => {
+    const one = grafana([labelled("grafana-cloud", "Grafana Cloud (Konto)", "optional")]);
+    expect(dialogHeading(one, { kind: "signin" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+    expect(dialogHeading(one, { kind: "key", id: "grafana-cloud" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+  });
+  it("keeps the vendor header for a sign-in that picks its connection itself (Stripe per account and mode)", () => {
+    const stripe = card("stripe");
+    expect(dialogHeading(stripe, { kind: "signin" })).toEqual({ title: "Stripe", purposeKey: null });
+    expect(dialogHeading(stripe, { kind: "key", id: "stripe:acct_1AbC:live" })).toEqual({ title: "stripe:acct_1AbC:live", purposeKey: null });
+  });
+  it("falls back to the vendor header when the connection is unknown to the card", () => {
+    expect(dialogHeading(both, { kind: "key", id: "elsewhere" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+  });
+  it("has a purpose line in both languages for every listed connection, and none for others", () => {
+    for (const key of Object.values(CONNECTION_PURPOSES)) {
+      expect(messages.de[key]).toBeTruthy();
+      expect(messages.en[key]).toBeTruthy();
+    }
+    expect(connectionPurposeKey("grafana-cloud")).toBe("connectionPurpose.grafanaCloud");
+    expect(connectionPurposeKey("stripe:acct_1AbC:live")).toBeNull();
   });
 });
