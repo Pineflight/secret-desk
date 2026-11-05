@@ -57,7 +57,7 @@ revoke:
 
 Steps: `goto`, `fill` (label/role/placeholder/testid, `value`), `select`, `check`, `click`, `press`, `waitFor` (url/visible/text),
 `pause: human` (the human has to do something; the text is shown in the portal), `screenshot: <name>`. Variables in `{{ }}`: `name`, `owner`,
-`days`, `date`, `description`, `repos`, `permissions`, `stage`, `secretId`. Unknown variables are an error.
+`days`, `date`, `description`, `repos`, `permissions`, `stage`, `secretId`. Unknown variables are an error. `repos` comes from the entry's GitHub places, or from `params.repos` (a list or comma-separated text) when the token must reach other repositories than the ones it is stored in.
 
 ## Components
 

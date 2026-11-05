@@ -50,7 +50,15 @@ export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: 
   const days = Math.min(366, Math.max(1, secret.ttlDays ?? 30));
   const perms = secret.params["permissions"];
   const permEntries = typeof perms === "object" && perms !== null && !Array.isArray(perms) ? Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string") : [];
-  const repos = [...new Set(githubPlacesOf(secret.places).map((p) => p.repo.split("/").pop() ?? p.repo))];
+  // params.repos (list or comma-separated text) names the repositories the token may access when they differ from where the
+  // value is stored, e.g. a token kept in one repository that reads two others. Otherwise the GitHub places decide.
+  const repoParam = secret.params["repos"];
+  const repoList = Array.isArray(repoParam)
+    ? repoParam.filter((r): r is string => typeof r === "string")
+    : typeof repoParam === "string"
+      ? repoParam.split(",")
+      : githubPlacesOf(secret.places).map((p) => p.repo);
+  const repos = [...new Set(repoList.map((r) => r.trim()).filter((r) => r !== "").map((r) => r.split("/").pop() ?? r))];
   return {
     name: tokenName(secret.id, now),
     // GitHub-Konto bzw. Organisation: params.owner, sonst der Verantwortliche des Eintrags.
