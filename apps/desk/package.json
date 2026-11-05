@@ -29,7 +29,8 @@
     "@types/react-dom": "^19.2.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "yaml": "^2.9.1"
   },
   "optionalDependencies": {
     "playwright-core": "^1.55.0"

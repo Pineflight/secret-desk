@@ -1,5 +1,6 @@
 import { getDesk } from "@/server/desk";
 import { checkFetchSite, checkHost } from "@/server/security";
+import { OPENAPI_PATH, openApiResponse } from "@/server/openapi";
 import { defaultUser, route } from "@/server/router";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,10 @@ async function handler(req: Request): Promise<Response> {
     if (!checkHost(req, desk.hosts)) return Response.json({ error: "Host nicht erlaubt" }, { status: 403 });
     if (!desk.session.mayIssue(req)) return Response.json({ error: "Startadresse erforderlich: bitte die Adresse mit ?launch=... aus dem Terminal oeffnen, in dem secret-desk gestartet wurde. Im Container: docker compose logs secret-desk", code: "launch-required" }, { status: 401, headers: { "cache-control": "no-store" } });
     return Response.json({ csrf: desk.session.csrf, user: defaultUser(), demo: desk.demo, owner: desk.rt.owner }, { headers: { "set-cookie": desk.session.cookieHeader(), "cache-control": "no-store" } });
+  }
+  if (url.pathname === OPENAPI_PATH && (req.method === "GET" || req.method === "HEAD")) {
+    if (!checkHost(req, desk.hosts)) return Response.json({ error: "Host nicht erlaubt" }, { status: 403 });
+    return openApiResponse();
   }
   return route(req, desk);
 }

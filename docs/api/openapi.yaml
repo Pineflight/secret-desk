@@ -1,0 +1,902 @@
+openapi: 3.1.0
+info:
+  title: secret-desk integration API
+  version: 1.0.0-draft
+  summary: Metadata-only HTTP interface for third-party systems (issue trackers, wikis, CI) to connect to a secret-desk portal.
+  description: |
+    The stable contract for systems that connect to a secret-desk portal: issue trackers that open a ticket when a
+    secret expires, wikis that publish the inventory overview, CI systems that check their pipeline variables.
+    Human-readable guide with examples: docs/INTEGRATION-API.md.
+
+    **Status.** Every operation carries `x-secret-desk-status`:
+    - `implemented`: available today under `/api/agent` with the agent token (see `servers`). The request and
+      response shapes are the ones `/api/v1` will serve.
+    - `planned`: designed, not built yet. Do not rely on it.
+
+    **Never values.** No response, error or event ever contains a secret value, an integration token, a webhook
+    signing secret or the agent token. Secrets are described by metadata (name, stage, places, expiry, status) and
+    at most a `fingerprint` (first 12 hex characters of a SHA-256 of the value).
+
+    **Least privilege.** Integrations can read metadata and ask for a renewal. They can never confirm a review,
+    enter a value, approve a request, change connections or write to GitHub: those stay human-only in the portal.
+    `POST renewal-requests` outside `policy.agentStages` (and always for stages of kind `live`) only creates an
+    approval that a human grants.
+
+    **Versioning.** The major version is in the path (`/api/v1`). Within a major version changes are additive
+    only: new operations, new optional request fields, new response fields, new event types and new enum values.
+    Clients must ignore unknown fields and unknown event types. Removing or renaming anything needs `/api/v2`;
+    the previous major version stays served for at least 6 months after the next one ships. The agent API
+    (`/api/agent`, docs/openapi-agent.yaml) is the internal surface of the MCP server and may change faster.
+
+    **Language.** Messages (`error`, `message`) are German by default; send `X-Secret-Desk-Lang: en` for English.
+    Clients should branch on `code` and HTTP status, never on message text.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:4747/api/v1
+    description: Target base path (planned). Authenticated with an integration token.
+    x-secret-desk-status: planned
+  - url: http://127.0.0.1:4747/api/agent
+    description: |
+      Available today for every `implemented` operation, authenticated with the agent token. The port comes from
+      `server.port`; the Host header must be an allowed host (loopback, plus `SECRET_DESK_ALLOWED_HOSTS` on a LAN host).
+    x-secret-desk-status: implemented
+security:
+  - integrationToken: []
+  - agentToken: []
+tags:
+  - { name: Inventory, description: Secrets, stages, providers, connections and repositories as metadata }
+  - { name: Variables, description: GitHub variables and their drift }
+  - { name: Compare, description: Stages compared, read-only }
+  - { name: Issuance, description: Renewal requests, reviews, evidence and approvals }
+  - { name: Events, description: Change feed and outbound webhooks }
+  - { name: Meta, description: Description of the API itself }
+paths:
+  /overview:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Inventory]
+      summary: Totals by stage and status, items needing attention
+      operationId: overview
+      responses:
+        "200": { description: Overview, content: { application/json: { schema: { $ref: "#/components/schemas/Overview" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /stages:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Inventory]
+      summary: Stage definitions with usage (read-only)
+      operationId: listStages
+      responses:
+        "200": { description: Stages, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/StageView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /secrets:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Inventory]
+      summary: List secrets (metadata)
+      operationId: listSecrets
+      parameters:
+        - { name: stage, in: query, schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: product, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/StatusLevel" } }
+        - { name: provider, in: query, schema: { type: string } }
+        - { name: q, in: query, description: "Free text over id, name, title, description, owner, product, service, tags and repositories", schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: live, in: query, description: "`1` compares with GitHub (network)", schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Secrets, most urgent first, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/SecretView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /secrets/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Inventory]
+      summary: One secret
+      operationId: getSecret
+      responses:
+        "200": { description: Secret, content: { application/json: { schema: { $ref: "#/components/schemas/SecretView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: variables:read
+      tags: [Variables]
+      summary: List variables
+      operationId: listVariables
+      parameters:
+        - { name: stage, in: query, schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: product, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Variables, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/VariableView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: variables:read
+      tags: [Variables]
+      summary: One variable
+      operationId: getVariable
+      responses:
+        "200": { description: Variable, content: { application/json: { schema: { $ref: "#/components/schemas/VariableView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /variables/{id}/status:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: variables:read
+      tags: [Variables]
+      summary: Expected against actual in GitHub (live)
+      operationId: variableStatus
+      responses:
+        "200":
+          description: Drift per target
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  variable: { $ref: "#/components/schemas/VariableView" }
+                  drift: { type: array, items: { $ref: "#/components/schemas/VariableDrift" } }
+        default: { $ref: "#/components/responses/Error" }
+  /compare:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: compare:read
+      tags: [Compare]
+      summary: Compare secrets and variables across stages (read-only)
+      operationId: compareStages
+      parameters:
+        - { name: live, in: query, description: "Read the actual state from GitHub", schema: { type: string, enum: ["1"] } }
+        - { name: all, in: query, description: "With live, also read repositories without inventory entries", schema: { type: string, enum: ["1"] } }
+        - { name: workflows, in: query, description: "Evaluate workflow files for needed names", schema: { type: string, enum: ["1"] } }
+        - { name: compare, in: query, description: "Comma-separated stage ids for parity (default kinds test and live)", schema: { type: string } }
+        - { name: kinds, in: query, description: "Comma-separated `secret`, `variable`", schema: { type: string } }
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: normalize, in: query, description: "Merge names differing only by a stage word", schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Comparison, content: { application/json: { schema: { $ref: "#/components/schemas/CompareResult" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /renewal-requests:
+    post:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: renewals:request
+      tags: [Issuance]
+      summary: Ask for a new value at the provider
+      description: Never writes to GitHub. In a direct stage the value is created and verified and waits for a human to confirm; otherwise an approval is created.
+      operationId: requestRenewal
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secretId]
+              properties:
+                secretId: { type: string }
+                reason: { type: string }
+                dryRun: { type: boolean }
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [status, plan]
+                    properties:
+                      status: { const: dry-run }
+                      plan:
+                        type: object
+                        properties:
+                          secretId: { type: string }
+                          stage: { type: string }
+                          provider: { type: string }
+                          automatic: { type: boolean }
+                          readOnly: { type: boolean }
+                          places: { type: array, items: { type: string } }
+                          revokesOld: { type: boolean }
+                          ttlDays: { type: [integer, "null"] }
+                          params:
+                            type: object
+                            properties:
+                              ok: { type: boolean }
+                              missing: { type: array, items: { type: string } }
+                              problems: { type: array, items: { type: object } }
+                  - type: object
+                    required: [status, issuance, message]
+                    properties:
+                      status: { const: awaiting-review }
+                      issuance: { $ref: "#/components/schemas/IssuanceView" }
+                      message: { type: string }
+                  - $ref: "#/components/schemas/PendingApproval"
+        default: { $ref: "#/components/responses/Error" }
+  /reviews:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: reviews:read
+      tags: [Issuance]
+      summary: Open reviews waiting for a human
+      operationId: listReviews
+      responses:
+        "200": { description: Reviews, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/IssuanceView" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /reviews/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: reviews:read
+      tags: [Issuance]
+      summary: One open review (403 if unknown or expired)
+      operationId: getReview
+      responses:
+        "200": { description: Review, content: { application/json: { schema: { $ref: "#/components/schemas/IssuanceView" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /evidence/{secretId}:
+    parameters:
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: reviews:read
+      tags: [Issuance]
+      summary: Earlier review reports of a secret
+      operationId: listEvidence
+      responses:
+        "200": { description: Reports, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/VerificationReport" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /evidence/{secretId}/{reportId}:
+    parameters:
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+      - { name: reportId, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: reviews:read
+      tags: [Issuance]
+      summary: One review report (403 if not found)
+      operationId: getEvidence
+      responses:
+        "200": { description: Report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationReport" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: approvals:read
+      tags: [Issuance]
+      summary: Approval requests, newest first
+      operationId: listApprovals
+      responses:
+        "200": { description: Approvals, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Approval" } } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: approvals:read
+      tags: [Issuance]
+      summary: One approval request (403 if unknown)
+      operationId: getApproval
+      responses:
+        "200": { description: Approval, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /providers:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Other]
+      summary: Providers
+      operationId: listProviders
+      responses:
+        "200":
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    label: { type: string }
+                    kind: { type: string, enum: [automatic, manual] }
+                    browser: { type: boolean }
+                    readOnly: { type: boolean }
+                    connection: { type: [string, "null"] }
+                    guide:
+                      type: [object, "null"]
+                      properties:
+                        url: { type: string }
+                        steps: { type: array, items: { type: string } }
+        default: { $ref: "#/components/responses/Error" }
+  /connections:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Other]
+      summary: Connection state without tokens
+      operationId: listConnections
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    connected: { type: boolean }
+                    source: { type: string, enum: [session, env, op, vault, none] }
+                    hint: { type: string }
+                    expires: { type: [string, "null"] }
+                    fingerprint: { type: string }
+                    label: { type: string }
+                    permissions: { type: array, items: { type: string } }
+        default: { $ref: "#/components/responses/Error" }
+  /repos:
+    get:
+      x-secret-desk-status: implemented
+      x-secret-desk-scope: inventory:read
+      tags: [Other]
+      summary: Repositories (no local paths for agents)
+      operationId: listRepos
+      parameters:
+        - { name: live, in: query, schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Repository list, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /events:
+    get:
+      x-secret-desk-status: planned
+      x-secret-desk-scope: events:read
+      tags: [Events]
+      summary: Change feed (pull alternative to webhooks)
+      description: |
+        The same events that webhooks deliver, oldest first, kept for 30 days. For systems that cannot receive
+        webhooks or that run inside the portal's network on a schedule (a self-hosted CI agent, a cron job).
+        Cursor pagination: pass `nextCursor` from the previous page as `after`; an empty `items` with the same
+        `nextCursor` means "nothing new yet". Cursors are opaque.
+      operationId: listEvents
+      parameters:
+        - { name: after, in: query, description: "Opaque cursor from `nextCursor`; omit for the oldest kept event", schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: types, in: query, description: "Comma separated event types, e.g. `secret.expiring,review.pending`", schema: { type: string } }
+      responses:
+        "200":
+          description: One page of events
+          headers:
+            RateLimit-Limit: { $ref: "#/components/headers/RateLimit-Limit" }
+            RateLimit-Remaining: { $ref: "#/components/headers/RateLimit-Remaining" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Event" } }
+                  nextCursor: { type: string }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        default: { $ref: "#/components/responses/Error" }
+  /integration:
+    get:
+      x-secret-desk-status: planned
+      tags: [Meta]
+      summary: The calling integration (name, scopes, expiry), for a connection test
+      description: Never returns the token. Any valid integration token may call it.
+      operationId: getIntegration
+      responses:
+        "200":
+          description: The integration behind the token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name, scopes, expiresAt]
+                properties:
+                  id: { type: string }
+                  name: { type: string, description: "Label chosen by the human who created it, e.g. issue-tracker" }
+                  scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+                  stages: { type: [array, "null"], items: { type: string }, description: "Stages the token is limited to; null means all" }
+                  expiresAt: { type: [string, "null"], format: date-time }
+        default: { $ref: "#/components/responses/Error" }
+  /openapi.yaml:
+    servers:
+      - url: http://127.0.0.1:4747/api
+        description: Served next to the versioned paths, without a token
+    get:
+      x-secret-desk-status: implemented
+      tags: [Meta]
+      summary: This document
+      description: Public (the repository is public); still subject to the Host and fetch-site checks.
+      operationId: getOpenApi
+      security: []
+      responses:
+        "200": { description: The OpenAPI document, content: { application/yaml: { schema: { type: string } } } }
+webhooks:
+  secret.expiring:
+    post:
+      x-secret-desk-status: planned
+      summary: A secret reaches a warning threshold before it expires
+      description: |
+        Sent once per threshold and secret (defaults 30, 14, 7 and 1 days, `integrations.webhooks.expiringDays`),
+        evaluated daily and at portal start. Typical use: open an issue or work item.
+      operationId: onSecretExpiring
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SecretEvent" } } } }
+      responses: { "2XX": { description: "Accepted. Any other status or a timeout after 10 s is retried." } }
+  secret.expired:
+    post:
+      x-secret-desk-status: planned
+      summary: A secret is past its expiry date
+      operationId: onSecretExpired
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SecretEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  renewal.requested:
+    post:
+      x-secret-desk-status: planned
+      summary: Somebody asked for a new value (human, agent or integration)
+      operationId: onRenewalRequested
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RenewalEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  review.pending:
+    post:
+      x-secret-desk-status: planned
+      summary: A new value was created and verified and waits for a human to confirm
+      description: The review expires after 15 minutes; link humans to `portalUrl`.
+      operationId: onReviewPending
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ReviewEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  review.completed:
+    post:
+      x-secret-desk-status: planned
+      summary: A human confirmed (value written to GitHub) or rejected a review
+      operationId: onReviewCompleted
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ReviewEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  approval.pending:
+    post:
+      x-secret-desk-status: planned
+      summary: An approval request waits for a human
+      operationId: onApprovalPending
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ApprovalEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  approval.resolved:
+    post:
+      x-secret-desk-status: planned
+      summary: An approval request was approved, denied, failed or became stale
+      operationId: onApprovalResolved
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ApprovalEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  sync.completed:
+    post:
+      x-secret-desk-status: planned
+      summary: A GitHub sync (compare sync or team sync) finished
+      operationId: onSyncCompleted
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SyncEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+  variable.drift:
+    post:
+      x-secret-desk-status: planned
+      summary: A variable in GitHub differs from the inventory (found by a live check)
+      operationId: onVariableDrift
+      parameters: [{ $ref: "#/components/parameters/WebhookId" }, { $ref: "#/components/parameters/WebhookTimestamp" }, { $ref: "#/components/parameters/WebhookSignature" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/VariableDriftEvent" } } } }
+      responses: { "2XX": { description: Accepted } }
+components:
+  securitySchemes:
+    integrationToken:
+      type: http
+      scheme: bearer
+      description: |
+        Planned. One token per integration, created by a human in the portal (Settings > Integrations API) with a
+        name, a set of scopes (see `Scope`), optional stage limits and an expiry (at most 365 days). Shown once,
+        stored only as a hash. Operations name their required scope in `x-secret-desk-scope`; a missing scope is a
+        `403` with `code: scope-missing`. A revoked or expired token is a `401`.
+    agentToken:
+      type: http
+      scheme: bearer
+      description: |
+        Available today. The agent token from `~/.secret-desk/agent-token` (or `SECRET_DESK_AGENT_TOKEN`). It grants
+        every agent operation, not only the integration scopes: use it for trials and for systems inside the
+        portal's own trust boundary only, and replace it with an integration token once those exist.
+  parameters:
+    WebhookId:
+      { name: webhook-id, in: header, required: true, description: "Event id; the same on every retry. Deduplicate on it.", schema: { type: string } }
+    WebhookTimestamp:
+      { name: webhook-timestamp, in: header, required: true, description: "Unix seconds of this delivery attempt. Reject if more than 5 minutes off.", schema: { type: integer } }
+    WebhookSignature:
+      name: webhook-signature
+      in: header
+      required: true
+      description: |
+        `v1,<base64 HMAC-SHA256>` over `<webhook-id>.<webhook-timestamp>.<raw body>` with the subscription's signing
+        secret (Standard Webhooks scheme). Several space-separated signatures may appear while a secret is rotated;
+        accept if any matches. Compare in constant time.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Planned for `/api/v1`. A client-chosen key (8 to 128 characters); a repeated request with the same key and
+        body within 24 hours returns the first response instead of acting again. Today `POST renewal-requests` is
+        idempotent only for `pending-approval` (an open approval for the same secret is returned, not duplicated);
+        an `awaiting-review` result creates a new value per call.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  headers:
+    RateLimit-Limit: { description: "Planned. Requests allowed per window for this token (default 120 per minute).", schema: { type: integer } }
+    RateLimit-Remaining: { description: "Planned. Requests left in the current window.", schema: { type: integer } }
+    Retry-After: { description: "Seconds to wait before retrying.", schema: { type: integer } }
+  responses:
+    Error:
+      description: |
+        Error. 400 invalid input, 401 token missing, wrong, expired or revoked, 403 policy, scope or host check (also
+        unknown review, approval or report), 404 unknown route, 409 state (not-connected, vault-unavailable),
+        429 rate limit, 500 unexpected, 502 GitHub or provider failure.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests (planned for integration tokens; today only passed through from GitHub or a provider).
+      headers:
+        Retry-After: { $ref: "#/components/headers/Retry-After" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: "Human-readable message (German unless `X-Secret-Desk-Lang: en`). Never contains a value." }
+        code:
+          type: string
+          description: |
+            Stable machine-readable reason. Today: secret-blocked, secret-ack, not-connected, vault-unavailable,
+            rate-limit, github-denied, provider-denied, provider-error. Planned for v1: always present, plus
+            invalid-input, unauthorized, forbidden, scope-missing, not-found, conflict, internal.
+        detail: { type: string }
+        connection: { type: string }
+        hint: { type: string }
+        requestId: { type: string, description: "Planned. Correlates with the portal log." }
+    Scope:
+      type: string
+      description: Permission of an integration token. There is deliberately no scope that writes values, confirms reviews or approves.
+      enum: [inventory:read, variables:read, compare:read, reviews:read, approvals:read, renewals:request, events:read]
+    Event:
+      type: object
+      description: Envelope of every webhook delivery and feed item. `data` depends on `type`.
+      required: [id, type, apiVersion, occurredAt, data]
+      properties:
+        id: { type: string, description: "Unique, stable across retries (`evt_` prefix)" }
+        type: { type: string, enum: [secret.expiring, secret.expired, renewal.requested, review.pending, review.completed, approval.pending, approval.resolved, sync.completed, variable.drift] }
+        apiVersion: { const: v1 }
+        occurredAt: { type: string, format: date-time }
+        portalUrl: { type: string, format: uri, description: "Deep link for humans (needs `server.publicUrl`)" }
+        data: { type: object }
+    SecretSummary:
+      type: object
+      description: The subset of `SecretView` sent in events.
+      required: [id, name, stage, provider, status]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: [string, "null"] }
+        stage: { type: string }
+        provider: { type: string }
+        product: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        expires: { type: [string, "null"], format: date }
+        daysLeft: { type: [integer, "null"] }
+        status: { $ref: "#/components/schemas/StatusLevel" }
+        automatic: { type: boolean }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+    SecretEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { enum: [secret.expiring, secret.expired] }
+            data:
+              type: object
+              required: [secret]
+              properties:
+                secret: { $ref: "#/components/schemas/SecretSummary" }
+                thresholdDays: { type: [integer, "null"], description: "The threshold that fired (secret.expiring only)" }
+    RenewalEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { const: renewal.requested }
+            data:
+              type: object
+              required: [secret, requestedBy, outcome]
+              properties:
+                secret: { $ref: "#/components/schemas/SecretSummary" }
+                requestedBy: { type: string }
+                reason: { type: [string, "null"] }
+                outcome: { type: string, enum: [awaiting-review, pending-approval] }
+                approvalId: { type: [string, "null"] }
+                reviewId: { type: [string, "null"] }
+    ReviewEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { enum: [review.pending, review.completed] }
+            data:
+              type: object
+              required: [reviewId, secret]
+              properties:
+                reviewId: { type: string }
+                secret: { $ref: "#/components/schemas/SecretSummary" }
+                overall: { type: string, enum: [pass, warn, fail] }
+                expiresAt: { type: [string, "null"], format: date-time }
+                decision: { type: [string, "null"], enum: [confirmed, rejected, expired, null] }
+                places: { type: array, items: { type: string }, description: "Targets written (review.completed, confirmed)" }
+    ApprovalEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { enum: [approval.pending, approval.resolved] }
+            data:
+              type: object
+              required: [approval]
+              properties:
+                approval:
+                  type: object
+                  required: [id, action, targetId, state]
+                  properties:
+                    id: { type: string }
+                    action: { type: string, enum: [issue, apply-variable] }
+                    targetId: { type: string }
+                    requestedBy: { type: string }
+                    reason: { type: [string, "null"] }
+                    state: { type: string, enum: [pending, approved, denied, failed, stale] }
+    SyncEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { const: sync.completed }
+            data:
+              type: object
+              required: [kind, ok]
+              properties:
+                kind: { type: string, enum: [compare, team] }
+                ok: { type: boolean }
+                written: { type: integer, description: "Names created or updated" }
+                failed: { type: integer }
+                repos: { type: array, items: { type: string } }
+    VariableDriftEvent:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          properties:
+            type: { const: variable.drift }
+            data:
+              type: object
+              required: [variableId, name, stage, drift]
+              properties:
+                variableId: { type: string }
+                name: { type: string }
+                stage: { type: string }
+                drift: { type: array, items: { $ref: "#/components/schemas/VariableDrift" } }
+    StatusLevel: { type: string, enum: [ok, unknown, soon, no-date, due, missing, expired] }
+    Place:
+      type: object
+      required: [repo, scope]
+      properties:
+        repo: { type: string }
+        scope: { type: string, enum: [repository, environment, organization] }
+        environment: { type: string }
+        name: { type: string, pattern: "^[A-Z][A-Z0-9_]*$" }
+    SecretView:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        product: { type: [string, "null"] }
+        stage: { type: string }
+        service: { type: string }
+        provider: { type: string }
+        automatic: { type: boolean }
+        browser: { type: boolean }
+        readOnly: { type: boolean }
+        expiry: { type: string, enum: [none, possible, required, unknown] }
+        expires: { type: [string, "null"], format: date }
+        daysLeft: { type: [integer, "null"] }
+        status: { $ref: "#/components/schemas/StatusLevel" }
+        rotatedAt: { type: [string, "null"] }
+        verifiedAt: { type: [string, "null"] }
+        verifiedBy: { type: [string, "null"] }
+        ttlDays: { type: [integer, "null"] }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+        guide: { type: [object, "null"] }
+        connection: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        params:
+          type: object
+          description: Provider parameter status (keys only, never values).
+          properties:
+            status: { type: string, enum: [ok, missing, invalid, none] }
+            missing: { type: array, items: { type: string } }
+        liveErrors: { type: array, items: { type: string } }
+    StageView:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        kind: { type: string, enum: [dev, test, live, shared] }
+        environment: { type: [string, "null"] }
+        tone: { type: string }
+        environmentName: { type: [string, "null"] }
+        usage:
+          type: object
+          properties:
+            secrets: { type: integer }
+            variables: { type: integer }
+            templates: { type: integer }
+            policy: { type: boolean }
+    Overview:
+      type: object
+      properties:
+        total: { type: integer }
+        byStage: { type: object, additionalProperties: { type: integer } }
+        byStatus: { type: object, additionalProperties: { type: integer } }
+        attention: { type: array, items: { $ref: "#/components/schemas/SecretView" } }
+        variables: { type: integer }
+        pendingReviews: { type: integer }
+        pendingApprovals: { type: integer }
+    VariableView:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        owner: { type: [string, "null"] }
+        link: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        product: { type: [string, "null"] }
+        stage: { type: string }
+        value: { type: [string, "null"], description: "The expected value (configuration, not a secret)" }
+        places: { type: array, items: { $ref: "#/components/schemas/Place" } }
+    VariableDrift:
+      type: object
+      properties:
+        variableId: { type: string }
+        place: { $ref: "#/components/schemas/Place" }
+        placeLabel: { type: string }
+        state: { type: string, enum: [in-sync, missing, different, unknown-expected, unreachable] }
+        expected: { type: [string, "null"] }
+        actual: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"] }
+        error: { type: string }
+        errorStatus: { type: integer }
+    PendingApproval:
+      type: object
+      required: [status, approvalId, message]
+      properties:
+        status: { const: pending-approval }
+        approvalId: { type: string }
+        secretId: { type: string }
+        message: { type: string }
+    Approval:
+      type: object
+      properties:
+        id: { type: string }
+        action: { type: string, enum: [issue, apply-variable] }
+        targetId: { type: string }
+        requestedBy: { type: string }
+        reason: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        state: { type: string, enum: [pending, approved, denied, failed, stale] }
+        snapshotHash: { type: string }
+        snapshot: { type: object }
+        result: { type: string }
+    Check:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status: { type: string, description: "pass, warn, fail or info" }
+        expected: { type: string }
+        actual: { type: string }
+        detail: { type: string }
+    VerificationReport:
+      type: object
+      properties:
+        id: { type: string }
+        secretId: { type: string }
+        secretName: { type: string }
+        createdAt: { type: string, format: date-time }
+        kind: { type: string, enum: [issued, manual] }
+        provider: { type: string }
+        stage: { type: string }
+        label: { type: string }
+        externalId: { type: string }
+        expiresAt: { type: [string, "null"] }
+        targets: { type: array, items: { type: string } }
+        checks: { type: array, items: { $ref: "#/components/schemas/Check" } }
+        checklist: { type: array, items: { type: object, properties: { id: { type: string }, text: { type: string } } } }
+        fingerprint: { type: string, description: "First 12 hex characters of a SHA-256 of the value; does not reveal it" }
+        attachments: { type: array, items: { type: object } }
+        confirmation: { type: object }
+    IssuanceView:
+      type: object
+      properties:
+        id: { type: string }
+        secretId: { type: string }
+        secretName: { type: string }
+        stage: { type: string }
+        provider: { type: string }
+        kind: { type: string, enum: [issued, manual] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        overall: { type: string, enum: [pass, warn, fail] }
+        report: { $ref: "#/components/schemas/VerificationReport" }
+    CompareResult:
+      type: object
+      properties:
+        stages: { type: array, items: { type: object, properties: { id: { type: string }, label: { type: string }, kind: { type: string }, environment: { type: [string, "null"] } } } }
+        compared: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              repo: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [secret, variable] }
+              ids: { type: array, items: { type: string } }
+              cells:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    state: { type: string, enum: [ok, missing, unexpected, not-expected, unknown, error, different, not-applicable, needed, level-mismatch, optional] }
+                    expected: { type: boolean }
+                    present: { type: boolean }
+                    detail: { type: object }
+              parity: { type: string, enum: [consistent, gap, n/a] }
+              missingIn: { type: array, items: { type: string } }
+              tags: { type: array, items: { type: string } }
+              neededMissing: { type: boolean }
+              levelMismatch: { type: boolean }
+        summary: { type: object }
+        ignored: { type: array, items: { type: string } }
+        repos: { type: array, items: { type: object } }
+        live: { type: boolean }
+        errors: { type: array, items: { type: object, properties: { target: { type: string }, message: { type: string } } } }
