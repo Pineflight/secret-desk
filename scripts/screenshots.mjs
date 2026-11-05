@@ -232,6 +232,13 @@ try {
     await page.getByRole("dialog").waitFor();
     await page.waitForTimeout(400);
   });
+  // The lower part of the picker: the providers with hand-kept marks (OpenAI, Peecho, VesselAPI).
+  await shot("integrations-picker-more", "/connections", async () => {
+    await page.getByRole("button", { name: "Add integration" }).first().click();
+    await page.getByRole("dialog").waitFor();
+    await page.getByRole("dialog").getByText("Peecho", { exact: true }).first().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+  });
   await shot("settings", "/settings");
 
   const bad = taken.filter((f) => statSync(f).size < 10_000);

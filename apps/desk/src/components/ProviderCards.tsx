@@ -18,8 +18,13 @@ export function ProviderLogo({ icon, label, size = 40 }: { icon: string | null; 
   const brand = icon ? BRAND_ICONS[icon] : undefined;
   const box = { width: size, height: size };
   return (
-    <span className="inline-flex shrink-0 items-center justify-center rounded-xl bg-page text-ink ring-1 ring-inset ring-line" style={box} aria-hidden="true">
-      {brand ? (
+    // A multi-colour mark keeps its own colours, so its tile stays white in both themes.
+    <span className={`inline-flex shrink-0 items-center justify-center rounded-xl text-ink ring-1 ring-inset ring-line ${brand?.layers ? "bg-white" : "bg-page"}`} style={box} aria-hidden="true">
+      {brand?.layers ? (
+        <svg viewBox="0 0 24 24" width={size * 0.55} height={size * 0.55} focusable="false">
+          {brand.layers.map((l, i) => <path key={i} d={l.path} fill={`#${l.fill}`} />)}
+        </svg>
+      ) : brand ? (
         <svg viewBox="0 0 24 24" width={size * 0.55} height={size * 0.55} fill={brandFill(brand.hex)} focusable="false">
           <path d={brand.path} />
         </svg>

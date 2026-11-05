@@ -54,6 +54,17 @@ describe("bundled logos", () => {
       expect(GENERATED_ICONS[id], `${id} is not in simple-icons`).toBeUndefined();
     }
   });
+  it("draws multi-colour marks from valid layers with their own colours", () => {
+    const layered = Object.entries(CUSTOM_BRAND_ICONS).filter(([, i]) => i.layers);
+    expect(layered.map(([slug]) => slug)).toEqual(["peecho"]);
+    for (const [slug, icon] of layered) {
+      expect(icon.layers!.length, slug).toBeGreaterThan(1);
+      for (const l of icon.layers!) {
+        expect(l.path, slug).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9 .,\-eE]+$/);
+        expect(l.fill, slug).toMatch(/^[0-9A-F]{6}$/);
+      }
+    }
+  });
   it("draws every vendor with a logo or, without one, a monogram", () => {
     for (const v of VENDORS) {
       if (v.icon === null) expect(monogram(v.label), v.id).not.toBe("?");
