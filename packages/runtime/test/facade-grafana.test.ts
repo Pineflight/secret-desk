@@ -50,7 +50,7 @@ function driverFor(site: Site): FakeDriver {
         return;
       }
       if (e.action === "click" && e.key === 'Text "Add scope"') {
-        drv.visible.add('Platzhalter "Search…"');
+        drv.visible.add('css input[role=combobox][placeholder="Search…"]');
         drv.visible.add('option "stacks:read"');
         drv.visible.add('option "stack-service-accounts:write"');
         return;

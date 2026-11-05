@@ -34,7 +34,7 @@ describe("bundled recipes", () => {
     // scopes: the three access policy actions are checkboxes, stacks:read and stack-service-accounts:write come through "Add scope"
     const scopes = r.steps.flatMap((s) => ("click" in s && s.click.role === "checkbox" ? [s.click.name] : []));
     expect(scopes).toEqual(["read accesspolicies", "write accesspolicies", "delete accesspolicies"]);
-    const added = r.steps.flatMap((s) => ("fill" in s && s.fill.placeholder === "Search…" ? [s.fill.value] : []));
+    const added = r.steps.flatMap((s) => ("fill" in s && s.fill.css === 'input[role=combobox][placeholder="Search…"]' ? [s.fill.value] : []));
     expect(added).toEqual(["stacks:read", "stack-service-accounts:write"]);
     expect(r.steps.filter((s) => "click" in s && s.click.createsToken)).toHaveLength(1);
     expect(r.steps.find((s) => "fill" in s && s.fill.label === "/token name/i")).toMatchObject({ fill: { value: "{{name}}" } });
