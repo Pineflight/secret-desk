@@ -1,4 +1,4 @@
-# STATUS: nicht gegen die echte Seite geprueft; "Confirm access" (Text, Feldnamen sudo_app_otp und sudo_password, Knopf "Use GitHub Mobile" und die Zifferneingabe) und die beiden Single-Sign-on-Knoepfe am 2026-11-03 an der echten Seite gesehen; Anmeldeformular, Zwei-Faktor-Seiten, "Verify"/"Confirm" und Widerruf nicht geprueft
+# STATUS: Formular, Repository-Auswahl und Bestaetigungsdialog am 2026-11-05 an der echten Seite gesehen (Organisation als Eigentuemer); Anzeige des neuen Tokens nicht geprueft; "Confirm access" (Text, Feldnamen sudo_app_otp und sudo_password, Knopf "Use GitHub Mobile" und die Zifferneingabe) und die beiden Single-Sign-on-Knoepfe am 2026-11-03 an der echten Seite gesehen; Anmeldeformular, Zwei-Faktor-Seiten, "Verify"/"Confirm" und Widerruf nicht geprueft
 # Selektoren sind aus der Oberflaeche von GitHub abgeleitet und noch nie gegen ein echtes Konto gelaufen.
 # Erster Lauf: Wegwerf-Token, mit Aufsicht. Aendert GitHub das Formular, hier anpassen (Pull Request).
 # Name, Beschreibung, Eigentuemer, Ablauf und Rechte kommen per Query-Vorbelegung ins Formular
@@ -55,25 +55,35 @@ steps:
       until: { visible: { label: "Token name" } }
   - fill: { label: "Token name", value: "{{name}}" }
   - click: { role: radio, name: "Only select repositories" }
-  - click: { role: button, name: "Select repositories" }
-  - fill: { placeholder: "Search for a repository", value: "{{item}}" }
+  # Repository picker seen live 2026-11-05: button #repository-menu-list-button opens a list of role=option buttons, each with the
+  # full name "<owner>/<repo>" in .ActionListItem-label. Without a filter all repositories of the owner are listed; the exact label
+  # keeps "legal" apart from "legal-actions".
+  - click: { css: "#repository-menu-list-button" }
+  - click: { css: '[role=option]:has(.ActionListItem-label:text-is("{{owner}}/{{item}}"))' }
     each: repos
-  - click: { role: option, name: "{{item}}" }
-    each: repos
+  - press: { key: Escape }
   - screenshot: formular-vorher
-  # Erste Bestaetigung oeffnet einen Dialog; ab hier entsteht ein Token.
+  # Erste Bestaetigung oeffnet den Dialog dialog#fgpat-confirmation-dialog (live gesehen 2026-11-05, Knoepfe Cancel und
+  # "Generate token" type=submit); erst dessen Knopf erzeugt den Token.
   - click: { role: button, name: "Generate token", createsToken: true }
-  # Zweiter Button im Dialog. UNGEPRUEFT: der Dialog hat denselben Namen wie der erste Button.
-  - click: { css: "[role=dialog] button[type=submit]" }
+  - waitFor: { visible: { css: "#fgpat-confirmation-dialog" } }
+  - click: { css: "#fgpat-confirmation-dialog button[type=submit]" }
 capture:
   token:
     # UNGEPRUEFT: Element, in dem GitHub den neuen Token zeigt.
     find: { css: "#new-access-token" }
+    alternatives:
+      - { find: { css: "#new-oauth-token" } }
+      - { find: { css: 'clipboard-copy[value^="github_pat_"]' }, attribute: value }
+      - { find: { css: 'input[value^="github_pat_"]' }, attribute: value }
     pattern: "^(github_pat_[A-Za-z0-9_]+)$"
   externalId: { from: name }
   expires: { from: days }
 mask:
   - { css: "#new-access-token" }
+  - { css: "#new-oauth-token" }
+  - { css: 'clipboard-copy[value^="github_pat_"]' }
+  - { css: 'input[value^="github_pat_"]' }
 # Deletes the token named {{externalId}} (Settings > Developer settings > Fine-grained tokens). GitHub may ask to confirm access
 # before or after the delete button; each confirmAccess step answers it in the portal.
 # STATUS: not verified: the list, the token page, the "Delete" button and the wording of the confirmation button were not seen.

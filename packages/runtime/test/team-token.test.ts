@@ -43,7 +43,10 @@ interface Site {
   approve(): void;
 }
 
-const FORM_FIELDS = [FIELD, 'radio "Only select repositories"', 'button "Select repositories"', 'Platzhalter "Search for a repository"', 'button "Generate token"'];
+const FORM_FIELDS = [FIELD, 'radio "Only select repositories"', "css #repository-menu-list-button", 'button "Generate token"'];
+const REPO_OPTION = 'css [role=option]:has(.ActionListItem-label:text-is("acme-org/team-config"))';
+const CONFIRM_DIALOG = "css #fgpat-confirmation-dialog";
+const CONFIRM_SUBMIT = "css #fgpat-confirmation-dialog button[type=submit]";
 const SUDO_VISIBLE = ['button "Use GitHub Mobile"', 'Text "Use your password"', 'Text "Use your authenticator app"'];
 const SUDO_FIELDS = ['css input[name="sudo_app_otp"]', 'css input[name="sudo_password"]'];
 const LIST = "https://github.com/settings/personal-access-tokens";
@@ -109,16 +112,17 @@ function formDriver(site: Site): FakeDriver {
         if (drv.filled.get('css input[name="sudo_password"]') === site.sudoPassword) leaveSudo(drv);
         return;
       }
-      if (e.action === "click" && e.key.startsWith("option ")) return;
-      if (e.action === "click" && e.key === 'button "Select repositories"') {
-        drv.visible.add('option "team-config"');
+      if (e.action === "click" && e.key === REPO_OPTION) return;
+      if (e.action === "click" && e.key === "css #repository-menu-list-button") {
+        drv.visible.add(REPO_OPTION);
         return;
       }
       if (e.action === "click" && e.key === 'button "Generate token"') {
-        drv.visible.add("css [role=dialog] button[type=submit]");
+        drv.visible.add(CONFIRM_DIALOG);
+        drv.visible.add(CONFIRM_SUBMIT);
         return;
       }
-      if (e.action === "click" && e.key === "css [role=dialog] button[type=submit]") {
+      if (e.action === "click" && e.key === CONFIRM_SUBMIT) {
         drv.visible.add("css #new-access-token");
         drv.texts.set("css #new-access-token", NEW_TOKEN);
         return;
@@ -290,7 +294,7 @@ describe("team token run", () => {
     expect(goto).toContain("contents=read&metadata=read");
     expect(goto).not.toContain("pull_requests");
     expect(d.filled.get(FIELD)).toMatch(/^secret-desk-t~team-config-\d{8}-\d{4}$/);
-    expect(d.calls).toContain('click option "team-config"');
+    expect(d.calls).toContain(`click ${REPO_OPTION}`);
 
     // Tested with the new token itself, before it was stored.
     expect(api.bearers).toContain(NEW_TOKEN);

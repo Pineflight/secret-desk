@@ -34,12 +34,12 @@ async function setup() {
     automationDriver: () => {
       const d: FakeDriver = new FakeDriver({
         pollMs: 2,
-        visible: [FIELD, 'radio "Only select repositories"', 'button "Select repositories"', 'Platzhalter "Search for a repository"', 'button "Generate token"'],
+        visible: [FIELD, 'radio "Only select repositories"', "css #repository-menu-list-button", 'button "Generate token"'],
         on: (e, drv) => {
           if (e.action === "goto") drv.url = e.key;
-          if (e.action === "click" && e.key === 'button "Select repositories"') drv.visible.add('option "team-config"');
-          if (e.action === "click" && e.key === 'button "Generate token"') drv.visible.add("css [role=dialog] button[type=submit]");
-          if (e.action === "click" && e.key === "css [role=dialog] button[type=submit]") {
+          if (e.action === "click" && e.key === "css #repository-menu-list-button") drv.visible.add('css [role=option]:has(.ActionListItem-label:text-is("acme-org/team-config"))');
+          if (e.action === "click" && e.key === 'button "Generate token"') { drv.visible.add("css #fgpat-confirmation-dialog"); drv.visible.add("css #fgpat-confirmation-dialog button[type=submit]"); }
+          if (e.action === "click" && e.key === "css #fgpat-confirmation-dialog button[type=submit]") {
             drv.visible.add("css #new-access-token");
             drv.texts.set("css #new-access-token", NEW_TOKEN);
           }
