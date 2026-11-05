@@ -31,15 +31,11 @@ describe("bundled recipes", () => {
     expect(r.login?.form).toMatchObject({ start: "https://grafana.com/auth/sign-in" });
     expect(loginMethodsOf(r).map((m) => m.id)).toEqual(["email", "google", "github", "microsoft"]);
     expect(r.params).toMatchObject([{ key: "expiry", default: "90 days", options: ["30 days", "90 days", "No expiry"] }]);
-    // scopes: the required ones are plain clicks, the two it is unsure about are optional
-    const scopes = r.steps.flatMap((s) => ("click" in s && s.click.role === "checkbox" ? [{ name: s.click.name, optional: s.click.optional === true }] : []));
-    expect(scopes).toEqual([
-      { name: "accesspolicies:read", optional: false },
-      { name: "accesspolicies:write", optional: false },
-      { name: "stacks:read", optional: false },
-      { name: "accesspolicies:delete", optional: true },
-      { name: "stack-service-accounts:write", optional: true },
-    ]);
+    // scopes: the three access policy actions are checkboxes, stacks:read and stack-service-accounts:write come through "Add scope"
+    const scopes = r.steps.flatMap((s) => ("click" in s && s.click.role === "checkbox" ? [s.click.name] : []));
+    expect(scopes).toEqual(["read accesspolicies", "write accesspolicies", "delete accesspolicies"]);
+    const added = r.steps.flatMap((s) => ("fill" in s && s.fill.placeholder === "Search…" ? [s.fill.value] : []));
+    expect(added).toEqual(["stacks:read", "stack-service-accounts:write"]);
     expect(r.steps.filter((s) => "click" in s && s.click.createsToken)).toHaveLength(1);
     expect(r.steps.find((s) => "fill" in s && s.fill.label === "/token name/i")).toMatchObject({ fill: { value: "{{name}}" } });
     const pattern = new RegExp(r.capture.token.pattern!);
