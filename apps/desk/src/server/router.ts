@@ -432,6 +432,11 @@ const rawHuman: [string, RegExp, Raw][] = [
   }],
 ];
 
+/** Methode und Pfadmuster aller Routen unter /api/agent (fuer den Vertragstest gegen die OpenAPI-Beschreibungen). */
+export function agentRoutes(): { method: string; pattern: RegExp }[] {
+  return [...raw, ...common].map(([method, pattern]) => ({ method, pattern }));
+}
+
 /**
  * Eine Routing-Schicht fuer beide Zugaenge:
  *   /api/agent/...  Bearer-Token, Akteur "agent" (MCP). Kein Bestaetigen, keine Verbindungen, keine Anlagen.

@@ -519,6 +519,73 @@ paths:
       responses:
         "200": { description: YAML, content: { text/yaml: { schema: { type: string } } } }
         default: { $ref: "#/components/responses/Error" }
+  /inventory/version:
+    get:
+      tags: [Inventory]
+      summary: Freshness probe; the version counts every change of the inventory content
+      operationId: inventoryVersion
+      responses:
+        "200":
+          description: Version and a persistent load problem, if any
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { type: integer }
+                  problem: { type: [object, "null"] }
+        default: { $ref: "#/components/responses/Error" }
+  /about:
+    get:
+      tags: [Other]
+      summary: Version, license and third-party licenses (local files only)
+      operationId: about
+      responses:
+        "200": { description: About, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /team-sync/status:
+    get:
+      tags: [Other]
+      summary: State of the team file sync (no values)
+      operationId: teamSyncStatus
+      responses:
+        "200": { description: Team sync state, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /compare/sync-plan:
+    post:
+      tags: [Compare]
+      summary: Read-only plan of what a sync from the inventory to GitHub would set or write (names, places, reasons, no values)
+      description: Running the sync is humans only.
+      operationId: planGitHubSync
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo: { type: string }
+      responses:
+        "200": { description: The plan, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/Error" }
+  /vendors:
+    get:
+      tags: [Other]
+      summary: Known vendors by category, and whether each has a facade integration
+      operationId: listVendors
+      responses:
+        "200":
+          description: Vendors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [categories, vendors]
+                properties:
+                  categories: { type: array, items: { type: object } }
+                  vendors: { type: array, items: { type: object } }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:

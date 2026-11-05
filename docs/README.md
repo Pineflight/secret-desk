@@ -18,6 +18,7 @@ Start with [GETTING-STARTED.md](GETTING-STARTED.md). The project overview is in 
 - [CLI.md](CLI.md): all commands and options of the command line.
 - [AGENTS.md](AGENTS.md): the MCP server, its 24 tools, skill installation and the policy for AI agents.
 - [AGENT-API.md](AGENT-API.md): the HTTP reference of `/api/agent` (authentication, routes, errors, approval rules); [openapi-agent.yaml](openapi-agent.yaml) is the OpenAPI 3.1 description.
+- [INTEGRATION-API.md](INTEGRATION-API.md): the stable contract for other systems (Jira, Confluence, Azure DevOps, CI): scopes, versioning, planned webhooks, examples; [api/openapi.yaml](api/openapi.yaml) is the OpenAPI 3.1 description.
 - [PROVIDERS.md](PROVIDERS.md): supported providers, their parameters, permissions per integration and how well each endpoint is verified.
 
 ## Concepts

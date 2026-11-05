@@ -215,6 +215,7 @@ Known limits:
 | [CLI](docs/CLI.md) | All commands and options |
 | [Agents (MCP and skill)](docs/AGENTS.md) | The 24 MCP tools, skill installation, policy for AI agents |
 | [Agent API](docs/AGENT-API.md) | HTTP reference of `/api/agent` ([OpenAPI](docs/openapi-agent.yaml)) |
+| [Integration API](docs/INTEGRATION-API.md) | Stable contract for other systems (issue trackers, wikis, CI), webhooks plan, Jira, Confluence and Azure DevOps examples ([OpenAPI](docs/api/openapi.yaml)) |
 | [Stages](docs/STAGES.md) | Stage kinds, environment derivation, custom stages, team export |
 | [Compare](docs/COMPARE.md) | Cell states, parity, orphans, workflow needs, live reading |
 | [Repositories](docs/REPOSITORIES.md) | Selection, local links, path rules, search, renames |

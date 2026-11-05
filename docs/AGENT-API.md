@@ -1,6 +1,6 @@
 # Agent API reference
 
-The local portal serves an HTTP interface for AI agents under `/api/agent`. The [MCP server](AGENTS.md) is a thin client of exactly this API; you can also call it directly from scripts. An [OpenAPI 3.1 description](openapi-agent.yaml) is available.
+The local portal serves an HTTP interface for AI agents under `/api/agent`. The [MCP server](AGENTS.md) is a thin client of exactly this API; you can also call it directly from scripts. An [OpenAPI 3.1 description](openapi-agent.yaml) is available. Systems other than agents (issue trackers, wikis, CI) should build on the [integration API](INTEGRATION-API.md), the stable subset of this surface.
 
 The interface returns **metadata only**. No response ever contains a secret value, an integration token or the agent token. It cannot confirm a review, enter a value, set a connection, upload an attachment or change stages; for everything outside the policy it creates an [approval](#approvals-and-policy) that a human grants in the portal.
 
@@ -87,6 +87,7 @@ Summary:
 |---|---|
 | `GET overview` | Totals by stage and status, items needing attention |
 | `GET stages` | Stage definitions with usage |
+| `GET inventory/version` | Freshness probe: a counter that changes with every inventory change |
 | `GET normalization` | Read-only plan to normalize names and sources (names, stages, providers, parameter keys; no values). Applying is humans only, see [NAMING.md](NAMING.md) |
 | `GET secrets` | List secrets (metadata) |
 | `GET secrets/:id` | One secret |
@@ -112,6 +113,9 @@ Summary:
 | `POST env/export` | Export a repository and stage as `.env` or JSON content (dev stages for agents) |
 | `GET repos` | Repositories (no local paths) |
 | `GET team-export` | Team file as YAML |
+| `GET team-sync/status` | State of the team file sync (no values) |
+| `GET vendors` | Known vendors by category |
+| `GET about` | Version, license and third-party licenses |
 
 ### GET overview
 
