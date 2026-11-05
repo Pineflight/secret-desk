@@ -41,6 +41,7 @@ async function setup() {
           if (e.action === "click" && e.key === 'button "Generate token"') { drv.visible.add("css #fgpat-confirmation-dialog"); drv.visible.add("css #fgpat-confirmation-dialog button[type=submit]"); }
           if (e.action === "click" && e.key === "css #fgpat-confirmation-dialog button[type=submit]") {
             drv.visible.add("css #new-access-token");
+            drv.visible.add(`css #new-access-token, #new-oauth-token, clipboard-copy[value^="github_pat_"], input[value^="github_pat_"]`);
             drv.texts.set("css #new-access-token", NEW_TOKEN);
           }
         },

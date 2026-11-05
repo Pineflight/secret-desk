@@ -39,6 +39,8 @@ interface Site {
   deleteBroken: boolean;
   /** The delete button leads to "Confirm access" first. */
   deleteSudo: boolean;
+  /** The final "Generate token" click leads to "Confirm access" first; the token shows once it is confirmed. */
+  generateSudo: boolean;
   /** Called when the page shows the GitHub Mobile number; the test approves with `approve()`. */
   approve(): void;
 }
@@ -50,9 +52,16 @@ const CONFIRM_SUBMIT = "css #fgpat-confirmation-dialog button[type=submit]";
 const SUDO_VISIBLE = ['button "Use GitHub Mobile"', 'Text "Use your password"', 'Text "Use your authenticator app"'];
 const SUDO_FIELDS = ['css input[name="sudo_app_otp"]', 'css input[name="sudo_password"]'];
 const LIST = "https://github.com/settings/personal-access-tokens";
+const TOKEN_SHOWN = 'css #new-access-token, #new-oauth-token, clipboard-copy[value^="github_pat_"], input[value^="github_pat_"]';
 
 /** A fake GitHub: sign-in page, "Confirm access", the token form and the token list. The recipes' selectors, the new token shown after the second click. */
 function formDriver(site: Site): FakeDriver {
+  let tokenPending = false;
+  const showToken = (drv: FakeDriver): void => {
+    drv.visible.add("css #new-access-token");
+    drv.visible.add(TOKEN_SHOWN);
+    drv.texts.set("css #new-access-token", NEW_TOKEN);
+  };
   const showSudo = (drv: FakeDriver): void => {
     drv.pageText.add("Confirm access");
     for (const v of SUDO_VISIBLE) drv.visible.add(v);
@@ -66,6 +75,10 @@ function formDriver(site: Site): FakeDriver {
     drv.pageText.delete("Confirm access");
     for (const v of [...SUDO_VISIBLE, ...SUDO_FIELDS, 'button "Verify" (exact)', 'button "Confirm" (exact)']) drv.visible.delete(v);
     for (const v of FORM_FIELDS) drv.visible.add(v);
+    if (tokenPending) {
+      tokenPending = false;
+      showToken(drv);
+    }
   };
   const d: FakeDriver = new FakeDriver({
     pollMs: 2,
@@ -123,8 +136,14 @@ function formDriver(site: Site): FakeDriver {
         return;
       }
       if (e.action === "click" && e.key === CONFIRM_SUBMIT) {
-        drv.visible.add("css #new-access-token");
-        drv.texts.set("css #new-access-token", NEW_TOKEN);
+        if (site.generateSudo) {
+          site.generateSudo = false;
+          tokenPending = true;
+          for (const v of FORM_FIELDS) drv.visible.delete(v);
+          showSudo(drv);
+          return;
+        }
+        showToken(drv);
         return;
       }
       // The delete run: list, token page, delete, confirm.
@@ -174,6 +193,7 @@ async function setup(opts: { automation?: boolean; teamSync?: string; signedIn?:
     existing: [],
     deleteBroken: false,
     deleteSudo: false,
+    generateSudo: false,
     approve: () => {
       for (const d of site.drivers) {
         d.pageText.delete("Confirm access");
@@ -495,6 +515,20 @@ describe("team token run", () => {
     expect(d.shots.every((s) => s.masks.includes('css input[name="sudo_password"]'))).toBe(true);
     expect(JSON.stringify([rt.automation.state("team-token"), await getTeamTokenInfo(rt, human), rt.automation.info()])).not.toContain(site.sudoPassword);
     expect(d.calls.join("\n")).not.toContain(site.sudoPassword);
+  });
+
+  it("Confirm access asked again at Generate token is answered in the portal and the token is still captured", async () => {
+    const { rt, site } = await setup();
+    site.generateSudo = true;
+    startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
+    await until(() => rt.automation.state("team-token").ask?.type === "access");
+    submitTeamTokenAccess(rt, human, { method: "code", code: site.sudoCode });
+    await until(() => finished(rt));
+    const run = rt.automation.state("team-token");
+    expect(run.failure ?? "ok").toBe("ok");
+    expect(run.status).toBe("done");
+    expect(site.drivers[0]!.filled.get('css input[name="sudo_app_otp"]')).toBe(site.sudoCode);
+    expect(JSON.stringify(run)).not.toContain(NEW_TOKEN);
   });
 
   it("Confirm access that fails every time ends the run with a clear message", async () => {

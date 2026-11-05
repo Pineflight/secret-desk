@@ -66,8 +66,15 @@ steps:
   # Erste Bestaetigung oeffnet den Dialog dialog#fgpat-confirmation-dialog (live gesehen 2026-11-05, Knoepfe Cancel und
   # "Generate token" type=submit); erst dessen Knopf erzeugt den Token.
   - click: { role: button, name: "Generate token", createsToken: true }
-  - waitFor: { visible: { css: "#fgpat-confirmation-dialog" } }
+  # GitHub may ask "Confirm access" again at either click when the sudo window has run out since the form opened (not every
+  # time). Each confirmAccess goes on at once when its page is already there, otherwise the portal answers the prompt.
+  - confirmAccess:
+      flow: github-sudo
+      until: { visible: { css: "#fgpat-confirmation-dialog" } }
   - click: { css: "#fgpat-confirmation-dialog button[type=submit]" }
+  - confirmAccess:
+      flow: github-sudo
+      until: { visible: { css: '#new-access-token, #new-oauth-token, clipboard-copy[value^="github_pat_"], input[value^="github_pat_"]' } }
 capture:
   token:
     # UNGEPRUEFT: Element, in dem GitHub den neuen Token zeigt.
