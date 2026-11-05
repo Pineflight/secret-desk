@@ -10,7 +10,7 @@ This page is the how-to. To add a whole provider, start with [DEVELOPING-INTEGRA
 
 | Recipe | Creates | Status |
 |---|---|---|
-| `github-fine-grained-token` | GitHub fine-grained personal access token (also used for the team token, see [TEAM.md](TEAM.md)) | not verified |
+| `github-fine-grained-token` | GitHub fine-grained personal access token (also used for the team token, see [TEAM.md](TEAM.md)) | form, repository picker and confirmation dialog read live 2026-11-05 (organization owner); the token display after creation not verified |
 | `supabase-access-token` | Supabase access token | full run verified live 2026-11-03 (five scoped tokens) |
 | `openai-admin-key` | OpenAI organization Admin API key (`sk-admin-...`) on `settings/organization/admin-keys`; used by the OpenAI facade, can revoke; includes the sign-in form | key creation verified live 2026-11-03 with the signed-in browser (admin key created, stored, tested: projects readable); the sign-in form, the single-sign-on methods (email, Google, Apple, Microsoft) and revoke are not verified |
 | `grafana-cloud-access-policy` | Grafana Cloud access policy with the scopes the portal needs and a token for it (`glc_...`) on grafana.com; parameter `expiry` (`30 days`, `90 days`, `No expiry`; the facade asks for 90 days); used by the Grafana facade, can revoke; includes the sign-in form and the Google, GitHub and Microsoft buttons | **nothing verified** (every selector is a guess from memory; the status comment says so) |
