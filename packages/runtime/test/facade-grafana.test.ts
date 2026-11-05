@@ -31,39 +31,59 @@ function driverFor(site: Site): FakeDriver {
         }
         return;
       }
-      if (e.action === "click" && e.key.startsWith("link")) {
+      if (e.action === "click" && e.key === 'link "Access Policies"') {
         drv.url = "https://grafana.com/orgs/acme-org/access-policies";
-        drv.visible.add('button "Create access policy"');
+        drv.visible.add('link "New access policy" (exact)');
         return;
       }
-      if (e.action === "click" && e.key === 'button "Create access policy"') {
-        drv.visible.add('Feld "Display name"');
-        for (const scope of ["accesspolicies:read", "accesspolicies:write", "stacks:read", "accesspolicies:delete"]) drv.visible.add(`checkbox "${scope}"`);
-        drv.visible.add('button "Create"');
+      if (e.action === "click" && e.key === 'link "New access policy" (exact)') {
+        drv.url = "https://grafana.com/orgs/acme-org/access-policies/new";
+        drv.visible.add('Feld "Display name" (exact)');
+        for (const scope of ["read accesspolicies", "write accesspolicies", "delete accesspolicies"]) drv.visible.add(`checkbox "${scope}" (exact)`);
+        drv.visible.add('Text "Add scope"');
+        drv.visible.add('button "Create access policy" (exact)');
         return;
       }
-      if (e.action === "fill" && e.key === 'Feld "Display name"') return;
       if (e.action === "click" && e.key.startsWith("checkbox")) {
-        site.scopes.push(e.key.slice('checkbox "'.length, -1));
+        const m = /^checkbox "(\w+) (\S+)"/.exec(e.key);
+        if (m) site.scopes.push(`${m[2]}:${m[1]}`);
         return;
       }
-      if (e.action === "click" && e.key === 'button "Create"') {
-        site.policyName = drv.filled.get('Feld "Display name"') ?? "";
-        drv.visible.add('button "Add token"');
+      if (e.action === "click" && e.key === 'Text "Add scope"') {
+        drv.visible.add('Platzhalter "Search…"');
+        drv.visible.add('option "stacks:read"');
+        drv.visible.add('option "stack-service-accounts:write"');
         return;
       }
-      if (e.action === "click" && e.key === 'button "Add token"') {
+      if (e.action === "click" && /^option "[a-z-]+:[a-z]+"$/.test(e.key)) {
+        site.scopes.push(e.key.slice('option "'.length, -1));
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Create access policy" (exact)') {
+        site.policyName = drv.filled.get('Feld "Display name" (exact)') ?? "";
+        drv.url = "https://grafana.com/orgs/acme-org/access-policies";
+        drv.visible.add('css input[aria-label="Search access policies"]');
+        return;
+      }
+      if (e.action === "fill" && e.key === 'css input[aria-label="Search access policies"]') {
+        drv.visible.add(`heading "${site.policyName}" (exact)`);
+        drv.visible.add('button "Add token" (exact)');
+        return;
+      }
+      if (e.action === "click" && e.key === 'button "Add token" (exact)') {
         drv.visible.add('Feld "Token name"');
-        drv.visible.add('combobox "Expiration date"');
-        drv.visible.add("css [role=dialog] button:has-text('Create'), [role=dialog] button:has-text('Add')");
+        drv.visible.add('combobox "Expiration"');
+        drv.visible.add("css [role=dialog] button:has-text('Create token')");
         return;
       }
       if (e.action === "click" && e.key.startsWith("combobox")) {
-        drv.visible.add('option "90 days"');
+        drv.visible.add('option "90 days" (exact)');
         return;
       }
-      if (e.action === "click" && e.key.startsWith("css [role=dialog] button")) {
+      if (e.action === "click" && e.key === "css [role=dialog] button:has-text('Create token')") {
         site.tokenName = drv.filled.get('Feld "Token name"') ?? "";
+        const shown = "css [role=dialog] input[readonly], [role=dialog] textarea[readonly], [role=dialog] code";
+        drv.visible.add(shown);
         drv.visible.add("css [role=dialog] input[readonly]");
         drv.texts.set("css [role=dialog] input[readonly]", TOKEN);
       }
@@ -122,8 +142,8 @@ describe("facade: grafana (Cloud access policy token)", () => {
     expect(end.result).toMatchObject({ connected: true, connectionId: "grafana-cloud", storedIn: "session" });
     expect(site.policyName).toMatch(/^secret-desk-integration-\d{4}-\d{2}-\d{2}-\d{4}$/);
     expect(site.tokenName).toBe(site.policyName);
-    // Only the scopes the portal needs; the one the dialog does not offer (stack service accounts) is skipped, not invented.
-    expect(site.scopes).toEqual(["accesspolicies:read", "accesspolicies:write", "stacks:read", "accesspolicies:delete"]);
+    // Only the scopes the portal needs: three access policy checkboxes, then stacks:read and stack-service-accounts:write via "Add scope".
+    expect(site.scopes).toEqual(["accesspolicies:read", "accesspolicies:write", "accesspolicies:delete", "stacks:read", "stack-service-accounts:write"]);
     expect((await rt.connections.token("grafana-cloud")).reveal()).toBe(TOKEN);
     const status = await rt.connections.status("grafana-cloud");
     const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);

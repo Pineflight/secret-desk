@@ -1,4 +1,4 @@
-# STATUS: the first sign-in page (email first, password on the next page, SSO buttons #sso-buttons-*) was seen live on 2026-11-05; nothing else of this recipe is verified against the live site: the password page, the single sign-on buttons, the Access
+# STATUS: sign-in (email, password, one-time code) ran live on 2026-11-05; the access policy list, form and token dialog were read live the same day; nothing else of this recipe is verified against the live site: the password page, the single sign-on buttons, the Access
 # Policies page, the policy and token dialogs, the capture and revoke are all written from memory of grafana.com and every
 # selector is a guess. Each step waits for its element, so a wrong guess fails visibly instead of clicking something else. Text
 # selectors accept /pattern/flags so the page may follow the account language. Do a supervised trial with a throwaway account.
@@ -66,50 +66,62 @@ login:
         message: Grafana hat das Konto vorerst gesperrt (zu viele Versuche). Spaeter erneut versuchen.
         messageEn: Grafana has locked the account for now (too many attempts). Try again later.
 steps:
-  # /profile/org leads a signed-in user to their organization (the guide of the grafana connection says so); the organization
-  # slug is not needed, the link in the organization's navigation is followed instead. not verified: the link name.
+  # Seen live 2026-11-05 (signed in, organization with a Free plan): the organization navigation links "Access Policies"; the
+  # list page links "New access policy" to its own form page (Display name, Name, scope checkboxes named "<action> <scope>",
+  # "Add scope" opens a searchable list for further scopes, which come ticked for the chosen action), submit "Create access
+  # policy". Each policy card on the list has "Add token"; that dialog has "Token name", an "Expiration" combobox (No expiry,
+  # 30 days, 60 days, 90 days, a date) and "Create token". The page that shows the new token is not verified.
   - goto: "https://grafana.com/profile/org"
   - waitFor: { visible: { role: link, name: '/access policies/i', first: true } }
   - click: { role: link, name: '/access policies/i', first: true }
   - waitFor: { url: "/access-policies" }
-  - waitFor: { visible: { role: button, name: '/create access policy/i', first: true } }
-  - click: { role: button, name: '/create access policy/i', first: true }
-  # not verified: the dialog takes a display name; the technical name follows from it.
-  - waitFor: { visible: { label: '/display name/i' } }
-  - fill: { label: '/display name/i', value: "{{name}}" }
-  # Scopes: only what the portal needs. not verified: that the scopes are checkboxes named like the scope. The two scopes in the
-  # second block are the ones this recipe is least sure of (the delete scope for revoking tokens, and the stack service accounts
-  # scope for creating stack service accounts through the Cloud API): they are ticked when the dialog offers them.
-  - click: { role: checkbox, name: "accesspolicies:read" }
-  - click: { role: checkbox, name: "accesspolicies:write" }
-  - click: { role: checkbox, name: "stacks:read" }
-  - click: { role: checkbox, name: "accesspolicies:delete", optional: true, timeoutSeconds: 3 }
-  - click: { role: checkbox, name: "stack-service-accounts:write", optional: true, timeoutSeconds: 3 }
+  - waitFor: { visible: { role: link, name: "New access policy", exact: true } }
+  - click: { role: link, name: "New access policy", exact: true }
+  - waitFor: { visible: { label: "Display name", exact: true } }
+  - fill: { label: "Display name", exact: true, value: "{{name}}" }
+  # Scopes: only what the portal needs.
+  - click: { role: checkbox, name: "read accesspolicies", exact: true }
+  - click: { role: checkbox, name: "write accesspolicies", exact: true }
+  - click: { role: checkbox, name: "delete accesspolicies", exact: true }
+  - click: { text: "Add scope", first: true }
+  - fill: { placeholder: "Search…", value: "stacks:read" }
+  - click: { role: option, name: '/^stacks:read/', first: true }
+  - click: { text: "Add scope", first: true }
+  - fill: { placeholder: "Search…", value: "stack-service-accounts:write" }
+  - click: { role: option, name: '/^stack-service-accounts:write/', first: true }
   - screenshot: richtlinie-vorher
-  - click: { role: button, name: '/^create$/i', first: true }
-  # The new policy's page: add a token. not verified: the button, the field labels and the expiry control.
-  - waitFor: { visible: { role: button, name: '/add token/i', first: true } }
-  - click: { role: button, name: '/add token/i', first: true }
+  - click: { role: button, name: "Create access policy", exact: true }
+  # Back on the list: find the new policy by its name and add a token to it.
+  - waitFor: { visible: { css: 'input[aria-label="Search access policies"]' }, timeoutSeconds: 60 }
+  - fill: { css: 'input[aria-label="Search access policies"]', value: "{{name}}" }
+  - waitFor: { visible: { role: heading, name: "{{name}}", exact: true } }
+  - click: { role: button, name: "Add token", exact: true, first: true }
   - waitFor: { visible: { label: '/token name/i' } }
   - fill: { label: '/token name/i', value: "{{name}}" }
   - click: { role: combobox, name: '/expir/i' }
-  - click: { role: option, name: "{{expiry}}" }
+  - click: { role: option, name: "{{expiry}}", exact: true }
   - screenshot: token-vorher
-  - click: { css: "[role=dialog] button:has-text('Create'), [role=dialog] button:has-text('Add')", createsToken: true }
+  - click: { css: "[role=dialog] button:has-text('Create token')", createsToken: true }
   # The provider may ask to verify the identity (password or code) before it shows the key: answered in the portal.
   # Passes at once when the key is shown. NOT VERIFIED: no verification was seen at this provider yet.
   - confirmAccess:
       flow: generic-verify
-      until: { visible: { css: "[role=dialog] input[readonly]" } }
+      until: { visible: { css: "[role=dialog] input[readonly], [role=dialog] textarea[readonly], [role=dialog] code" } }
       timeoutSeconds: 30
-  - waitFor: { visible: { css: "[role=dialog] input[readonly]" } }
+  - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] textarea[readonly], [role=dialog] code" } }
 capture:
   token:
+    # UNGEPRUEFT: where the dialog shows the new token.
     find: { css: "[role=dialog] input[readonly]" }
+    alternatives:
+      - { find: { css: "[role=dialog] textarea[readonly]" } }
+      - { find: { css: "[role=dialog] code" } }
     pattern: "^(glc_[A-Za-z0-9_=+/-]+)$"
   externalId: { from: name }
 mask:
   - { css: "[role=dialog] input[readonly]" }
+  - { css: "[role=dialog] textarea[readonly]" }
+  - { css: "[role=dialog] code" }
 revoke:
   # not verified: the policy is found by its name (the run's name); the menu and the confirm button are guesses. Deleting the
   # policy removes its tokens with it.
