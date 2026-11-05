@@ -7,12 +7,12 @@ const key = (daysLeft: number | null, expires: string | null = null) => ({ id: "
 const card = (rest: Partial<ProviderCard> = {}): ProviderCard => ({
   id: "acme", label: "Acme", category: "other", icon: null, custom: false, status: "connected",
   signIn: { state: "facade", facade: null, recipes: [], available: true }, keys: [key(85, "2027-01-28")], byHand: [], prefixes: [],
-  browser: null, worksWithoutBrowser: false, secrets: 2, variables: 8, ...rest,
+  browser: null, worksWithoutBrowser: false, browserSignedIn: false, produces: [], secrets: 2, variables: 8, ...rest,
 });
 
 describe("collapsed card badge", () => {
-  it("is Connected for a healthy connection and Not set up without anything", () => {
-    expect(collapsedBadge(card(), { signIn: null, now: NOW })).toBe("connected");
+  it("is API connected for a healthy connection and Not set up without anything", () => {
+    expect(collapsedBadge(card(), { signIn: null, now: NOW })).toBe("api");
     expect(collapsedBadge(card({ status: "none", keys: [], secrets: 0, variables: 0 }), { signIn: null })).toBe("none");
   });
   it("is Expires soon within 14 days and Expired once past", () => {
@@ -20,7 +20,7 @@ describe("collapsed card badge", () => {
     expect(collapsedBadge(card({ keys: [key(-2)] }), { signIn: null })).toBe("expired");
   });
   it("is Ready (browser) for a fresh browser sign-in and Sign-in needed otherwise", () => {
-    expect(collapsedBadge(card({ status: "ready", keys: [] }), { signIn: null })).toBe("ready");
+    expect(collapsedBadge(card({ status: "ready", keys: [] }), { signIn: null })).toBe("browser");
     expect(collapsedBadge(card({ status: "signout", keys: [] }), { signIn: null })).toBe("signin-needed");
     expect(collapsedBadge(card({ status: "unknown", keys: [] }), { signIn: null })).toBe("signin-needed");
   });
@@ -62,5 +62,35 @@ describe("collapsed card action", () => {
   it("offers Set up only for a card that is not set up", () => {
     expect(collapsedAction({ status: "none" })).toBe("set-up");
     for (const status of ["connected", "ready", "signout", "unknown", "signin"] as const) expect(collapsedAction({ status })).toBeNull();
+  });
+});
+
+describe("collapsed card: the chip says what is ready for what", () => {
+  it("is API + browser when a key is connected and the browser is signed in", () => {
+    expect(collapsedBadge(card({ browserSignedIn: true }), { signIn: null })).toBe("api-browser");
+  });
+  it("is Browser signed in when only the browser works", () => {
+    expect(collapsedBadge(card({ status: "signin", keys: [] }), { signIn: null })).toBe("browser");
+  });
+});
+
+describe("collapsed card: the missing line", () => {
+  const stripe = (keys: ProviderCard["keys"]) => card({ id: "stripe", label: "Stripe", prefixes: ["stripe:"], keys, secrets: 0 });
+  const acct = (mode: string) => ({ ...key(85, "2027-01-28"), id: `stripe:acct_1AbC:${mode}`, label: `Stripe acct_1AbC (${mode})` });
+  it("names the mode an account still lacks", () => {
+    const m = collapsedMeta(stripe([acct("sandbox")]), { signIn: null, now: NOW });
+    expect(m).toMatchObject({ kind: "missing", problem: false, key: "providers.meta.missingMode", vars: { account: "acct_1AbC", mode: "live" } });
+  });
+  it("says nothing when every account has both modes", () => {
+    expect(collapsedMeta(stripe([acct("sandbox"), acct("live")]), { signIn: null, now: NOW })).toBeNull();
+  });
+  it("names a primary connection that is not set up while the card is in use, and counts further ones", () => {
+    const off = (id: string) => ({ ...key(null), id, label: id, connected: false });
+    const m = collapsedMeta(card({ keys: [key(85), off("stack"), off("other")], secrets: 0 }), { signIn: null, now: NOW });
+    expect(m).toMatchObject({ kind: "missing", key: "providers.meta.missingKeyMore", vars: { connection: "stack", count: 1 } });
+  });
+  it("a problem (sign-in needed, expiry) still wins over the missing line", () => {
+    const m = collapsedMeta(stripe([{ ...acct("sandbox"), daysLeft: 3, level: "critical" }]), { signIn: null, now: NOW });
+    expect(m?.kind).toBe("expiry");
   });
 });

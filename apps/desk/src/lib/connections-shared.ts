@@ -1,4 +1,4 @@
-import type { ProviderCard } from "./provider-cards";
+import { connectionInfo, type ProviderCard } from "./provider-cards";
 
 export interface Connection {
   id: string;
@@ -43,4 +43,16 @@ export function signInSentence(card: ProviderCard, t: (k: string, v?: Record<str
   if (s.state === "facade") return t(s.facade && s.facade.id === "stripe" ? "providers.signIn.facadeScoped" : s.facade && s.facade.id === "grafana" ? "providers.signIn.facadeGrafana" : "providers.signIn.facade");
   if (s.state === "recipe") return t(s.available ? "providers.signIn.recipe" : "providers.signIn.recipeOff", { name: card.label });
   return t("providers.signIn.coming", { name: card.label });
+}
+
+/** The name of a connection in words: its label, or for a connection that only carries its id the kind of key it is. */
+export function connectionLabel(c: Pick<Connection, "id" | "label">, t: (k: string) => string): string {
+  if (c.label && c.label !== c.id) return c.label;
+  const info = connectionInfo(c.id);
+  return info ? t(info.name) : NAMES[c.id] || c.id;
+}
+
+/** Heading of the browser sign-in section: what the sign-in is for (it creates the API key, or values without an API). */
+export function signInHeadingKey(card: Pick<ProviderCard, "signIn">): string {
+  return card.signIn.state === "facade" ? "providers.way.signInFacade" : "providers.way.signInRecipe";
 }

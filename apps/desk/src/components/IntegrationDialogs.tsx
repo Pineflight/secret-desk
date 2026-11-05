@@ -9,14 +9,14 @@ import { FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderTile, usePurpose } from "@/components/ProviderCards";
 import { RecipeSignInFlow } from "@/components/RecipeSignIn";
 import { recipeSignInSubject, type FacadeInfo } from "@/lib/facade";
-import { cardMatches, connectionPurposeKey, detailKeys, dialogHeading, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
+import { cardMatches, connectionPurposeKey, detailKeys, dialogHeading, stripeAccounts, type AccountBlock, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { stripePrefixMismatch } from "@/lib/connection-health";
 import { useMutation } from "@/lib/hooks";
 import { useToast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
-import { labelOf, signInSentence, type Connection, type Provider } from "@/lib/connections-shared";
+import { connectionLabel, labelOf, signInHeadingKey, signInSentence, type Connection, type Provider } from "@/lib/connections-shared";
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -47,7 +47,7 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
     // A view about one of several connections is titled with that connection, not the vendor (Grafana: stack vs. account token).
     const heading = dialogHeading(card, sub);
     return (
-      <Dialog title={heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl">
+      <Dialog title={heading.titleKey ? t(heading.titleKey, { name: heading.title, key: heading.nameKey ? t(heading.nameKey) : "" }) : heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl">
         <button type="button" onClick={() => (sub ? setSub(null) : setVendor(null))} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{sub ? t("connections.back") : t("providers.back")}</button>
         <VendorDetail card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={() => onChanged(card.id, null)} onSignedIn={() => onChanged(card.id, initial.renewal ? "renewal" : "reconnect")} onDone={onClose} />
       </Dialog>
@@ -73,6 +73,37 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
 }
 
 type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | { kind: "signin"; portal?: string | null; inputs?: Record<string, string> };
+
+const MODE_TEXT: Record<"sandbox" | "live", string> = { sandbox: "providers.mode.sandbox", live: "providers.mode.live" };
+
+/** The accounts of a per-account vendor (Stripe) in the dialog: per account one row per mode, connected or what is missing. */
+function AccountBlocks({ blocks, canConnect, onConnect }: { blocks: AccountBlock[]; canConnect: boolean; onConnect: (accountId: string, mode: "sandbox" | "live") => void }) {
+  const t = useT();
+  return (
+    <ul className="mt-3 space-y-2">
+      {blocks.map((b) => (
+        <li key={b.accountId} className="rounded-xl border border-line p-3">
+          <p className="text-sm font-medium">{t("providers.account.title", { account: b.account })}</p>
+          <p className="text-xs text-muted">{t("providers.account.hint")}</p>
+          <ul className="mt-2 divide-y divide-line rounded-lg border border-line">
+            {(["sandbox", "live"] as const).map((mode) => {
+              const l = b.modes[mode];
+              return (
+                <li key={mode} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span className="flex flex-wrap items-center gap-2 text-sm">
+                    <Pill>{t(MODE_TEXT[mode])}</Pill>
+                    <span className="text-muted">{l ? t("providers.account.keyConnected") : t("providers.account.missing", { mode: t(MODE_TEXT[mode]) })}</span>
+                  </span>
+                  {l ? <Badge info={{ label: t("connections.connected"), tone: "success", icon: "check" }} /> : <Button disabled={!canConnect} aria-label={t("providers.account.connectModeLabel", { account: b.account, mode: t(MODE_TEXT[mode]) })} onClick={() => onConnect(b.accountId, mode)}>{t("providers.account.connectMode", { mode: t(MODE_TEXT[mode]) })}</Button>}
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** A provider's ways in, each with one plain sentence. */
 function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, onSignedIn, onDone }: { card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onSignedIn: () => void; onDone: () => void }) {
@@ -106,7 +137,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
       <h3 className="sr-only">{t("providers.ways")}</h3>
       {card.signIn.state !== "none" ? (
         <section aria-labelledby={`way-signin-${card.id}`} className="rounded-xl border border-line p-4">
-          <h4 id={`way-signin-${card.id}`} className="font-medium">{t("providers.way.signIn")}</h4>
+          <h4 id={`way-signin-${card.id}`} className="font-medium">{t(signInHeadingKey(card))}</h4>
           <p className="mt-1 text-muted">{signInSentence(card, t)}</p>
           {card.signIn.recipes.length > 0 ? <p className="mt-1 text-xs text-muted">{t("providers.signIn.recipes", { names: card.signIn.recipes.map((r) => r.label).join(", ") })}</p> : null}
           {facade ? (
@@ -123,14 +154,15 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
         </section>
       ) : null}
       <section aria-labelledby={`way-keys-${card.id}`} className="rounded-xl border border-line p-4">
-        <h4 id={`way-keys-${card.id}`} className="font-medium">{t("providers.way.keys")}</h4>
+        <h4 id={`way-keys-${card.id}`} className="font-medium">{t("providers.way.keysFor")}</h4>
         <p className="mt-1 text-muted">{card.signIn.facade ? t(keys.some((k) => k.action === "paste") ? "providers.keys.hintFacadeMixed" : "providers.keys.hintFacade") : t("providers.keys.hint", { name: card.label })}</p>
+        {card.prefixes.length > 0 && stripeAccounts(card).length > 0 ? <AccountBlocks blocks={stripeAccounts(card)} canConnect={facade !== undefined && facade.available} onConnect={(account, mode) => setSub({ kind: "signin", inputs: { account, mode } })} /> : null}
         {keys.length === 0 ? <p className="mt-2 text-xs text-muted">{t("providers.keys.none")}</p> : (
           <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
-            {keys.map((k) => (
+            {keys.filter((k) => !card.prefixes.some((p) => k.id.startsWith(p))).map((k) => (
               <li key={k.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                 <span className="min-w-0">
-                  <span className="text-sm font-medium">{k.label}</span>
+                  <span className="text-sm font-medium">{connectionLabel(k, t)}</span>
                   {k.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}
                   {k.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}
                   {connectionPurposeKey(k.id) ? <span className="mt-0.5 block text-xs text-muted">{t(connectionPurposeKey(k.id)!)}</span> : null}
@@ -148,7 +180,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
       </section>
       {card.byHand.length > 0 ? (
         <section aria-labelledby={`way-hand-${card.id}`} className="rounded-xl border border-line p-4">
-          <h4 id={`way-hand-${card.id}`} className="font-medium">{t("providers.way.byHand")}</h4>
+          <h4 id={`way-hand-${card.id}`} className="font-medium">{t("providers.way.byHandFor")}</h4>
           <p className="mt-1 text-muted">{t("providers.byHand.hint")}</p>
           <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
             {card.byHand.map((p) => (

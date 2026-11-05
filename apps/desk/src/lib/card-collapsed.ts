@@ -1,5 +1,5 @@
 import type { ExpiryLevel } from "./connection-health";
-import { managedExpiry, type CardStatus, type ProviderCard } from "./provider-cards";
+import { capabilityOf, managedExpiry, missingKeys, type CardStatus, type ProviderCard } from "./provider-cards";
 import type { SignInStatus } from "./sign-in-check";
 
 /**
@@ -10,7 +10,11 @@ import type { SignInStatus } from "./sign-in-check";
 /** Days after which a key counts as "expires soon" (same limit as the expiry traffic light). */
 export const EXPIRY_WARN_DAYS = 14;
 
-export type BadgeKind = "connected" | "ready" | "signin-needed" | "none" | "expiring" | "expired";
+/**
+ * `api`: a key is connected (secret-desk uses the provider API); `browser`: only the remote browser is signed in (recipes);
+ * `api-browser`: both. The chip says what is ready for what, not just "connected".
+ */
+export type BadgeKind = "api" | "api-browser" | "browser" | "signin-needed" | "none" | "expiring" | "expired";
 
 export interface CollapsedInput {
   /** The sign-in state of the card as a whole (the last check in this page session), or null. */
@@ -39,10 +43,11 @@ export function collapsedBadge(card: ProviderCard, input: CollapsedInput): Badge
   const level = managedExpiry(card)?.level;
   if (level === "expired") return "expired";
   if (problemExpiry(level)) return "expiring";
-  return status === "connected" ? "connected" : "ready";
+  const c = capabilityOf(card);
+  return c.api ? (c.browser ? "api-browser" : "api") : "browser";
 }
 
-export type MetaKind = "test-failed" | "signin-needed" | "expiry" | "valid";
+export type MetaKind = "test-failed" | "signin-needed" | "expiry" | "missing" | "valid";
 
 export interface CollapsedMeta {
   kind: MetaKind;
@@ -69,6 +74,14 @@ export function collapsedMeta(card: ProviderCard, input: CollapsedInput): Collap
   if (signInNeeded(card, input.signIn)) return { kind: "signin-needed", problem: true, key: "providers.meta.signInNeeded", vars: { name: card.label } };
   if (expiry && problemExpiry(expiry.level) && expiry.daysLeft <= EXPIRY_WARN_DAYS) {
     return { kind: "expiry", problem: true, key: expiry.level === "expired" ? "providers.meta.expired" : "providers.meta.expiresSoon", vars: {}, date: dayOf(expiry, now), days: expiry.daysLeft };
+  }
+  const missing = card.status === "none" ? [] : missingKeys(card);
+  if (missing.length > 0) {
+    const m = missing[0]!;
+    const more = missing.length - 1;
+    return m.kind === "mode"
+      ? { kind: "missing", problem: false, key: more > 0 ? "providers.meta.missingModeMore" : "providers.meta.missingMode", vars: { account: m.account, mode: m.mode, count: more } }
+      : { kind: "missing", problem: false, key: more > 0 ? "providers.meta.missingKeyMore" : "providers.meta.missingKey", vars: { key: m.label, connection: m.id, count: more } };
   }
   if (card.status === "none" && card.secrets === 0) return null;
   if (card.secrets > 0 && expiry) return { kind: "valid", problem: false, key: "providers.meta.secretsUntil", vars: { count: card.secrets }, date: dayOf(expiry, now), days: expiry.daysLeft };

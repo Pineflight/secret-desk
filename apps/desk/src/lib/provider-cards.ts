@@ -71,6 +71,8 @@ export interface FacadeRow {
 }
 export interface SecretRow {
   vendor: string | null;
+  /** Provider definition that creates the value (`stripe-webhook-secret`), for the card's "creates for your entries" line. */
+  provider?: string;
   /** The entry's value is created by a browser recipe. */
   browser?: boolean;
   daysLeft?: number | null;
@@ -161,8 +163,18 @@ export interface ProviderCard {
   browser: BrowserWay | null;
   /** An API connection exists, so keys are issued without any browser sign-in. Only for providers with a guided sign-in. */
   worksWithoutBrowser: boolean;
+  /** The remote browser is known to be signed in at the provider (a fresh check, or a check in this page session said yes). */
+  browserSignedIn: boolean;
+  /** What secret-desk creates for the inventory entries of this provider: one row per provider definition, most entries first. */
+  produces: ProducedRow[];
   secrets: number;
   variables: number;
+}
+
+export interface ProducedRow {
+  provider: string;
+  label: string;
+  count: number;
 }
 
 export interface CardInput {
@@ -185,6 +197,13 @@ export interface CardInput {
   now?: Date;
   /** Browser automation is on. Without it no recipe is usable. */
   automationEnabled?: boolean;
+}
+
+/** Counts the entries per provider definition, labelled with the definition's name (its id when it is not in the list). */
+export function producedRows(secrets: readonly SecretRow[], providers: readonly ProviderRow[]): ProducedRow[] {
+  const counts = new Map<string, number>();
+  for (const s of secrets) if (s.provider) counts.set(s.provider, (counts.get(s.provider) ?? 0) + 1);
+  return [...counts].map(([provider, count]) => ({ provider, label: providers.find((p) => p.id === provider)?.label ?? provider, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 const ROLE_ORDER: Record<ConnectionRole, number> = { primary: 0, optional: 1, legacy: 2 };
@@ -231,6 +250,8 @@ export function buildCards(input: CardInput): ProviderCard[] {
       prefixes: [...v.connectionPrefixes],
       browser,
       worksWithoutBrowser: state === "facade" && (keys.some((k) => k.connected) || facade?.connected === true),
+      browserSignedIn: browser?.readiness.state === "ready" || (input.signedIn?.has(v.id) ?? false),
+      produces: producedRows((input.secrets ?? []).filter((s) => s.vendor === v.id), input.providers),
       secrets: (input.secrets ?? []).filter((s) => s.vendor === v.id).length,
       variables: (input.variables ?? []).filter((x) => x.from && connVendor.get(x.from.connection) === v.id).length,
     });
@@ -289,6 +310,8 @@ function customCard(id: string, label: string, keys: KeyRow[], byHand: ProviderR
     prefixes: [],
     browser: null,
     worksWithoutBrowser: false,
+    browserSignedIn: false,
+    produces: [],
     secrets: 0,
     variables: 0,
   };
@@ -551,25 +574,51 @@ export function lineExpiry(line: Pick<AccountLine, "expires" | "daysLeft">, t: T
 }
 
 /**
- * Catalog keys of the one-line purpose of a connection, for vendors whose card holds more than one connection. The line says
- * what the connection is for and what depends on it, so two rows with almost the same name can be told apart.
+ * What a connection is, in plain words: a short name (what kind of key: API key, admin key, access policy token, restricted
+ * key) and one line on what secret-desk does with it and what depends on it. Keyed by connection id; ids under a connection
+ * prefix (`stripe:<account>:<mode>`) by the prefix. Every vendor in the catalog has its connections here.
  */
-export const CONNECTION_PURPOSES: Readonly<Record<string, string>> = {
-  grafana: "connectionPurpose.grafana",
-  "grafana-cloud": "connectionPurpose.grafanaCloud",
-  cloudflare: "connectionPurpose.cloudflare",
-  "cloudflare-turnstile": "connectionPurpose.cloudflareTurnstile",
+export const CONNECTION_INFO: Readonly<Record<string, { name: string; purpose: string }>> = {
+  github: { name: "connectionName.github", purpose: "connectionPurpose.github" },
+  "team-sync": { name: "connectionName.teamSync", purpose: "connectionPurpose.teamSync" },
+  "github-app-key": { name: "connectionName.githubAppKey", purpose: "connectionPurpose.githubAppKey" },
+  cloudflare: { name: "connectionName.cloudflare", purpose: "connectionPurpose.cloudflare" },
+  "cloudflare-turnstile": { name: "connectionName.cloudflareTurnstile", purpose: "connectionPurpose.cloudflareTurnstile" },
+  supabase: { name: "connectionName.supabase", purpose: "connectionPurpose.supabase" },
+  "stripe:": { name: "connectionName.stripeAccount", purpose: "connectionPurpose.stripeAccount" },
+  stripe: { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
+  "stripe-test": { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
+  "stripe-live": { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
+  revenuecat: { name: "connectionName.revenuecat", purpose: "connectionPurpose.revenuecat" },
+  resend: { name: "connectionName.resend", purpose: "connectionPurpose.resend" },
+  grafana: { name: "connectionName.grafana", purpose: "connectionPurpose.grafana" },
+  "grafana-cloud": { name: "connectionName.grafanaCloud", purpose: "connectionPurpose.grafanaCloud" },
+  openai: { name: "connectionName.openai", purpose: "connectionPurpose.openai" },
+  anthropic: { name: "connectionName.anthropic", purpose: "connectionPurpose.anthropic" },
 };
 
-/** Catalog key of a connection's purpose line, or null when the connection has none (its vendor's purpose says enough). */
-export const connectionPurposeKey = (id: string): string | null => CONNECTION_PURPOSES[id] ?? null;
+/** The plain-words entry of a connection (also for per-account ids under a prefix), or null for an unknown connection. */
+export function connectionInfo(id: string): { name: string; purpose: string } | null {
+  const direct = CONNECTION_INFO[id];
+  if (direct) return direct;
+  const prefix = Object.keys(CONNECTION_INFO).find((k) => k.endsWith(":") && id.startsWith(k));
+  return prefix ? CONNECTION_INFO[prefix]! : null;
+}
+
+/** Catalog key of a connection's purpose line, or null when the connection is not known. */
+export const connectionPurposeKey = (id: string): string | null => connectionInfo(id)?.purpose ?? null;
 
 /** The card holds more than one current connection (legacy ones do not count), so a dialog must name the one it is about. */
 export const hasSeveralConnections = (card: Pick<ProviderCard, "keys">): boolean => card.keys.filter((k) => k.role !== "legacy").length > 1;
 
-/** What the integration dialog shows in its header. `purposeKey` null: the vendor's own purpose line. */
+/**
+ * What the integration dialog shows in its header. `title` is shown as is unless `titleKey` is set, then `t(titleKey, { name:
+ * title, key: t(nameKey) })`. `purposeKey` null: the vendor's own purpose line.
+ */
 export interface DialogHeading {
   title: string;
+  titleKey: string | null;
+  nameKey: string | null;
   purposeKey: string | null;
 }
 
@@ -577,16 +626,95 @@ export interface DialogHeading {
 export type DialogSubject = null | { kind: "key"; id: string } | { kind: "signin" } | { kind: "hand"; id: string };
 
 /**
- * Header of the integration dialog. For a vendor with several connections (Grafana: stack token and account token) a view about
- * one connection (pasting its key, or the guided sign-in that creates it) is titled with that connection and its purpose, not the
- * vendor's: otherwise the account sign-in looks like the stack flow. A sign-in that picks its connection itself (Stripe: per
- * account and mode) keeps the vendor header, as do the overview and vendors with a single connection.
+ * Header of the integration dialog: it names what is being set up, not the vendor's general purpose. A view about one connection
+ * (pasting its key, or the guided sign-in that creates it) reads "<vendor> – <kind of key>" with that key's purpose, e.g. "Grafana
+ * Cloud – Konto-Token" or "Stripe – eingeschränkter Schlüssel je Konto und Modus". A browser-only sign-in (recipes) reads
+ * "<vendor> – Browser-Anmeldung". The overview, a by-hand provider and an unknown connection keep the vendor header.
  */
 export function dialogHeading(card: Pick<ProviderCard, "label" | "keys" | "signIn" | "prefixes">, sub: DialogSubject): DialogHeading {
-  const vendor: DialogHeading = { title: card.label, purposeKey: null };
-  if (!sub || sub.kind === "hand" || !hasSeveralConnections(card)) return vendor;
+  const vendor: DialogHeading = { title: card.label, titleKey: null, nameKey: null, purposeKey: null };
+  if (!sub || sub.kind === "hand") return vendor;
   const facade = card.signIn.facade;
-  const id = sub.kind === "key" ? sub.id : facade && card.prefixes.length === 0 ? facade.connectionId : null;
-  const row = id ? card.keys.find((k) => k.id === id) : undefined;
-  return row ? { title: row.label, purposeKey: connectionPurposeKey(row.id) } : vendor;
+  if (sub.kind === "signin" && !facade) return card.signIn.state === "recipe" ? { title: card.label, titleKey: "providers.dialog.titleBrowser", nameKey: null, purposeKey: "providers.dialog.purposeBrowser" } : vendor;
+  const id = sub.kind === "key" ? sub.id : facade!.connectionId;
+  // A sign-in that picks its connection itself (Stripe: account and mode) is about the kind under the prefix.
+  const info = sub.kind === "signin" && card.prefixes.length > 0 ? connectionInfo(card.prefixes[0]!) : connectionInfo(id);
+  if (!info) {
+    const row = card.keys.find((k) => k.id === id);
+    return row && hasSeveralConnections(card) ? { ...vendor, title: row.label } : vendor;
+  }
+  return { title: card.label, titleKey: "providers.dialog.titleKey", nameKey: info.name, purposeKey: info.purpose };
+}
+
+/** A key the card still lacks: an account without one of its modes, or a primary connection that is not set up. */
+export type MissingKey = { kind: "mode"; account: string; accountId: string; mode: "sandbox" | "live" } | { kind: "connection"; id: string; label: string };
+
+/**
+ * What the card still lacks, for the "Missing: …" line. For a vendor with keys per account and mode (Stripe) every connected
+ * account should have both modes. For other vendors a primary connection that is not connected is missing once the card is in
+ * use (some key connected or browser signed in) or has a guided sign-in (its key is what makes it work).
+ */
+export function missingKeys(card: Pick<ProviderCard, "keys" | "prefixes" | "label" | "signIn" | "status">): MissingKey[] {
+  if (card.prefixes.length > 0) {
+    const out: MissingKey[] = [];
+    for (const a of stripeAccounts(card)) {
+      for (const mode of ["sandbox", "live"] as const) if (!a.modes[mode]) out.push({ kind: "mode", account: a.account, accountId: a.accountId, mode });
+    }
+    return out;
+  }
+  const inUse = card.status !== "none" || card.signIn.state === "facade";
+  if (!inUse) return [];
+  const facadeId = card.signIn.facade?.connectionId;
+  return card.keys
+    .filter((k) => !k.connected && (k.role === "primary" || k.id === facadeId))
+    .map((k) => ({ kind: "connection" as const, id: k.id, label: k.label }));
+}
+
+/** One account of a per-account vendor with its key per mode (null: that mode has no key yet). */
+export interface AccountBlock {
+  account: string;
+  accountId: string;
+  modes: { sandbox: AccountLine | null; live: AccountLine | null };
+  /** Lines with a mode other than sandbox/live (kept, shown after the two). */
+  other: AccountLine[];
+}
+
+/** The per-account lines grouped by account: one block each, sandbox and live side by side, in the order of the lines. */
+export function stripeAccounts(card: Pick<ProviderCard, "keys" | "prefixes" | "label">): AccountBlock[] {
+  const blocks: AccountBlock[] = [];
+  for (const l of connectionLines(card).accounts) {
+    let b = blocks.find((x) => x.accountId === l.accountId);
+    if (!b) {
+      b = { account: l.account, accountId: l.accountId, modes: { sandbox: null, live: null }, other: [] };
+      blocks.push(b);
+    }
+    const mode = l.mode === "test" ? "sandbox" : l.mode;
+    if (mode === "sandbox" || mode === "live") b.modes[mode] = l;
+    else b.other.push(l);
+  }
+  return blocks;
+}
+
+/**
+ * What a card can do now. `api`: a key is connected, secret-desk calls the provider's API. `browser`: the remote browser is
+ * signed in, recipes can create values that have no API.
+ */
+export interface Capability {
+  api: boolean;
+  browser: boolean;
+}
+export const capabilityOf = (card: Pick<ProviderCard, "keys" | "signIn" | "browserSignedIn" | "status">): Capability => ({
+  api: card.keys.some((k) => k.connected) || card.signIn.facade?.connected === true,
+  browser: card.browserSignedIn || card.status === "ready" || card.status === "signin",
+});
+
+/** Catalog key of the status chip: it says what is ready for what. */
+export function capabilityLabelKey(card: Pick<ProviderCard, "keys" | "signIn" | "browserSignedIn" | "status">): string {
+  const c = capabilityOf(card);
+  if (c.api && c.browser) return "providers.status.apiBrowser";
+  if (c.api) return "providers.status.api";
+  if (c.browser) return "providers.status.browser";
+  if (card.status === "signout") return "providers.status.signout";
+  if (card.status === "unknown") return "providers.status.unknown";
+  return "providers.status.none";
 }

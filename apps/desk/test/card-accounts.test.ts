@@ -159,7 +159,7 @@ describe("a queued check is a status, not a button label", () => {
 
 describe("catalogs", () => {
   it("define every new key in German and English", () => {
-    const keys = ["providers.mode.sandbox", "providers.mode.live", "providers.page.facadesFailed", "providers.card.hostWaiting", "providers.card.hostChecking", "providers.card.browserNeverExpires", ...["connected", "testOk", "testProblems", "test", "testLabel", "reconnect", "reconnectLabel", "remove", "removeLabel", "details", "connect", "connectAnother"].map((k) => `providers.line.${k}`)];
+    const keys = ["providers.mode.sandbox", "providers.mode.live", "providers.page.facadesFailed", "providers.card.hostWaiting", "providers.card.hostChecking", "providers.card.browserNeverExpires", ...["title", "hint", "missing", "connectMode", "connectModeLabel", "keyConnected", "legacyTitle.one", "legacyTitle.other"].map((k) => `providers.account.${k}`), ...["testOk", "testProblems", "test", "testLabel", "reconnect", "reconnectLabel", "remove", "removeLabel", "details", "connect", "connectAnother"].map((k) => `providers.line.${k}`)];
     for (const k of keys) {
       expect(messages.en[k], k).toBeTruthy();
       expect(messages.de[k], k).toBeTruthy();
