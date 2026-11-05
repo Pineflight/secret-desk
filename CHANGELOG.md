@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Real marks for OpenAI, Peecho and VesselAPI:** the hand-kept icons now use the marks supplied by the repository owner instead of drawn placeholders: OpenAI's single-path SVG unchanged, Peecho's penguin and VesselAPI's ship emblem traced from the supplied raster files into one monochrome path each. Docs and screenshots follow.
 - **Denser rows on the entries page:** name and description share the first line (description cut with an ellipsis, full text in the tooltip and on the detail page), id and tags share the second; rows are about 50 px high from 1280 px up (below 1700 px kind, value and targets move into the first column or shrink); place chips stay on one line, cut with an ellipsis, show at most two places plus "+N" and carry the full text in a tooltip.
 
 ### Fixed
