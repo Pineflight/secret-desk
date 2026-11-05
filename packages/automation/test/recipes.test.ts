@@ -47,7 +47,7 @@ describe("bundled recipes", () => {
     expect(pattern.test("glsa_stack_token_0000")).toBe(false);
     expect(r.revoke?.steps.length).toBeGreaterThan(0);
     expect(r.mask.length).toBeGreaterThan(0);
-    expect((await readFile(join(RECIPES, "grafana-cloud-access-policy.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: nothing of this recipe is verified/);
+    expect((await readFile(join(RECIPES, "grafana-cloud-access-policy.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: .*nothing else of this recipe is verified/);
   });
   it("anthropic-admin-key has a passwordless email sign-in with a code step, a Google button, and captures only an admin key", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-admin-key")!;
