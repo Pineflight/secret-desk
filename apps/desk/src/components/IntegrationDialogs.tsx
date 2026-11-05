@@ -77,9 +77,11 @@ type Sub = null | { kind: "key"; id: string } | { kind: "hand"; id: string } | {
 const MODE_TEXT: Record<"sandbox" | "live", string> = { sandbox: "providers.mode.sandbox", live: "providers.mode.live" };
 
 /** The accounts of a per-account vendor (Stripe) in the dialog: per account one row per mode, connected or what is missing. */
-function AccountBlocks({ blocks, canConnect, onConnect }: { blocks: AccountBlock[]; canConnect: boolean; onConnect: (accountId: string, mode: "sandbox" | "live") => void }) {
+function AccountBlocks({ blocks, canConnect, unavailable, onConnect }: { blocks: AccountBlock[]; canConnect: boolean; unavailable: string | null; onConnect: (accountId: string, mode: "sandbox" | "live") => void }) {
   const t = useT();
   return (
+    <>
+    {unavailable ? <p className="mt-3 text-xs text-warn-text" role="status">{unavailable}</p> : null}
     <ul className="mt-3 space-y-2">
       {blocks.map((b) => (
         <li key={b.accountId} className="rounded-xl border border-line p-3">
@@ -102,6 +104,7 @@ function AccountBlocks({ blocks, canConnect, onConnect }: { blocks: AccountBlock
         </li>
       ))}
     </ul>
+    </>
   );
 }
 
@@ -156,7 +159,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
       <section aria-labelledby={`way-keys-${card.id}`} className="rounded-xl border border-line p-4">
         <h4 id={`way-keys-${card.id}`} className="font-medium">{t("providers.way.keysFor")}</h4>
         <p className="mt-1 text-muted">{card.signIn.facade ? t(keys.some((k) => k.action === "paste") ? "providers.keys.hintFacadeMixed" : "providers.keys.hintFacade") : t("providers.keys.hint", { name: card.label })}</p>
-        {card.prefixes.length > 0 && stripeAccounts(card).length > 0 ? <AccountBlocks blocks={stripeAccounts(card)} canConnect={facade !== undefined && facade.available} onConnect={(account, mode) => setSub({ kind: "signin", inputs: { account, mode } })} /> : null}
+        {card.prefixes.length > 0 && stripeAccounts(card).length > 0 ? <AccountBlocks blocks={stripeAccounts(card)} canConnect={facade !== undefined && facade.available} unavailable={facade && !facade.available ? t("facade.unavailable", { reason: facade.reason ?? "" }) : null} onConnect={(account, mode) => setSub({ kind: "signin", inputs: { account, mode } })} /> : null}
         {keys.length === 0 ? <p className="mt-2 text-xs text-muted">{t("providers.keys.none")}</p> : (
           <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
             {keys.filter((k) => !card.prefixes.some((p) => k.id.startsWith(p))).map((k) => (

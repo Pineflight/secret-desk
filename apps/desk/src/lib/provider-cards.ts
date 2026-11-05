@@ -199,11 +199,15 @@ export interface CardInput {
   automationEnabled?: boolean;
 }
 
-/** Counts the entries per provider definition, labelled with the definition's name (its id when it is not in the list). */
+/** Counts the entries per provider definition that secret-desk issues, labelled with the definition's name. */
 export function producedRows(secrets: readonly SecretRow[], providers: readonly ProviderRow[]): ProducedRow[] {
   const counts = new Map<string, number>();
   for (const s of secrets) if (s.provider) counts.set(s.provider, (counts.get(s.provider) ?? 0) + 1);
-  return [...counts].map(([provider, count]) => ({ provider, label: providers.find((p) => p.id === provider)?.label ?? provider, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  // Only definitions secret-desk issues itself: a by-hand definition (a value only a human can create) or an unknown one is left out.
+  return [...counts].flatMap(([provider, count]) => {
+    const def = providers.find((p) => p.id === provider);
+    return def && def.kind !== "manual" ? [{ provider, label: def.label, count }] : [];
+  }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 const ROLE_ORDER: Record<ConnectionRole, number> = { primary: 0, optional: 1, legacy: 2 };
@@ -578,27 +582,27 @@ export function lineExpiry(line: Pick<AccountLine, "expires" | "daysLeft">, t: T
  * key) and one line on what secret-desk does with it and what depends on it. Keyed by connection id; ids under a connection
  * prefix (`stripe:<account>:<mode>`) by the prefix. Every vendor in the catalog has its connections here.
  */
-export const CONNECTION_INFO: Readonly<Record<string, { name: string; purpose: string }>> = {
-  github: { name: "connectionName.github", purpose: "connectionPurpose.github" },
+export const CONNECTION_INFO: Readonly<Record<string, { name: string; purpose: string; required?: true }>> = {
+  github: { name: "connectionName.github", purpose: "connectionPurpose.github", required: true },
   "team-sync": { name: "connectionName.teamSync", purpose: "connectionPurpose.teamSync" },
   "github-app-key": { name: "connectionName.githubAppKey", purpose: "connectionPurpose.githubAppKey" },
-  cloudflare: { name: "connectionName.cloudflare", purpose: "connectionPurpose.cloudflare" },
+  cloudflare: { name: "connectionName.cloudflare", purpose: "connectionPurpose.cloudflare", required: true },
   "cloudflare-turnstile": { name: "connectionName.cloudflareTurnstile", purpose: "connectionPurpose.cloudflareTurnstile" },
-  supabase: { name: "connectionName.supabase", purpose: "connectionPurpose.supabase" },
+  supabase: { name: "connectionName.supabase", purpose: "connectionPurpose.supabase", required: true },
   "stripe:": { name: "connectionName.stripeAccount", purpose: "connectionPurpose.stripeAccount" },
   stripe: { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
   "stripe-test": { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
   "stripe-live": { name: "connectionName.stripeLegacy", purpose: "connectionPurpose.stripeLegacy" },
-  revenuecat: { name: "connectionName.revenuecat", purpose: "connectionPurpose.revenuecat" },
-  resend: { name: "connectionName.resend", purpose: "connectionPurpose.resend" },
-  grafana: { name: "connectionName.grafana", purpose: "connectionPurpose.grafana" },
+  revenuecat: { name: "connectionName.revenuecat", purpose: "connectionPurpose.revenuecat", required: true },
+  resend: { name: "connectionName.resend", purpose: "connectionPurpose.resend", required: true },
+  grafana: { name: "connectionName.grafana", purpose: "connectionPurpose.grafana", required: true },
   "grafana-cloud": { name: "connectionName.grafanaCloud", purpose: "connectionPurpose.grafanaCloud" },
-  openai: { name: "connectionName.openai", purpose: "connectionPurpose.openai" },
+  openai: { name: "connectionName.openai", purpose: "connectionPurpose.openai", required: true },
   anthropic: { name: "connectionName.anthropic", purpose: "connectionPurpose.anthropic" },
 };
 
 /** The plain-words entry of a connection (also for per-account ids under a prefix), or null for an unknown connection. */
-export function connectionInfo(id: string): { name: string; purpose: string } | null {
+export function connectionInfo(id: string): { name: string; purpose: string; required?: true } | null {
   const direct = CONNECTION_INFO[id];
   if (direct) return direct;
   const prefix = Object.keys(CONNECTION_INFO).find((k) => k.endsWith(":") && id.startsWith(k));
@@ -651,8 +655,9 @@ export type MissingKey = { kind: "mode"; account: string; accountId: string; mod
 
 /**
  * What the card still lacks, for the "Missing: …" line. For a vendor with keys per account and mode (Stripe) every connected
- * account should have both modes. For other vendors a primary connection that is not connected is missing once the card is in
- * use (some key connected or browser signed in) or has a guided sign-in (its key is what makes it work).
+ * account should have both modes. For other vendors a connection marked `required` in CONNECTION_INFO that is not connected is
+ * missing once the card is in use (some key connected or browser signed in) or has a guided sign-in. Optional keys (the team
+ * repository token, the GitHub App key, the Anthropic admin key, the Grafana account token) are never reported as missing.
  */
 export function missingKeys(card: Pick<ProviderCard, "keys" | "prefixes" | "label" | "signIn" | "status">): MissingKey[] {
   if (card.prefixes.length > 0) {
@@ -664,9 +669,8 @@ export function missingKeys(card: Pick<ProviderCard, "keys" | "prefixes" | "labe
   }
   const inUse = card.status !== "none" || card.signIn.state === "facade";
   if (!inUse) return [];
-  const facadeId = card.signIn.facade?.connectionId;
   return card.keys
-    .filter((k) => !k.connected && (k.role === "primary" || k.id === facadeId))
+    .filter((k) => !k.connected && k.role !== "legacy" && connectionInfo(k.id)?.required === true)
     .map((k) => ({ kind: "connection" as const, id: k.id, label: k.label }));
 }
 

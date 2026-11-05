@@ -383,9 +383,13 @@ describe("stripeAccounts and missingKeys", () => {
     const i = { ...input, connections: input.connections.filter((c) => c.id !== "stripe:acct_1AbC:live") };
     expect(missingKeys(card("stripe", i))).toEqual([{ kind: "mode", account: "acct_1AbC", accountId: "acct_1AbC", mode: "live" }]);
   });
-  it("lists the guided sign-in's key while it is missing, even before anything is connected", () => {
-    const one = buildCards({ catalog: { ...catalog, vendors: [v("aico", "AI Co", "code", { connections: ["aico"] })] }, connections: [conn("aico", "aico", "primary", false)], providers: [], recipes: [], facades: [{ id: "aico", label: "AI Co", available: true, connected: false, reason: null, connectionId: "aico" }] })[0]!;
-    expect(missingKeys(one)).toEqual([{ kind: "connection", id: "aico", label: "aico" }]);
+  it("lists a required guided sign-in key while it is missing, even before anything is connected", () => {
+    const openai = buildCards({ catalog: { ...catalog, vendors: [v("openai", "OpenAI", "code", { connections: ["openai"] })] }, connections: [conn("openai", "openai", "primary", false)], providers: [], recipes: [], facades: [{ id: "openai", label: "OpenAI", available: true, connected: false, reason: null, connectionId: "openai" }] })[0]!;
+    expect(missingKeys(openai)).toEqual([{ kind: "connection", id: "openai", label: "openai" }]);
+  });
+  it("does not list an optional admin key a guided sign-in can do without (Anthropic)", () => {
+    const anthropic = buildCards({ catalog: { ...catalog, vendors: [v("anthropic", "Anthropic", "code", { connections: ["anthropic"] })] }, connections: [conn("anthropic", "anthropic", "primary", false)], providers: [], recipes: [], facades: [{ id: "anthropic", label: "Anthropic", available: true, connected: false, reason: null, connectionId: "anthropic" }] })[0]!;
+    expect(missingKeys(anthropic)).toEqual([]);
   });
 });
 
@@ -400,8 +404,11 @@ describe("capability chip", () => {
 
 describe("producedRows", () => {
   it("counts the entries per provider definition with its name, most first", () => {
-    const rows = producedRows([{ vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-restricted-key" }, { vendor: "stripe" }], [prov("stripe-webhook-secret", "stripe", { label: "Webhook secret" })]);
-    expect(rows).toEqual([{ provider: "stripe-webhook-secret", label: "Webhook secret", count: 2 }, { provider: "stripe-restricted-key", label: "stripe-restricted-key", count: 1 }]);
+    const rows = producedRows([{ vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-restricted-key" }, { vendor: "stripe" }], [prov("stripe-webhook-secret", "stripe", { label: "Webhook secret", kind: "api" }), prov("stripe-restricted-key", "stripe", { label: "Restricted key", kind: "browser" })]);
+    expect(rows).toEqual([{ provider: "stripe-webhook-secret", label: "Webhook secret", count: 2 }, { provider: "stripe-restricted-key", label: "Restricted key", count: 1 }]);
+  });
+  it("leaves out by-hand and unknown definitions: secret-desk creates nothing there", () => {
+    expect(producedRows([{ vendor: "telegram", provider: "telegram-bot" }, { vendor: "x", provider: "gone" }], [prov("telegram-bot", "telegram")])).toEqual([]);
   });
 });
 

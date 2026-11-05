@@ -84,10 +84,13 @@ describe("collapsed card: the missing line", () => {
   it("says nothing when every account has both modes", () => {
     expect(collapsedMeta(stripe([acct("sandbox"), acct("live")]), { signIn: null, now: NOW })).toBeNull();
   });
-  it("names a primary connection that is not set up while the card is in use, and counts further ones", () => {
-    const off = (id: string) => ({ ...key(null), id, label: id, connected: false });
-    const m = collapsedMeta(card({ keys: [key(85), off("stack"), off("other")], secrets: 0 }), { signIn: null, now: NOW });
-    expect(m).toMatchObject({ kind: "missing", key: "providers.meta.missingKeyMore", vars: { connection: "stack", count: 1 } });
+  const off = (id: string, role: "primary" | "optional" = "primary") => ({ ...key(null), id, label: id, role, connected: false });
+  it("names a required connection that is not set up while the card is in use, and counts further ones", () => {
+    const m = collapsedMeta(card({ keys: [key(85), off("grafana"), off("cloudflare")], secrets: 0 }), { signIn: null, now: NOW });
+    expect(m).toMatchObject({ kind: "missing", key: "providers.meta.missingKeyMore", vars: { connection: "grafana", count: 1 } });
+  });
+  it("never reports an optional key as missing (team repository token, Anthropic admin key, Grafana account token)", () => {
+    expect(collapsedMeta(card({ keys: [key(85), off("team-sync"), off("anthropic"), off("grafana-cloud", "optional")], secrets: 0 }), { signIn: null, now: NOW })).toBeNull();
   });
   it("a problem (sign-in needed, expiry) still wins over the missing line", () => {
     const m = collapsedMeta(stripe([{ ...acct("sandbox"), daysLeft: 3, level: "critical" }]), { signIn: null, now: NOW });

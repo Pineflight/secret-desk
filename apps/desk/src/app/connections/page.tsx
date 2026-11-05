@@ -252,7 +252,8 @@ function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, 
   const t = useT();
   const lines = connectionLines(card);
   const facade = card.signIn.facade;
-  const accountInputs = (line: { accountId: string; mode: string | null }): Record<string, string> => ({ account: line.accountId, ...(line.mode ? { mode: line.mode } : {}) });
+  // The guided sign-in knows the modes sandbox and live; an older `test` line reconnects as sandbox.
+  const accountInputs = (line: { accountId: string; mode: string | null }): Record<string, string> => ({ account: line.accountId, ...(line.mode ? { mode: line.mode === "test" ? "sandbox" : line.mode } : {}) });
   return (
     <div className="mt-3 space-y-2">
       {lines.accounts.length > 0 || lines.legacy || card.prefixes.length > 0 ? (
@@ -325,6 +326,7 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
     : null;
   const Shell = nested ? NestedShell : Card;
   const bodyId = useId();
+  const purposeId = useId();
   const purposeKey = connectionInfo(c.id)?.purpose ?? null;
   const name = (
     <>
@@ -337,12 +339,11 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
   return (
     <Shell>
       {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} {...(purposeKey ? { "aria-describedby": purposeId } : {})} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
           <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
           <span className="min-w-0 flex-1 text-sm font-medium">{name}</span>
           {levelBadge ? <Badge info={levelBadge} /> : null}
           {sourceBadge}
-          {purposeKey ? <span className="block w-full pl-7 text-xs text-muted">{t(purposeKey)}</span> : null}
         </button>
       ) : (
         <div className="flex items-start justify-between gap-3">
@@ -350,6 +351,7 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
           {sourceBadge}
         </div>
       )}
+      {purposeKey ? <p id={purposeId} className={`mt-0.5 text-xs text-muted ${onToggle ? "pl-7" : ""}`}>{t(purposeKey)}</p> : null}
       <div id={bodyId} hidden={!open}>
         {open ? (
           <>
