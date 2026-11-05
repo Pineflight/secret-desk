@@ -116,7 +116,6 @@ export default {
   "facade.checkAgain": "Erneut prüfen",
   "facade.connectSignedIn": "Mit angemeldetem Browser verbinden",
   "facade.signedInHint": "Der Browser ist bei {name} schon angemeldet. Ein Passwort ist nicht nötig.",
-  "facade.otherWay": "Stattdessen mit E-Mail und Passwort anmelden",
   "facade.signedOutHint": "Der Browser ist bei {name} nicht angemeldet. Melde dich hier an; du musst das Portal dafür nicht verlassen.",
   "facade.chooseMethod": "Wie meldest du dich bei {name} an?",
   "facade.method.email": "E-Mail und Passwort",
@@ -154,4 +153,9 @@ export default {
   "recipeSignIn.start": "Anmelden",
   "recipeSignIn.doneTitle": "Bei {name} angemeldet.",
   "recipeSignIn.doneHint": "secret-desk merkt sich die Anmeldung und zeigt sie auf der Anbieterkarte. Es wurde kein Schlüssel angelegt.",
+  "facade.otherWays": "Andere Wege",
+  "facade.otherWay.email": "Mit E-Mail und Passwort anmelden",
+  "facade.otherWay.emailWhen": "Nur nötig, wenn der Browser bei {name} mit einem anderen Konto angemeldet ist oder die Verbindung mit dem angemeldeten Browser scheitert.",
+  "facade.otherWay.key": "Ich habe schon einen Schlüssel",
+  "facade.otherWay.keyWhen": "Wenn du den Schlüssel schon selbst bei {name} angelegt hast und ihn nur einfügen willst.",
 } as Record<string, string>;

@@ -325,3 +325,17 @@ export function recipeSignInButtonState(subject: Pick<RecipeSignInSubject, "avai
 export function recipeSignInBody(subject: Pick<RecipeSignInSubject, "hosts">, portal: string, method: string, email: string, password: string): { method: string; username: string; password: string; host?: string } {
   return { method, username: email.trim(), password, ...(subject.hosts.length > 0 ? { host: portal } : {}) };
 }
+
+/** A way into a guided sign-in besides the recommended one. `email`: type the provider sign-in; `key`: paste a key made by hand. */
+export type OtherWay = "email" | "key";
+
+/**
+ * The ways the dialog folds under "Other ways". With a signed-in browser the only primary action is connecting with it, so the
+ * typed sign-in and pasting a key are both folded; without one the sign-in form is the main path and only pasting is folded.
+ * While a run is going or has finished, nothing is offered here (a failed run shows its own way out).
+ */
+export function otherWays(view: DialogView, hasFallback: boolean): OtherWay[] {
+  if (view === "connect") return hasFallback ? ["email", "key"] : ["email"];
+  if (view === "sign-in") return hasFallback ? ["key"] : [];
+  return [];
+}

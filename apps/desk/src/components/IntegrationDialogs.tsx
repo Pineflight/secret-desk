@@ -9,7 +9,7 @@ import { FacadeFlow } from "@/components/ProviderFacade";
 import { CategorySection, ProviderTile, usePurpose } from "@/components/ProviderCards";
 import { RecipeSignInFlow } from "@/components/RecipeSignIn";
 import { recipeSignInSubject, type FacadeInfo } from "@/lib/facade";
-import { cardMatches, detailKeys, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
+import { cardMatches, connectionPurposeKey, detailKeys, dialogHeading, groupByCategory, showsLegacyHint, signInPrompts, signInRecipeOf, type ProviderCard } from "@/lib/provider-cards";
 import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { stripePrefixMismatch } from "@/lib/connection-health";
@@ -44,8 +44,10 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
   const card = vendor ? (cards.find((c) => c.id === vendor) ?? null) : null;
 
   if (card) {
+    // A view about one of several connections is titled with that connection, not the vendor (Grafana: stack vs. account token).
+    const heading = dialogHeading(card, sub);
     return (
-      <Dialog title={card.label} description={purposeOf(card)} onClose={onClose} size="xl">
+      <Dialog title={heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl">
         <button type="button" onClick={() => (sub ? setSub(null) : setVendor(null))} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{sub ? t("connections.back") : t("providers.back")}</button>
         <VendorDetail card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={() => onChanged(card.id, null)} onSignedIn={() => onChanged(card.id, initial.renewal ? "renewal" : "reconnect")} onDone={onClose} />
       </Dialog>
@@ -131,6 +133,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
                   <span className="text-sm font-medium">{k.label}</span>
                   {k.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}
                   {k.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}
+                  {connectionPurposeKey(k.id) ? <span className="mt-0.5 block text-xs text-muted">{t(connectionPurposeKey(k.id)!)}</span> : null}
                 </span>
                 <span className="flex items-center gap-2">
                   {k.connected ? <Badge info={{ label: t("connections.connected"), tone: "success", icon: "check" }} /> : null}

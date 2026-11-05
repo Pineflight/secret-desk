@@ -16,7 +16,7 @@ export default {
   "vendor.revenuecat.purpose": "Abo-Projekte, Apps und SDK-Schlüssel",
   "vendor.resend.purpose": "E-Mail-Versand und seine API-Schlüssel",
   "vendor.telegram.purpose": "Bot-Tokens für Benachrichtigungen",
-  "vendor.grafana.purpose": "Service-Account-Tokens für Dashboards und Alarme",
+  "vendor.grafana.purpose": "Stack- und Konto-Tokens für Dashboards, Alarme und Zugriffsrichtlinien",
   "vendor.openai.purpose": "API-Schlüssel für KI-Modelle",
   "vendor.anthropic.purpose": "API-Schlüssel für Claude-Modelle (im Browser angelegt, per API geprüft)",
   "vendor.vesselapi.purpose": "API-Schlüssel für Schiffs- und Hafendaten",
@@ -146,4 +146,8 @@ export default {
   "providers.meta.secretsUntil.other": "{count} Secrets · gültig bis {date}",
   "providers.setUp": "Einrichten",
   "providers.setUpLabel": "{name} einrichten",
+  "connectionPurpose.grafana": "Stack-Token: erzeugt Service-Account-Tokens im Stack, davon hängen Dashboards und Alarme ab.",
+  "connectionPurpose.grafanaCloud": "Konto-Token: legt Zugriffsrichtlinien und Cloud-Tokens an, zum Beispiel das Lese-Token der Statusseite.",
+  "connectionPurpose.cloudflare": "Erzeugt, prüft und widerruft Cloudflare-Tokens für Workers, DNS und Zugriffe.",
+  "connectionPurpose.cloudflareTurnstile": "Eigenes Token, nur um das Secret von Turnstile-Widgets zu erneuern.",
 } satisfies Record<string, string>;
