@@ -107,7 +107,7 @@ describe("facade: grafana (Cloud access policy token)", () => {
     const { rt } = await setup();
     const f = (await listFacades(rt, human)).find((x) => x.id === "grafana")!;
     expect(f).toMatchObject({ id: "grafana", recipeId: "grafana-cloud-access-policy", connectionId: "grafana-cloud", available: true, connected: false, needsProject: false, host: "grafana.com", inputs: [], passwordless: false });
-    expect(f.recipeStatus).toMatch(/^nothing of this recipe is verified/);
+    expect(f.recipeStatus).toMatch(/nothing else of this recipe is verified/);
     expect(f.promise).toBe("facade.promise.grafana");
     expect(f.methods.map((m) => m.id)).toEqual(["email", "google", "github", "microsoft"]);
   });

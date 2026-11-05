@@ -1,4 +1,4 @@
-# STATUS: nothing of this recipe is verified against the live site: the sign-in form, the single sign-on buttons, the Access
+# STATUS: the first sign-in page (email first, password on the next page, SSO buttons #sso-buttons-*) was seen live on 2026-11-05; nothing else of this recipe is verified against the live site: the password page, the single sign-on buttons, the Access
 # Policies page, the policy and token dialogs, the capture and revoke are all written from memory of grafana.com and every
 # selector is a guess. Each step waits for its element, so a wrong guess fails visibly instead of clicking something else. Text
 # selectors accept /pattern/flags so the page may follow the account language. Do a supervised trial with a throwaway account.
@@ -35,15 +35,17 @@ login:
         - waitFor: { visible: { role: button, name: '/microsoft/i' }, timeoutSeconds: 20 }
         - click: { role: button, name: '/microsoft/i' }
   # Guided sign-in (the portal types the email and password the human entered for this run).
-  # STATUS: not verified: nothing of this form has been run against the live site (every selector below is a best guess).
+  # Seen live 2026-11-05: the page asks for "Email or username" first (input name=login, button #submit "Sign In") and shows the
+  # password field only after that; a cookie banner may cover the page. The password page and everything after it are not verified.
   form:
     start: "https://grafana.com/auth/sign-in"
     home: "https://grafana.com/profile/org"
     steps:
-      # not verified: the account field takes an email or a user name; the password field may sit on the same page.
-      - waitFor: { visible: { css: 'input[name="email"], input[name="login"], input[name="username"], input[type="email"]' }, timeoutSeconds: 20 }
-      - fill: { css: 'input[name="email"], input[name="login"], input[name="username"], input[type="email"]', value: "{{login.username}}" }
-      - waitFor: { visible: { css: 'input[type="password"]' }, timeoutSeconds: 20 }
+      - click: { css: "#onetrust-reject-all-handler", optional: true, timeoutSeconds: 5 }
+      - waitFor: { visible: { css: 'input[name="login"]' }, timeoutSeconds: 30 }
+      - fill: { css: 'input[name="login"]', value: "{{login.username}}" }
+      - click: { css: "#submit" }
+      - waitFor: { visible: { css: 'input[type="password"]' }, timeoutSeconds: 30 }
       - fill: { css: 'input[type="password"]', value: "{{login.password}}" }
       - click: { css: 'button[type="submit"]' }
     # not verified: selectors of the one-time code step.
