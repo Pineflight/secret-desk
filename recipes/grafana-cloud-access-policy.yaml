@@ -69,7 +69,7 @@ steps:
   # Seen live 2026-11-05 (signed in, organization with a Free plan): the organization navigation links "Access Policies"; the
   # list page links "New access policy" to its own form page (Display name, Name, scope checkboxes named "<action> <scope>",
   # "Add scope" opens a searchable list for further scopes, which come ticked for the chosen action), submit "Create access
-  # policy". Each policy card on the list has "Add token"; that dialog has "Token name", an "Expiration" combobox (No expiry,
+  # policy" (the scope search is the combobox input: the hidden cookie banner has a second "Search…" field). Each policy card on the list has "Add token"; that dialog has "Token name", an "Expiration" combobox (No expiry,
   # 30 days, 60 days, 90 days, a date) and "Create token". The page that shows the new token is not verified.
   - goto: "https://grafana.com/profile/org"
   - waitFor: { visible: { role: link, name: '/access policies/i', first: true } }
@@ -84,10 +84,10 @@ steps:
   - click: { role: checkbox, name: "write accesspolicies", exact: true }
   - click: { role: checkbox, name: "delete accesspolicies", exact: true }
   - click: { text: "Add scope", first: true }
-  - fill: { placeholder: "Search…", value: "stacks:read" }
+  - fill: { css: 'input[role=combobox][placeholder="Search…"]', value: "stacks:read" }
   - click: { role: option, name: '/^stacks:read/', first: true }
   - click: { text: "Add scope", first: true }
-  - fill: { placeholder: "Search…", value: "stack-service-accounts:write" }
+  - fill: { css: 'input[role=combobox][placeholder="Search…"]', value: "stack-service-accounts:write" }
   - click: { role: option, name: '/^stack-service-accounts:write/', first: true }
   - screenshot: richtlinie-vorher
   - click: { role: button, name: "Create access policy", exact: true }
