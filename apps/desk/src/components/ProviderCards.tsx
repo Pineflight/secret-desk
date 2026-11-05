@@ -7,7 +7,7 @@ import { daysLabel, formatDate } from "@/lib/format";
 import { BRAND_ICONS } from "@/lib/brand-icons";
 import { brandFill, monogram } from "@/lib/brand-color";
 import { Icon } from "@/components/Icons";
-import { browserNote, capitalized, expiryLine, hostLineNote, hostLinePhaseKey, managedExpiry, connectedKeyCount, type CardStatus, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
+import { browserNote, capabilityLabelKey, capitalized, connectionInfo, expiryLine, hostLineNote, hostLinePhaseKey, managedExpiry, connectedKeyCount, type ProviderCard, type SignInPrompt } from "@/lib/provider-cards";
 import type { AgeParts } from "@/lib/browser-ready";
 import type { CheckPhase } from "@/lib/check-queue";
 import { checkIdOf as checkKey, type SignInStatus } from "@/lib/sign-in-check";
@@ -35,24 +35,27 @@ export function ProviderLogo({ icon, label, size = 40 }: { icon: string | null; 
   );
 }
 
-const STATUS: Record<CardStatus, { key: string; tone: "success" | "primary" | "neutral" | "warn"; icon: "check" | "plug" | "alert" }> = {
-  connected: { key: "providers.status.connected", tone: "success", icon: "check" },
-  ready: { key: "providers.status.ready", tone: "success", icon: "check" },
-  signout: { key: "providers.status.signout", tone: "warn", icon: "alert" },
-  unknown: { key: "providers.status.unknown", tone: "neutral", icon: "plug" },
-  signin: { key: "providers.status.signin", tone: "primary", icon: "plug" },
-  none: { key: "providers.status.none", tone: "neutral", icon: "plug" },
+const STATUS_LOOK: Record<string, { tone: "success" | "primary" | "neutral" | "warn"; icon: "check" | "plug" | "alert" }> = {
+  "providers.status.apiBrowser": { tone: "success", icon: "check" },
+  "providers.status.api": { tone: "success", icon: "check" },
+  "providers.status.browser": { tone: "success", icon: "check" },
+  "providers.status.signout": { tone: "warn", icon: "alert" },
+  "providers.status.unknown": { tone: "neutral", icon: "plug" },
+  "providers.status.none": { tone: "neutral", icon: "plug" },
 };
 
-export function CardStatusBadge({ status }: { status: CardStatus }) {
+/** The status chip of a provider: what is ready for what (API, browser, both), or what is needed. */
+export function CardStatusBadge({ card }: { card: Pick<ProviderCard, "keys" | "signIn" | "browserSignedIn" | "status"> }) {
   const t = useT();
-  const s = STATUS[status];
-  return <Badge info={{ label: t(s.key), tone: s.tone, icon: s.icon }} />;
+  const key = capabilityLabelKey(card);
+  const s = STATUS_LOOK[key] ?? { tone: "neutral" as const, icon: "plug" as const };
+  return <Badge info={{ label: t(key), tone: s.tone, icon: s.icon }} />;
 }
 
 const COLLAPSED_BADGE: Record<BadgeKind, { key: string; tone: "success" | "primary" | "neutral" | "warn" | "danger"; icon: "check" | "plug" | "alert" | "clock" | "x" }> = {
-  connected: { key: "providers.status.connected", tone: "success", icon: "check" },
-  ready: { key: "providers.status.ready", tone: "success", icon: "check" },
+  "api-browser": { key: "providers.status.apiBrowser", tone: "success", icon: "check" },
+  api: { key: "providers.status.api", tone: "success", icon: "check" },
+  browser: { key: "providers.status.browser", tone: "success", icon: "check" },
   "signin-needed": { key: "providers.status.signout", tone: "warn", icon: "alert" },
   none: { key: "providers.status.none", tone: "neutral", icon: "plug" },
   expiring: { key: "providers.status.expiring", tone: "warn", icon: "clock" },
@@ -64,6 +67,17 @@ export function CollapsedBadge({ kind }: { kind: BadgeKind }) {
   const t = useT();
   const b = COLLAPSED_BADGE[kind];
   return <Badge info={{ label: t(b.key), tone: b.tone, icon: b.icon }} />;
+}
+
+/** The variables of a meta line in words: the mode and the kind of key are translated, not shown as ids. */
+export function metaVars(meta: CollapsedMeta, t: (key: string, vars?: Record<string, string | number>) => string): Record<string, string | number> {
+  const v: Record<string, string | number> = { ...meta.vars };
+  if (typeof v["mode"] === "string") v["mode"] = t(`providers.mode.${v["mode"]}`);
+  if (typeof v["connection"] === "string") {
+    const info = connectionInfo(v["connection"]);
+    if (info) v["key"] = t(info.name);
+  }
+  return v;
 }
 
 /** A small spinner for a check that is running. The words are for screen readers; the card shows only the movement. */
@@ -102,7 +116,7 @@ export function ProviderTile({ card, onOpen }: { card: ProviderCard; onOpen: () 
     <button
       type="button"
       onClick={onOpen}
-      aria-label={t("providers.tileLabel", { name: card.label, category: categoryLabel, status: t(STATUS[card.status].key) })}
+      aria-label={t("providers.tileLabel", { name: card.label, category: categoryLabel, status: t(capabilityLabelKey(card)) })}
       aria-describedby={describedBy}
       className="flex h-full w-full items-start gap-3 rounded-xl border border-line bg-card p-3 text-left hover:border-primary hover:bg-page"
     >
@@ -110,7 +124,7 @@ export function ProviderTile({ card, onOpen }: { card: ProviderCard; onOpen: () 
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <span className="truncate text-sm font-medium">{card.label}</span>
-          <CardStatusBadge status={card.status} />
+          <CardStatusBadge card={card} />
         </span>
         <span id={describedBy} className="mt-0.5 block text-xs text-muted">{purposeOf(card)}</span>
       </span>
@@ -206,7 +220,7 @@ export function ProviderPageCard({ card, view, open, onToggle, signIn, hostPhase
   const t = useT();
   const purposeOf = usePurpose();
   const bodyId = useId();
-  const metaText = view.meta ? t(view.meta.key, { ...view.meta.vars, ...(view.meta.date ? { date: formatDate(view.meta.date) } : {}), ...(view.meta.days !== undefined ? { days: daysLabel(view.meta.days) } : {}) }) : "";
+  const metaText = view.meta ? t(view.meta.key, { ...metaVars(view.meta, t), ...(view.meta.date ? { date: formatDate(view.meta.date) } : {}), ...(view.meta.days !== undefined ? { days: daysLabel(view.meta.days) } : {}) }) : "";
   return (
     <Card className="flex h-full w-full min-w-0 flex-col break-words">
       <h4>

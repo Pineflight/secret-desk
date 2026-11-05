@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "../src/messages";
-import { CONNECTION_PURPOSES, browserNote, buildCards, cardMatches, connectedKeyCount, connectionPurposeKey, detailKeys, dialogHeading, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
+import { CONNECTION_INFO, browserNote, capabilityLabelKey, connectionInfo, missingKeys, producedRows, stripeAccounts, buildCards, cardMatches, connectedKeyCount, connectionPurposeKey, detailKeys, dialogHeading, earliestExpiry, managedExpiry, groupByCategory, isInUse, legacyKeys, primaryKeys, showsLegacyHint, waysOf, type CardInput, type ConnectionRow, type FacadeRow, type ProviderRow, type VendorInfo, type VendorsResponse } from "../src/lib/provider-cards";
 
 const v = (id: string, label: string, category: string, rest: Partial<VendorInfo> = {}): VendorInfo => ({ id, label, category, icon: null, connections: [], connectionPrefixes: [], legacyConnections: [], optionalConnections: [], providers: [], recipes: [], signInPlanned: false, ...rest });
 const catalog: VendorsResponse = {
@@ -325,42 +325,99 @@ describe("detailKeys: the keys section of the integration dialog", () => {
   });
 });
 
-describe("dialogHeading: the integration dialog names the connection it is about", () => {
+describe("dialogHeading: the integration dialog names what is being set up", () => {
   const cat = { ...catalog, vendors: catalog.vendors.concat([v("grafana", "Grafana Cloud", "payments", { connections: ["grafana"], optionalConnections: ["grafana-cloud"], providers: ["grafana-service-account-token"], recipes: ["grafana-cloud-access-policy"] })]) };
   const gFacade: FacadeRow = { id: "grafana", label: "Grafana Cloud", available: true, connected: false, reason: null, connectionId: "grafana-cloud" };
   const labelled = (id: string, label: string, role: ConnectionRow["role"]): ConnectionRow => ({ ...conn(id, "grafana", role, false), label });
   const grafana = (connections: ConnectionRow[]) => buildCards({ catalog: cat, connections, providers: [], recipes: [{ id: "grafana-cloud-access-policy", label: "Grafana Cloud access policy token" }], facades: [gFacade] }).find((c) => c.id === "grafana")!;
   const both = grafana([labelled("grafana", "Grafana Cloud", "primary"), labelled("grafana-cloud", "Grafana Cloud (Konto)", "optional")]);
 
-  it("titles the Grafana account sign-in with the account connection and its purpose, not the vendor's stack purpose", () => {
-    expect(dialogHeading(both, { kind: "signin" })).toEqual({ title: "Grafana Cloud (Konto)", purposeKey: "connectionPurpose.grafanaCloud" });
+  it("titles the Grafana account sign-in with the account token and its purpose, not the vendor's stack purpose", () => {
+    expect(dialogHeading(both, { kind: "signin" })).toEqual({ title: "Grafana Cloud", titleKey: "providers.dialog.titleKey", nameKey: "connectionName.grafanaCloud", purposeKey: "connectionPurpose.grafanaCloud" });
   });
-  it("titles a pasted key with its own connection", () => {
-    expect(dialogHeading(both, { kind: "key", id: "grafana" })).toEqual({ title: "Grafana Cloud", purposeKey: "connectionPurpose.grafana" });
+  it("titles a pasted key with its own kind of key", () => {
+    expect(dialogHeading(both, { kind: "key", id: "grafana" })).toMatchObject({ nameKey: "connectionName.grafana", purposeKey: "connectionPurpose.grafana" });
+  });
+  it("names the key of a single-connection vendor too (OpenAI admin key)", () => {
+    const openai = buildCards({ catalog: { ...catalog, vendors: [v("openai", "OpenAI", "code", { connections: ["openai"] })] }, connections: [conn("openai", "openai", "primary", false)], providers: [], recipes: [], facades: [{ id: "openai", label: "OpenAI", available: true, connected: false, reason: null, connectionId: "openai" }] })[0]!;
+    expect(dialogHeading(openai, { kind: "signin" })).toMatchObject({ title: "OpenAI", nameKey: "connectionName.openai" });
   });
   it("keeps the vendor header on the overview and on a by-hand provider", () => {
-    expect(dialogHeading(both, null)).toEqual({ title: "Grafana Cloud", purposeKey: null });
-    expect(dialogHeading(both, { kind: "hand", id: "grafana-service-account-token" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+    expect(dialogHeading(both, null)).toEqual({ title: "Grafana Cloud", titleKey: null, nameKey: null, purposeKey: null });
+    expect(dialogHeading(both, { kind: "hand", id: "grafana-service-account-token" })).toMatchObject({ titleKey: null, purposeKey: null });
   });
-  it("keeps the vendor header for a vendor with a single connection", () => {
-    const one = grafana([labelled("grafana-cloud", "Grafana Cloud (Konto)", "optional")]);
-    expect(dialogHeading(one, { kind: "signin" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
-    expect(dialogHeading(one, { kind: "key", id: "grafana-cloud" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+  it("names the kind under the prefix for a sign-in that picks its account itself (Stripe)", () => {
+    expect(dialogHeading(card("stripe"), { kind: "signin" })).toMatchObject({ title: "Stripe", nameKey: "connectionName.stripeAccount", purposeKey: "connectionPurpose.stripeAccount" });
+    expect(dialogHeading(card("stripe"), { kind: "key", id: "stripe:acct_1AbC:live" })).toMatchObject({ nameKey: "connectionName.stripeAccount" });
   });
-  it("keeps the vendor header for a sign-in that picks its connection itself (Stripe per account and mode)", () => {
-    const stripe = card("stripe");
-    expect(dialogHeading(stripe, { kind: "signin" })).toEqual({ title: "Stripe", purposeKey: null });
-    expect(dialogHeading(stripe, { kind: "key", id: "stripe:acct_1AbC:live" })).toEqual({ title: "stripe:acct_1AbC:live", purposeKey: null });
+  it("calls a browser-only sign-in what it is", () => {
+    expect(dialogHeading(card("github"), { kind: "signin" })).toMatchObject({ titleKey: "providers.dialog.titleBrowser", purposeKey: "providers.dialog.purposeBrowser" });
   });
-  it("falls back to the vendor header when the connection is unknown to the card", () => {
-    expect(dialogHeading(both, { kind: "key", id: "elsewhere" })).toEqual({ title: "Grafana Cloud", purposeKey: null });
+  it("falls back to the vendor header for an unknown connection", () => {
+    expect(dialogHeading(both, { kind: "key", id: "elsewhere" })).toMatchObject({ title: "Grafana Cloud", titleKey: null, purposeKey: null });
   });
-  it("has a purpose line in both languages for every listed connection, and none for others", () => {
-    for (const key of Object.values(CONNECTION_PURPOSES)) {
-      expect(messages.de[key]).toBeTruthy();
-      expect(messages.en[key]).toBeTruthy();
+});
+
+describe("connection names and purposes", () => {
+  it("cover every connection of the catalog in both languages", () => {
+    for (const { name, purpose } of Object.values(CONNECTION_INFO)) {
+      for (const k of [name, purpose]) {
+        expect(messages.de[k], k).toBeTruthy();
+        expect(messages.en[k], k).toBeTruthy();
+      }
     }
-    expect(connectionPurposeKey("grafana-cloud")).toBe("connectionPurpose.grafanaCloud");
-    expect(connectionPurposeKey("stripe:acct_1AbC:live")).toBeNull();
+    for (const id of ["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe-test", "revenuecat", "resend", "grafana", "grafana-cloud", "openai", "anthropic"]) expect(connectionInfo(id), id).not.toBeNull();
+  });
+  it("resolve per-account ids through their prefix", () => {
+    expect(connectionInfo("stripe:acct_9:live")?.name).toBe("connectionName.stripeAccount");
+    expect(connectionPurposeKey("nope")).toBeNull();
+  });
+});
+
+describe("stripeAccounts and missingKeys", () => {
+  it("groups the per-account keys into one block per account with sandbox and live", () => {
+    expect(stripeAccounts(card("stripe")).map((b) => [b.accountId, b.modes.sandbox?.id ?? null, b.modes.live?.id ?? null])).toEqual([["acct_1AbC", "stripe:acct_1AbC:sandbox", "stripe:acct_1AbC:live"]]);
+    expect(missingKeys(card("stripe"))).toEqual([]);
+  });
+  it("lists the mode an account lacks", () => {
+    const i = { ...input, connections: input.connections.filter((c) => c.id !== "stripe:acct_1AbC:live") };
+    expect(missingKeys(card("stripe", i))).toEqual([{ kind: "mode", account: "acct_1AbC", accountId: "acct_1AbC", mode: "live" }]);
+  });
+  it("lists a required guided sign-in key while it is missing, even before anything is connected", () => {
+    const openai = buildCards({ catalog: { ...catalog, vendors: [v("openai", "OpenAI", "code", { connections: ["openai"] })] }, connections: [conn("openai", "openai", "primary", false)], providers: [], recipes: [], facades: [{ id: "openai", label: "OpenAI", available: true, connected: false, reason: null, connectionId: "openai" }] })[0]!;
+    expect(missingKeys(openai)).toEqual([{ kind: "connection", id: "openai", label: "openai" }]);
+  });
+  it("does not list an optional admin key a guided sign-in can do without (Anthropic)", () => {
+    const anthropic = buildCards({ catalog: { ...catalog, vendors: [v("anthropic", "Anthropic", "code", { connections: ["anthropic"] })] }, connections: [conn("anthropic", "anthropic", "primary", false)], providers: [], recipes: [], facades: [{ id: "anthropic", label: "Anthropic", available: true, connected: false, reason: null, connectionId: "anthropic" }] })[0]!;
+    expect(missingKeys(anthropic)).toEqual([]);
+  });
+});
+
+describe("capability chip", () => {
+  it("says what is ready for what", () => {
+    expect(capabilityLabelKey(card("stripe"))).toBe("providers.status.api");
+    expect(capabilityLabelKey({ ...card("stripe"), browserSignedIn: true })).toBe("providers.status.apiBrowser");
+    expect(capabilityLabelKey({ ...card("telegram"), status: "ready" })).toBe("providers.status.browser");
+    expect(capabilityLabelKey(card("telegram"))).toBe("providers.status.none");
+  });
+});
+
+describe("producedRows", () => {
+  it("counts the entries per provider definition with its name, most first", () => {
+    const rows = producedRows([{ vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-webhook-secret" }, { vendor: "stripe", provider: "stripe-restricted-key" }, { vendor: "stripe" }], [prov("stripe-webhook-secret", "stripe", { label: "Webhook secret", kind: "api" }), prov("stripe-restricted-key", "stripe", { label: "Restricted key", kind: "browser" })]);
+    expect(rows).toEqual([{ provider: "stripe-webhook-secret", label: "Webhook secret", count: 2 }, { provider: "stripe-restricted-key", label: "Restricted key", count: 1 }]);
+  });
+  it("leaves out by-hand and unknown definitions: secret-desk creates nothing there", () => {
+    expect(producedRows([{ vendor: "telegram", provider: "telegram-bot" }, { vendor: "x", provider: "gone" }], [prov("telegram-bot", "telegram")])).toEqual([]);
+  });
+});
+
+describe("card texts chosen in code", () => {
+  it("exist in German and English", () => {
+    const keys = ["providers.status.api", "providers.status.browser", "providers.status.apiBrowser", "providers.status.signout", "providers.status.unknown", "providers.status.none", "providers.dialog.titleKey", "providers.dialog.titleBrowser", "providers.dialog.purposeBrowser", "providers.way.signInFacade", "providers.way.signInRecipe", "providers.way.keysFor", "providers.way.byHandFor", "providers.meta.missingMode", "providers.meta.missingModeMore.one", "providers.meta.missingModeMore.other", "providers.meta.missingKey", "providers.meta.missingKeyMore.one", "providers.meta.missingKeyMore.other", "providers.produces.title", "providers.produces.row.one", "providers.produces.row.other"];
+    for (const k of keys) {
+      expect(messages.de[k], k).toBeTruthy();
+      expect(messages.en[k], k).toBeTruthy();
+    }
   });
 });

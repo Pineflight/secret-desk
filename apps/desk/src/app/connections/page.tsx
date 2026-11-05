@@ -13,7 +13,7 @@ import { FacadeCheckContext } from "@/components/ProviderFacade";
 import { CategorySection, ProviderPageCard } from "@/components/ProviderCards";
 import { ConnectionLinesList } from "@/components/ConnectionLines";
 import type { FacadeInfo } from "@/lib/facade";
-import { buildCards, connectionLines, groupByCategory, isInUse, showsLegacyHint, signInPrompts, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
+import { buildCards, connectionInfo, connectionLines, groupByCategory, stripeAccounts, isInUse, showsLegacyHint, signInPrompts, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
 import { ConnectionDefaultsSummary } from "@/components/ConnectionResources";
 import { daysLabel, formatDate } from "@/lib/format";
 import { allExpanded, cardKey, collapseAll, connectionKey, expandAll, readExpanded, toggled, writeExpanded } from "@/lib/card-state";
@@ -23,7 +23,7 @@ import { daysSince, expiryLevel, staleWithoutExpiry } from "@/lib/connection-hea
 import { collapsedBadge, collapsedMeta } from "@/lib/card-collapsed";
 import { hasFailedTest, isCardBusy, lastCardResult, lastResult } from "@/lib/card-activity";
 import { CardActivityProvider, useCardActivity, useCardActivityState } from "@/lib/use-card-activity";
-import { SOURCE_KEYS, labelOf, signInSentence, type Connection, type Picking, type Provider } from "@/lib/connections-shared";
+import { SOURCE_KEYS, connectionLabel, labelOf, signInHeadingKey, signInSentence, type Connection, type Picking, type Provider } from "@/lib/connections-shared";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useI18n, useT } from "@/lib/i18n";
 
@@ -252,17 +252,19 @@ function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, 
   const t = useT();
   const lines = connectionLines(card);
   const facade = card.signIn.facade;
-  const accountInputs = (line: { accountId: string; mode: string | null }): Record<string, string> => ({ account: line.accountId, ...(line.mode ? { mode: line.mode } : {}) });
+  // The guided sign-in knows the modes sandbox and live; an older `test` line reconnects as sandbox.
+  const accountInputs = (line: { accountId: string; mode: string | null }): Record<string, string> => ({ account: line.accountId, ...(line.mode ? { mode: line.mode === "test" ? "sandbox" : line.mode } : {}) });
   return (
     <div className="mt-3 space-y-2">
       {lines.accounts.length > 0 || lines.legacy || card.prefixes.length > 0 ? (
         <ConnectionLinesList
           lines={lines}
+          blocks={stripeAccounts(card)}
           removingId={removingId}
           onOpen={(id) => setPicking({ vendor: card.id, key: id })}
           cardId={card.id}
           onRemove={(id) => remove(id, labelOf(conns.find((c) => c.id === id) ?? { id, label: "" } as Connection), card.id)}
-          {...(facade ? { onReconnect: (l) => setPicking({ vendor: card.id, signIn: true, inputs: accountInputs(l) }), onConnectAnother: () => setPicking({ vendor: card.id, signIn: true }) } : {})}
+          {...(facade ? { onReconnect: (l) => setPicking({ vendor: card.id, signIn: true, inputs: accountInputs(l) }), onConnectMode: (accountId, mode) => setPicking({ vendor: card.id, signIn: true, inputs: { account: accountId, mode } }), onConnectAnother: () => setPicking({ vendor: card.id, signIn: true }) } : {})}
         />
       ) : null}
       {lines.others.map((k) => {
@@ -270,6 +272,14 @@ function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, 
         return c ? <ConnectionCard key={c.id} c={c} nested open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={() => void remove(c.id, labelOf(c), card.id)} cardId={card.id} disconnecting={disconnecting} /> : null;
       })}
       {lines.accounts.length === 0 && !lines.legacy && showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
+      {card.produces.length > 0 ? (
+        <div className="rounded-xl bg-page p-3 text-xs text-muted">
+          <p className="font-medium text-ink">{t("providers.produces.title")}</p>
+          <ul className="mt-1 space-y-0.5">
+            {card.produces.map((p) => <li key={p.provider}>{t("providers.produces.row", { label: p.label, count: p.count })}</li>)}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -282,7 +292,7 @@ function SignInLine({ card, status, problem, outcomes, locale }: { card: Provide
   const hosts = checkHostsOf(card);
   return (
     <div className="mt-3 rounded-xl bg-page p-3 text-xs text-muted">
-      <p className="font-medium text-ink">{t("providers.way.signIn")}</p>
+      <p className="font-medium text-ink">{t(signInHeadingKey(card))}</p>
       <p className="mt-0.5">{signInSentence(card, t)}</p>
       {status === "yes" || status === "no" ? <p className="mt-1" role="status">{t(status === "yes" ? "providers.signIn.signedInYes" : "providers.signIn.signedInNo")}</p> : null}
       {hosts.map((h) => {
@@ -316,9 +326,11 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
     : null;
   const Shell = nested ? NestedShell : Card;
   const bodyId = useId();
+  const purposeId = useId();
+  const purposeKey = connectionInfo(c.id)?.purpose ?? null;
   const name = (
     <>
-      {labelOf(c)}
+      {connectionLabel(c, t)}
       {c.role === "optional" ? <> <Pill>{t("providers.keys.optional")}</Pill></> : null}
       {c.role === "legacy" ? <> <Pill>{t("providers.keys.legacy")}</Pill></> : null}
     </>
@@ -327,7 +339,7 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
   return (
     <Shell>
       {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} {...(purposeKey ? { "aria-describedby": purposeId } : {})} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
           <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
           <span className="min-w-0 flex-1 text-sm font-medium">{name}</span>
           {levelBadge ? <Badge info={levelBadge} /> : null}
@@ -339,6 +351,7 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
           {sourceBadge}
         </div>
       )}
+      {purposeKey ? <p id={purposeId} className={`mt-0.5 text-xs text-muted ${onToggle ? "pl-7" : ""}`}>{t(purposeKey)}</p> : null}
       <div id={bodyId} hidden={!open}>
         {open ? (
           <>
