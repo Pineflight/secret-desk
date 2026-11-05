@@ -193,8 +193,6 @@ const EXEMPT_FILES = [
 /** Bewusst nicht uebersetzt: einzelne Literale (exakt), jeweils mit Grund. */
 const EXEMPT_LITERALS: Record<string, string> = {
   // .env-Datei-Kommentare und Team-YAML-Kopf: Dateiinhalt, kein API-Text.
-  "# Erzeugt von secret-desk am 1 fuer 1 (1).": "env-export.ts: Kopfzeile der .env-Datei",
-  "# Enthaelt Geheimnisse. Nicht committen, nicht weitergeben.": "env-export.ts: Kommentar in der .env-Datei",
   "# secret-desk Team-Konfiguration": "team.ts: YAML-Kopf",
   "# Enthaelt KEINE Werte. Import: secret-desk team import <datei>": "team.ts: YAML-Kopf",
   "# Danach Konten verbinden und `secret-desk env export --repo <repo> --stage dev` ausfuehren.": "team.ts: YAML-Kopf",

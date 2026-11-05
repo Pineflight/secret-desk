@@ -1,6 +1,6 @@
 import { assertEntryParams, effectiveParams, integrationDefaultsOf } from "./params.js";
 import { execFile } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createECDH, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ConnectionStore } from "./connections.js";
@@ -9,7 +9,7 @@ import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
-import type { EnvTemplate } from "./types.js";
+import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
 
 export class EnvExportError extends Error {
@@ -41,13 +41,29 @@ export interface EnvBuildDeps {
    * Ohne Angabe gilt keine Einschraenkung (Mensch).
    */
   allowedIssueStages?: string[];
+  /**
+   * Values of earlier templates in the same export run, key `<templateId>:<KEY>`. `ref` entries read from here first, and
+   * buildEnvFile adds the values it produces. Lives in memory only.
+   */
+  runValues?: Map<string, string>;
+  /** Text of the file a referenced template already produced, or null. Read only when the run has no value. */
+  readTemplateFile?: (template: EnvTemplate) => Promise<string | null>;
+  /**
+   * Runs an allowlisted command and returns its output as KEY=VALUE pairs. Only the CLI on the developer machine passes it.
+   * Without it, `command` entries are written as commented, empty lines.
+   */
+  runCommand?: (command: EnvCommand) => Promise<Map<string, string>>;
 }
+
+export type EnvSourceType = EnvSource["type"];
 
 export interface EnvBuildResult {
   text: string;
   keys: string[];
   /** Zuordnung Schluessel -> Herkunft, ohne Werte. */
-  sources: Record<string, "default" | "generate" | "issue" | "prompt" | "variable">;
+  sources: Record<string, EnvSourceType>;
+  /** Keys written as a commented, empty line (optional prompt without input, command without the CLI). No values. */
+  skipped: string[];
   issuedSecretIds: string[];
   /** Fuer jeden ausgestellten Wert die Kennung beim Anbieter (falls er eine nennt). Zum Widerrufen, wenn die Datei nicht geschrieben wird. */
   issuedTokens: { secretId: string; externalId?: string }[];
@@ -78,10 +94,106 @@ export async function revokeIssuedTokens(
   return failed;
 }
 
-export function generateValue(kind: "hex" | "base64" | "uuid", bytes: number): string {
+export function generateValue(kind: "hex" | "base64" | "base64url" | "uuid", bytes: number): string {
   if (kind === "uuid") return randomUUID();
   const b = randomBytes(bytes);
-  return kind === "hex" ? b.toString("hex") : b.toString("base64");
+  return kind === "hex" ? b.toString("hex") : kind === "base64url" ? b.toString("base64url") : b.toString("base64");
+}
+
+/** VAPID key pair for Web Push: public = uncompressed P-256 point, private = 32 bytes, both base64url. */
+export function generateVapidKeys(): { publicKey: string; privateKey: string } {
+  const ecdh = createECDH("prime256v1");
+  ecdh.generateKeys();
+  const priv = Buffer.alloc(32);
+  ecdh.getPrivateKey().copy(priv, 32 - ecdh.getPrivateKey().length);
+  return { publicKey: ecdh.getPublicKey().toString("base64url"), privateKey: priv.toString("base64url") };
+}
+
+type GenerateSource = Extract<EnvSource, { type: "generate" }>;
+
+/**
+ * Value for a `generate` entry. `pairs` holds the VAPID pairs of one export, so a public and a private entry with the same
+ * `pair` belong together.
+ */
+export function generateEntryValue(from: GenerateSource, pairs: Map<string, { publicKey: string; privateKey: string }>): string {
+  if (from.kind === "vapid-public" || from.kind === "vapid-private") {
+    const id = from.pair ?? "default";
+    let keys = pairs.get(id);
+    if (!keys) {
+      keys = generateVapidKeys();
+      pairs.set(id, keys);
+    }
+    return from.kind === "vapid-public" ? keys.publicKey : keys.privateKey;
+  }
+  return `${from.prefix ?? ""}${generateValue(from.kind, from.bytes)}`;
+}
+
+/**
+ * Reads KEY=VALUE lines the way formatEnvValue writes them (also `export KEY=`, single and double quotes, multi-line quotes).
+ * Comments and blank lines are skipped. Used for produced files and command output, never logged.
+ */
+export function parseEnvText(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const src = text.replace(/\r\n?/g, "\n");
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const end = src.indexOf("\n", i);
+    const line = src.slice(i, end === -1 ? n : end);
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/.exec(line);
+    if (!m) {
+      i = end === -1 ? n : end + 1;
+      continue;
+    }
+    let pos = i + m[0].length;
+    const quote = src[pos];
+    let value = "";
+    if (quote === "'" || quote === '"') {
+      pos++;
+      while (pos < n && src[pos] !== quote) {
+        if (quote === '"' && src[pos] === "\\" && pos + 1 < n) {
+          const next = src[pos + 1]!;
+          value += next === "n" ? "\n" : next;
+          pos += 2;
+          continue;
+        }
+        value += src[pos];
+        pos++;
+      }
+      pos++; // closing quote
+      const rest = src.indexOf("\n", pos);
+      i = rest === -1 ? n : rest + 1;
+    } else {
+      const raw = line.slice(m[0].length);
+      const hash = raw.search(/\s#/);
+      value = (hash === -1 ? raw : raw.slice(0, hash)).trim();
+      i = end === -1 ? n : end + 1;
+    }
+    out.set(m[1]!, value);
+  }
+  return out;
+}
+
+const COMMANDS: Record<EnvCommand, { file: string; args: string[]; hint: string }> = {
+  "supabase-status": { file: "supabase", args: ["status", "-o", "env"], hint: "Laeuft der lokale Stack? (supabase start)" },
+};
+
+/**
+ * Runs an allowlisted command (fixed program and arguments, no shell) in `cwd` and parses its KEY=VALUE output.
+ * Errors name the command and the exit code only, never the output.
+ */
+export function runEnvCommand(command: EnvCommand, cwd: string, options: { timeoutMs?: number } = {}): Promise<Map<string, string>> {
+  const spec = COMMANDS[command];
+  return new Promise((res, rej) => {
+    execFile(spec.file, spec.args, { cwd, timeout: options.timeoutMs ?? 30_000, maxBuffer: 1024 * 1024, windowsHide: true, encoding: "utf8" }, (err, stdout) => {
+      if (err) {
+        const code = (err as { code?: number | string }).code;
+        if (code === "ENOENT") return rej(new EnvExportError(`Befehl ${command}: Programm "${spec.file}" nicht gefunden.`));
+        return rej(new EnvExportError(`Befehl ${command} fehlgeschlagen (Exit-Code ${typeof code === "number" ? code : "unbekannt"}). ${spec.hint}`));
+      }
+      res(parseEnvText(stdout));
+    });
+  });
 }
 
 /**
@@ -110,18 +222,23 @@ export function commentText(text: string): string {
  * speichert sie nirgends, sie stehen nur im Ergebnis.
  */
 export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): Promise<EnvBuildResult> {
-  const missing = template.entries.filter((e) => e.from.type === "prompt" && !deps.prompts?.[e.key]).map((e) => e.key);
+  const missing = template.entries.filter((e) => e.from.type === "prompt" && !e.from.optional && !deps.prompts?.[e.key]).map((e) => e.key);
   if (missing.length > 0) throw new PromptsRequiredError(missing);
 
   const now = (deps.now ?? (() => new Date()))();
   const lines: string[] = [
-    `# Erzeugt von secret-desk am ${now.toISOString().slice(0, 10)} fuer ${commentText(template.repo)} (${commentText(template.stage)}).`,
-    "# Enthaelt Geheimnisse. Nicht committen, nicht weitergeben.",
+    `# Generated by secret-desk on ${now.toISOString().slice(0, 10)} for ${commentText(template.repo)} (${commentText(template.stage)}).`,
+    "# Contains secrets. Do not commit, do not share.",
     "",
   ];
   const sources: EnvBuildResult["sources"] = {};
+  const skipped: string[] = [];
   const issued: string[] = [];
   const issuedTokens: EnvBuildResult["issuedTokens"] = [];
+  /** Values resolved before anything is issued (ref, command); null = written as a commented, empty line. */
+  const resolved = new Map<string, string | null>();
+  const commandOutput = new Map<EnvCommand, Map<string, string>>();
+  const templateFiles = new Map<string, Map<string, string> | null>();
 
   // Erst alles pruefen, dann ausstellen: Eine fehlende Variable oder Quelle darf nicht erst nach dem ersten `issue` auffallen.
   for (const entry of template.entries) {
@@ -140,16 +257,54 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         throw new EnvExportError(`${secret.id}: Anbieter "${secret.provider}" kann keinen Dev-Wert erzeugen. In der Vorlage "prompt" verwenden.`);
       }
       assertEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider));
+    } else if (from.type === "ref") {
+      const key = `${from.template}:${from.key}`;
+      let value = deps.runValues?.get(key);
+      if (value === undefined) {
+        const target = deps.inventory.data.envTemplates.find((t) => t.id === from.template);
+        if (!target) throw new EnvExportError(`${entry.key}: unbekannte Vorlage ${from.template}`);
+        if (!templateFiles.has(target.id)) {
+          const text = deps.readTemplateFile ? await deps.readTemplateFile(target) : null;
+          templateFiles.set(target.id, text === null ? null : parseEnvText(text));
+        }
+        value = templateFiles.get(target.id)?.get(from.key);
+      }
+      if (value === undefined || value === "") {
+        throw new EnvExportError(`${entry.key}: Kein Wert fuer ${from.key} aus der Vorlage ${from.template}. Zuerst diese Vorlage exportieren oder beide zusammen (--repo mehrfach angeben).`);
+      }
+      resolved.set(entry.key, value);
+    } else if (from.type === "command") {
+      if (!deps.runCommand) {
+        resolved.set(entry.key, null);
+        continue;
+      }
+      let output = commandOutput.get(from.command);
+      if (!output) {
+        try {
+          output = await deps.runCommand(from.command);
+        } catch (err) {
+          if (!from.optional) throw err;
+          output = new Map();
+        }
+        commandOutput.set(from.command, output);
+      }
+      const value = output.get(from.key);
+      if (value === undefined || value === "") {
+        if (!from.optional) throw new EnvExportError(`${entry.key}: Befehl ${from.command} liefert keinen Wert fuer ${from.key}.`);
+        resolved.set(entry.key, null);
+      } else resolved.set(entry.key, value);
     }
   }
+  const pairs = new Map<string, { publicKey: string; privateKey: string }>();
 
   try {
     for (const entry of template.entries) {
-      let value: string;
+      let value: string | null;
       const from = entry.from;
       if (from.type === "default") value = from.value;
-      else if (from.type === "generate") value = generateValue(from.kind, from.bytes);
-      else if (from.type === "prompt") value = deps.prompts![entry.key]!;
+      else if (from.type === "generate") value = generateEntryValue(from, pairs);
+      else if (from.type === "prompt") value = deps.prompts?.[entry.key] || null;
+      else if (from.type === "ref" || from.type === "command") value = resolved.get(entry.key) ?? null;
       else if (from.type === "variable") value = deps.inventory.getVariable(from.variable)!.value!;
       else {
         const secret = deps.inventory.getSecret(from.secret)!;
@@ -170,8 +325,15 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         issuedTokens.push({ secretId: secret.id, ...(result.externalId ? { externalId: result.externalId } : {}) });
       }
       if (entry.description) lines.push(`# ${commentText(entry.description)}`);
-      lines.push(`${entry.key}=${formatEnvValue(value)}`);
       sources[entry.key] = from.type;
+      if (value === null) {
+        const why = from.type === "command" ? (deps.runCommand ? `optional, not reported by ${from.command}` : `filled by the CLI from ${from.command}`) : `optional${from.type === "prompt" && from.hint ? `: ${commentText(from.hint)}` : ", not set"}`;
+        lines.push(`# ${entry.key}= (${why})`);
+        skipped.push(entry.key);
+        continue;
+      }
+      lines.push(`${entry.key}=${formatEnvValue(value)}`);
+      deps.runValues?.set(`${template.id}:${entry.key}`, value);
     }
   } catch (err) {
     // Ein spaeterer Schritt ist gescheitert: schon ausgestellte Werte nicht beim Anbieter verwaist zuruecklassen.
@@ -179,7 +341,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     if (err instanceof Error && failed.length > 0) err.message += ` Nicht widerrufen (beim Anbieter von Hand entfernen): ${failed.join(", ")}.`;
     throw err;
   }
-  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, issuedSecretIds: issued, issuedTokens };
+  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens };
 }
 
 export interface WriteEnvResult {

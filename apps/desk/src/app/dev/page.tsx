@@ -15,7 +15,7 @@ import { useT } from "@/lib/i18n";
 import { useStageDefs } from "@/lib/use-stages";
 import { defaultStageId, labelOf } from "@/lib/stages";
 
-const SOURCE_KEYS: Record<string, string> = { default: "dev.srcDefault", generate: "dev.srcGenerate", issue: "dev.srcIssue", prompt: "dev.srcPrompt", variable: "dev.srcVariable" };
+const SOURCE_KEYS: Record<string, string> = { default: "dev.srcDefault", generate: "dev.srcGenerate", issue: "dev.srcIssue", prompt: "dev.srcPrompt", variable: "dev.srcVariable", ref: "dev.srcRef", command: "dev.srcCommand" };
 
 /** Einfaches Formular statt Vorlagen-Parser: Es gibt keinen Listen-Endpunkt für die Dev-Vorlagen. */
 function FreeExport() {
@@ -122,11 +122,16 @@ function FreeExport() {
 
 interface TemplateEntry {
   key: string;
-  source: "default" | "generate" | "issue" | "prompt" | "variable";
+  source: "default" | "generate" | "issue" | "prompt" | "variable" | "ref" | "command";
   description: string | null;
   value?: string;
   variable?: string;
   secret?: string;
+  optional?: boolean;
+  refTemplate?: string;
+  refKey?: string;
+  command?: string;
+  commandKey?: string;
 }
 interface Template {
   id: string;
@@ -136,13 +141,15 @@ interface Template {
   entries: TemplateEntry[];
 }
 
-const SOURCE_TONE: Record<TemplateEntry["source"], "neutral" | "primary" | "warn" | "info" | "ki"> = { default: "neutral", generate: "primary", issue: "ki", prompt: "warn", variable: "info" };
+const SOURCE_TONE: Record<TemplateEntry["source"], "neutral" | "primary" | "warn" | "info" | "ki"> = { default: "neutral", generate: "primary", issue: "ki", prompt: "warn", variable: "info", ref: "info", command: "neutral" };
 
 function entryDetail(e: TemplateEntry, t: (key: string, vars?: Record<string, string | number>) => string): string {
   if (e.source === "default") return t("dev.detailValue", { value: e.value ?? "" });
   if (e.source === "variable") return t("dev.detailVariable", { name: e.variable ?? "?" });
   if (e.source === "issue") return t("dev.detailSecret", { name: e.secret ?? "?" });
-  if (e.source === "prompt") return t("dev.detailPrompt");
+  if (e.source === "prompt") return t(e.optional ? "dev.detailPromptOptional" : "dev.detailPrompt");
+  if (e.source === "ref") return t("dev.detailRef", { key: e.refKey ?? "?", template: e.refTemplate ?? "?" });
+  if (e.source === "command") return t("dev.detailCommand", { key: e.commandKey ?? "?", command: e.command ?? "?" });
   return t("dev.detailGenerated");
 }
 
@@ -157,6 +164,7 @@ function TemplateCard({ t: tpl }: { t: Template }) {
   const path = typed ?? defaultEnvPath(folder, tpl.file) ?? "";
   const setPath = (v: string) => setTyped(v);
   const promptKeys = tpl.entries.filter((e) => e.source === "prompt").map((e) => e.key);
+  const optionalKeys = tpl.entries.filter((e) => e.source === "prompt" && e.optional).map((e) => e.key);
   const [values, setValues] = useState<Record<string, string>>({});
   const [result, setResult] = useState<DevEnvResult | null>(null);
   const run = useMutation(async (body: unknown) => api<DevEnvResult>("POST", "env-export", body));
@@ -195,7 +203,7 @@ function TemplateCard({ t: tpl }: { t: Template }) {
         <TextField label={t("dev.filePath")} hint={folder && typed === null ? t("dev.filePathFromLink") : t("dev.filePathHintTpl")} required value={path} onChange={(e) => setPath(e.target.value)} autoComplete="off" />
         {promptKeys.map((k) => (
           <div key={k} className="space-y-1">
-            <label htmlFor={`p-${tpl.id}-${k}`} className="block text-sm font-medium">{t("dev.promptRequired", { key: k })}</label>
+            <label htmlFor={`p-${tpl.id}-${k}`} className="block text-sm font-medium">{t(optionalKeys.includes(k) ? "dev.promptOptional" : "dev.promptRequired", { key: k })}</label>
             <input id={`p-${tpl.id}-${k}`} type="password" autoComplete="off" spellCheck={false} value={values[k] ?? ""} onChange={(e) => setValues((o) => ({ ...o, [k]: e.target.value }))} className={`${inputClass} font-mono`} />
           </div>
         ))}
@@ -206,6 +214,7 @@ function TemplateCard({ t: tpl }: { t: Template }) {
           <Notice tone="success" title={t("dev.written")}>
             <span className="break-all font-mono">{result.path}</span>
             <span className="block text-xs">{t("dev.keysList", { keys: result.keys.join(", ") })}</span>
+            {result.skipped && result.skipped.length > 0 ? <span className="block text-xs">{t("dev.skippedList", { keys: result.skipped.join(", ") })}</span> : null}
             {result.warnings.map((w, i) => <span key={i} className="mt-1 block">{w}</span>)}
           </Notice>
         ) : null}

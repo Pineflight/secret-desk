@@ -98,18 +98,42 @@ export const SecretSchema = z
 export type SecretEntry = z.infer<typeof SecretSchema>;
 
 /** Woher ein Wert in der .env fuer eine Stage kommt. */
+const EnvKey = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+/** Commands a template may name for runtime-local values. Fixed program and arguments, never taken from the template. */
+export const ENV_COMMANDS = ["supabase-status"] as const;
+export type EnvCommand = (typeof ENV_COMMANDS)[number];
+
 export const EnvSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("default"), value: z.string() }),
-  z.object({ type: z.literal("generate"), kind: z.enum(["hex", "base64", "uuid"]).default("hex"), bytes: z.number().int().min(8).max(128).default(32) }),
+  /**
+   * Random value made now. `prefix` is written in front (e.g. "whsec_"). kind "vapid-public"/"vapid-private" is one half
+   * of a Web Push key pair; entries with the same `pair` in one export share one pair.
+   */
+  z.object({
+    type: z.literal("generate"),
+    kind: z.enum(["hex", "base64", "base64url", "uuid", "vapid-public", "vapid-private"]).default("hex"),
+    bytes: z.number().int().min(8).max(128).default(32),
+    prefix: z.string().regex(/^[A-Za-z0-9_-]{1,24}$/).optional(),
+    pair: Slug.optional(),
+  }),
   z.object({ type: z.literal("issue"), secret: Slug }),
-  z.object({ type: z.literal("prompt"), hint: OneLine.optional() }),
+  /** A value a human types. With optional: true a missing value is written as a commented, empty line. */
+  z.object({ type: z.literal("prompt"), hint: OneLine.optional(), optional: z.boolean().default(false) }),
+  /**
+   * Value of another template's key: taken from the same export run, or from the file that template already produced.
+   * Stored nowhere else.
+   */
+  z.object({ type: z.literal("ref"), template: Slug, key: EnvKey }),
+  /** Value read from the output of an allowlisted local command (run by the CLI on the developer machine only). */
+  z.object({ type: z.literal("command"), command: z.enum(ENV_COMMANDS), key: EnvKey, optional: z.boolean().default(false) }),
   /** Wert einer Variable aus dem Inventar (Konfiguration, kein Geheimnis). */
   z.object({ type: z.literal("variable"), variable: Slug }),
 ]);
 export type EnvSource = z.infer<typeof EnvSourceSchema>;
 
 export const EnvEntrySchema = z.object({
-  key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  key: EnvKey,
   from: EnvSourceSchema,
   description: OneLine.max(300).optional(),
 });
@@ -218,6 +242,20 @@ export const InventorySchema = InventoryObject.superRefine((inv, ctx) => {
       }
       if (e.from.type === "variable" && !varIds.has(e.from.variable)) {
         ctx.addIssue({ code: "custom", message: `unbekannte Variable: ${e.from.variable}`, path: ["envTemplates", i, "entries", j] });
+      }
+      if (e.from.type === "ref") {
+        const target = inv.envTemplates.find((x) => x.id === (e.from as { template: string }).template);
+        const refKey = e.from.key;
+        if (!target) ctx.addIssue({ code: "custom", message: `unbekannte Vorlage: ${e.from.template}`, path: ["envTemplates", i, "entries", j] });
+        else if (target.id === t.id) ctx.addIssue({ code: "custom", message: "ref zeigt auf die eigene Vorlage", path: ["envTemplates", i, "entries", j] });
+        else {
+          const hit = target.entries.find((x) => x.key === refKey);
+          if (!hit) ctx.addIssue({ code: "custom", message: `unbekannter Schluessel in ${target.id}: ${refKey}`, path: ["envTemplates", i, "entries", j] });
+          else if (hit.from.type === "ref") ctx.addIssue({ code: "custom", message: "ref auf einen ref-Eintrag ist nicht erlaubt", path: ["envTemplates", i, "entries", j] });
+        }
+      }
+      if (e.from.type === "generate" && (e.from.kind === "vapid-public" || e.from.kind === "vapid-private") && e.from.prefix) {
+        ctx.addIssue({ code: "custom", message: "prefix gehoert nicht zu einem VAPID-Schluessel", path: ["envTemplates", i, "entries", j] });
       }
     });
   });

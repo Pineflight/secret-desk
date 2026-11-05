@@ -130,24 +130,26 @@ after the inventory value are left out and counted. The output shows progress pe
 
 ## env export
 
-`env export` has two modes. Without `--template`, `--overwrite` or `--prompt` it runs the [file of variables and dev values](#env-export-file-of-variables-and-dev-values) below (the default). With one of those options it creates a dev `.env` from a template:
+`env export` has two modes. Without `--from-template`, `--template`, `--overwrite`, `--prompt` or `--no-commands` it runs the [file of variables and dev values](#env-export-file-of-variables-and-dev-values) below (the default). With one of those options it creates a dev `.env` from the repository's template. The whole developer flow is in [DEV-ENV.md](DEV-ENV.md).
 
 ```bash
-secret-desk env export --config <file> --repo <name> [--stage <id>] [--template <id>] [--out <path>] [--overwrite] [--prompt KEY=VALUE]...
+secret-desk env export --from-template --config <file> --repo <name> [--repo <name>]... [--stage <id>] [--template <id>] [--out <path>] [--overwrite] [--prompt KEY=VALUE]... [--no-commands]
 ```
 
-Creates a dev `.env` from a template. The values come into existence now and are stored nowhere except in the file (mode 600).
+Creates a dev `.env` per repository from its template. The values come into existence now and are stored nowhere except in the files (mode 600). Output is English and never contains a value: only paths, counts and key names.
 
 | Option | Description |
 |---|---|
-| `--repo <name>` | Required. Repository whose template to use. |
+| `--repo <name>` | Repository whose template to use; repeatable. Templates of one run that refer to each other (`ref`) are exported in dependency order and share the generated values. |
+| `--from-template` | Selects the template mode without any other option. |
 | `--stage <id>` | Stage of the template. Default: the first stage of kind `dev`. |
-| `--template <id>` | A specific template id; otherwise the first template of the repository and stage. |
-| `--out <path>` | Target file. Default `.env.local` in the current directory. It must lie inside `policy.envRoots` (when set). |
-| `--overwrite` | Replace an existing file. |
+| `--template <id>` | A specific template id instead of `--repo`. |
+| `--out <path>` | Target file, with a single `--repo` only. Default: `<linked folder>/<template file>` when the repository is linked (see [REPOSITORIES.md](REPOSITORIES.md)), otherwise `<current directory>/<template file>`. It must lie inside `policy.envRoots` (when set) or the linked folder. |
+| `--overwrite` | Replace existing files. |
 | `--prompt KEY=VALUE` | Value for a `prompt` entry; repeatable. The environment variable `SECRET_DESK_PROMPT_<KEY>` works too. |
+| `--no-commands` | Do not run the allowlisted commands of `command` entries; those keys are written as commented, empty lines. |
 
-If `prompt` values are missing the command lists the keys and exits `1`. It warns if Git does not ignore the file.
+Exit codes: `0` all files written, `1` a required `prompt` value is missing (the keys are listed) or no template matches, `2` an error (for example a `ref` without a value or a failing `supabase status`). It warns when Git does not ignore a file; the check runs in the folder of the target file.
 
 ### env export: file of variables and dev values
 

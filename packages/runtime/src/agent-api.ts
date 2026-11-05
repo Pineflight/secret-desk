@@ -1,5 +1,6 @@
 import { hostForParams } from "@secret-desk/automation";
-import { join, posix } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
 import { neededRights } from "./team-sync.js";
 import {
@@ -42,6 +43,9 @@ import {
   applyVariable,
   assertPublicValue,
   buildEnvFile,
+  runEnvCommand,
+  type EnvCommand,
+  type EnvTemplate,
   revokeIssuedTokens,
   commitIssuance,
   computeStatus,
@@ -730,7 +734,7 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
 // -------------------------------------------------------------------------------------------- Dev-Env
 
 export type DevEnvResult =
-  | { status: "written"; path: string; keys: string[]; sources: Record<string, string>; gitIgnored: boolean | null; warnings: string[] }
+  | { status: "written"; path: string; keys: string[]; sources: Record<string, string>; skipped: string[]; gitIgnored: boolean | null; warnings: string[] }
   | { status: "needs-input"; keys: string[]; message: string };
 
 /**
@@ -740,7 +744,20 @@ export type DevEnvResult =
 export async function exportEnv(
   rt: Runtime,
   actor: Actor,
-  input: { repo: string; stage?: Stage; template?: string; path?: string; overwrite?: boolean; prompts?: Record<string, string> },
+  input: {
+    repo: string;
+    stage?: Stage;
+    template?: string;
+    path?: string;
+    overwrite?: boolean;
+    prompts?: Record<string, string>;
+    /** Human CLI only: without a path and without a linked folder, write `<fallbackDir>/<template.file>`. */
+    fallbackDir?: string;
+    /** Human CLI only: run the allowlisted commands of `command` entries on this machine. */
+    runCommands?: boolean;
+    /** Values shared between the templates of one CLI run (for `ref` entries). Memory only. */
+    runValues?: Map<string, string>;
+  },
 ): Promise<DevEnvResult> {
   if (actor.kind === "agent" && input.overwrite) throw new PolicyError("Bestehende Dateien ueberschreiben darf nur ein Mensch.");
   const stage: Stage = input.stage ?? (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
@@ -761,16 +778,32 @@ export async function exportEnv(
   const folder = await linkedFolder(rt, template.repo);
   let target = input.path?.trim() ? input.path.trim() : "";
   if (!target) {
-    if (!folder) throw new EnvExportError(`Kein Pfad angegeben und kein Ordner fuer ${template.repo} verknuepft.`);
-    target = join(folder, template.file);
-    if (!isPathInside(folder, target)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
+    const base = folder ?? (actor.kind === "human" && input.fallbackDir ? input.fallbackDir : null);
+    if (!base) throw new EnvExportError(`Kein Pfad angegeben und kein Ordner fuer ${template.repo} verknuepft.`);
+    target = join(base, template.file);
+    if (!isPathInside(base, target)) throw new EnvExportError(`Die Vorlage ${template.id} verweist mit "${template.file}" aus dem verknuepften Ordner hinaus.`);
   }
   if (actor.kind === "agent" && !agentMayWriteEnvFile(target)) throw new PolicyError("Agenten duerfen nur Dateien namens .env oder .env.* schreiben (nicht .envrc, .npmrc, Makefile, *.sh).");
   // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
   const roots = configured.length > 0 && folder ? [...configured, folder] : configured;
   try {
     const envDeps = { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers };
-    const built = await buildEnvFile(template, { ...envDeps, ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}), ...(input.prompts ? { prompts: input.prompts } : {}) });
+    const readTemplateFile = async (other: EnvTemplate): Promise<string | null> => {
+      const otherFolder = await linkedFolder(rt, other.repo);
+      if (!otherFolder) return null;
+      const file = join(otherFolder, other.file);
+      if (!isPathInside(otherFolder, file)) return null;
+      return readFile(file, "utf8").catch(() => null);
+    };
+    const commandDir = folder ?? dirname(target);
+    const built = await buildEnvFile(template, {
+      ...envDeps,
+      ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}),
+      ...(input.prompts ? { prompts: input.prompts } : {}),
+      ...(input.runValues ? { runValues: input.runValues } : {}),
+      readTemplateFile,
+      ...(actor.kind === "human" && input.runCommands ? { runCommand: (command: EnvCommand) => runEnvCommand(command, commandDir) } : {}),
+    });
     let written;
     try {
       written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots });
@@ -783,7 +816,7 @@ export async function exportEnv(
     const warnings: string[] = [];
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");
-    return { status: "written", path: written.path, keys: built.keys, sources: built.sources, gitIgnored: written.gitIgnored, warnings };
+    return { status: "written", path: written.path, keys: built.keys, sources: built.sources, skipped: built.skipped, gitIgnored: written.gitIgnored, warnings };
   } catch (err) {
     if (err instanceof PromptsRequiredError) {
       return { status: "needs-input", keys: err.keys, message: "Diese Werte muss ein Mensch im Portal oder mit `secret-desk env export --prompt KEY=WERT` angeben." };

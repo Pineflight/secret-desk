@@ -239,7 +239,7 @@ const common: [string, RegExp, Handler][] = [
   ["GET", /^secrets\/([^/]+)$/, ({ rt, params }) => getSecret(rt, params[0]!)],
   // Der Akteur bestimmt die erlaubten Felder (strikt, unbekannte Felder -> 400): Agenten nur Metadaten, Menschen alle bearbeitbaren.
   ["PATCH", /^secrets\/([^/]+)$/, ({ rt, actor, params, body }) => updateSecretMeta(rt, actor, params[0]!, body)],
-  ["GET", /^dev-templates$/, ({ rt }) => rt.inventory.data.envTemplates.map((t) => ({ id: t.id, repo: t.repo, stage: t.stage, file: t.file, entries: t.entries.map((e) => ({ key: e.key, source: e.from.type, description: e.description ?? null, ...(e.from.type === "variable" ? { variable: e.from.variable } : {}), ...(e.from.type === "issue" ? { secret: e.from.secret } : {}), ...(e.from.type === "default" ? { value: e.from.value } : {}) })) }))],
+  ["GET", /^dev-templates$/, ({ rt }) => rt.inventory.data.envTemplates.map((t) => ({ id: t.id, repo: t.repo, stage: t.stage, file: t.file, entries: t.entries.map((e) => ({ key: e.key, source: e.from.type, description: e.description ?? null, ...(e.from.type === "variable" ? { variable: e.from.variable } : {}), ...(e.from.type === "issue" ? { secret: e.from.secret } : {}), ...(e.from.type === "default" ? { value: e.from.value } : {}), ...(e.from.type === "prompt" ? { optional: e.from.optional } : {}), ...(e.from.type === "ref" ? { refTemplate: e.from.template, refKey: e.from.key } : {}), ...(e.from.type === "command" ? { command: e.from.command, commandKey: e.from.key, optional: e.from.optional } : {}) })) }))],
   ["GET", /^providers$/, ({ rt }) => listProviders(rt)],
   ["GET", /^vendors$/, () => listVendors()],
   ["POST", /^providers$/, ({ rt, actor, body }) => addManualProvider(rt, actor, body as never)],

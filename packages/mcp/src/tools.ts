@@ -117,7 +117,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "desk_add_env_template",
     description:
-      "Legt eine .env-Vorlage fuer ein Repo und eine Stage an. Je Eintrag: key und from = { type: default, value } | { type: generate, kind: hex|base64|uuid, bytes } | { type: issue, secret: <id> } | { type: prompt, hint }. Defaults nur fuer Nicht-Geheimes wie URLs.",
+      "Legt eine .env-Vorlage fuer ein Repo und eine Stage an. Je Eintrag: key und from = { type: default, value } | { type: generate, kind: hex|base64|base64url|uuid|vapid-public|vapid-private, bytes, prefix, pair } | { type: issue, secret: <id> } | { type: prompt, hint, optional } | { type: ref, template: <id>, key } | { type: command, command: supabase-status, key, optional }. Defaults nur fuer Nicht-Geheimes wie URLs.",
     inputSchema: {
       id: z.string(),
       repo: z.string(),

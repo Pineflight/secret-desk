@@ -13,6 +13,11 @@ import { VARIABLE_SOURCES } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Dev .env templates: ref, command, generate
+  ["ref zeigt auf die eigene Vorlage", "ref points to its own template"],
+  ["ref auf einen ref-Eintrag ist nicht erlaubt", "a ref to a ref entry is not allowed"],
+  ["prefix gehoert nicht zu einem VAPID-Schluessel", "prefix does not belong to a VAPID key"],
+  ["Laeuft der lokale Stack? (supabase start)", "Is the local stack running? (supabase start)"],
   // Stripe pro Konto und Modus
   ["Parameter \"account\" muss eine Konto-Id wie acct_1AbC sein", "Parameter \"account\" must be an account id like acct_1AbC"],
   ["Eine Stage der Art shared hat keinen Stripe-Modus: den Parameter \"connection\" setzen", "A stage of kind shared has no Stripe mode: set the parameter \"connection\""],
@@ -1048,6 +1053,12 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Keine Vorlage fuer (.+?) \((.+?)\) gefunden\.$/, "No template found for $1 ($2)."],
   [/^Kein Pfad angegeben und kein Ordner fuer (.+) verknuepft\.$/, "No path given and no folder linked for $1."],
   [/^Die Vorlage (.+?) verweist mit "(.+?)" aus dem verknuepften Ordner hinaus\.$/, "The template $1 points outside the linked folder with \"$2\"."],
+  [/^unbekannte Vorlage:? (.+)$/, "unknown template: $1"],
+  [/^unbekannter Schluessel in (.+?): (.+)$/, "unknown key in $1: $2"],
+  [/^(.+?): Kein Wert fuer (.+?) aus der Vorlage (.+?)\. Zuerst diese Vorlage exportieren oder beide zusammen \(--repo mehrfach angeben\)\.$/, "$1: No value for $2 from the template $3. Export that template first, or both together (repeat --repo)."],
+  [/^(.+?): Befehl (.+?) liefert keinen Wert fuer (.+)\.$/, "$1: Command $2 reports no value for $3."],
+  [/^Befehl (.+?): Programm "(.+?)" nicht gefunden\.$/, "Command $1: program \"$2\" not found."],
+  [/^Befehl (.+?) fehlgeschlagen \(Exit-Code (.+?)\)\. ?(.*)$/, "Command $1 failed (exit code $2). $3"],
   [/^Der Remote origin \((.+?)\) zeigt nicht auf (.+)\.$/, "The remote origin ($1) does not point to $2."],
   [/^(.*?) automation\.chromePath setzen oder Google Chrome installieren \(es wird kein Browser heruntergeladen\)\.$/, "$1 Set automation.chromePath or install Google Chrome (no browser is downloaded)."],
   [/^Chrome nicht gefunden unter (.+)\.$/, "Chrome not found at $1."],
