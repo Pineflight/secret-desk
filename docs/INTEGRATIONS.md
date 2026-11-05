@@ -44,7 +44,10 @@ The page lists the providers that are set up or have secrets or variables attach
 
 Which connection, provider definition or recipe belongs to which card, and which category it is shown under, is defined in one place, [`vendors.ts`](../packages/core/src/vendors.ts) (served by `GET vendors`); the texts are in the interface catalogs (`vendor.<id>.purpose`, `category.<id>`).
 
-**Logos** come from the [`simple-icons`](https://simpleicons.org) package (CC0-1.0; the brands themselves are trademarks of their owners and are shown only to mark the provider). `node scripts/brand-icons.mjs` copies the few icons the catalog uses into `apps/desk/src/lib/brand-icons.generated.ts`, so the page bundles them and loads nothing from outside (the CSP allows no foreign images). A provider without an icon there (OpenAI, VesselAPI, Peecho, providers you add yourself) gets a neutral monogram. A logo keeps its brand color only where that color has at least 3:1 contrast on both a light and a dark surface; otherwise it follows the text color.
+**Logos** come from the [`simple-icons`](https://simpleicons.org) package (CC0-1.0; the brands themselves are trademarks of their owners and are shown only to mark the provider). `node scripts/brand-icons.mjs` copies the few icons the catalog uses into `apps/desk/src/lib/brand-icons.generated.ts`, so the page bundles them and loads nothing from outside (the CSP allows no foreign images). Marks that simple-icons lacks (OpenAI, VesselAPI, Peecho) are kept by hand in `apps/desk/src/lib/brand-icons.custom.ts`, each with its source; such a mark may carry `layers` and is then drawn in its own colours on a white tile in both themes (Peecho); a provider with neither (providers you add yourself) gets a neutral monogram. A logo keeps its brand color only where that color has at least 3:1 contrast on both a light and a dark surface; otherwise it follows the text color.
+
+![Add integration picker, lower part: the hand-kept marks of OpenAI, VesselAPI and Peecho](images/integrations-picker-more.png)
+
 
 Create every token with **no more than** the permissions below, with a short expiry. Guides are in [`connection-guides.ts`](../packages/runtime/src/connection-guides.ts); the **Guide** button on each card shows the same.
 
