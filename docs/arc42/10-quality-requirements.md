@@ -1,0 +1,33 @@
+# 10. Quality requirements
+
+*Purpose: Q42 quality tree and measurable scenarios · Audience: contributors, reviewers · As of 2026-11-07 · Sources: [`SECURITY-MODEL.md`](../SECURITY-MODEL.md), [`issuance.test.ts`](../../packages/core/test/issuance.test.ts), [`agent-api.test.ts`](../../packages/runtime/test/agent-api.test.ts), [`.github/workflows`](../../.github/workflows), [`CONTRIBUTING.md`](../../CONTRIBUTING.md)*
+
+## 10.1 Quality tree
+
+- **#secure** (top priority): no value is persisted, logged, reported or returned; portal access limited to the local user; agents cannot reach values.
+- **#safe**: nothing is written or revoked without human confirmation; a stale or expired review writes nothing.
+- **#reliable**: a failed write leaves the old value valid; the written value is re-checked; the new value is discarded at the provider on reject or timeout.
+- **#flexible**: a provider module or a browser recipe can be added without changing the core flow.
+- **#operable**: macOS, Linux, Windows and a container on a small host; reproducible release.
+- **#testable**: the stage machine and the policy are covered by tests with injected dependencies.
+- **#usable**: a human can judge a review report quickly and correctly.
+- **#suitable** is covered by the requirements in chapter 1 and carries no separate scenario here.
+- **#efficient** is omitted: the tool handles tens of entries and a few calls per renewal; there is no throughput requirement.
+
+## 10.2 Scenarios
+
+| ID | Q42 | Stimulus (source, event) | Environment | Response | Measure | Evidence | Status |
+|---|---|---|---|---|---|---|---|
+| Q-SEC-1 | #secure | any code path prints, serialises or reports a freshly issued value | normal operation, tests | `SecretValue` hides it; reports carry a fingerprint; errors are redacted | 0 occurrences of a value in a report, response, error or tracked file; value-like literals fail the scan | [`secret.test.ts`](../../packages/core/test/secret.test.ts), [`agent-api.test.ts`](../../packages/runtime/test/agent-api.test.ts) ("value is in no report"), [`scan-values.sh`](../../scripts/scan-values.sh) in [`ci.yml`](../../.github/workflows/ci.yml) | partly: asserted per response and report; no test inspects the whole disk after a full run |
+| Q-SEC-2 | #secure | another local process or web page requests a portal session | portal running on loopback | a caller without the launch secret gets no session (401); cross-site requests are rejected | 0 sessions issued without the secret | [`launch-secret.test.ts`](../../apps/desk/test/launch-secret.test.ts), [`security.test.ts`](../../apps/desk/test/security.test.ts), [`allowed-hosts.test.ts`](../../apps/desk/test/allowed-hosts.test.ts) | met for the listed checks; an agent with shell access as the same OS user is out of scope by design ([SECURITY-MODEL.md](../SECURITY-MODEL.md#limit-agents-with-shell-access-as-the-same-os-user)) |
+| Q-SAFE-1 | #secure #safe | a review is not confirmed within 15 minutes | pending issuance in memory | the review expires, confirm is refused, the new value is deleted at the provider | confirm after expiry fails; sweep every 60 s discards expired values | refusal after expiry: `issuance.test.ts` ("refuses on failed check and after expiry"); sweep: [`desk.ts`](../../apps/desk/src/server/desk.ts) | partly: no test asserts the 15-minute default or the sweep |
+| Q-SAFE-2 | #safe | agent asks for a renewal on a `live` or non-direct stage, or confirms | agent client | an approval is created; agent confirm is refused | 0 writes to GitHub without a human confirmation; agent confirm is refused (`PolicyError` in the runtime, 404 on the agent route) | `agent-api.test.ts` ("human: value is created and checked, GitHub stays untouched until confirmation" includes an agent confirm that throws; "agent in staging: approval request..."), [`router.test.ts`](../../apps/desk/test/router.test.ts) ("agents need the token and can neither confirm nor set connections") | met |
+| Q-SAFE-3 | #safe | the entry's targets change between review and confirm | review open | the review is stale, the new value is revoked, nothing is written | 0 writes to the changed targets | `issuance.test.ts` ("binding to the state of the review"), `agent-api.test.ts` ("retargeted targets...") | met |
+| Q-REL-1 | #reliable | one target fails during confirm | GitHub reachable except one target | result `ok: false`, old value not revoked, review stays open | old value still valid at the provider; no inventory update | [`rotate.test.ts`](../../packages/core/test/rotate.test.ts) ("does not revoke and records nothing when a target fails") | partly: covered for the rotation path; the confirm path for `partial` writes has no dedicated test |
+| Q-REL-2 | #reliable | confirm completes | normal | each written name is read back and was just changed, then the old value is revoked | one `written:` check per target; `revoke-old` check passes | `issuance.test.ts` ("needs all checkmarks, writes, revokes...") | met for the passing path; a failed re-check is only a warning, not a stop |
+| Q-FLEX-1 | #flexible | a maintainer adds a provider | new module | register it; no change to `issuance.ts` | a module that implements `Provider` works in the flow; registry invariants hold | [`registry.test.ts`](../../packages/providers/test/registry.test.ts), [DEVELOPING-INTEGRATIONS.md](../DEVELOPING-INTEGRATIONS.md) | met |
+| Q-OPER-1 | #operable | a change lands that breaks Windows or Linux | CI | the cross-platform matrix fails | build, typecheck and tests pass on `ubuntu-latest`, `macos-latest`, `windows-latest` | [`cross-platform.yml`](../../.github/workflows/cross-platform.yml) (manual trigger only); simulated platforms in [`platform.test.ts`](../../packages/core/test/platform.test.ts) | partly: the matrix is not run automatically on pull requests (R-08) |
+| Q-TEST-1 | #testable | a change touches the stage machine | unit tests | prepare, confirm, discard, stale, companions are exercised without network | tests for each transition run in `pnpm run test` | `issuance.test.ts`, `issuance-companions.test.ts`, `rotate.test.ts` | partly: tests exist per transition; no coverage metric is configured |
+| Q-USE-1 | #usable | a reviewer opens a review report | portal | findings, checks and checklist are readable; confirm is enabled only when all items are ticked | a first-time reviewer completes the trial-run checklist without help | [TRIAL-RUN.md](../TRIAL-RUN.md) (acceptance A to G), UI tests in `apps/desk/test` | open: no recorded usability evidence |
+
+Open and partly met scenarios are tracked as risks in [chapter 11](11-risks-and-technical-debt.md).
