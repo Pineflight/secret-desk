@@ -12,6 +12,7 @@ export const router = {
 
 let path = "/";
 let search = new URLSearchParams();
+let params: Record<string, string> = {};
 
 export const navigation = {
   router,
@@ -21,14 +22,20 @@ export const navigation = {
     path = p;
     search = new URLSearchParams(q);
   },
+  /** Sets what `useParams()` returns (dynamic route segments such as `{ id: "x" }`). */
+  setParams(next: Record<string, string>): void {
+    params = next;
+  },
 };
 
 export function resetNavigation(): void {
   path = "/";
   search = new URLSearchParams();
+  params = {};
   for (const fn of Object.values(router)) fn.mockReset();
 }
 
 export const useRouter = () => router;
 export const usePathname = () => path;
 export const useSearchParams = () => search;
+export const useParams = () => params;

@@ -107,7 +107,7 @@ function FreeExport() {
               <p className="mt-3 flex items-center gap-2 text-sm font-medium text-success-text"><Icon name="check" />{t("dev.writtenTo")} <span className="break-all font-mono">{result.path}</span></p>
               <ul className="mt-3 divide-y divide-line text-sm">
                 {result.keys.map((k) => (
-                  <li key={k} className="flex items-center justify-between gap-3 py-2"><code className="text-xs">{k}</code><Badge info={{ label: SOURCE_KEYS[result.sources[k] ?? ""] ? t(SOURCE_KEYS[result.sources[k] ?? ""]!) : (result.sources[k] ?? t("dev.srcUnknown")), tone: "neutral", icon: "dot" }} /></li>
+                  <li key={k} className="flex items-center justify-between gap-3 py-2"><code className="text-xs">{k}</code><Badge info={{ label: SOURCE_KEYS[result.sources[k] ?? ""] ? t(SOURCE_KEYS[result.sources[k]!]!) : (result.sources[k] ?? t("dev.srcUnknown")), tone: "neutral", icon: "dot" }} /></li>
                 ))}
               </ul>
               {result.warnings.length > 0 ? <div className="mt-3 space-y-2">{result.warnings.map((w, i) => <Notice key={i} tone="warn">{w}</Notice>)}</div> : null}

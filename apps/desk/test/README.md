@@ -7,12 +7,12 @@ Run: `npx vitest run` (add `--coverage` for the 100% gate). Typecheck covers `te
 - `*.test.ts` run in **node**: libs, server router, security, anything without a DOM.
 - `*.test.tsx` run in **happy-dom** (project `dom`): components, pages and hooks (`renderHook`). Hook tests live in `*.test.tsx` files as well, even without JSX.
 - The `@/` alias works in both projects (same as in the app).
-- `test/setup-dom.ts` (dom project only): jest-dom matchers, RTL `cleanup`, `localStorage.clear()`, `vi.unstubAllGlobals()` and the `next/navigation` fake after every test, and the stored locale `de` before every test (happy-dom is English, the app defaults to German).
+- `test/setup-dom.ts` (dom project only): jest-dom matchers, RTL `cleanup`, `localStorage.clear()`, `sessionStorage.clear()` (the page filters of `usePersistedState` live there), `vi.unstubAllGlobals()` and the `next/navigation` fake after every test, and the stored locale `de` before every test, and `fetch` is a stub that fails at once (no real network, also not from a timer that fires after a test ended); `fakePortal` or `vi.stubGlobal` replace it for a test (happy-dom is English, the app defaults to German).
 
 ## Helpers (`test/helpers/`)
 
 - `render.tsx`: `renderApp(ui, options?)` renders inside `I18nProvider` and `ToastProvider` (the providers of `src/app/layout.tsx`, without the Shell) and returns the RTL result plus `user` (user-event). `Providers` is the bare wrapper for `renderHook({ wrapper: Providers })`.
-- `navigation.ts`: fake of `next/navigation`, mocked for every dom test by the setup file. `navigation.set("/entries?q=x")` sets what `usePathname()` and `useSearchParams()` return; `navigation.router.push` etc. are `vi.fn()` to assert on. Reset after every test.
+- `navigation.ts`: fake of `next/navigation`, mocked for every dom test by the setup file. `navigation.set("/entries?q=x")` sets what `usePathname()` and `useSearchParams()` return; `navigation.setParams({ id: "x" })` sets what `useParams()` returns for dynamic routes. `navigation.router.push` etc. are `vi.fn()` to assert on. Reset after every test.
 - `portal.ts`: `fakePortal({ "GET entries": [...], "POST entries": (call) => ({ status: 201, body: {...} }) })` stubs `fetch` for `src/lib/api.ts`. `/api/session` always succeeds. Keys are `"METHOD path"` without the `/api/ui/` prefix; unknown routes answer 404. Returns `{ calls, callsTo(method, path) }` with parsed JSON bodies and headers for assertions.
 
 ## Conventions
