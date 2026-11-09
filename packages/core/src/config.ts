@@ -17,7 +17,6 @@ export function parseCdpEndpoint(raw: string): URL {
     throw new Error("Invalid browser endpoint: expected a URL such as http://browser:9222");
   }
   if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) throw new Error("Invalid browser endpoint: only http, https, ws and wss are allowed");
-  if (!url.hostname) throw new Error("Invalid browser endpoint: host is missing");
   return url;
 }
 

@@ -1,9 +1,34 @@
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InventoryConflictError, InventoryStore } from "../src/inventory.js";
 import { INVENTORY_YAML } from "./fixtures.js";
+
+const watchState = vi.hoisted(() => ({
+  listener: null as ((event: string, name: string | null) => void) | null,
+  errorHandler: null as ((err: Error) => void) | null,
+  path: "",
+  closed: 0,
+  throwOnWatch: false,
+}));
+
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  watch: (path: string, _options: unknown, listener: (event: string, name: string | null) => void) => {
+    if (watchState.throwOnWatch) throw new Error("watch unsupported");
+    watchState.path = path;
+    watchState.listener = listener;
+    return {
+      on: (_event: string, handler: (err: Error) => void) => {
+        watchState.errorHandler = handler;
+      },
+      close: () => {
+        watchState.closed += 1;
+      },
+    };
+  },
+}));
 
 let dir = "";
 let file = "";
@@ -83,19 +108,113 @@ describe("InventoryStore follows the file", () => {
     expect(problem?.message).toMatch(/YAML|Inventar/);
     expect(store.data.secrets).toHaveLength(3);
   });
+  describe("directory watch hints", () => {
+    // fs.watch event delivery depends on the OS and on machine load (FSEvents can lag by seconds under coverage), so these
+    // tests drive the listener that InventoryStore registers instead of waiting for a real event.
+    const hint = (event: string, name: string | null): void => watchState.listener!(event, name);
+    beforeEach(() => {
+      watchState.listener = null;
+      watchState.errorHandler = null;
+      watchState.closed = 0;
+      watchState.throwOnWatch = false;
+    });
 
-  it("reloads on a directory watch hint without any read", async () => {
-    const store = await InventoryStore.open(file);
-    let calls = 0;
-    store.onExternalChange(() => calls++);
-    const stop = store.watch({ debounceMs: 20 });
-    try {
-      await externalPatch({ notes: "watched" }, "lead-token-dev");
-      for (let i = 0; i < 40 && calls === 0; i++) await wait(50);
-      expect(calls).toBeGreaterThan(0);
-    } finally {
+    it("reloads on a hint without any read", async () => {
+      const store = await InventoryStore.open(file);
+      let calls = 0;
+      store.onExternalChange(() => calls++);
+      const stop = store.watch({ debounceMs: 20 });
+      try {
+        await externalPatch({ notes: "watched" }, "lead-token-dev");
+        expect(calls).toBe(0); // nothing read the store yet
+        hint("rename", "inventory.yaml");
+        await vi.waitFor(() => expect(calls).toBeGreaterThan(0));
+      } finally {
+        stop();
+      }
+    });
+
+    it("watches the directory of the file and treats an event without a name as a hint too", async () => {
+      const store = await InventoryStore.open(file);
+      let calls = 0;
+      store.onExternalChange(() => calls++);
+      const stop = store.watch({ debounceMs: 20 });
+      try {
+        expect(watchState.path).toBe(dir);
+        await externalPatch({ notes: "watched" }, "lead-token-dev");
+        hint("change", null);
+        await vi.waitFor(() => expect(calls).toBeGreaterThan(0));
+      } finally {
+        stop();
+      }
+    });
+
+    it("ignores events about other files", async () => {
+      const store = await InventoryStore.open(file);
+      let calls = 0;
+      store.onExternalChange(() => calls++);
+      const stop = store.watch({ debounceMs: 20 });
+      try {
+        await externalPatch({ notes: "watched" }, "lead-token-dev");
+        hint("change", "other.txt");
+        await wait(150);
+        expect(calls).toBe(0);
+      } finally {
+        stop();
+      }
+    });
+
+    it("several hints in a row reload once, and a file that is still half written is looked at again", async () => {
+      const store = await InventoryStore.open(file);
+      let calls = 0;
+      store.onExternalChange(() => calls++);
+      const stop = store.watch({ debounceMs: 20 });
+      try {
+        await writeFile(file, "version: 1\nsecrets:\n  - id: [broken");
+        hint("change", "inventory.yaml");
+        hint("change", "inventory.yaml");
+        await wait(100);
+        expect(store.problem).not.toBeNull();
+        await writeFile(file, INVENTORY_YAML.replace("2027-01-21", "2027-03-03"));
+        await vi.waitFor(() => expect(calls).toBeGreaterThan(0), { timeout: 3000 });
+        expect(store.getSecret("cf-deploy-acme-app")!.expires).toBe("2027-03-03");
+      } finally {
+        stop();
+      }
+    });
+
+    it("an error event of the watcher is swallowed and stop closes the watcher", async () => {
+      const store = await InventoryStore.open(file);
+      const stop = store.watch();
+      expect(() => watchState.errorHandler!(new Error("EMFILE"))).not.toThrow();
       stop();
-    }
+      expect(watchState.closed).toBe(1);
+    });
+
+    it("stop cancels a pending reload", async () => {
+      const store = await InventoryStore.open(file);
+      let calls = 0;
+      store.onExternalChange(() => calls++);
+      const stop = store.watch({ debounceMs: 50 });
+      await externalPatch({ notes: "watched" }, "lead-token-dev");
+      hint("change", "inventory.yaml");
+      stop();
+      await wait(150);
+      expect(calls).toBe(0);
+    });
+
+    it("a platform that cannot watch directories still gives a stop function", async () => {
+      watchState.throwOnWatch = true;
+      const store = await InventoryStore.open(file);
+      const stop = store.watch();
+      expect(() => stop()).not.toThrow();
+    });
+
+    it("an inventory without a file has nothing to watch", () => {
+      const stop = InventoryStore.fromText("version: 1\nsecrets: []\n").watch();
+      expect(watchState.listener).toBeNull();
+      expect(() => stop()).not.toThrow();
+    });
   });
 });
 
