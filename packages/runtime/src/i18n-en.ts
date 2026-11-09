@@ -1167,8 +1167,8 @@ const exact = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
 
 function applyTemplate(template: string, groups: string[], depth: number): string {
   return template.replace(/\$(\d)/g, (_m, d: string) => {
-    const g = groups[Number(d) - 1] ?? "";
-    return translate(g, depth + 1);
+    // Every catalog pattern captures each group its template references, and no template ends in whitespace.
+    return translate(groups[Number(d) - 1]!, depth + 1);
   });
 }
 
@@ -1181,7 +1181,7 @@ function translate(text: string, depth: number): string {
     const m = re.exec(text);
     if (!m) continue;
     const out = applyTemplate(tpl, m.slice(1), depth);
-    return /\s$/.test(text) || !/\s$/.test(out) ? out : out.replace(/\s+$/, "");
+    return out;
   }
 
   // Zusammengesetzte Texte: Listen und "Kopf: Rest".

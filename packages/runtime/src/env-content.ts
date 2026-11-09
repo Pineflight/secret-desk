@@ -139,7 +139,7 @@ export function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInpu
     }
   }
 
-  const sorted = [...lines.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const sorted = [...lines.values()].sort((a, b) => (a.name < b.name ? -1 : 1));
   const now = input.now ?? new Date();
   const missing = sorted.filter((l) => l.value === null).map((l) => ({ name: l.name, reason: l.reason }));
   const content =

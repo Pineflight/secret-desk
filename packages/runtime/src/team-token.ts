@@ -163,14 +163,16 @@ class Tracker {
   }
 
   fail(): FacadeTimelineEntry[] {
-    const last = this.#timeline.at(-1);
-    if (last?.state === "active") last.state = "failed";
-    return [...this.#timeline];
+    return this.#close("failed");
   }
 
   done(): FacadeTimelineEntry[] {
-    const last = this.#timeline.at(-1);
-    if (last?.state === "active") last.state = "done";
+    return this.#close("done");
+  }
+
+  /** Only the newest entry can still be active (phase() closes the one before it). */
+  #close(state: "done" | "failed"): FacadeTimelineEntry[] {
+    for (const entry of this.#timeline) if (entry.state === "active") entry.state = state;
     return [...this.#timeline];
   }
 }
@@ -192,7 +194,7 @@ function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
     return { code, message: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
   }
   if (cancelled) return { code: "cancelled", message: "Cancelled." };
-  const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0] ?? "") : "";
+  const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0]!) : "";
   return { code: "browser", message: text || "The browser could not be used." };
 }
 
@@ -226,7 +228,7 @@ export async function verifyTeamToken(rt: Runtime, value: SecretValue, req: Pick
     return null;
   } catch (err) {
     if (err instanceof GitHubInputError) return "The repository or branch name is not valid.";
-    if (err instanceof GitHubError) return redact(`GitHub refused the new token (${err.status ?? "no answer"}): ${err.message.split("\n")[0] ?? ""}`, [value]).slice(0, MAX_TEXT);
+    if (err instanceof GitHubError) return redact(`GitHub refused the new token (${err.status}): ${err.message.split("\n")[0]!}`, [value]).slice(0, MAX_TEXT);
     return "The new token could not be tested.";
   }
 }

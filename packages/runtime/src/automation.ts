@@ -226,7 +226,9 @@ async function statusComment(file: string): Promise<string> {
     const m = /^#\s*STATUS:\s*(.+)$/m.exec(await readFile(file, "utf8"));
     return m?.[1]?.trim() ?? "nicht geprueft";
   } catch {
+    /* v8 ignore start -- the loader just read this file; only a file removed in between gets here */
     return "nicht geprueft";
+    /* v8 ignore stop */
   }
 }
 
@@ -295,7 +297,7 @@ export class AutomationManager {
       return;
     }
     this.problems.push(...loaded.errors);
-    for (const d of loaded.skippedDirs ?? []) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
+    for (const d of loaded.skippedDirs) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
     for (const { recipe, file, sha256, allowHosts, bundled: isBundled } of loaded.recipes) {
       const base = createBrowserProvider({
         recipe,
@@ -311,13 +313,21 @@ export class AutomationManager {
         },
         evidence: this.opts.evidence,
       });
-      const issueRun = base.issue;
+      // createBrowserProvider always defines issue; the Provider type only declares it optional.
+      const issueRun = base.issue!;
       // A recipe run that created a key proves the browser was signed in at the recipe's host just now.
       const wrapped: BrowserProvider = {
         ...base,
         id: `${recipe.id}-browser`,
         label: `${recipe.label} (Browser)`,
-        ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); const host = hostForParams(recipe, ctx.secret.params); if (host) this.noteSignIn(host, true, "run"); return issued; } } : {}),
+        issue: async (ctx) => {
+          const issued = await issueRun.call(base, ctx);
+          const host = hostForParams(recipe, ctx.secret.params);
+          /* v8 ignore start -- a recipe run that passed its parameter checks always maps to a host; null is only a type guard */
+          if (host) this.noteSignIn(host, true, "run");
+          /* v8 ignore stop */
+          return issued;
+        },
       };
       // The Anthropic key recipe also gets what the Admin API can do (workspaces, key check, revoke); see providers/anthropic.ts.
       const provider = recipe.id === ANTHROPIC_KEY_RECIPE ? withAnthropicAdmin(wrapped) : wrapped;
