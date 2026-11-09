@@ -211,8 +211,8 @@ describe("evidence SVG", () => {
   });
 
   it("shows who confirmed or rejected, and escapes the name", () => {
-    const confirmed = renderEvidenceSvg({ ...base, confirmation: { by: "<niklas>", at: "2026-03-01T10:20:30Z", ticks: [], decision: "confirmed" } } as never);
-    expect(confirmed).toContain("Bestaetigt von &lt;niklas&gt; am 2026-03-01 10:20");
+    const confirmed = renderEvidenceSvg({ ...base, confirmation: { by: "<reviewer>", at: "2026-03-01T10:20:30Z", ticks: [], decision: "confirmed" } } as never);
+    expect(confirmed).toContain("Bestaetigt von &lt;reviewer&gt; am 2026-03-01 10:20");
     const rejected = renderEvidenceSvg({ ...base, confirmation: { by: "me", at: "2026-03-01T10:20:30Z", ticks: [], decision: "rejected" } } as never);
     expect(rejected).toContain("Abgelehnt von me");
   });

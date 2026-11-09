@@ -142,7 +142,7 @@ describe("default output", () => {
 });
 
 describe("about", () => {
-  const info = (over: Record<string, unknown>) => ({ name: "secret-desk", version: "1.2.3", createdBy: "Pineflight", license: "MIT", links: { source: "https://example.test/src" }, thirdParty: [{}, {}], ...over });
+  const info = (over: Record<string, unknown>) => ({ name: "secret-desk", version: "1.2.3", createdBy: "Acme", license: "MIT", links: { source: "https://example.test/src" }, thirdParty: [{}, {}], ...over });
   it("names the build tag and the commit when known", async () => {
     m.readAbout.mockReturnValue(info({ buildTag: "v1.2.3", commit: "abc1234" }));
     expect((await run("about")).out.split("\n")[0]).toBe("secret-desk 1.2.3 (v1.2.3, abc1234)");

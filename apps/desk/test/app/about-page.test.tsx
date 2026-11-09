@@ -13,7 +13,7 @@ const about = (over: Record<string, unknown> = {}) => ({
   displayVersion: "v0.1.0",
   releaseUrl: null,
   description: "Local portal",
-  createdBy: "Pineflight",
+  createdBy: "Acme",
   license: "MIT",
   licenseText: "Line one\nline two\n\nSecond paragraph",
   links: { source: "https://example.test/src", issues: "https://example.test/issues", security: "https://example.test/sec", support: "https://example.test/help" },
