@@ -7,7 +7,7 @@
 # The Console renders in the language of the account (German for the probed account), so every text selector accepts both
 # German and English as a /pattern/flags text; placeholders, types and structure are used where they exist.
 # The expiry of a key is always filled: the dialog offers 30 days by default (kept for `days` = 30); another number of days is
-# picked by its option text and fails visibly (before a key exists) when the Console does not offer it. The date is `days` from today.
+# picked by its option text (the Console offers 1, 7 and 30) and fails visibly, before a key exists, for any other number. The date is `days` from today.
 id: anthropic-api-key
 label: Anthropic API Key
 host: platform.claude.com
@@ -43,13 +43,15 @@ steps:
   # Dialog 2: the name field has the placeholder "my-secret-key" in every language.
   - waitFor: { visible: { placeholder: "my-secret-key" } }
   - fill: { placeholder: "my-secret-key", value: "{{name}}" }
-  # Expiry: a select button that shows "30 Tage (4. Dez. 2026)" / "30 days (...)". 30 days is the default of the dialog.
-  - click: { role: button, name: '/^[0-9]+ ?(day|Tag)/i', first: true }
+  # Expiry: the first combobox of the dialog, it shows "30 Tage (9. Dez. 2026)" / "30 days (...)". 30 days is the default of the
+  # dialog; it also offers 3 hours, 1 day, 7 days, a custom date and never (checked live on 2026-11-09). Another number of days
+  # fails here, before a key exists.
+  - click: { css: "[role=dialog] button[role=combobox]", first: true }
     when: { var: days, notEquals: "30" }
   - click: { role: option, name: '/^{{days}} ?(day|Tag)/i', first: true }
     when: { var: days, notEquals: "30" }
-  # Workspace: a select button that shows "Standard-Arbeitsbereich" / "Default workspace".
-  - click: { role: button, name: '/^(Default|Standard)/i', first: true }
+  # Workspace: a combobox that shows "Standard-Arbeitsbereich" / "Default workspace".
+  - click: { css: "[role=dialog] button[role=combobox]:has-text('Standard'), [role=dialog] button[role=combobox]:has-text('Default')", first: true }
     when: { all: [{ var: workspace, notEquals: "" }, { var: workspace, notEquals: "Default" }] }
   - click: { role: option, name: "{{workspace}}", exact: true }
     when: { all: [{ var: workspace, notEquals: "" }, { var: workspace, notEquals: "Default" }] }

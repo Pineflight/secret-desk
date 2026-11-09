@@ -537,7 +537,7 @@ describe("connecting with the signed-in browser", () => {
     mocks.runRecipe.mockResolvedValue({ value: SecretValue.from(api) });
     expect((await connect(rt, "anthropic", { variant: "personal" })).status).toBe("done");
     expect(mocks.runRecipe.mock.calls[0]![0]).toMatchObject({ id: "anthropic-api-key" });
-    expect(mocks.runRecipe.mock.calls[0]![1]).toMatchObject({ days: "90", workspace: "" });
+    expect(mocks.runRecipe.mock.calls[0]![1]).toMatchObject({ days: "30", workspace: "" });
     mocks.runRecipe.mockClear();
     await connect(rt, "anthropic", { variant: "team" });
     expect(mocks.runRecipe.mock.calls[0]![0]).toMatchObject({ id: "anthropic-admin-key" });
