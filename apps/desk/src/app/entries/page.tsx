@@ -21,7 +21,7 @@ import { usePageSearch } from "@/lib/use-page-search";
 import { limitGroups } from "@/lib/paging";
 import { splitPlaceChips } from "@/lib/place-chips";
 import { allRepos, groupItems, repoNames, sortItems, type SortKey } from "@/lib/browse";
-import { ApiError, api, enc } from "@/lib/api";
+import { api, enc, type ApiError } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
 import { useQuery } from "@/lib/hooks";
 import { summaryInfo } from "@/lib/status";
@@ -166,7 +166,7 @@ export default function EntriesPage() {
       setErrors((e) => { const { [id]: _drop, ...rest } = e; return rest; });
       return true;
     } catch (e) {
-      setErrors((o) => ({ ...o, [id]: e instanceof Error ? e.message : String(e) }));
+      setErrors((o) => ({ ...o, [id]: (e as Error).message }));
       return false;
     } finally {
       setComparing((s) => { const n = new Set(s); n.delete(id); return n; });
@@ -203,9 +203,9 @@ export default function EntriesPage() {
       }
       await compareOne(v.id);
     } catch (e) {
-      const code = e instanceof ApiError ? e.code : undefined;
+      const code = (e as ApiError).code;
       if (code === "secret-blocked" || code === "secret-ack") setDetail({ id: v.id, auto: mode });
-      else toast.error(e instanceof Error ? e.message : String(e));
+      else toast.error((e as Error).message);
     } finally {
       setBusy((s) => { const n = new Set(s); n.delete(v.id); return n; });
     }
@@ -354,7 +354,7 @@ export default function EntriesPage() {
       ) : null}
       {paged.groups.map((g) => (
         <div key={g.key}>
-          {browse.group !== "none" ? <GroupHeading label={g.label} count={groups.find((x) => x.key === g.key)?.items.length ?? g.items.length} /> : null}
+          {browse.group !== "none" ? <GroupHeading label={g.label} count={groups.find((x) => x.key === g.key)!.items.length} /> : null}
           <ListTable minWidth={0} columns={tableColumns} columnClasses={TABLE_COLUMN_CLASSES}>
             {g.items.map((e) => (e.entryKind === "secret" ? (
               <SecretRowView key={`${g.key}:secret:${e.id}`} s={e} renewal={renewalByEntry.get(e.id)} terms={terms} tag={tag} setTag={setTag} onEdit={() => setEditingSecret(e)} />
