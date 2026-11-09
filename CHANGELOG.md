@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Recipes started from the portal no longer fail when a wait simply runs out, for example at a cookie banner that is not shown or a button that an account does not have.
 - **MCP server: an empty `SECRET_DESK_URL` counts as unset** and falls back to `http://127.0.0.1:4747` instead of sending requests to an empty address.
 - An optional recipe step, such as a cookie banner, no longer ends a run when looking for its element breaks unexpectedly.
 - **GitHub fine-grained token recipe (team token and browser tokens):** GitHub can ask "Confirm access" again when "Generate token" is clicked, if the sudo window ran out after the form opened. The run waited for the confirmation dialog and then the token, failed with "Token bei GitHub erstellen", and never offered the confirmation in the portal. Both clicks are now followed by a `confirmAccess` step that goes on at once when no prompt appears and otherwise lets the portal answer it.

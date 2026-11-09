@@ -1,12 +1,21 @@
 import type { BrowserDriver, ResolvedCondition } from "./driver.js";
 
+// The portal's server bundle evaluates this package more than once: the runtime object, and with it the browser driver, comes
+// from one copy and the recipe runner from another. A plain `instanceof` then misses an error the driver threw, so a wait that
+// simply ran out looked like a broken step. These two errors cross that boundary, so they are recognised by name.
 export class WaitTimeoutError extends Error {
+  static override [Symbol.hasInstance](value: unknown): boolean {
+    return value instanceof Error && value.name === "WaitTimeoutError";
+  }
   constructor() {
     super("Zeitlimit beim Warten");
     this.name = "WaitTimeoutError";
   }
 }
 export class WaitAbortedError extends Error {
+  static override [Symbol.hasInstance](value: unknown): boolean {
+    return value instanceof Error && value.name === "WaitAbortedError";
+  }
   constructor() {
     super("Abgebrochen");
     this.name = "WaitAbortedError";
