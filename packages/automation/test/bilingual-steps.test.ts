@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeDriver, RecipeRunError, runRecipe, selectorProblem, textMatcher, textPattern } from "../src/index.js";
+import { WaitAbortedError, WaitTimeoutError } from "../src/wait.js";
 import { TOKEN, VARS, sampleRecipe } from "./helpers.js";
 
 const CREATE = '/^(Create|Erstellen)$/i';
@@ -79,6 +80,30 @@ describe("optional click that cannot act", () => {
     };
     const res = await runRecipe(recipe([banner]), VARS, d, {}, { pollMs: 5 });
     expect(res.value.reveal()).toBe(TOKEN);
+  });
+
+  describe("wait errors from another copy of this package (the portal's server bundle has several)", () => {
+    const foreign = (name: string): Error => Object.assign(new Error("from the other copy"), { name });
+
+    it("recognises them by name, and nothing that is not an error", () => {
+      expect(foreign("WaitTimeoutError") instanceof WaitTimeoutError).toBe(true);
+      expect(foreign("WaitAbortedError") instanceof WaitAbortedError).toBe(true);
+      expect(foreign("WaitAbortedError") instanceof WaitTimeoutError).toBe(false);
+      expect(("WaitTimeoutError" as unknown) instanceof WaitTimeoutError).toBe(false);
+      expect((null as unknown) instanceof WaitAbortedError).toBe(false);
+    });
+
+    it("a `when: absent` that runs out holds, so the step after it runs", async () => {
+      const d = blocked([]);
+      const waitFor = d.waitFor.bind(d);
+      d.waitFor = async (cond, ms, signal) => {
+        if (cond.visible?.css === "#upgrade") throw foreign("WaitTimeoutError");
+        return waitFor(cond, ms, signal);
+      };
+      const stop = { fail: "Needs an organization.", unsupported: true, when: { absent: { css: "#upgrade" }, timeoutSeconds: 0.03 } };
+      const err = (await runRecipe(recipe([stop]), VARS, d, {}, { pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
+      expect(err.kind).toBe("unsupported");
+    });
   });
 
   it("a click that is not optional still fails when it cannot act", async () => {
