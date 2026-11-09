@@ -1,3 +1,4 @@
+import { ANTHROPIC_KEY_KIND_PROBLEM, isAnthropicAdminKey, isAnthropicApiKey } from "@secret-desk/providers";
 import { parseStripeConnectionId, type StripeAccountMode } from "@secret-desk/core";
 
 /** Beschreibung der Zugaenge, mit denen das Portal arbeitet: Wofuer, wo man ihn anlegt und was er koennen muss. Keine Werte. */
@@ -231,14 +232,14 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
     case "anthropic":
       return {
         label: "Anthropic",
-        description: "Optional, nur mit einer Anthropic-Organisation: der Admin-Key der Organisation. Damit listet secret-desk Workspaces auf und prueft und deaktiviert API-Schluessel. Neue API-Schluessel kann die Admin-API nicht anlegen: das geht nur in der Console, secret-desk macht es ueber den angemeldeten Browser (das geht auch ohne Admin-Key, zum Beispiel mit einem persoenlichen Konto).",
-        url: "https://platform.claude.com/settings/admin-keys",
+        description: "Zwei Arten: Team-Organisation oder persoenlich. Mit dem Admin-Key einer Team-Organisation listet secret-desk Workspaces auf und prueft und deaktiviert API-Schluessel. Mit einem normalen API-Schluessel (auch ein persoenliches Konto) prueft secret-desk nur, dass er funktioniert; Workspaces und das Deaktivieren per API gibt es dann nicht. Neue API-Schluessel kann die Admin-API nicht anlegen: das geht nur in der Console, secret-desk macht es ueber den angemeldeten Browser.",
+        url: "https://platform.claude.com/settings/keys",
         steps: [
-          "In der Anthropic-Console unter Settings, Admin keys einen Admin-Key anlegen (nur Organisations-Admins).",
-          "Admin-Key kopieren (er beginnt mit sk-ant-admin) und unten einfuegen. Er wird nur einmal angezeigt.",
-          "Einfacher geht es ueber \"Mit Anthropic verbinden\": der angemeldete Browser legt den Key an.",
+          "Team-Organisation: in der Anthropic-Console unter Settings, Admin keys einen Admin-Key anlegen (nur Organisations-Admins). Er beginnt mit sk-ant-admin.",
+          "Persoenlich: unter Settings, API keys einen normalen API-Schluessel anlegen. Er beginnt mit sk-ant-api. Der Schluessel wird nur einmal angezeigt.",
+          "Den Schluessel kopieren und unten einfuegen. Einfacher geht es ueber \"Mit Anthropic verbinden\": der angemeldete Browser legt den Schluessel an.",
         ],
-        permissions: ["Admin-Key der Organisation (Workspaces lesen, API-Schluessel lesen und deaktivieren)"],
+        permissions: ["Team: Admin-Key der Organisation (Workspaces lesen, API-Schluessel lesen und deaktivieren)", "Persoenlich: normaler API-Schluessel (nur Pruefung, dass er funktioniert)"],
       };
     case "grafana":
       return {
@@ -291,7 +292,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
 export function tokenPrefixProblem(id: string, token: string): string | undefined {
   if (id === "grafana-cloud") return /^glc_/.test(token.trim()) ? undefined : "Das ist kein Grafana-Cloud-Access-Policy-Token (es beginnt mit glc_). Stack-Tokens (glsa_) gehoeren zur Verbindung Grafana.";
   if (id === "openai") return /^sk-admin-/.test(token.trim()) ? undefined : "Das ist kein OpenAI-Admin-Key (er beginnt mit sk-admin-). Normale Schluessel koennen keine Schluessel erzeugen.";
-  if (id === "anthropic") return /^sk-ant-admin/.test(token.trim()) ? undefined : "Das ist kein Anthropic-Admin-Key (er beginnt mit sk-ant-admin). Normale API-Schluessel koennen die Admin-API nicht nutzen.";
+  if (id === "anthropic") return isAnthropicAdminKey(token) || isAnthropicApiKey(token) ? undefined : ANTHROPIC_KEY_KIND_PROBLEM;
   if (id === "revenuecat") return /^sk_/.test(token.trim()) ? undefined : "Das ist kein RevenueCat-v2-Secret-Key (er beginnt mit sk_). Schluessel der API v1 funktionieren mit v2 nicht.";
   const mode = /^[rs]k_(test|live)_/.exec(token.trim())?.[1];
   if (!mode) return undefined;

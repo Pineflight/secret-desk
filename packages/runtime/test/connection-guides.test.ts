@@ -79,9 +79,13 @@ describe("token prefix checks of the admin connections", () => {
     expect(tokenPrefixProblem("openai", "sk-made-up")).toMatch(/OpenAI-Admin-Key/);
   });
 
-  it("anthropic needs sk-ant-admin", () => {
+  it("anthropic takes an admin key or a normal API key and names both prefixes otherwise", () => {
     expect(tokenPrefixProblem("anthropic", "sk-ant-admin01-made-up")).toBeUndefined();
-    expect(tokenPrefixProblem("anthropic", "sk-ant-api03-made-up")).toMatch(/Anthropic-Admin-Key/);
+    expect(tokenPrefixProblem("anthropic", " sk-ant-api03-made-up ")).toBeUndefined();
+    const problem = tokenPrefixProblem("anthropic", "sk-made-up");
+    expect(problem).toMatch(/sk-ant-admin/);
+    expect(problem).toMatch(/sk-ant-api/);
+    expect(problem).not.toContain("sk-made-up");
   });
 
   it("revenuecat needs sk_", () => {

@@ -6,7 +6,7 @@ import { ConnectionResourcesPanel } from "@/components/ConnectionResources";
 import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun";
 import { Badge, Button, Card, Notice, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
-import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, otherWays, signInButtonState, type OtherWay, type FacadeInfo, type FacadeState, type SudoMethodId } from "@/lib/facade";
+import { browserSignInOf, chosenMethod, connectButtonState, countsText, dialogView, inputsBody, isFinished, isRunning, otherWays, signInButtonState, variantBody, variantsOf, type OtherWay, type FacadeInfo, type FacadeState, type SudoMethodId } from "@/lib/facade";
 import { outcomeOf, outcomeOfError, outcomeProblem, type CheckOutcome, type CheckResponse } from "@/lib/sign-in-check";
 import { useMutation } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
@@ -65,6 +65,8 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
   const [inputValues, setInputValues] = useState<Record<string, string>>(initialInputs ?? {});
   const [cancelling, setCancelling] = useState(false);
   const [methodId, setMethodId] = useState("");
+  // Nothing is preselected for a provider with variants: the button stays disabled until one is chosen.
+  const [variantId, setVariantId] = useState("");
   const [pickedUp, setPickedUp] = useState(false);
   const [outcome, setOutcome] = useState<CheckOutcome | undefined>(undefined);
   const [checkRound, setCheckRound] = useState(0);
@@ -72,8 +74,8 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
   const notified = useRef(false);
   const base = `facades/${enc(facade.id)}`;
 
-  const signIn = useMutation(async (body: { username: string; password: string; method?: string; projectId?: string; inputs?: Record<string, string> }) => api<FacadeState>("POST", `${base}/sign-in`, body));
-  const connect = useMutation(async (projectId: string) => api<FacadeState>("POST", `${base}/connect`, { projectId, inputs: inputsBody(facade.inputs, inputValues) }));
+  const signIn = useMutation(async (body: { username: string; password: string; method?: string; projectId?: string; inputs?: Record<string, string>; variant?: string }) => api<FacadeState>("POST", `${base}/sign-in`, body));
+  const connect = useMutation(async (projectId: string) => api<FacadeState>("POST", `${base}/connect`, { projectId, inputs: inputsBody(facade.inputs, inputValues), ...variantBody(facade, variantId) }));
   const sendCode = useMutation(async (c: string) => api<FacadeState>("POST", `${base}/code`, { code: c }));
   const cancel = useMutation(async () => api<FacadeState>("POST", `${base}/cancel`));
   const confirm = useMutation(async (accept: boolean) => api<FacadeState>("POST", `${base}/confirm`, { accept }));
@@ -144,9 +146,9 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
 
   const now = useNow(started && !isFinished(state));
   const submit = useCallback(async () => {
-    if (signInButtonState(facade, email, password, inputValues, false, chosenMethod(facade, methodId)) !== "ready") return;
+    if (signInButtonState(facade, email, password, inputValues, false, chosenMethod(facade, methodId), variantId) !== "ready") return;
     // Copy, then clear: the form never keeps the password after sending.
-    const body = { username: email.trim(), password, method: chosenMethod(facade, methodId), ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}) };
+    const body = { username: email.trim(), password, method: chosenMethod(facade, methodId), ...(project.trim() ? { projectId: project.trim() } : {}), ...(facade.inputs.length > 0 ? { inputs: inputsBody(facade.inputs, inputValues) } : {}), ...variantBody(facade, variantId) };
     setEmail("");
     setPassword("");
     notified.current = false;
@@ -157,7 +159,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
       setStarted(true);
       setCancelling(false);
     }
-  }, [email, password, project, inputValues, facade, methodId, signIn]);
+  }, [email, password, project, inputValues, facade, methodId, variantId, signIn]);
 
   const run = state && started ? state : null;
   const running = isRunning(run);
@@ -271,6 +273,22 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
       <TextField key={i.param} label={label} {...(i.help ? { hint: i.help } : {})} value={value} onChange={(e) => set(e.target.value)} autoComplete="off" spellCheck={false} className="font-mono" />
     );
   });
+  const variants = variantsOf(facade);
+  const variantField =
+    variants.length > 0 ? (
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">{t("facade.variantLegend", { name: facade.label })}</legend>
+        {variants.map((v) => (
+          <label key={v.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-3 ${variantId === v.id ? "border-primary" : "border-line"}`}>
+            <input type="radio" name={`${facade.id}-variant`} value={v.id} checked={variantId === v.id} onChange={() => setVariantId(v.id)} className="mt-1" />
+            <span>
+              <span className="block text-sm font-medium">{t(v.label)}</span>
+              {v.promise ? <span className="mt-0.5 block text-xs text-muted">{t(v.promise)}</span> : null}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    ) : null;
   const projectField = facade.needsProject ? (
     <details>
       <summary className="cursor-pointer text-xs font-medium text-muted">{t("facade.advanced")}</summary>
@@ -279,8 +297,8 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
       </div>
     </details>
   ) : null;
-  const connectState = connectButtonState(facade, inputValues, connect.pending);
-  const signInState = signInButtonState(facade, email, password, inputValues, signIn.pending, method);
+  const connectState = connectButtonState(facade, inputValues, connect.pending, variantId);
+  const signInState = signInButtonState(facade, email, password, inputValues, signIn.pending, method, variantId);
 
   const signInForm = (
     <form
@@ -291,7 +309,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
         void submit();
       }}
     >
-      <SignInFields info={facade} name={facade.label} method={method} onMethod={setMethodId} email={email} onEmail={setEmail} password={password} onPassword={setPassword} idPrefix="facade" before={inputFields} />
+      <SignInFields info={facade} name={facade.label} method={method} onMethod={setMethodId} email={email} onEmail={setEmail} password={password} onPassword={setPassword} idPrefix="facade" before={<>{variantField}{inputFields}</>} />
       {projectField}
       {err ? <Notice tone="danger">{err.message}</Notice> : null}
       <Button type="submit" variant="primary" loading={signIn.pending} disabled={signInState === "disabled"}>
@@ -316,6 +334,7 @@ export function FacadeFlow({ facade, onChanged, onDone, fallback, initialInputs 
       {view === "connect" ? (
         <div className="space-y-3">
           <Notice tone="success">{t("facade.signedInHint", { name: facade.label })}</Notice>
+          {variantField}
           {inputFields}
           {projectField}
           {err ? <Notice tone="danger">{err.message}</Notice> : null}

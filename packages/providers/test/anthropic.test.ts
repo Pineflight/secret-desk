@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { SecretValue, type IssueContext, type Provider } from "@secret-desk/core";
-import { ANTHROPIC_DEFAULT_ROTATION_DAYS, withAnthropicAdmin } from "../src/index.js";
+import { ConnectionStore, SecretValue, type IssueContext, type Provider } from "@secret-desk/core";
+import { ANTHROPIC_DEFAULT_ROTATION_DAYS, isAnthropicAdminKey, isAnthropicApiKey, withAnthropicAdmin } from "../src/index.js";
 import { ProviderError } from "../src/http.js";
-import { CONN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, verifyCtx } from "./helpers.js";
+import { ADMIN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, verifyCtx } from "./helpers.js";
 
 /** Stands in for the browser provider of the recipe: it issues a value without an expiry and has its own revoke. */
 function browserBase(): Provider & { issued: IssueContext[]; revoked: string[] } {
@@ -86,7 +86,7 @@ describe("anthropic workspace discovery", () => {
     expect(o).toEqual([{ value: "Default", label: "Default" }, { value: "One", label: "One", detail: "wrkspc_1" }, { value: "Two", label: "Two", detail: "wrkspc_2" }, { value: "Four", label: "Four", detail: "wrkspc_4" }]);
     expect(calls).toHaveLength(2);
     expect(calls.every((c) => c.method === "GET")).toBe(true);
-    expect(calls[0]!.headers).toMatchObject({ "x-api-key": CONN_TOKEN, "anthropic-version": "2023-06-01" });
+    expect(calls[0]!.headers).toMatchObject({ "x-api-key": ADMIN_TOKEN, "anthropic-version": "2023-06-01" });
     expect(calls[0]!.headers).not.toHaveProperty("Authorization");
   });
 
@@ -112,7 +112,55 @@ describe("anthropic workspace discovery", () => {
     const err = (await ext.discover!("anthropic.workspace", dctx(mockFetch({ status: 401, body: LEAK }).fetch)).catch((e: unknown) => e)) as ProviderError;
     expect(err).toBeInstanceOf(ProviderError);
     expect(err.status).toBe(401);
-    expect(err.message).not.toContain(CONN_TOKEN);
+    expect(err.message).not.toContain(ADMIN_TOKEN);
+  });
+});
+
+describe("anthropic with a normal API key (Personal)", () => {
+  const PERSONAL = ["sk-ant", "api03", "PERSONAL-KEY-1234567890"].join("-");
+  const personalStore = (): ConnectionStore => {
+    const store = new ConnectionStore();
+    store.session.set("anthropic", PERSONAL);
+    return store;
+  };
+
+  it("lists only the default workspace and does not call the Admin API", async () => {
+    const m = mockFetch();
+    const o = await ext.discover!("anthropic.workspace", { connections: personalStore(), fetch: m.fetch, params: {}, hint: { repos: [] as string[] } });
+    expect(o).toEqual([{ value: "Default", label: "Default" }]);
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it("still fails for a missing connection and an unknown kind", async () => {
+    const m = mockFetch();
+    await expect(ext.discover!("anthropic.workspace", { connections: new ConnectionStore(), fetch: m.fetch, params: {}, hint: { repos: [] as string[] } })).rejects.toThrow(/anthropic/);
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it("revokes through the recipe's browser steps, never through the Admin API", async () => {
+    const m = mockFetch();
+    const local = browserBase();
+    await withAnthropicAdmin(local).revoke!({ ...revokeCtx(m.fetch, {}, KEY, []), connections: personalStore() });
+    expect(local.revoked).toEqual([KEY]);
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it("an Admin key still revokes through the Admin API (the prefix decides)", async () => {
+    const local = browserBase();
+    const { fetch, calls } = routeFetch({ url: "/v1/organizations/api_keys?limit=100", reply: { body: { data: [], has_more: false } } });
+    await withAnthropicAdmin(local).revoke!(revokeCtx(fetch, {}, KEY, ["anthropic"]));
+    expect(calls).toHaveLength(1);
+    expect(local.revoked).toEqual([]);
+  });
+});
+
+describe("anthropic key kinds", () => {
+  it("tells admin keys from normal API keys by prefix, ignoring surrounding spaces", () => {
+    expect(isAnthropicAdminKey(` ${["sk-ant", "admin01", "x"].join("-")} `)).toBe(true);
+    expect(isAnthropicAdminKey(["sk-ant", "api03", "x"].join("-"))).toBe(false);
+    expect(isAnthropicApiKey(` ${["sk-ant", "api03", "x"].join("-")}`)).toBe(true);
+    expect(isAnthropicApiKey(["sk-ant", "admin01", "x"].join("-"))).toBe(false);
+    expect(isAnthropicApiKey("other")).toBe(false);
   });
 });
 
@@ -128,7 +176,7 @@ describe("anthropic revoke", () => {
     const posts = calls.filter((c) => c.method === "POST");
     expect(posts.map((c) => JSON.parse(c.body!))).toEqual([{ status: "inactive" }, { status: "archived" }]);
     expect(posts.every((c) => c.url === "https://api.anthropic.com/v1/organizations/api_keys/apikey_1")).toBe(true);
-    expect(calls.every((c) => c.headers["x-api-key"] === CONN_TOKEN)).toBe(true);
+    expect(calls.every((c) => c.headers["x-api-key"] === ADMIN_TOKEN)).toBe(true);
     expect(base.revoked).toEqual([]);
   });
 
@@ -154,7 +202,7 @@ describe("anthropic revoke", () => {
     const denied = mockFetch({ status: 403, body: LEAK });
     const err = (await ext.revoke!(revokeCtx(denied.fetch, {}, KEY, ["anthropic"])).catch((e: unknown) => e)) as ProviderError;
     expect(err).toBeInstanceOf(ProviderError);
-    expect(err.message).not.toContain(CONN_TOKEN);
+    expect(err.message).not.toContain(ADMIN_TOKEN);
     expect(base.revoked).toEqual([]);
   });
 

@@ -16,7 +16,7 @@ import {
   type GitHubPlace,
   writeConnectionLabel,
 } from "@secret-desk/core";
-import { safeText } from "@secret-desk/providers";
+import { ANTHROPIC_KEY_KIND_PROBLEM, isAnthropicAdminKey, isAnthropicApiKey, safeText } from "@secret-desk/providers";
 import { stripeKeyCarriesAccount } from "@secret-desk/core";
 export { stripeKeyCarriesAccount };
 import type { Runtime } from "./runtime.js";
@@ -282,15 +282,32 @@ async function checkOpenai(rt: Runtime, token: string): Promise<ConnectionCheckI
   return out;
 }
 
-/** Admin key of Anthropic: `GET /v1/organizations/workspaces?limit=1` with `x-api-key` (200 = connected, 401/403 = rejected). */
+/**
+ * Anthropic, by the kind of the stored key. Admin key (Team): `GET /v1/organizations/workspaces?limit=1` with `x-api-key`
+ * (200 = connected, 401/403 = rejected). Normal API key (Personal): `GET /v1/models?limit=1`; workspaces and deactivating keys
+ * need an Admin key, which is said as info, not as a failure. Any other value fails without a request.
+ */
 async function checkAnthropic(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
   const out: ConnectionCheckItem[] = [];
-  if (!token.startsWith("sk-ant-admin")) out.push(item("prefix", "Schluesselart", "fail", "Das ist kein Anthropic-Admin-Key (er beginnt mit sk-ant-admin). Normale API-Schluessel koennen die Admin-API nicht nutzen."));
-  const r = await get(rt, token, "https://api.anthropic.com/v1/organizations/workspaces?limit=1", { "x-api-key": token, "anthropic-version": "2023-06-01" });
-  if (r.status === 200) out.push(item("token", "Schluessel gueltig", "pass", "Workspaces lassen sich lesen."));
-  else if (r.status === 401 || r.status === 403) out.push(item("token", "Schluessel gueltig", "fail", `Anthropic lehnt den Admin-Key ab (${httpFail(r.status)}). Er ist ungueltig, deaktiviert oder gehoert nicht zur Organisation. Neu verbinden.`));
+  const headers = { "x-api-key": token, "anthropic-version": "2023-06-01" };
+  if (isAnthropicAdminKey(token)) {
+    const r = await get(rt, token, "https://api.anthropic.com/v1/organizations/workspaces?limit=1", headers);
+    out.push(item("kind", "Schluesselart", "info", "Admin-Key einer Team-Organisation."));
+    if (r.status === 200) out.push(item("token", "Schluessel gueltig", "pass", "Workspaces lassen sich lesen."));
+    else if (r.status === 401 || r.status === 403) out.push(item("token", "Schluessel gueltig", "fail", `Anthropic lehnt den Admin-Key ab (${httpFail(r.status)}). Er ist ungueltig, deaktiviert oder gehoert nicht zur Organisation. Neu verbinden.`));
+    else if (r.status === 429) out.push(item("token", "Schluessel gueltig", "warn", "Anthropic begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
+    else out.push(item("token", "Schluessel gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
+    return out;
+  }
+  if (!isAnthropicApiKey(token)) return [item("prefix", "Schluesselart", "fail", ANTHROPIC_KEY_KIND_PROBLEM)];
+  const r = await get(rt, token, "https://api.anthropic.com/v1/models?limit=1", headers);
+  out.push(item("kind", "Schluesselart", "info", "Normaler API-Schluessel (persoenliche Verbindung)."));
+  if (r.status === 200) out.push(item("token", "Schluessel gueltig", "pass", "Der Schluessel funktioniert (Modelle lassen sich lesen)."));
+  else if (r.status === 401 || r.status === 403) out.push(item("token", "Schluessel gueltig", "fail", `Anthropic lehnt den Schluessel ab (${httpFail(r.status)}). Er ist ungueltig, deaktiviert oder abgelaufen. Neu verbinden.`));
   else if (r.status === 429) out.push(item("token", "Schluessel gueltig", "warn", "Anthropic begrenzt die Anfragen (HTTP 429). Spaeter erneut pruefen."));
   else out.push(item("token", "Schluessel gueltig", "fail", `Unerwartete Antwort (${httpFail(r.status)})`));
+  out.push(item("workspaces", "Workspaces", "info", "Workspaces auflisten braucht eine Team-Organisation mit Admin-Key. Mit dem normalen Schluessel gilt der Default-Workspace."));
+  out.push(item("deactivate", "Schluessel deaktivieren", "info", "Schluessel ueber die API deaktivieren braucht eine Team-Organisation mit Admin-Key. Mit dem normalen Schluessel geschieht das im Browser."));
   return out;
 }
 

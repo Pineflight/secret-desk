@@ -192,6 +192,6 @@ export default {
   "connectionPurpose.grafanaCloud": "Account token: creates access policies and Cloud tokens, for example the status page read token.",
   "connectionName.openai": "Organization admin key",
   "connectionPurpose.openai": "Creates service accounts with their own project key and revokes them.",
-  "connectionName.anthropic": "Admin key (optional)",
-  "connectionPurpose.anthropic": "Lists workspaces, checks and deactivates API keys. The API keys themselves are created in the signed-in browser.",
+  "connectionName.anthropic": "Anthropic key (Team or personal)",
+  "connectionPurpose.anthropic": "Team organization: admin key, lists workspaces, checks and deactivates API keys. Personal: normal API key, secret-desk only checks that it works.",
 } satisfies Record<string, string>;

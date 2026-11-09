@@ -1,8 +1,9 @@
 # STATUS: sign-in verified live 2026-11-04 (German Console, individual organization; email plus one-time code). The key dialog fields (name, expiry, workspace, submit button) were checked by a read-only probe that created no key. The view after creation (capture of the key), the choice of another expiry or workspace, and revoke are NOT verified.
 # Creates an Anthropic API key on platform.claude.com (Settings, API keys, "Create key") in a workspace. The key is shown once,
 # in a dialog. The Admin API cannot create API keys, so this recipe is the only way to make one; it works for an individual
-# organization too (no admin key needed). Revoke goes through the Admin API when the `anthropic` connection exists (the
-# provider does that); the revoke section below is the fallback in the browser (not verified).
+# organization too (no admin key needed). Revoke goes through the Admin API when the `anthropic` connection holds an Admin key
+# (the provider does that); the revoke section below is the fallback in the browser (not verified). The Personal way of the
+# Anthropic facade runs this recipe with `days` = 90.
 # The Console renders in the language of the account (German for the probed account), so every text selector accepts both
 # German and English as a /pattern/flags text; placeholders, types and structure are used where they exist.
 # The expiry of a key is always filled: the dialog offers 30 days by default (kept for `days` = 30); another number of days is

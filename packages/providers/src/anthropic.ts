@@ -25,6 +25,14 @@ export const ANTHROPIC_DEFAULT_WORKSPACE = "Default";
 /** The recipe whose browser provider gets the Admin API extras. */
 export const ANTHROPIC_KEY_RECIPE = "anthropic-api-key";
 
+/** An organization Admin key starts with this; a normal API key (also from an individual account) starts with `sk-ant-api`. */
+export const ANTHROPIC_ADMIN_PREFIX = "sk-ant-admin";
+export const ANTHROPIC_API_PREFIX = "sk-ant-api";
+/** Text for a stored Anthropic value that is neither key kind. Names both prefixes; never the value. */
+export const ANTHROPIC_KEY_KIND_PROBLEM = "Das ist kein Anthropic-Schluessel (ein Admin-Key beginnt mit sk-ant-admin, ein normaler API-Schluessel mit sk-ant-api).";
+export const isAnthropicAdminKey = (value: string): boolean => value.trim().startsWith(ANTHROPIC_ADMIN_PREFIX);
+export const isAnthropicApiKey = (value: string): boolean => value.trim().startsWith(ANTHROPIC_API_PREFIX);
+
 type FetchFn = typeof fetch;
 type Ctx = { connections: ConnectionStore; fetch: FetchFn };
 
@@ -66,6 +74,8 @@ export async function listWorkspaces(ctx: Ctx): Promise<{ name: string; id: stri
 
 async function discoverAnthropic(kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]> {
   if (kind !== "anthropic.workspace") return unknownKind(kind);
+  // A normal API key (Personal) cannot call the Admin API: only the default workspace exists for it. A missing connection still throws.
+  if (!isAnthropicAdminKey((await ctx.connections.token("anthropic")).reveal())) return [{ value: ANTHROPIC_DEFAULT_WORKSPACE, label: ANTHROPIC_DEFAULT_WORKSPACE }];
   return (await listWorkspaces(ctx)).map((w) => ({ value: w.name, label: w.name, ...(w.id ? { detail: w.id } : {}) }));
 }
 
@@ -101,8 +111,8 @@ async function revokeViaAdmin(ctx: RevokeContext): Promise<void> {
 
 async function adminConnected(ctx: Pick<RevokeContext, "connections">): Promise<boolean> {
   try {
-    await ctx.connections.token("anthropic");
-    return true;
+    // Only an Admin key can use the Admin API; a normal API key (Personal) leaves the revoke to the browser.
+    return isAnthropicAdminKey((await ctx.connections.token("anthropic")).reveal());
   } catch (err) {
     if (err instanceof NotConnectedError) return false;
     throw err;
@@ -124,7 +134,7 @@ const workspaceSpec = (base: ParamSpec | undefined): ParamSpec => ({
 /**
  * Adds what the Admin API can do to the browser provider of the recipe `anthropic-api-key`: workspace discovery (so the
  * provider shows under the `anthropic` connection), the key check, an expiry date that is always filled, and revoking through
- * the Admin API when the connection exists (otherwise the recipe's own revoke steps run in the browser).
+ * the Admin API when the connection holds an Admin key (otherwise the recipe's own revoke steps run in the browser).
  */
 export function withAnthropicAdmin<T extends Provider>(base: T): T {
   const params: ParamSpec[] = [...(base.params ?? []).filter((p) => p.key !== "workspace"), workspaceSpec((base.params ?? []).find((p) => p.key === "workspace"))];

@@ -245,7 +245,7 @@ describe("resend, revenuecat, openai, anthropic and grafana cloud", () => {
       expect(odd(await checkConnection(rt, "anthropic", {}, NOW))).toMatch(re);
     }
     expect(seen[0]).not.toHaveProperty("Authorization");
-    const wrong = await setup(() => ({ status: 200 }), { tokens: { anthropic: "sk-ant-api03-made-up" } });
+    const wrong = await setup(() => ({ status: 200 }), { tokens: { anthropic: "sk-made-up-other" } });
     expect(status(await checkConnection(wrong, "anthropic", {}, NOW), "prefix")).toBe("fail");
   });
 

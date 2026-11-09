@@ -520,14 +520,44 @@ describe("connecting with the signed-in browser", () => {
   it("an optional admin key: an unsupported account is a ready browser, with the vault noted", async () => {
     const rt = await setup();
     mocks.runRecipe.mockRejectedValue(new RecipeRunError("unsupported", "no admin keys here"));
-    const s = await connect(rt, "anthropic");
+    const s = await connect(rt, "anthropic", { variant: "team" });
     expect(s).toMatchObject({ status: "done", result: { browserOnly: true, connected: false, storedIn: "session" } });
     const stored = await setup({ vault: { set: async () => undefined } });
     mocks.runRecipe.mockRejectedValue(new RecipeRunError("unsupported", "no admin keys here"));
-    expect((await connect(stored, "anthropic")).result?.storedIn).toBe("vault");
+    expect((await connect(stored, "anthropic", { variant: "team" })).result?.storedIn).toBe("vault");
     const required = await setup();
     mocks.runRecipe.mockRejectedValue(new RecipeRunError("unsupported", "no"));
     expect((await connect(required, "openai")).failure?.code).toBe("key");
+  });
+
+  it("the variant's expiry reaches the recipe as the base variable `days` (Team keeps 0), and an unsupported Personal account fails", async () => {
+    const api = ["sk-ant", "api03", "made-up-personal-key-1234"].join("-");
+    const ok = (url: string) => (url.startsWith("https://api.anthropic.com/v1/models") ? new Response("{}", { status: 200 }) : new Response(null, { status: 404 }));
+    const rt = await setup({ fetch: ok });
+    mocks.runRecipe.mockResolvedValue({ value: SecretValue.from(api) });
+    expect((await connect(rt, "anthropic", { variant: "personal" })).status).toBe("done");
+    expect(mocks.runRecipe.mock.calls[0]![0]).toMatchObject({ id: "anthropic-api-key" });
+    expect(mocks.runRecipe.mock.calls[0]![1]).toMatchObject({ days: "90", workspace: "" });
+    mocks.runRecipe.mockClear();
+    await connect(rt, "anthropic", { variant: "team" });
+    expect(mocks.runRecipe.mock.calls[0]![0]).toMatchObject({ id: "anthropic-admin-key" });
+    expect(mocks.runRecipe.mock.calls[0]![1]).toMatchObject({ days: "0" });
+    // Personal has no "unsupported" way out: the Console offers API keys to every account.
+    mocks.runRecipe.mockRejectedValue(new RecipeRunError("unsupported", "no"));
+    const personal = await setup();
+    expect((await connect(personal, "anthropic", { variant: "personal" })).failure?.code).toBe("key");
+  });
+
+  it("a provider without variants ignores a variant in the request, and a variant without a sentence lists none", async () => {
+    const rt = await setup();
+    expect((await connect(rt, "revenuecat", { projectId: PROJECT, variant: "anything" })).status).toBe("done");
+    const base = FACADES.find((f) => f.id === "openai")!;
+    (FACADES as unknown as unknown[]).push({ ...base, id: "made-up-variants", variants: [{ id: "only", label: "facade.variant.made-up", recipeId: base.recipeId, keyParams: {} }] });
+    try {
+      expect((await listFacades(rt, human)).find((f) => f.id === "made-up-variants")?.variants).toEqual([{ id: "only", label: "facade.variant.made-up", promise: null }]);
+    } finally {
+      (FACADES as unknown as unknown[]).pop();
+    }
   });
 
   it("a grafana key carries its expiry day", async () => {

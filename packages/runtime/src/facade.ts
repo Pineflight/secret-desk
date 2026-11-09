@@ -16,6 +16,7 @@ import {
   type Recipe,
   type SudoAnswer,
 } from "@secret-desk/automation";
+import { ANTHROPIC_API_PREFIX, isAnthropicApiKey } from "@secret-desk/providers";
 import { InventoryError, IssuanceError, redact, STRIPE_ACCOUNT_PATTERN, stripeConnectionId, stripeKeyMode, type SecretValue, type StripeAccountMode } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
@@ -32,6 +33,31 @@ import type { Runtime } from "./runtime.js";
  * only into pages on the recipe's hosts and are wiped afterwards: they are not stored, not logged, not part of any state,
  * error, screenshot or response. Agents can never use any of this (human-only routes, no MCP tool).
  */
+
+/**
+ * One way to connect a provider whose accounts differ (Anthropic: a Team organization with an Admin key, or a Personal account with
+ * a normal API key). The sign-in (the descriptor's recipe) is shared; the variant picks the recipe that creates the key and what
+ * goes with it. The human chooses a variant for each run and nothing is preselected on the server: a request without a valid
+ * variant is refused.
+ */
+export interface FacadeVariant {
+  /** Stable id sent by the portal (`variant` in the request body). */
+  id: string;
+  /** Catalog key of the variant's name in the connect dialog. */
+  label: string;
+  /** Recipe that creates the key of this variant (replaces the descriptor's `recipeId` for the key step only). */
+  recipeId: string;
+  /** Fixed recipe parameters of the integration key. */
+  keyParams: Record<string, string>;
+  /** Expiry of the key in days; the value is also the recipe variable `days`. */
+  keyExpiryDays?: number;
+  /** The key is optional (see the descriptor's `keyOptional`). */
+  keyOptional?: boolean;
+  /** Catalog key of the sentence that says what this variant can do (shown under its name). */
+  promise?: string;
+  /** Checks the new key before it is stored (see the descriptor's `verifyKey`). */
+  verifyKey?(rt: Runtime, key: SecretValue, inputs: Record<string, string>): Promise<string | null>;
+}
 
 /** What a provider needs to join the facade. The recipe carries the sign-in (login.form) and the key creation. */
 export interface FacadeDescriptor {
@@ -76,6 +102,12 @@ export interface FacadeDescriptor {
    * expiry day with the connection, so the connection health shows it before the key stops working.
    */
   keyExpiryDays?: number;
+  /**
+   * Ways to connect, when the key differs by account type. The descriptor's `recipeId` then only signs in (and checks the session);
+   * the chosen variant's `recipeId`, `keyParams`, `keyExpiryDays`, `keyOptional` and `promise` replace the descriptor's for the run,
+   * so a descriptor with variants sets none of those fields itself (except `recipeId` and `keyParams`, which the sign-in needs).
+   */
+  variants?: FacadeVariant[];
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -90,6 +122,23 @@ async function stripeKeyAccount(rt: Runtime, key: SecretValue): Promise<string |
   } catch {
     return null;
   }
+}
+
+/**
+ * A new Anthropic API key (Personal) must be a normal API key and must work: `GET /v1/models?limit=1`. Resolves to a problem text
+ * (never the key), or null when the key is fine.
+ */
+async function anthropicApiKeyProblem(rt: Runtime, key: SecretValue): Promise<string | null> {
+  const value = key.reveal();
+  if (!isAnthropicApiKey(value)) return `The new key does not start with ${ANTHROPIC_API_PREFIX}, so it is not a normal API key and was not stored.`;
+  let status: number;
+  try {
+    const res = await rt.fetch("https://api.anthropic.com/v1/models?limit=1", { method: "GET", headers: { "x-api-key": value, "anthropic-version": "2023-06-01", Accept: "application/json", "User-Agent": "secret-desk" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    status = res.status;
+  } catch {
+    return "The new key could not be checked at Anthropic, so it was not stored.";
+  }
+  return status === 200 ? null : `Anthropic did not accept the new key (HTTP ${status}), so it was not stored.`;
 }
 
 export const FACADES: readonly FacadeDescriptor[] = [
@@ -124,20 +173,23 @@ export const FACADES: readonly FacadeDescriptor[] = [
     summary: [{ key: "projects", kind: "openai.project" }],
   },
   {
-    // The Admin API cannot create API keys: the admin key lets the portal list workspaces and check and deactivate keys, while
-    // the keys themselves come from the browser recipe `anthropic-api-key`. The Console signs in by email code (no password).
-    // The admin key is optional: an individual organization has none, and the sign-in alone makes the browser ready.
-    keyOptional: true,
+    // Two ways to connect, one Console sign-in (the recipe `anthropic-admin-key` carries it). Team: the organization Admin key
+    // lets the portal list workspaces and check and deactivate keys. Personal: a normal API key, created by the browser recipe
+    // `anthropic-api-key` (the Admin API cannot create keys), which the portal can only check. Both are the `anthropic` connection.
     id: "anthropic",
     label: "Anthropic",
     recipeId: "anthropic-admin-key",
     connectionId: "anthropic",
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     keyParams: {},
-    promise: "facade.promise.anthropic",
     project: null,
     inputs: [],
     summary: [{ key: "workspaces", kind: "anthropic.workspace" }],
+    variants: [
+      { id: "team", label: "facade.variant.anthropic.team", recipeId: "anthropic-admin-key", keyParams: {}, keyOptional: true, promise: "facade.promise.anthropic.team" },
+      // 90 days is an option of the Console dialog; `days` carries it to the recipe (and the expiry day to the connection).
+      { id: "personal", label: "facade.variant.anthropic.personal", recipeId: "anthropic-api-key", keyParams: {}, keyExpiryDays: 90, promise: "facade.promise.anthropic.personal", verifyKey: (rt, key) => anthropicApiKeyProblem(rt, key) },
+    ],
   },
   {
     // The Cloud access policy token is created once through the signed-in browser (grafana.com, portal sign-in only); after that
@@ -252,6 +304,8 @@ export interface FacadeInfo {
   methods: LoginMethodInfo[];
   /** Catalog key of the sentence about the key this flow creates, or null. */
   promise: string | null;
+  /** The ways to connect (empty = one way). The portal asks which one; the choice goes with the request as `variant`. */
+  variants: { id: string; label: string; promise: string | null }[];
   /** The email sign-in has no password (the provider sends a one-time code); the portal then asks only for the email. */
   passwordless: boolean;
 }
@@ -307,6 +361,7 @@ export async function listFacades(rt: Runtime, actor: Actor): Promise<FacadeInfo
       timeoutMinutes: rt.automation.loginTimeoutMinutes,
       methods: recipe ? loginMethodsOf(recipe) : [],
       promise: d.promise ?? null,
+      variants: (d.variants ?? []).map((v) => ({ id: v.id, label: v.label, promise: v.promise ?? null })),
       passwordless: recipe?.login?.form?.passwordless === true,
     });
   }
@@ -369,6 +424,22 @@ export function methodFrom(recipe: Recipe, body: Record<string, unknown>): Login
   const offered = loginMethodsOf(recipe).find((m) => m.id === raw);
   if (!offered) throw new InventoryError(`This provider does not offer the sign-in method ${String(raw)}.`);
   return offered.id;
+}
+
+/**
+ * The way the human chose for a provider with variants (`variant` in the body). Missing or unknown is refused; a provider
+ * without variants takes none (and ignores the field). Returns the descriptor as this run sees it and the recipe that creates the key.
+ */
+function variantFrom(rt: Runtime, d: FacadeDescriptor, whole: Recipe, body: Record<string, unknown>, inputs: Record<string, string>): { run: FacadeDescriptor; keyRecipe: Recipe } {
+  if (!d.variants) return { run: d, keyRecipe: portalFrom(whole, body, inputs) };
+  const raw = typeof body["variant"] === "string" ? body["variant"].trim() : "";
+  if (!raw) throw new InventoryError(`Choose how to connect ${d.label}: ${d.variants.map((v) => v.id).join(" or ")}.`);
+  const v = d.variants.find((x) => x.id === raw);
+  if (!v) throw new InventoryError(`Unknown way to connect ${d.label}: ${raw.slice(0, 40)}. Use ${d.variants.map((x) => x.id).join(" or ")}.`);
+  const recipe = rt.automation.recipe(v.recipeId);
+  if (!recipe) throw new InventoryError(`The recipe ${v.recipeId} is not loaded.`);
+  // The variant's own settings replace the descriptor's; identity (id, label) stays the provider's.
+  return { run: { ...d, ...v, id: d.id, label: d.label }, keyRecipe: portalFrom(recipe, body, inputs) };
 }
 
 function projectFrom(d: FacadeDescriptor, recipe: Recipe, body: Record<string, unknown>): string | undefined {
@@ -490,9 +561,10 @@ function mapSignInEvent(t: Tracker, rt: Runtime, e: LoginEvent, timeoutAt: strin
  */
 export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Sign in at the provider");
-  const { d, recipe: whole } = descriptorOf(rt, id);
-  const projectId = projectFrom(d, whole, body);
-  const inputs = inputsFrom(d, whole, body);
+  const { d: base, recipe: whole } = descriptorOf(rt, id);
+  const projectId = projectFrom(base, whole, body);
+  const inputs = inputsFrom(base, whole, body);
+  const { run: d, keyRecipe } = variantFrom(rt, base, whole, body, inputs);
   const recipe = portalFrom(whole, body, inputs);
   const method = methodFrom(recipe, body);
   const creds = credentialsFrom(body, !(method === "email" && recipe.login?.form?.passwordless === true));
@@ -508,16 +580,16 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
     throw err;
   }
   const state = rt.automation.state(key);
-  void runSignIn(rt, actor, d, recipe, creds, projectId, inputs, key, signal, minutes, method);
+  void runSignIn(rt, actor, d, recipe, keyRecipe, creds, projectId, inputs, key, signal, minutes, method);
   return state;
 }
 
-async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
+async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe: Recipe, keyRecipe: Recipe, creds: LoginCredentials, projectId: string | undefined, inputs: Record<string, string>, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId): Promise<void> {
   const known = [creds.username, creds.password].filter((x) => x !== "");
   const t = new Tracker(rt, key);
   try {
     const url = await driveSignIn(rt, recipe, creds, key, signal, minutes, method, t);
-    await runConnect(rt, actor, d, recipe, key, signal, t, projectId, inputs, url);
+    await runConnect(rt, actor, d, keyRecipe, key, signal, t, projectId, inputs, url);
   } catch (err) {
     finishFailed(rt, key, t, failureOf(err, known, signal.aborted));
   } finally {
@@ -650,10 +722,10 @@ export function cancelRecipeSignIn(rt: Runtime, actor: Actor, recipeId: string):
 /** Uses the browser session that is already signed in: creates the key, stores and tests it. Needs no credentials. */
 export function startFacadeConnect(rt: Runtime, actor: Actor, id: string, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Connect the provider");
-  const { d, recipe: whole } = descriptorOf(rt, id);
-  const projectId = projectFrom(d, whole, body);
-  const inputs = inputsFrom(d, whole, body);
-  const recipe = portalFrom(whole, body, inputs);
+  const { d: base, recipe: whole } = descriptorOf(rt, id);
+  const projectId = projectFrom(base, whole, body);
+  const inputs = inputsFrom(base, whole, body);
+  const { run: d, keyRecipe: recipe } = variantFrom(rt, base, whole, body, inputs);
   const key = stateKey(id);
   rt.automation.forget(key);
   const signal = rt.automation.begin(key, id, { text: "Using the signed-in browser.", kind: "connect", needs: null, phase: "signed-in", timeline: [], timeoutAt: null });
@@ -722,7 +794,8 @@ async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, r
   const vars = {
     name: keyName,
     owner: "",
-    days: "0",
+    // The expiry the recipe asks the provider for. `days` is a base variable, not a recipe parameter, so it is set here.
+    days: String(d.keyExpiryDays ?? 0),
     date: now.toISOString().slice(0, 10),
     description: "",
     repos: "",
@@ -814,7 +887,7 @@ async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, r
     if (d.keyOptional && err instanceof RecipeRunError && err.kind === "unsupported") {
       // The recipe ran in the signed-in browser up to the page that lacks the feature: the browser is ready.
       rt.automation.noteSignIn(recipe.host, true, "run");
-      const text = "Signed in. This account has no admin keys (they need an organization); API keys are created in the browser.";
+      const text = "Signed in. This account has no admin keys (they need an organization); API keys are created in the browser. Choose Personal to connect with a normal API key.";
       const result: FacadeResult = { connected: false, browserOnly: true, connectionId: d.connectionId, storedIn: rt.connections.vault ? "vault" : "session", keyName: "", projectId: null, check: null, counts: {} };
       t.phase("connected", { text });
       return rt.automation.end(key, { status: "done", text, needs: null, ask: null, timeline: t.done(), result });

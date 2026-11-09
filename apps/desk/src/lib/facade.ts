@@ -13,6 +13,13 @@ export interface FacadeInput {
   help: string | null;
 }
 
+/** One way to connect a provider whose accounts differ (Anthropic: Team organization or Personal). Texts are catalog keys. */
+export interface FacadeVariantInfo {
+  id: string;
+  label: string;
+  promise: string | null;
+}
+
 export interface FacadeInfo {
   id: string;
   label: string;
@@ -33,6 +40,8 @@ export interface FacadeInfo {
   methods: FacadeMethod[];
   /** Catalog key of the sentence about the key this flow creates, or null (nothing is shown). */
   promise: string | null;
+  /** The ways to connect (absent or empty = one way). The human picks one; it is sent as `variant`. */
+  variants?: FacadeVariantInfo[];
   /** The email sign-in has no password (a one-time code is sent); only the email is asked for. Absent = false. */
   passwordless?: boolean;
 }
@@ -214,6 +223,15 @@ export function inputsValid(inputs: readonly FacadeInput[], values: Record<strin
   });
 }
 
+/** The variants a facade offers (none for most providers). */
+export const variantsOf = (facade: Pick<FacadeInfo, "variants">): FacadeVariantInfo[] => facade.variants ?? [];
+
+/** A provider with variants needs one of them chosen; a provider without needs nothing. Nothing is preselected. */
+export const variantChosen = (facade: Pick<FacadeInfo, "variants">, variant: string): boolean => variantsOf(facade).length === 0 || variantsOf(facade).some((v) => v.id === variant);
+
+/** The request field for the chosen variant: empty for a provider without variants. */
+export const variantBody = (facade: Pick<FacadeInfo, "variants">, variant: string): { variant?: string } => (variantsOf(facade).length > 0 ? { variant } : {});
+
 /** The inputs to send: trimmed, only the ones the facade asks for. */
 export function inputsBody(inputs: readonly FacadeInput[], values: Record<string, string>): Record<string, string> {
   return Object.fromEntries(inputs.map((i) => [i.param, (values[i.param] ?? "").trim()]));
@@ -264,19 +282,19 @@ export function chosenMethod(facade: Pick<FacadeInfo, "methods">, id: string | n
 
 /** Every state of the connect button: it is busy while the request runs, disabled when the provider is unusable or inputs are missing. */
 export type ConnectButton = "ready" | "busy" | "disabled";
-export function connectButtonState(facade: Pick<FacadeInfo, "available" | "inputs">, values: Record<string, string>, busy: boolean): ConnectButton {
+export function connectButtonState(facade: Pick<FacadeInfo, "available" | "inputs" | "variants">, values: Record<string, string>, busy: boolean, variant = ""): ConnectButton {
   if (busy) return "busy";
-  return facade.available && inputsValid(facade.inputs, values) ? "ready" : "disabled";
+  return facade.available && inputsValid(facade.inputs, values) && variantChosen(facade, variant) ? "ready" : "disabled";
 }
 
 /** The sign-in form asks for a password: not for a passwordless email sign-in (single-sign-on methods still do). */
 export const needsPassword = (facade: Pick<FacadeInfo, "passwordless">, method: string): boolean => !(facade.passwordless === true && method === "email");
 
 /** The sign-in form can be sent: provider usable, credentials and inputs present, nothing running. */
-export function signInButtonState(facade: Pick<FacadeInfo, "available" | "inputs" | "passwordless">, email: string, password: string, values: Record<string, string>, busy: boolean, method = "email"): ConnectButton {
+export function signInButtonState(facade: Pick<FacadeInfo, "available" | "inputs" | "passwordless" | "variants">, email: string, password: string, values: Record<string, string>, busy: boolean, method = "email", variant = ""): ConnectButton {
   if (busy) return "busy";
   const credentials = needsPassword(facade, method) ? signInValid(email, password) : signInValid(email, "x");
-  return facade.available && credentials && inputsValid(facade.inputs, values) ? "ready" : "disabled";
+  return facade.available && credentials && inputsValid(facade.inputs, values) && variantChosen(facade, variant) ? "ready" : "disabled";
 }
 
 /** The access an authorization asks for, as list items (the portal shows them before the human confirms). */
