@@ -4,6 +4,9 @@ import { RunStatus, SignInFields, Stepper, useNow } from "@/components/SignInRun
 import type { FacadeInfo, FacadeMethodId, FacadeState } from "@/lib/facade";
 import { runState } from "./helpers/run";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 afterEach(() => vi.useRealTimers());
 

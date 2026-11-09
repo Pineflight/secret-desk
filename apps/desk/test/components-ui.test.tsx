@@ -9,6 +9,9 @@ import { ApiError } from "@/lib/api";
 import type { BundleDiff } from "@/lib/team-sync";
 import { fakePortal } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 beforeEach(() => {
   fakePortal({ "GET stages": [] });

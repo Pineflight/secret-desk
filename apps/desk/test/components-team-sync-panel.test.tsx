@@ -7,6 +7,9 @@ import { fakePortal, type FakeHandler } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
 import { runState } from "./helpers/run";
 import { tokenInfo } from "./helpers/team-token";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const STATUS = "GET team-sync/status";
 const none = { added: [], changed: [], removed: [] };
@@ -39,7 +42,7 @@ beforeEach(() => publishStages([]));
 
 describe("TeamSyncPanel status", () => {
   it("renders nothing until the status is known", () => {
-    fakePortal({ [STATUS]: new Promise(() => {}) as never });
+    fakePortal({ [STATUS]: () => new Promise(() => {}) });
     const { container } = renderApp(<TeamSyncPanel />);
     expect(container.querySelector("section")).toBeNull();
   });

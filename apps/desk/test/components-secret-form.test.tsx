@@ -9,6 +9,9 @@ import { fakePortal, type FakeHandler } from "./helpers/portal";
 import { spec } from "./helpers/params";
 import { renderApp } from "./helpers/render";
 import { pickOption } from "./helpers/select";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const STAGES = [
   { id: "dev", kind: "dev", label: "Entwicklung", environmentName: null },

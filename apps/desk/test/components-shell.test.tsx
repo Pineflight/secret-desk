@@ -6,6 +6,9 @@ import { refreshCounts } from "@/lib/refresh";
 import { navigation } from "./helpers/navigation";
 import { fakePortal, type FakeHandler, type FakePortal } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 // The palette and the launch form have their own tests; here they only show that the shell opens and closes them.
 vi.mock("@/components/CommandPalette", () => ({

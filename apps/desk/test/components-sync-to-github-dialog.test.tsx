@@ -4,6 +4,9 @@ import type { SyncLine, SyncOutcome, SyncPlan } from "@secret-desk/core";
 import { SyncToGitHubDialog } from "@/components/SyncToGitHubDialog";
 import { fakePortal, type FakeHandler } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const line = (over: Partial<SyncLine> = {}): SyncLine => ({
   key: "variable:v1:web",

@@ -5,6 +5,9 @@ import { RepoPicker } from "@/components/RepoPicker";
 import { invalidateRepoList } from "@/lib/repo-list";
 import { fakePortal } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const row = (name: string, over: Record<string, unknown> = {}) => ({ name, secrets: 0, variables: 0, templates: 0, inInventory: true, github: null, link: null, ...over });
 const LIST = {

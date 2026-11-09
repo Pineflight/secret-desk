@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
 import { SelectBox } from "@/components/SelectBox";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const OPTIONS = (
   <>

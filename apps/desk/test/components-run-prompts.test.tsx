@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { AccessPrompt, ApprovalNotice, CodePrompt, ConsentPrompt, CredentialsPrompt } from "@/components/RunPrompts";
 import type { FacadeMethod, RunAsk } from "@/lib/facade";
 import { renderApp } from "./helpers/render";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 type Access = Extract<RunAsk, { type: "access" }>;
 const choose = (over: Partial<Extract<Access, { stage: "choose" }>> = {}): Access => ({ type: "access", stage: "choose", methods: ["mobile", "code", "password"], attempt: 1, maxAttempts: 3, ...over });

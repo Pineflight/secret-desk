@@ -7,6 +7,9 @@ import { fakePortal } from "./helpers/portal";
 import { okState } from "./helpers/params";
 import { renderApp } from "./helpers/render";
 import { pickOption } from "./helpers/select";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const ACCOUNT = "cloudflare.account";
 const ZONE = "cloudflare.zone";

@@ -7,6 +7,9 @@ import { fakePortal, type FakeHandler } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
 import { runState } from "./helpers/run";
 import { activeToken, tokenInfo } from "./helpers/team-token";
+import { drainRequestsAfterEach } from "./helpers/drain";
+
+drainRequestsAfterEach();
 
 const TOKEN = "team-sync/token";
 const running = (over: Partial<FacadeState> = {}): TeamTokenInfo["run"] => runState({ status: "running", timeline: [{ phase: "opening", state: "done", at: "x" }, { phase: "signin", state: "active", at: "x" }], ...over });
@@ -22,7 +25,7 @@ describe("TeamTokenControl idle states", () => {
   });
 
   it("shows nothing at all while the first answer is pending", () => {
-    fakePortal({ [`GET ${TOKEN}`]: new Promise(() => {}) as never });
+    fakePortal({ [`GET ${TOKEN}`]: () => new Promise(() => {}) });
     renderApp(control());
     expect(screen.queryByTestId("team-token")).toBeNull();
   });
