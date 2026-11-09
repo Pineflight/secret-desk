@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signInParam } from "@/lib/renewal-warning";
 import type { SecretView, VariableView } from "@secret-desk/runtime";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, Skeleton } from "@/components/ui";
+import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, Skeleton } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
 import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
@@ -58,14 +58,14 @@ export default function ConnectionsPage() {
   // The check route depends on the card (its guided sign-in or its recipe): the queue reads the latest cards and reloads the
   // server's sign-in memory afterwards, so the badge follows the new answer.
   const cardsRef = useRef<ProviderCard[] | null>(null);
-  const reloadAutomation = useRef<() => void>(() => undefined);
+  const reloadAutomation = useRef<(() => void) | null>(null);
   if (queue.current === null) {
     queue.current = createCheckQueue<CheckOutcome>(async (id) => {
       // A provider with several portals is checked per portal: the key names the host.
       const { cardId, host } = splitCheckId(id);
-      const card = cardsRef.current?.find((c) => c.id === cardId);
-      const portal = host ? card?.signIn.checkHosts?.find((h) => h.host === host)?.value : undefined;
-      const name = card ? (portal ? `${card.label} ${portal}` : card.label) : cardId;
+      const card = cardsRef.current!.find((c) => c.id === cardId)!;
+      const portal = host ? card.signIn.checkHosts?.find((h) => h.host === host)?.value : undefined;
+      const name = portal ? `${card.label} ${portal}` : card.label;
       const outcome = await activityRef.current.track<CheckOutcome>({
         card: cardId,
         kind: "signin",
@@ -74,25 +74,23 @@ export default function ConnectionsPage() {
         work: async () => {
           let result: CheckOutcome;
           try {
-            const path = card ? checkPathOf(card) : null;
-            if (!path) throw new Error("");
-            result = outcomeOf(await api<CheckResponse>("POST", path, checkBodyOf(host)));
+            result = outcomeOf(await api<CheckResponse>("POST", checkPathOf(card)!, checkBodyOf(host)));
           } catch (e) {
             result = outcomeOfError(e);
           }
           setOutcomes((o) => ({ ...o, [id]: result }));
-          reloadAutomation.current();
+          reloadAutomation.current?.();
           return result;
         },
         judge: (r) => ({ ok: r.signedIn === true, detail: outcomeProblem(r, localeRef.current, tRef.current) }),
       });
-      if (!outcome) throw new Error("");
-      return outcome;
+      // `work` catches its own errors, so `track` always has a result.
+      return outcome!;
     }, setPhases);
   }
   const signedIn = useMemo(() => signedInIds(outcomes), [outcomes]);
   // The connect dialog runs its sign-in check through the same queue, so it never overlaps another check in the one browser.
-  const checkContext = useMemo(() => ({ check: (id: string) => queue.current?.enqueue(id) ?? Promise.resolve(undefined) }), []);
+  const checkContext = useMemo(() => ({ check: (id: string) => queue.current!.enqueue(id) }), []);
   const conns = useQuery<Connection[]>("connections", () => api<Connection[]>("GET", "connections"));
   const provs = useQuery<Provider[]>("providers-full", () => api<Provider[]>("GET", "providers"));
   const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
@@ -103,10 +101,10 @@ export default function ConnectionsPage() {
   const secrets = useQuery<SecretView[]>("overview-secrets", () => api<SecretView[]>("GET", "secrets"));
   const vars = useQuery<VariableView[]>("overview-variables", () => api<VariableView[]>("GET", "variables"));
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const remove = async (id: string, name: string, cardId?: string) => {
+  const remove = async (id: string, name: string, cardId: string) => {
     setRemovingId(id);
     try {
-      const done = await activity.track({ card: cardId ?? conns.data?.find((c) => c.id === id)?.vendor ?? id, kind: "remove", line: id, name, work: () => api<Connection>("DELETE", `connections/${enc(id)}/token`), judge: () => ({ ok: true }) });
+      const done = await activity.track({ card: cardId, kind: "remove", line: id, name, work: () => api<Connection>("DELETE", `connections/${enc(id)}/token`), judge: () => ({ ok: true }) });
       if (done) { conns.reload(); facades.reload(); }
     } finally {
       setRemovingId(null);
@@ -218,7 +216,7 @@ export default function ConnectionsPage() {
                   }
                 >
                   <SignInLine card={card} status={signIn} problem={problem} outcomes={outcomes} locale={locale} />
-                  <CardKeys card={card} conns={conns.data ?? []} open={open} setOpen={setOpen} setPicking={setPicking} removingId={removingId} remove={remove} disconnecting={removingId !== null} />
+                  <CardKeys card={card} conns={conns.data!} open={open} setOpen={setOpen} setPicking={setPicking} removingId={removingId} remove={remove} disconnecting={removingId !== null} />
                 </ProviderPageCard>
               </li>
             );
@@ -229,12 +227,12 @@ export default function ConnectionsPage() {
         <IntegrationPicker
           initial={picking}
           cards={cards}
-          conns={conns.data ?? []}
+          conns={conns.data!}
           facades={facades.data ?? []}
           categories={vendors.data.categories}
           signedIn={signedIn}
           onClose={() => setPicking(false)}
-          onChanged={(vendor, kind) => { reloadAll(); if (kind) activity.note({ card: vendor, kind }, cards.find((c) => c.id === vendor)?.label ?? vendor, true); }}
+          onChanged={(vendor, kind) => { reloadAll(); if (kind) activity.note({ card: vendor, kind }, cards.find((c) => c.id === vendor)!.label, true); }}
           onNewProvider={() => { setPicking(false); setAdding(true); }}
         />
       ) : null}
@@ -248,7 +246,7 @@ export default function ConnectionsPage() {
  * The connected keys inside a provider card. A vendor with keys per account (a connection prefix) gets one compact line per
  * connection, with Test, Reconnect and Remove; other keys stay the collapsible rows.
  */
-function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, disconnecting }: { card: ProviderCard; conns: Connection[]; open: ReadonlySet<string>; setOpen: (f: (o: ReadonlySet<string>) => ReadonlySet<string>) => void; setPicking: (p: Picking) => void; removingId: string | null; remove: (id: string, name: string, cardId?: string) => Promise<void>; disconnecting: boolean }) {
+function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, disconnecting }: { card: ProviderCard; conns: Connection[]; open: ReadonlySet<string>; setOpen: (f: (o: ReadonlySet<string>) => ReadonlySet<string>) => void; setPicking: (p: Picking) => void; removingId: string | null; remove: (id: string, name: string, cardId: string) => Promise<void>; disconnecting: boolean }) {
   const t = useT();
   const lines = connectionLines(card);
   const facade = card.signIn.facade;
@@ -263,13 +261,13 @@ function CardKeys({ card, conns, open, setOpen, setPicking, removingId, remove, 
           removingId={removingId}
           onOpen={(id) => setPicking({ vendor: card.id, key: id })}
           cardId={card.id}
-          onRemove={(id) => remove(id, labelOf(conns.find((c) => c.id === id) ?? { id, label: "" } as Connection), card.id)}
+          onRemove={(id) => remove(id, labelOf(conns.find((c) => c.id === id)!), card.id)}
           {...(facade ? { onReconnect: (l) => setPicking({ vendor: card.id, signIn: true, inputs: accountInputs(l) }), onConnectMode: (accountId, mode) => setPicking({ vendor: card.id, signIn: true, inputs: { account: accountId, mode } }), onConnectAnother: () => setPicking({ vendor: card.id, signIn: true }) } : {})}
         />
       ) : null}
       {lines.others.map((k) => {
-        const c = conns.find((x) => x.id === k.id);
-        return c ? <ConnectionCard key={c.id} c={c} nested open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={() => void remove(c.id, labelOf(c), card.id)} cardId={card.id} disconnecting={disconnecting} /> : null;
+        const c = conns.find((x) => x.id === k.id)!;
+        return <ConnectionCard key={c.id} c={c} open={open.has(connectionKey(c.id))} onToggle={() => setOpen((o) => toggled(o, connectionKey(c.id)))} onGuide={() => setPicking({ vendor: card.id, key: c.id })} onDisconnect={() => void remove(c.id, labelOf(c), card.id)} cardId={card.id} disconnecting={disconnecting} />;
       })}
       {lines.accounts.length === 0 && !lines.legacy && showsLegacyHint(card) ? <Notice tone="info">{t("providers.keys.legacyHint")}</Notice> : null}
       {card.produces.length > 0 ? (
@@ -309,8 +307,8 @@ function SignInLine({ card, status, problem, outcomes, locale }: { card: Provide
 }
 
 
-/** One connected key. Nested in a provider card it is a compact row (name, expiry, source) that opens to its details and actions. */
-function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open = true, onToggle, nested = false }: { c: Connection; cardId?: string; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean; open?: boolean; onToggle?: () => void; nested?: boolean }) {
+/** One connected key, a compact row inside its provider card (name, expiry, source) that opens to its details and actions. */
+function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open, onToggle }: { c: Connection; cardId: string; onGuide: () => void; onDisconnect: () => void; disconnecting: boolean; open: boolean; onToggle: () => void }) {
   const t = useT();
   const [checked, setChecked] = useState<CheckResult | null>(null);
   // The expiry date the provider reports replaces the manual one while the test result is visible.
@@ -324,7 +322,6 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
     : level === "critical" ? { label: t("connections.expCritical"), tone: "danger" as const, icon: "alert" as const }
     : level === "expired" ? { label: t("connections.expExpired"), tone: "danger" as const, icon: "x" as const }
     : null;
-  const Shell = nested ? NestedShell : Card;
   const bodyId = useId();
   const purposeId = useId();
   const purposeKey = connectionInfo(c.id)?.purpose ?? null;
@@ -337,21 +334,14 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
   );
   const sourceBadge = <Badge info={{ label: t("connections.connectedBadge", { source: SOURCE_KEYS[c.source] ? t(SOURCE_KEYS[c.source]!) : c.source }), tone: "success", icon: "check" }} />;
   return (
-    <Shell>
-      {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} {...(purposeKey ? { "aria-describedby": purposeId } : {})} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
-          <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
-          <span className="min-w-0 flex-1 text-sm font-medium">{name}</span>
-          {levelBadge ? <Badge info={levelBadge} /> : null}
-          {sourceBadge}
-        </button>
-      ) : (
-        <div className="flex items-start justify-between gap-3">
-          <p className="font-medium">{name}</p>
-          {sourceBadge}
-        </div>
-      )}
-      {purposeKey ? <p id={purposeId} className={`mt-0.5 text-xs text-muted ${onToggle ? "pl-7" : ""}`}>{t(purposeKey)}</p> : null}
+    <NestedShell>
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={bodyId} {...(purposeKey ? { "aria-describedby": purposeId } : {})} aria-label={t(open ? "providers.key.hide" : "providers.key.show", { name: labelOf(c) })} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+        <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="min-w-0 flex-1 text-sm font-medium">{name}</span>
+        {levelBadge ? <Badge info={levelBadge} /> : null}
+        {sourceBadge}
+      </button>
+      {purposeKey ? <p id={purposeId} className="mt-0.5 pl-7 text-xs text-muted">{t(purposeKey)}</p> : null}
       <div id={bodyId} hidden={!open}>
         {open ? (
           <>
@@ -361,7 +351,6 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
               <p className={`text-sm ${level === "critical" || level === "expired" ? "font-medium text-danger" : "text-muted"}`}>
                 {expires === undefined ? t("connections.expiryUnknown") : expires === null ? t("connections.neverExpires") : t("connections.validUntil", { date: formatDate(expires), days: daysLabel(daysLeft) })}
               </p>
-              {!onToggle && levelBadge ? <Badge info={levelBadge} /> : null}
             </div>
             {level === "expired" ? <div className="mt-2"><Notice tone="danger">{t("connections.expExpiredHint")}</Notice></div> : null}
             {saved !== null ? <p className="mt-1 text-xs text-muted">{saved === 0 ? t("connections.savedToday") : t("connections.savedDaysAgo", { count: saved })}</p> : null}
@@ -371,11 +360,11 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open 
               {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
             </div>
             <ConnectionDefaultsSummary id={c.id} />
-            <ConnectionCheckPanel id={c.id} name={labelOf(c)} {...(cardId ? { cardId } : {})} onResult={setChecked} />
+            <ConnectionCheckPanel id={c.id} name={labelOf(c)} cardId={cardId} onResult={setChecked} />
           </>
         ) : null}
       </div>
-    </Shell>
+    </NestedShell>
   );
 }
 
