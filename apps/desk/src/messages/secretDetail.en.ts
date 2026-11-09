@@ -57,7 +57,6 @@ export default {
   "secretDetail.check": "Check",
   "secretDetail.browserTitle": "Browser run",
   "secretDetail.browserIntro": "A browser window is open. Sign in there and confirm 2FA or CAPTCHA yourself. secret-desk never enters credentials.",
-  "secretDetail.browserUnverified": "The recipe has not been checked against the real site: watch along and only confirm after the review report.",
   "secretDetail.browserStarting": "Starting the browser …",
   "secretDetail.browserRunning": "The browser is working.",
   "secretDetail.browserWaiting": "Waiting for you in the browser window",

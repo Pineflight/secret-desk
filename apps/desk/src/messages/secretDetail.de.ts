@@ -57,7 +57,6 @@ export default {
   "secretDetail.check": "Prüfen",
   "secretDetail.browserTitle": "Browser-Lauf",
   "secretDetail.browserIntro": "Ein Browserfenster ist geöffnet. Melde dich dort an und bestätige 2FA oder CAPTCHA selbst. secret-desk gibt nie Zugangsdaten ein.",
-  "secretDetail.browserUnverified": "Das Rezept ist nicht gegen die echte Seite geprüft: schau zu und bestätige erst nach dem Prüfbericht.",
   "secretDetail.browserStarting": "Der Browser wird gestartet …",
   "secretDetail.browserRunning": "Der Browser arbeitet.",
   "secretDetail.browserWaiting": "Wartet auf dich im Browserfenster",

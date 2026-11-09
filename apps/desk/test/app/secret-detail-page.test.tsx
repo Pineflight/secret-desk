@@ -378,10 +378,11 @@ describe("Secret detail: renewal", () => {
 describe("Secret detail: browser run", () => {
   const browser = (state: Record<string, unknown> | FakeHandler) => page({ "GET secrets/s1": secret({ automatic: true, browser: true }), "GET automation/runs/s1": state as FakeHandler });
 
-  it("says the run is not verified yet when nothing runs", async () => {
+  it("shows no run panel when nothing runs", async () => {
     browser(run());
     renderApp(<SecretDetailPage />);
-    expect(await screen.findByText(t("secretDetail.browserUnverified"))).toBeInTheDocument();
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByText(new RegExp(`^${t("secretDetail.browserTitle")}`))).toBeNull();
     expect(screen.queryByRole("button", { name: t("secretDetail.browserCancel") })).toBeNull();
   });
 

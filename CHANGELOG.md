@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The entry page no longer says every recipe is unchecked against the real site: the bundled recipes have been run live, and each states what was verified in its `STATUS` line.
 - Anthropic API keys: the recipe waits for the view that shows the new key and reads it there, and keys starting with `sk-ant-usr` are accepted. Before, it read the form too early and left the page, which cancelled the creation.
 - Anthropic API keys: the expiry and workspace fields of the Console's key dialog are found again; it now uses comboboxes.
 - The result of a sign-in on an account without admin keys no longer ticks "key created" and "connected": neither happened.
