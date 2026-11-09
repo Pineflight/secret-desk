@@ -40,7 +40,8 @@ describe("TeamConfigPicker repository step", () => {
     const { user } = renderApp(ui);
     expect(screen.getByText("Wird geladen")).toBeInTheDocument();
     const group = await screen.findByRole("radiogroup", { name: "Repository" });
-    expect(await within(group).findByRole("radio", { name: /acme\/team/ })).toBeChecked();
+    const team = await within(group).findByRole("radio", { name: /acme\/team/ });
+    await waitFor(() => expect(team).toBeChecked());
     expect(within(group).getByRole("radio", { name: /acme\/other/ })).not.toBeChecked();
     expect(group).toHaveTextContent("letzter Push 2026-02-03");
     expect(screen.queryByText("Wähle ein Repository.")).toBeNull();
