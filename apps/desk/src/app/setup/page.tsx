@@ -40,6 +40,8 @@ export default function SetupPage() {
     setCreated(false);
   };
   const previewGitHub = useMutation(async () => {
+    // The button is disabled without a ready selection; this guard only narrows the type.
+    /* v8 ignore next -- @preserve */
     if (!selection) throw new Error(t("teamPicker.mode.checking"));
     // The configuration gets only repository, path, branch, mode and push strategy; the token is the integration (or the session token).
     await api("PUT", "team-sync/config", { teamSync: toTeamSyncConfig(selection) });

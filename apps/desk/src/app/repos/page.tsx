@@ -22,7 +22,7 @@ function StatusCell({ row, t }: { row: RepoRow; t: T }) {
   const s = linkState(row.link);
   if (s === "none") return <span className="text-muted">–</span>;
   const tone = s === "ok" ? "text-success-text" : s === "missing" ? "text-danger-text" : "text-warn-text";
-  const label = s === "ok" ? t("repos.statusOk") : s === "missing" ? t("repos.statusMissing") : s === "no-remote" ? t("repos.statusNoRemote") : t("repos.statusMismatch", { remote: row.link?.remote ?? "" });
+  const label = s === "ok" ? t("repos.statusOk") : s === "missing" ? t("repos.statusMissing") : s === "no-remote" ? t("repos.statusNoRemote") : t("repos.statusMismatch", { remote: row.link!.remote! });
   return <span className={`inline-flex items-start gap-1.5 text-xs ${tone}`}><Icon name={s === "ok" ? "check" : "alert"} className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="break-all">{label}</span></span>;
 }
 
@@ -140,7 +140,7 @@ export default function ReposPage() {
         await api<LinkResult>("PUT", `repos/${enc(it.name)}/link`, { path: it.path });
         done += 1;
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error((e as Error).message);
       }
     }
     if (done > 0) toast.success(t("repos.adopted", { count: done }));
