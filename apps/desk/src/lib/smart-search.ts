@@ -140,7 +140,8 @@ export function scoreTerm(term: string, text: string, fuzzy = true): number {
       best = Math.min(best, editDistance(term, t, max));
       if (t.length > term.length) best = Math.min(best, editDistance(term, t.slice(0, term.length), max));
     }
-    if (best <= max) return best === 0 ? 0.7 : 0.5 - (best - 1) * 0.1;
+    // best is at least 1 here: an exact word or word start was already returned above.
+    if (best <= max) return 0.5 - (best - 1) * 0.1;
   }
   // verstreute Buchstaben (s-t-r-s -> stripe_secret), nur bei laengeren Woertern, schwach
   if (term.length >= 3 && isSubsequence(term, c)) return 0.25;
@@ -285,9 +286,8 @@ export interface Suggestion {
 
 /** Vorschlaege fuer das letzte Wort: "sta" -> "stage:", "stage:st" -> "stage:staging". */
 export function suggestFilters(query: string, ctx: SuggestContext, limit = 6): Suggestion[] {
-  const m = /(^|\s)(\S*)$/.exec(query);
-  if (!m) return [];
-  const last = m[2]!;
+  // The pattern matches every string (the last word may be empty), so there is always a match.
+  const last = /(^|\s)(\S*)$/.exec(query)![2]!;
   const head = query.slice(0, query.length - last.length);
   const colon = last.indexOf(":");
   if (colon > 0) {

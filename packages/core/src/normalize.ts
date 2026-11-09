@@ -298,7 +298,7 @@ function inferredResources(inv: Inventory, v: VariableEntry, rule: SourceRule): 
   if (rule.kind === "supabase.project") {
     // Gleiches Ziel heisst gleiches Repo UND gleiche Environment (bzw. beide auf Repository-Ebene) bei gleicher Stage:
     // "shared" allein sagt nichts, Staging und Produktion duerfen sich nie gegenseitig ein Projekt liefern.
-    const placeKey = (p: VariableEntry["places"][number]) => `${p.repo}|${p.scope}|${"environment" in p ? (p.environment ?? "") : ""}`;
+    const placeKey = (p: VariableEntry["places"][number]) => `${p.repo}|${p.scope}|${p.environment ?? ""}`;
     const targets = new Set(v.places.map(placeKey));
     for (const o of inv.variables) {
       if (o.id === v.id || !o.value || o.stage !== v.stage || !/^(NEXT_PUBLIC_|VITE_)?SUPABASE_.*(URL|PROJECT_REF)$/.test(o.name)) continue;
@@ -370,7 +370,10 @@ function variableChanges(inv: Inventory, row: Row, before: NormalizationEntrySta
   const rule = sourceRuleOf(row.target);
   if (v.from || !rule) return [];
   const kind = variableSourceKind(rule.kind);
+  // Every kind named in SOURCE_RULES is registered in VARIABLE_SOURCES; this only guards a future rule that names an unknown kind.
+  /* v8 ignore start */
   if (!kind) return [];
+  /* v8 ignore stop */
   const { resource, conflict } = resolveResource(inv, v, rule);
   const source = { connection: kind.connection, kind: rule.kind, field: rule.field, resource };
   const reason = resource ? { code: "source-known", text: T.sourceKnown } : conflict ? { code: "source-conflict", text: T.sourceConflict } : { code: "source-choose-resource", text: T.sourceChoose };
@@ -414,12 +417,13 @@ export async function applyNormalization(inventory: InventoryStore, config: { na
     else if (c.kind === "stage") e.stage = after.stage;
     else if (c.kind === "provider") {
       e.provider = after.provider!;
-      const sw = switchOf(analyzeName(after.name, namingOf(config)).suggested);
-      const entry = inventory.data.secrets.find((x) => x.id === after.id);
+      // A provider change exists only for a secret whose normalized name has a switch, so both lookups succeed.
+      const sw = switchOf(analyzeName(after.name, namingOf(config)).suggested)!;
+      const entry = inventory.data.secrets.find((x) => x.id === after.id)!;
       // Params the entry already has are never overwritten by a proposal.
-      const proposed = sw && entry ? Object.fromEntries(Object.entries(sw.propose?.(inventory.data, entry) ?? {}).filter(([k]) => entry.params[k] === undefined)) : {};
-      if (sw) e.params = { ...e.params, ...sw.fixed, ...proposed };
-    } else if (c.kind === "source") e.from = after.source as VariableSource;
+      const proposed = Object.fromEntries(Object.entries(sw.propose?.(inventory.data, entry) ?? {}).filter(([k]) => entry.params[k] === undefined));
+      e.params = { ...e.params, ...sw.fixed, ...proposed };
+    } else e.from = after.source as VariableSource; // only "source" changes are left: merge and manual-only are not auto-applicable
   }
 
   inventory.applyEdits([...edits.values()], (next) => {

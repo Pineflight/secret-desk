@@ -26,7 +26,9 @@ export function ParamsCard({ secret, focusSignal, notice, onChanged }: { secret:
   const data = base.data;
 
   const startEdit = () => {
+    /* v8 ignore start -- defensive: the button renders after the load and the effect below checks data first */
     if (!data) return;
+    /* v8 ignore stop */
     setDraft(toDraft(data.specs, data.values));
     save.reset();
     setEditing(true);

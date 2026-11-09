@@ -17,7 +17,6 @@ export function parseCdpEndpoint(raw: string): URL {
     throw new Error("Invalid browser endpoint: expected a URL such as http://browser:9222");
   }
   if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) throw new Error("Invalid browser endpoint: only http, https, ws and wss are allowed");
-  if (!url.hostname) throw new Error("Invalid browser endpoint: host is missing");
   return url;
 }
 
@@ -166,6 +165,13 @@ export const ConfigSchema = z.object({
       signInCheckHours: z.number().min(0).max(168).default(6),
       /** An entry whose renewal needs a recipe and falls due within this many days gets a warning while the browser is signed out or unknown. 0 = no warnings. */
       renewalWarnDays: z.number().int().min(0).max(90).default(7),
+      /**
+       * Every this many days the portal runs a live check against the real accounts: a read-only test of every connected integration
+       * and a dry run of every browser recipe (stops before the first token is created). 0 turns it off.
+       */
+      liveCheckDays: z.number().int().min(0).max(90).default(7),
+      /** Optional webhook that receives the ids of failed items after a check with failures. `url` names where the address is read from (never written here). */
+      liveCheckNotify: z.object({ url: SourceSpecSchema }).strict().optional(),
       /** Verlangsamt jede Browseraktion (Millisekunden), zum Zuschauen. */
       slowMoMs: z.number().int().min(0).max(5000).optional(),
       /** Zusaetzliche Ordner mit Rezepten (*.yaml). Zusaetzlich immer <Ordner des Inventars>/recipes. */
@@ -173,7 +179,7 @@ export const ConfigSchema = z.object({
       /** Rezepte aus anderen Ordnern als den mitgelieferten laden. Rezepte sind ausfuehrbare Browserskripte: nur fuer Quellen, denen du vertraust. */
       allowExternalRecipes: z.boolean().default(false),
     })
-    .default({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, signInCheckHours: 6, renewalWarnDays: 7, allowExternalRecipes: false }),
+    .default({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, signInCheckHours: 6, renewalWarnDays: 7, liveCheckDays: 7, allowExternalRecipes: false }),
   /** Stage-Vergleich. */
   compare: z
     .object({

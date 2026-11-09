@@ -49,7 +49,7 @@ export async function probeCdp(raw: string, options: { timeoutMs?: number; fetch
   try {
     target = new URL(await resolveCdpEndpoint(raw, options.resolveHost));
   } catch (err) {
-    return { reachable: false, browser: null, detail: (err as Error).message.split("\n")[0] ?? "Invalid endpoint." };
+    return { reachable: false, browser: null, detail: (err as Error).message.split("\n")[0]! };
   }
   if (target.protocol === "ws:" || target.protocol === "wss:") {
     // A WebSocket address cannot be asked over HTTP; the connection itself is tested at the first run.

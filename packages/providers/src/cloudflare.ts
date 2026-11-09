@@ -216,7 +216,7 @@ export async function preflightCloudflare(id: string, connection: string, specs:
   const wanted = permissionNames(ctx.params) ?? [];
   try {
     const groups = await discoverCloudflare(id, connection, specs, "cloudflare.permissionGroups", dctx);
-    const known = new Map(groups.map((g) => [String(g.value), g.detail ?? ""]));
+    const known = new Map(groups.map((g) => [String(g.value), g.detail]));
     const missing = wanted.filter((n) => !known.has(n));
     if (missing.length > 0) findings.push({ id: "permissions", level: "fail", label: `Unbekannte Berechtigungsgruppen: ${missing.join(", ")}` });
     else findings.push({ id: "permissions", level: "ok", label: "Alle Berechtigungsgruppen existieren" });

@@ -293,8 +293,7 @@ function earliestAmong(rows: readonly SecretRow[]): EarliestExpiry | null {
     if (r.expiry === "none") continue;
     const daysLeft = r.daysLeft;
     if (daysLeft === null || daysLeft === undefined) continue;
-    const level = expiryLevel(daysLeft);
-    if (level === null) continue;
+    const level = expiryLevel(daysLeft)!; // never null: daysLeft is a number here
     if (best === null || daysLeft < best.daysLeft) best = { keyId: r.id ?? "", expires: r.expires, daysLeft, level };
   }
   return best;

@@ -477,7 +477,7 @@ export async function loadVariableFromSource(rt: Runtime, actor: Actor, id: stri
   if (!v) throw new InventoryError(`Variable nicht gefunden: ${id}`);
   const given = body.kind !== undefined || body.resource !== undefined || body.field !== undefined;
   const from = given
-    ? parseInput(VariableSourceSchema, { connection: body.connection ?? VARIABLE_SOURCES.find((k) => k.kind === body.kind)?.connection, kind: body.kind ?? v.from?.kind, resource: body.resource ?? v.from?.resource, field: body.field ?? v.from?.field })
+    ? parseInput(VariableSourceSchema, { connection: body.connection ?? VARIABLE_SOURCES.find((k) => k.kind === (body.kind ?? v.from?.kind))?.connection, kind: body.kind ?? v.from?.kind, resource: body.resource ?? v.from?.resource, field: body.field ?? v.from?.field })
     : v.from;
   if (!from) throw new InventoryError("Die Variable hat keine Quelle: kind, resource und field angeben.");
   const r = await readSource(rt, from, varHint(rt, v), isRecord(body.params) ? body.params : {});

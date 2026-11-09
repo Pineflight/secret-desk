@@ -58,7 +58,7 @@ export function recipeVars(secret: SecretEntry, stage: Stage, now: Date, extra: 
     : typeof repoParam === "string"
       ? repoParam.split(",")
       : githubPlacesOf(secret.places).map((p) => p.repo);
-  const repos = [...new Set(repoList.map((r) => r.trim()).filter((r) => r !== "").map((r) => r.split("/").pop() ?? r))];
+  const repos = [...new Set(repoList.map((r) => r.trim()).filter((r) => r !== "").map((r) => r.split("/").pop()!))];
   return {
     name: tokenName(secret.id, now),
     // GitHub-Konto bzw. Organisation: params.owner, sonst der Verantwortliche des Eintrags.
@@ -143,10 +143,12 @@ export function createBrowserProvider(opts: BrowserProviderOptions): BrowserProv
         shots.set(secretId, result.screenshots);
         if (read) {
           // The value the entry picked is the main value; the other one goes to the entry named by the companion parameter, if any.
-          const picked = recipe.capture.pick === undefined ? Object.keys(result.values ?? {})[0] : vars[recipe.capture.pick];
-          const target = companionKey ? (vars[companionKey] ?? "").trim() : "";
-          const otherName = Object.keys(result.values ?? {}).find((n) => n !== picked);
-          const other = otherName !== undefined ? result.values?.[otherName] : undefined;
+          // A read run always returns its values (run.ts runRead).
+          const values = result.values!;
+          const picked = recipe.capture.pick === undefined ? Object.keys(values)[0] : vars[recipe.capture.pick];
+          const target = companionKey ? vars[companionKey]!.trim() : "";
+          const otherName = Object.keys(values).find((n) => n !== picked);
+          const other = otherName !== undefined ? values[otherName] : undefined;
           const companions: CompanionValue[] = target !== "" && other ? [{ entryId: target, value: other }] : [];
           return { value: result.value, expiresAt: null, ...(companions.length ? { companions } : {}) };
         }

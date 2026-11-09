@@ -25,6 +25,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Alle Ressourcen auf \"None\" lassen und nur \"Webhook Endpoints, Event Destinations\" auf \"Write\" setzen.", "Leave all resources on \"None\" and set only \"Webhook Endpoints, Event Destinations\" to \"Write\"."],
   ["Webhook Endpoints, Event Destinations: Write (schliesst Lesen ein)", "Webhook Endpoints, Event Destinations: Write (includes read)"],
   ["optional und createsToken schliessen sich aus", "optional and createsToken exclude each other"],
+  ["optional und stopsDryRun schliessen sich aus", "optional and stopsDryRun exclude each other"],
   ["timeoutSeconds gehoert nur zu optional: true", "timeoutSeconds belongs to optional: true only"],
   ["exact gehoert nur zu role mit name oder zu label", "exact belongs to role with name, or to label"],
   // Cloudflare Worker secrets (places of scope cloudflare-worker)
@@ -1167,8 +1168,8 @@ const exact = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
 
 function applyTemplate(template: string, groups: string[], depth: number): string {
   return template.replace(/\$(\d)/g, (_m, d: string) => {
-    const g = groups[Number(d) - 1] ?? "";
-    return translate(g, depth + 1);
+    // Every catalog pattern captures each group its template references, and no template ends in whitespace.
+    return translate(groups[Number(d) - 1]!, depth + 1);
   });
 }
 
@@ -1181,7 +1182,7 @@ function translate(text: string, depth: number): string {
     const m = re.exec(text);
     if (!m) continue;
     const out = applyTemplate(tpl, m.slice(1), depth);
-    return /\s$/.test(text) || !/\s$/.test(out) ? out : out.replace(/\s+$/, "");
+    return out;
   }
 
   // Zusammengesetzte Texte: Listen und "Kopf: Rest".

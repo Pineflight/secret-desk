@@ -83,7 +83,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
       const q = new URLSearchParams({
         name: "secret-desk team sync",
         description: "secret-desk: Team-Datei im Team-Repository lesen und schreiben (keine Werte)",
-        target_name: repoOwner ?? owner,
+        target_name: repoOwner || owner,
         expires_in: "90",
         contents: rights.some((r) => r.startsWith("Contents: Read and write")) ? "write" : "read",
         ...(rights.some((r) => r.startsWith("Pull requests")) ? { pull_requests: "write" } : {}),

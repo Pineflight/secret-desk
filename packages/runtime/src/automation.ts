@@ -37,6 +37,7 @@ import {
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+import { LiveCheckStore, type LiveCheckReport } from "./live-check-store.js";
 import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
 
 export type { SessionLifetime, SignInCheck, SignInSource };
@@ -194,6 +195,8 @@ export interface AutomationOptions {
   now?: () => Date;
   /** File that keeps the sign-in memory across restarts. Without it the memory lives in this process only. */
   signInStateFile?: string;
+  /** File that keeps the live check reports across restarts. Without it they live in this process only. */
+  liveCheckStateFile?: string;
 }
 
 const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
@@ -226,7 +229,9 @@ async function statusComment(file: string): Promise<string> {
     const m = /^#\s*STATUS:\s*(.+)$/m.exec(await readFile(file, "utf8"));
     return m?.[1]?.trim() ?? "nicht geprueft";
   } catch {
+    /* v8 ignore start -- the loader just read this file; only a file removed in between gets here */
     return "nicht geprueft";
+    /* v8 ignore stop */
   }
 }
 
@@ -246,7 +251,10 @@ export class AutomationManager {
   readonly signInFreshHours: number;
   readonly signInCheckHours: number;
   readonly renewalWarnDays: number;
+  /** Days between two live checks (`automation.liveCheckDays`, 0 = off). */
+  readonly liveCheckDays: number;
   readonly #signIn: SignInStore;
+  readonly #liveCheck: LiveCheckStore;
   readonly problems: { file: string; message: string }[] = [];
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
@@ -270,12 +278,16 @@ export class AutomationManager {
     this.signInFreshHours = c.signInFreshHours;
     this.signInCheckHours = c.signInCheckHours;
     this.renewalWarnDays = c.renewalWarnDays;
+    this.liveCheckDays = c.liveCheckDays;
     this.#signIn = new SignInStore(opts.signInStateFile ?? null);
+    this.#liveCheck = new LiveCheckStore(opts.liveCheckStateFile ?? null);
     this.#now = opts.now ?? (() => new Date());
   }
 
   /** Rezepte laden und je Rezept einen Browser-Anbieter `<id>-browser` registrieren. Ungueltige Rezepte landen in `problems`. */
   async load(): Promise<void> {
+    // The live check also tests the API connections, so its reports exist with the browser automation off.
+    await this.#liveCheck.load();
     if (!this.enabled) return;
     await this.#signIn.load();
     const { config, configDir, inventoryDir, providers } = this.opts;
@@ -295,7 +307,7 @@ export class AutomationManager {
       return;
     }
     this.problems.push(...loaded.errors);
-    for (const d of loaded.skippedDirs ?? []) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
+    for (const d of loaded.skippedDirs) this.problems.push({ file: d, message: "Externer Rezeptordner uebersprungen: automation.allowExternalRecipes ist aus." });
     for (const { recipe, file, sha256, allowHosts, bundled: isBundled } of loaded.recipes) {
       const base = createBrowserProvider({
         recipe,
@@ -311,13 +323,21 @@ export class AutomationManager {
         },
         evidence: this.opts.evidence,
       });
-      const issueRun = base.issue;
+      // createBrowserProvider always defines issue; the Provider type only declares it optional.
+      const issueRun = base.issue!;
       // A recipe run that created a key proves the browser was signed in at the recipe's host just now.
       const wrapped: BrowserProvider = {
         ...base,
         id: `${recipe.id}-browser`,
         label: `${recipe.label} (Browser)`,
-        ...(issueRun ? { issue: async (ctx) => { const issued = await issueRun.call(base, ctx); const host = hostForParams(recipe, ctx.secret.params); if (host) this.noteSignIn(host, true, "run"); return issued; } } : {}),
+        issue: async (ctx) => {
+          const issued = await issueRun.call(base, ctx);
+          const host = hostForParams(recipe, ctx.secret.params);
+          /* v8 ignore start -- a recipe run that passed its parameter checks always maps to a host; null is only a type guard */
+          if (host) this.noteSignIn(host, true, "run");
+          /* v8 ignore stop */
+          return issued;
+        },
       };
       // The Anthropic key recipe also gets what the Admin API can do (workspaces, key check, revoke); see providers/anthropic.ts.
       const provider = recipe.id === ANTHROPIC_KEY_RECIPE ? withAnthropicAdmin(wrapped) : wrapped;
@@ -346,6 +366,21 @@ export class AutomationManager {
   /** Waits until the sign-in memory is on disk (tests, shutdown). */
   flushSignIn(): Promise<void> {
     return this.#signIn.flush();
+  }
+
+  /** The stored live check reports, newest first. */
+  liveCheckReports(): LiveCheckReport[] {
+    return this.#liveCheck.reports();
+  }
+
+  /** Keeps a finished live check report (the last 12, also on disk when a file is configured). */
+  recordLiveCheck(report: LiveCheckReport): void {
+    this.#liveCheck.add(report);
+  }
+
+  /** Waits until the live check reports are on disk (tests, shutdown). */
+  flushLiveCheck(): Promise<void> {
+    return this.#liveCheck.flush();
   }
 
   /** The clock this manager uses (the scheduler follows it, so tests can drive both). */

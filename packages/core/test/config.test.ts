@@ -9,12 +9,26 @@ const BASE = { inventory: "./inventory.yaml", github: { owner: "acme", auth: { t
 describe("configuration: automation", () => {
   it("has safe defaults without input", () => {
     const c = ConfigSchema.parse(BASE);
-    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, signInCheckHours: 6, renewalWarnDays: 7, allowExternalRecipes: false });
+    expect(c.automation).toEqual({ enabled: true, loginTimeoutMinutes: 10, signInFreshHours: 12, signInCheckHours: 6, renewalWarnDays: 7, liveCheckDays: 7, allowExternalRecipes: false });
   });
 
   it("accepts all fields", () => {
     const c = ConfigSchema.parse({ ...BASE, automation: { enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, signInFreshHours: 6, signInCheckHours: 0, renewalWarnDays: 14, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true } });
-    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, signInFreshHours: 6, signInCheckHours: 0, renewalWarnDays: 14, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true });
+    expect(c.automation).toEqual({ enabled: false, chromePath: "/usr/bin/chromium", profileDir: "~/p", loginTimeoutMinutes: 3, signInFreshHours: 6, signInCheckHours: 0, renewalWarnDays: 14, liveCheckDays: 7, slowMoMs: 150, recipesDirs: ["rezepte", "~/mehr"], allowExternalRecipes: true });
+  });
+
+  it("takes the live check interval (0 = off, at most 90) and an optional notification source", () => {
+    expect(ConfigSchema.parse({ ...BASE, automation: { liveCheckDays: 0 } }).automation.liveCheckDays).toBe(0);
+    expect(ConfigSchema.parse({ ...BASE, automation: { liveCheckDays: 90 } }).automation.liveCheckDays).toBe(90);
+    expect(ConfigSchema.parse(BASE).automation.liveCheckNotify).toBeUndefined();
+    for (const url of [{ type: "env", name: "HOOK" }, { type: "op", ref: "op://vault/item/url" }]) {
+      expect(ConfigSchema.parse({ ...BASE, automation: { liveCheckNotify: { url } } }).automation.liveCheckNotify).toEqual({ url });
+    }
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { liveCheckDays: 91 } }).success).toBe(false);
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { liveCheckDays: -1 } }).success).toBe(false);
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { liveCheckDays: 1.5 } }).success).toBe(false);
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { liveCheckNotify: { url: "https://hook.example/x" } } }).success).toBe(false);
+    expect(ConfigSchema.safeParse({ ...BASE, automation: { liveCheckNotify: { url: { type: "env", name: "H" }, extra: 1 } } }).success).toBe(false);
   });
 
   it("rejects nonsensical values", () => {

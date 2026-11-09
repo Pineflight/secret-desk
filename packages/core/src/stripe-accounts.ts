@@ -78,8 +78,8 @@ export async function listStripeAccounts(store: ConnectionStore): Promise<Stripe
     if (!cur.modes.includes(p.mode)) cur.modes.push(p.mode);
     found.set(p.account, cur);
   }
-  // Sandbox first, then live: a stable order for display.
-  for (const a of found.values()) a.modes.sort((x, y) => (x === y ? 0 : x === "sandbox" ? -1 : 1));
+  // Sandbox first, then live (reverse alphabetical): a stable order for display.
+  for (const a of found.values()) a.modes.sort((x, y) => y.localeCompare(x));
   return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 

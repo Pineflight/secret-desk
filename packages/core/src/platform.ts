@@ -102,7 +102,10 @@ export async function realpathLoose(p: string): Promise<string> {
     return await realpath(abs);
   } catch {
     const parent = path.dirname(abs);
+    // The filesystem root always resolves, so this only guards against an endless recursion.
+    /* v8 ignore start */
     if (parent === abs) return abs;
+    /* v8 ignore stop */
     return path.join(await realpathLoose(parent), path.basename(abs));
   }
 }

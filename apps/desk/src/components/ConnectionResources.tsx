@@ -41,7 +41,8 @@ export function ConnectionDefaultsSummary({ id }: { id: string }) {
   const data = q.data;
   if (q.error instanceof ApiError && q.error.status >= 400 && q.error.status < 500) return null;
   if (q.error) return <p className="mt-3 text-xs text-muted">{q.error.message}</p>;
-  if (!data) return q.loading ? <p className="mt-3 text-xs text-muted">{t("params.conn.loading")}</p> : null;
+  // No data and no error means the first load is still running.
+  if (!data) return <p className="mt-3 text-xs text-muted">{t("params.conn.loading")}</p>;
   const unreadable = Object.entries(data.resources).filter(([, r]) => r.status === "error");
   if (data.defaultSpecs.length === 0 && unreadable.length === 0 && Object.keys(data.resources).length === 0) return null;
   const res = byParam(data);
@@ -92,7 +93,7 @@ export function ConnectionResourcesPanel({ id, onSaved }: { id: string; onSaved?
   const put = buildPut(data.defaultSpecs, draft, data.defaults);
   const errors = problemMessages(problemsFromError(save.error), trAny, locale);
   const submit = async () => {
-    if (!put.changed) return;
+    // The save button is disabled while nothing changed, so there is always something to send.
     if (await save.run(put.params)) {
       toast.success(t("params.conn.saved"));
       q.reload();

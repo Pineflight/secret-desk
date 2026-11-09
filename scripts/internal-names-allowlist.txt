@@ -11,6 +11,7 @@ docs/ROADMAP.md | no-telemetry statement names the publisher
 apps/desk/src/messages/about.de.ts | About page publisher attribution
 apps/desk/src/messages/about.en.ts | About page publisher attribution
 apps/desk/test/about.test.ts | tests the About page publisher attribution
+apps/desk/test/app/about-page.test.tsx | tests the About page; `pineflightServers` is the About data field name
 packages/cli/src/index.ts | no-telemetry statement names the publisher
 packages/cli/test/about.test.ts | tests the CLI About output
 packages/runtime/src/about.ts | About data: publisher and repository address

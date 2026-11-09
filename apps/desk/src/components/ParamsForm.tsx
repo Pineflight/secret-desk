@@ -127,7 +127,7 @@ function ParamField(p: FieldProps) {
       {kind === "enum" ? (
         <SelectBox id={id} value={typeof p.value === "string" ? p.value : ""} disabled={p.disabled} onChange={(e) => p.onChange(e.target.value)}>
           {!p.required || spec.defaultValue === undefined ? <option value="">{spec.defaultValue ? `${spec.defaultValue} (${t("params.optional")})` : t("params.pick")}</option> : null}
-          {(spec.options ?? []).map((o) => <option key={o.value} value={o.value}>{lang === "en" ? o.labelEn : o.label}</option>)}
+          {spec.options!.map((o) => <option key={o.value} value={o.value}>{lang === "en" ? o.labelEn : o.label}</option>)}
         </SelectBox>
       ) : null}
       {kind === "list" ? (
@@ -155,7 +155,7 @@ function Presets({ spec, draft, onDraft, lang, t, specs }: FieldProps) {
     <div className="space-y-1.5 pt-1">
       <p className="text-xs font-medium text-muted-text">{t("params.preset.title")}</p>
       <div className="flex flex-wrap gap-2">
-        {(spec.presets ?? []).map((preset) => {
+        {spec.presets!.map((preset) => {
           const active = presetActive(preset, draft);
           const needs = presetNeeds(preset, draft).map((k) => { const s = specs.find((x) => x.key === k); return s ? specLabel(s, lang) : k; });
           return (
@@ -215,14 +215,14 @@ function PickField(p: FieldProps & { id: string }) {
       {hasList && suggestion && !isSuggested(state, value) && !p.manual ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-info-light px-3 py-2 text-xs text-info-text">
           <Icon name="info" className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1">{t("params.suggestionText", { name: suggestion.label, reason: suggestion.suggestedFor?.reason ?? "" })}</span>
+          <span className="min-w-0 flex-1">{t("params.suggestionText", { name: suggestion.label, reason: suggestion.suggestedFor!.reason })}</span>
           <Button className="!px-2.5 !py-1 !text-xs" disabled={p.disabled} onClick={() => p.onChange(String(suggestion.value))}>{t("params.suggestionAdopt")}</Button>
         </div>
       ) : null}
       {hasList && isSuggested(state, value) ? <p className="text-xs text-info-text"><span className={`${BADGE} bg-info-light`}>{t("params.suggestionTag")}</span></p> : null}
       {state?.mapMismatch ? <p className="rounded-lg bg-warn-light px-3 py-2 text-xs text-warn-text">{t("params.map.mismatch", { name: state.mapMismatch.label ?? state.mapMismatch.value })}</p> : null}
       {hasList && value !== "" && spec.discover && p.remember?.repo && !isSuggested(state, value) && options.some((o) => String(o.value) === value) ? (
-        <RememberMapping kind={spec.discover} repo={p.remember.repo} stage={p.remember.stage} value={value} label={options.find((o) => String(o.value) === value)?.label ?? value} onSaved={p.onReload} />
+        <RememberMapping kind={spec.discover} repo={p.remember.repo} stage={p.remember.stage} value={value} label={options.find((o) => String(o.value) === value)!.label} onSaved={p.onReload} />
       ) : null}
       {hasList && isUnlisted(spec, value, state) ? <p className="text-xs text-warn-text">{t("params.unlisted")}</p> : null}
       <div className="flex flex-wrap items-center gap-3 text-xs">

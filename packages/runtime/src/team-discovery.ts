@@ -114,7 +114,7 @@ export function chooseBranch(branches: readonly string[], defaultBranch: string 
 
 /** A team file by the conventions: `secret-desk.team.yaml`, `*.team.yaml` (also `.yml`), `secret-desk/*.yaml`. */
 export function isTeamFilePath(path: string): boolean {
-  const base = path.split("/").pop() ?? "";
+  const base = path.split("/").pop()!;
   if (/\.team\.ya?ml$/.test(base)) return true;
   return /^secret-desk\/[^/]+\.ya?ml$/.test(path);
 }

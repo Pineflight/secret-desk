@@ -47,7 +47,7 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
   const missing = missingKeys(issues);
   const trAny = (k: string, v?: Record<string, string | number>) => t(k, v);
   const fieldErrors = { ...issueMessages(issues.filter((i) => i.code !== "missing"), specs, trAny, locale), ...problemMessages(problemsFromError(create.error), trAny, locale) };
-  const missingText = missing.map((k) => { const sp = specs.find((x) => x.key === k); return sp ? (locale === "en" ? sp.labelEn : sp.label) : k; }).join(", ");
+  const missingText = missing.map((k) => { const sp = specs.find((x) => x.key === k)!; return locale === "en" ? sp.labelEn : sp.label; }).join(", ");
 
   const submit = async () => {
     setLocalError(null);
@@ -118,11 +118,11 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
       {!manualProvider && specs.length > 0 ? (
         <section aria-labelledby="create-params-title" className="space-y-3 rounded-xl border border-line p-4">
           <div>
-            <h3 id="create-params-title" className="text-sm font-semibold">{t("params.create.title", { provider: pv.view?.providerLabel ?? f.provider })}</h3>
-            <p className="text-xs text-muted">{t("params.intro", { provider: pv.view?.providerLabel ?? f.provider })}</p>
+            <h3 id="create-params-title" className="text-sm font-semibold">{t("params.create.title", { provider: pv.view!.providerLabel })}</h3>
+            <p className="text-xs text-muted">{t("params.intro", { provider: pv.view!.providerLabel })}</p>
           </div>
           {repo === "" ? <p className="text-xs text-muted">{t("params.create.noRepo")}</p> : null}
-          <ParamsForm specs={specs} draft={paramDraft} onDraft={setParamDraft} resources={pv.view?.resources ?? {}} loading={pv.loading} connection={pv.view?.connection ?? null} defaults={pv.view?.defaults ?? {}} errors={fieldErrors} onReload={pv.reload} remember={repo ? { repo, stage: stageId } : undefined} />
+          <ParamsForm specs={specs} draft={paramDraft} onDraft={setParamDraft} resources={pv.view!.resources} loading={pv.loading} connection={pv.view!.connection} defaults={pv.view!.defaults} errors={fieldErrors} onReload={pv.reload} remember={repo ? { repo, stage: stageId } : undefined} />
           {missing.length > 0 ? <p className="text-xs font-medium text-warn-text">{t("params.create.missing", { keys: missingText })}</p> : null}
         </section>
       ) : null}
