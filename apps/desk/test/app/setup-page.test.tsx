@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import SetupPage from "@/app/setup/page";
 import { CHOICE_STORAGE_KEY } from "@/lib/setup-choice";
@@ -68,8 +68,9 @@ describe("Setup page: upload", () => {
   it("ignores a change event without a file", async () => {
     const portal = fakePortal({});
     renderApp(<SetupPage />);
-    screen.getByLabelText(t("setup.upload.title")).dispatchEvent(new Event("change", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => {
+      screen.getByLabelText(t("setup.upload.title")).dispatchEvent(new Event("change", { bubbles: true }));
+    });
     expect(portal.callsTo("POST", "team-sync/preview-text")).toHaveLength(0);
   });
 

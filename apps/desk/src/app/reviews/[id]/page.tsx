@@ -26,7 +26,7 @@ export default function ReviewDetailPage() {
   const toast = useToast();
   const q = useQuery<IssuanceView>(`review:${id}`, () => api<IssuanceView>("GET", `reviews/${enc(id)}`));
   const sid = q.data?.secretId ?? null;
-  const meta = useQuery<SecretView>(sid ? `secret:${sid}` : null, () => api<SecretView>("GET", `secrets/${enc(sid ?? "")}`));
+  const meta = useQuery<SecretView>(sid ? `secret:${sid}` : null, () => api<SecretView>("GET", `secrets/${enc(sid!)}`));
   const now = useNow(1000);
   const [ticks, setTicks] = useState<Set<string>>(new Set());
   const [force, setForce] = useState(false);

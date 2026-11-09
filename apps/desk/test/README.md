@@ -12,7 +12,7 @@ Run: `npx vitest run` (add `--coverage` for the 100% gate). Typecheck covers `te
 ## Helpers (`test/helpers/`)
 
 - `render.tsx`: `renderApp(ui, options?)` renders inside `I18nProvider` and `ToastProvider` (the providers of `src/app/layout.tsx`, without the Shell) and returns the RTL result plus `user` (user-event). `Providers` is the bare wrapper for `renderHook({ wrapper: Providers })`.
-- `navigation.ts`: fake of `next/navigation`, mocked for every dom test by the setup file. `navigation.set("/entries?q=x")` sets what `usePathname()` and `useSearchParams()` return; `navigation.router.push` etc. are `vi.fn()` to assert on. Reset after every test.
+- `navigation.ts`: fake of `next/navigation`, mocked for every dom test by the setup file. `navigation.set("/entries?q=x")` sets what `usePathname()` and `useSearchParams()` return; `navigation.setParams({ id: "x" })` sets what `useParams()` returns for dynamic routes. `navigation.router.push` etc. are `vi.fn()` to assert on. Reset after every test.
 - `portal.ts`: `fakePortal({ "GET entries": [...], "POST entries": (call) => ({ status: 201, body: {...} }) })` stubs `fetch` for `src/lib/api.ts`. `/api/session` always succeeds. Keys are `"METHOD path"` without the `/api/ui/` prefix; unknown routes answer 404. Returns `{ calls, callsTo(method, path) }` with parsed JSON bodies and headers for assertions.
 
 ## Conventions
