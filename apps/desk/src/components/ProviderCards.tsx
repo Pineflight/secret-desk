@@ -48,7 +48,7 @@ const STATUS_LOOK: Record<string, { tone: "success" | "primary" | "neutral" | "w
 export function CardStatusBadge({ card }: { card: Pick<ProviderCard, "keys" | "signIn" | "browserSignedIn" | "status"> }) {
   const t = useT();
   const key = capabilityLabelKey(card);
-  const s = STATUS_LOOK[key] ?? { tone: "neutral" as const, icon: "plug" as const };
+  const s = STATUS_LOOK[key]!;
   return <Badge info={{ label: t(key), tone: s.tone, icon: s.icon }} />;
 }
 

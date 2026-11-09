@@ -9,13 +9,13 @@ import { Dialog } from "./Dialog";
 export function EvidenceImage({ secretId, reportId, createdAt, className = "", zoomable = false }: { secretId: string; reportId: string; createdAt: string; className?: string; zoomable?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const alt = t("meta.evidenceAlt", { date: formatDateTime(createdAt) });
+  const alt = t("reviews.evidenceAlt", { date: formatDateTime(createdAt) });
   // eslint-disable-next-line @next/next/no-img-element
   const img = <img src={evidenceSvgUrl(secretId, reportId)} alt={alt} className={`rounded-xl border border-line bg-card ${className}`} loading="lazy" />;
   if (!zoomable) return img;
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="block rounded-xl text-left" aria-label={t("meta.enlarge", { alt })}>{img}</button>
+      <button type="button" onClick={() => setOpen(true)} className="block rounded-xl text-left" aria-label={t("reviews.enlarge", { alt })}>{img}</button>
       {open ? (
         <Dialog title={alt} onClose={() => setOpen(false)} wide>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -29,11 +29,11 @@ export function EvidenceImage({ secretId, reportId, createdAt, className = "", z
 export function AttachmentThumb({ secretId, reportId, file, note }: { secretId: string; reportId: string; file: string; note?: string | undefined }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const alt = note ? t("meta.attachmentAlt", { note }) : t("meta.attachmentImage");
+  const alt = note ? t("reviews.attachmentAlt", { note }) : t("reviews.attachmentImage");
   const src = attachmentUrl(secretId, reportId, file);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="block overflow-hidden rounded-lg border border-line" aria-label={t("meta.enlarge", { alt })}>
+      <button type="button" onClick={() => setOpen(true)} className="block overflow-hidden rounded-lg border border-line" aria-label={t("reviews.enlarge", { alt })}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={alt} className="h-20 w-28 object-cover" loading="lazy" />
       </button>
