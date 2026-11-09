@@ -110,6 +110,22 @@ describe("FacadeBrowserOnly", () => {
 });
 
 describe("RenameRepoDialog", () => {
+  it("does not claim a key or a connection that do not exist", () => {
+    const run = {
+      status: "done",
+      kind: "connect",
+      timeline: [
+        { phase: "signed-in", state: "done", at: "2026-11-09T10:00:00Z" },
+        { phase: "key", state: "done", at: "2026-11-09T10:00:01Z" },
+        { phase: "connected", state: "done", at: "2026-11-09T10:00:02Z" },
+      ],
+    } as unknown as FacadeState;
+    renderApp(<FacadeBrowserOnly run={run} onDone={() => {}} />);
+    expect(screen.getByText("Angemeldet")).toBeInTheDocument();
+    expect(screen.queryByText("Zugangsschlüssel angelegt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Verbunden")).not.toBeInTheDocument();
+  });
+
   it("renames the repository in the inventory, confirms and reports done", async () => {
     invalidateRepoList();
     const portal = fakePortal({ "POST repos/old-name/rename": { from: "old-name", to: "new-name", changed: 4 } });
