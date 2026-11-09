@@ -255,7 +255,7 @@ function ManualValueDialog({ secret, onClose }: { secret: SecretView; onClose: (
   const submit = async () => {
     const v = value;
     setValue("");
-    if (ref.current) ref.current.value = "";
+    ref.current!.value = "";
     const res = await send.run(v);
     if (res) router.push(`/reviews/${enc(res.id)}`);
   };
