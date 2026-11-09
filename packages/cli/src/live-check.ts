@@ -1,0 +1,51 @@
+import { parseArgs } from "node:util";
+import { createRuntime, getLiveCheck, runLiveCheck, type LiveCheckReport } from "@secret-desk/runtime";
+import type { Io } from "./index.js";
+
+const tag = (result: string): string => `[${result.padEnd(13)}]`;
+
+/** One line per item that is not simply fine. Ids, results, step labels and sanitized texts only, never a value. */
+function problemLines(report: LiveCheckReport): string[] {
+  const lines: string[] = [];
+  for (const c of report.connections) if (c.result !== "ok") lines.push(`${tag(c.result)} Verbindung ${c.id}${c.detail ? `: ${c.detail}` : ""}`);
+  for (const r of report.recipes) {
+    if (r.result === "ok") continue;
+    const where = [r.step, r.kind].filter(Boolean).join(", ");
+    lines.push(`${tag(r.result)} Rezept ${r.id}${where ? ` (${where})` : ""}${r.detail ? `: ${r.detail}` : ""}`);
+  }
+  return lines;
+}
+
+/**
+ * `secret-desk live-check --config <file> [--json] [--run]`: prints the last live check report. Exit 1 when it failed, when there
+ * is none, or when it is older than twice the interval (`automation.liveCheckDays`); 0 otherwise. With `--run` a check runs in this
+ * process first (it uses the configured browser, so do not run it next to a portal that uses the same local browser profile).
+ */
+export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { config: { type: "string" }, json: { type: "boolean" }, run: { type: "boolean" } } });
+  if (!values.config) throw new Error("live-check --config <datei> [--json] [--run]");
+  // The reports live in the data directory next to the sign-in memory, shared with the portal.
+  const rt = await createRuntime(values.config, { persistSignIn: true });
+  if (values.run) {
+    await runLiveCheck(rt, { trigger: "manual", log: () => undefined });
+    await rt.automation.flushLiveCheck();
+  }
+  const { reports, stale, intervalDays } = getLiveCheck(rt);
+  const last = reports[0];
+  const reason = last === undefined ? "none" : !last.ok ? "failed" : stale ? "stale" : null;
+  if (values.json) {
+    io.out(JSON.stringify({ ok: reason === null, reason, intervalDays, report: last ?? null }));
+    return reason === null ? 0 : 1;
+  }
+  if (last === undefined) {
+    io.out("Noch kein Live-Check-Bericht. Mit --run oder im Portal (Integrationen, Live-Check) starten.");
+    return 1;
+  }
+  const s = last.summary;
+  io.out(`Live-Check ${last.ok ? "in Ordnung" : "FEHLGESCHLAGEN"}: ${last.finishedAt} (${last.trigger === "schedule" ? "automatisch" : "von Hand"})`);
+  io.out(`Integrationen: ${s.connections.ok} in Ordnung, ${s.connections.failed} fehlgeschlagen, ${s.connections.notConnected} nicht verbunden`);
+  io.out(`Rezepte: ${s.recipes.ok} in Ordnung, ${s.recipes.failed} fehlgeschlagen, ${s.recipes.needsSignIn} brauchen Anmeldung, ${s.recipes.skipped} uebersprungen`);
+  for (const l of problemLines(last)) io.out(l);
+  if (reason === "stale") io.out(`Der letzte Bericht ist aelter als ${intervalDays * 2} Tage (das Doppelte des Intervalls): die geplante Pruefung kommt nicht hinterher.`);
+  return reason === null ? 0 : 1;
+}
