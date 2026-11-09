@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -87,10 +87,27 @@ describe("desk_env_export", () => {
     await expect(envExportTool(client(response()), { repo: "acme-app", out: "a/.env" }, cwd)).rejects.toThrow(/Git verfolgt/);
   });
 
+  it("writes an untracked path inside a git repository", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "sd-mcp-env-"));
+    execFileSync("git", ["init", "-q"], { cwd });
+    await envExportTool(client(response()), { repo: "acme-app", out: ".env" }, cwd);
+    expect(await readFile(join(cwd, ".env"), "utf8")).toContain(VALUE);
+  });
+
   it("json export may be written to env.<name>.json", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "sd-mcp-env-"));
     await envExportTool(client(response({ format: "json", content: "{}\n" })), { repo: "acme-app", format: "json", out: "env.dev.json" }, cwd);
     expect(await readFile(join(cwd, "env.dev.json"), "utf8")).toBe("{}\n");
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("passes other write errors through (read-only directory)", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "sd-mcp-env-"));
+    await chmod(cwd, 0o500);
+    try {
+      await expect(envExportTool(client(response()), { repo: "acme-app", out: ".env" }, cwd)).rejects.toThrow(/EACCES/);
+    } finally {
+      await chmod(cwd, 0o700);
+    }
   });
 
   it("portal denial (policy) reaches the caller as an error", async () => {

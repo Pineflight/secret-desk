@@ -34,7 +34,10 @@ async function realpathLoose(path: string): Promise<string> {
       return resolve(await realpath(cur), ...rest);
     } catch {
       const up = dirname(cur);
+      // The filesystem root always resolves, so this only guards against an endless loop.
+      /* v8 ignore start */
       if (up === cur) return path;
+      /* v8 ignore stop */
       rest.unshift(basename(cur));
       cur = up;
     }
