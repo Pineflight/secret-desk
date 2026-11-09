@@ -35,7 +35,7 @@ export class DeskClient {
   readonly #fetch: typeof fetch;
 
   constructor(options: DeskClientOptions = {}) {
-    this.#base = (options.baseUrl ?? process.env.SECRET_DESK_URL ?? "http://127.0.0.1:4747").replace(/\/$/, "");
+    this.#base = (options.baseUrl ?? (process.env.SECRET_DESK_URL?.trim() || "http://127.0.0.1:4747")).replace(/\/$/, "");
     this.#token = options.token;
     this.#fetch = options.fetch ?? fetch;
   }

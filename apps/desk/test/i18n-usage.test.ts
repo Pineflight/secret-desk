@@ -34,6 +34,7 @@ const FILES = [
   "lib/card-collapsed.ts",
   "lib/provider-cards.ts",
   "components/BrowserAutomationPanel.tsx",
+  "components/LiveCheckPanel.tsx",
   "components/RenewalWarnings.tsx",
   "lib/sign-in-check.ts",
 ];

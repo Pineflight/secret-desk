@@ -28,6 +28,7 @@ import type { BrowserDriver } from "@secret-desk/automation";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
 import { IssuanceQueue } from "./issuances.js";
+import { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-store.js";
 
 export interface Runtime {
   config: DeskConfig;
@@ -84,6 +85,9 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   if (config.github.auth.type === "pat") specs[GITHUB_CONNECTION] = config.github.auth.source;
   else specs[GITHUB_APP_KEY_CONNECTION] = config.github.auth.privateKey;
 
+  // Where the live check reads its notification address from: the same sources as a connection token (never shown, never logged).
+  if (config.automation.liveCheckNotify) specs[LIVE_CHECK_NOTIFY_CONNECTION] = config.automation.liveCheckNotify.url;
+
   // Headless: Token fuer das Team-Repository nur aus der Umgebung (Wert wird nie angezeigt).
   const env = options.env ?? process.env;
   if (env["SECRET_DESK_TEAM_TOKEN"] && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
@@ -126,6 +130,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   }
 
   const evidence = new EvidenceStore(resolve(dirname(path), config.evidenceDir));
+  const dataDir = dirname(resolve(expandHome(config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json"))));
   const automation = new AutomationManager({
     config,
     configDir: dirname(path),
@@ -133,7 +138,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers,
     evidence,
     env,
-    ...(options.persistSignIn ? { signInStateFile: join(dirname(resolve(expandHome(config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json")))), "sign-in-state.json") } : {}),
+    ...(options.persistSignIn ? { signInStateFile: join(dataDir, "sign-in-state.json"), liveCheckStateFile: join(dataDir, "live-check-state.json") } : {}),
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
     ...(options.automationAccess ? { access: options.automationAccess } : {}),

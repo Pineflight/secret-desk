@@ -109,4 +109,11 @@ describe("DeskClient.request", () => {
     await new DeskClient({ token: TOKEN }).request("GET", "/q");
     expect(spy.mock.calls[0]![0]).toBe("http://127.0.0.1:4747/api/agent/q");
   });
+
+  it.each(["", "   "])("treats an empty or blank SECRET_DESK_URL (%j) as unset and uses the default", async (value) => {
+    vi.stubEnv("SECRET_DESK_URL", value);
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(reply(200, "{}", { "content-type": "application/json" }));
+    await new DeskClient({ token: TOKEN }).request("GET", "/q");
+    expect(spy.mock.calls[0]![0]).toBe("http://127.0.0.1:4747/api/agent/q");
+  });
 });

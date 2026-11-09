@@ -28,6 +28,7 @@ import {
 } from "@secret-desk/core";
 import {
   AutomationError,
+  LiveCheckBusyError,
   PolicyError,
   checkConnection,
   getConnectionResources,
@@ -75,6 +76,8 @@ import {
   submitRecipeConfirm,
   getAutomation,
   getAutomationRun,
+  getLiveCheck,
+  startLiveCheck,
   translateDeep,
   addEnvEntry,
   addEnvTemplate,
@@ -320,6 +323,14 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["GET", /^automation$/, ({ rt, actor }) => getAutomation(rt, actor)],
   ["GET", /^automation\/runs\/([^/]+)$/, ({ rt, actor, params }) => getAutomationRun(rt, actor, decodeURIComponent(params[0]!))],
   ["POST", /^automation\/runs\/([^/]+)\/cancel$/, ({ rt, actor, params }) => cancelAutomationRun(rt, actor, decodeURIComponent(params[0]!))],
+  // Live check (read-only test of every integration and a dry run of every recipe, see docs/TROUBLESHOOTING.md): the stored reports and
+  // whether a run is active; POST starts a manual run in the background (409 while one runs or the browser is busy). Ids and results
+  // only, never a value. Agents get 404.
+  ["GET", /^live-check$/, ({ rt }) => getLiveCheck(rt)],
+  ["POST", /^live-check$/, ({ rt }) => {
+    startLiveCheck(rt);
+    return getLiveCheck(rt);
+  }],
   // Provider facade (guided sign-in, key creation, connection). The sign-in goes into the body of one POST, is used for that run
   // only and never comes back in any response. Agents get 404 here, the MCP server has no tool for it.
   ["GET", /^facades$/, ({ rt, actor }) => listFacades(rt, actor)],
@@ -512,7 +523,7 @@ function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   if (e instanceof InventoryError || e instanceof EnvExportError || e instanceof EvidenceError || e instanceof TeamBundleError || e instanceof StageError || isNamed(e, "TemplateError")) return err(400, (e as Error).message);
   if (e instanceof VaultUnavailableError) return json({ error: e.message, code: "vault-unavailable" }, 409);
   if (e instanceof TeamSyncError) return json({ error: e.message, code: e.code }, e.code === "conflict" || e.code === "changed" || e.code === "too-soon" ? 409 : e.code === "denied" || e.code === "not-found" || e.code === "network" ? 502 : 400);
-  if (e instanceof IssuanceError || e instanceof RotationError || e instanceof AutomationError) return err(409, e.message);
+  if (e instanceof IssuanceError || e instanceof RotationError || e instanceof AutomationError || e instanceof LiveCheckBusyError) return err(409, e.message);
   if (e instanceof GitHubError) {
     if (e.status === 429) return json({ error: "GitHub begrenzt die Anfragen. Bitte spaeter erneut versuchen.", detail: e.message, code: "rate-limit" }, 429);
     if (e.status === 401 || e.status === 403) return json({ error: "GitHub hat den Zugriff abgelehnt. Die Rechte des GitHub-Tokens pruefen.", detail: e.message, code: "github-denied" }, 502);

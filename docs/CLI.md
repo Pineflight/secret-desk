@@ -25,6 +25,7 @@ Notes that apply to all commands:
 | [`env export`](#env-export) | Write a dev `.env`, or a file of variables and dev values |
 | [`team export / import`](#team) | Share the configuration without values |
 | [`browser doctor / run`](#browser) | Check and dry-run browser recipes |
+| [`live-check`](#live-check) | Last live check of all integrations and recipes |
 | [`vapid`](#vapid) | Generate a VAPID key pair |
 
 ## doctor
@@ -204,6 +205,21 @@ secret-desk browser run <recipe-id> --dry [--recipes <dir>]... [--chrome-path <p
 `--cdp <url>` (or the environment variable `SECRET_DESK_BROWSER_CDP`) selects a remote browser, for example the sidecar from [DOCKER.md](DOCKER.md#browser-on-the-pi). Then `browser doctor` prints the mode and asks the endpoint for its version instead of looking for a local Chrome and the profile folder, and `browser run` uses that browser. The address is shown without credentials.
 
 `browser run <id> --dry` opens a visible browser and runs the recipe **up to, but not including,** the step that creates the token (the step marked `createsToken: true`). You sign in in the window yourself. Nothing is created. Real runs are started from the portal. Variables for the recipe come from the options (`--name`, `--owner`, `--days`, ...); defaults: name `<recipe>-probe-<date>`, `days` 30, stage `dev`, secret id `probelauf`. `--out <dir>` saves the evidence screenshots as PNG files. Press Ctrl+C to abort. See [RECIPES.md](RECIPES.md).
+
+## live-check
+
+```bash
+secret-desk live-check --config <file> [--json] [--run] [--strict]
+```
+
+Prints the last report of the weekly live check ([TROUBLESHOOTING.md](TROUBLESHOOTING.md#reading-the-live-check)): when it ran, the counts, and one line for everything that is not simply fine (integration or recipe id, result, the step and error kind of a failed recipe step, a short sanitized text). The reports are the ones the portal stores next to the sign-in memory (`live-check-state.json` in the data directory), so the CLI shows what the portal did.
+
+- **Exit `1`** when the last report has a failure, when there is no report yet, or when it is older than twice `automation.liveCheckDays` (the schedule is not keeping up). Otherwise `0`. With `liveCheckDays: 0` the age is not judged. `2` is an error such as a missing `--config`, or `--run` while the browser is busy with another run.
+- **Recipes that need a sign-in** could not be checked (provider sessions expire, so this can be the normal outcome). The report stays ok and the exit code `0`, but the output ends with a warning ("N Rezepte konnten nicht geprueft werden: bitte anmelden"). With `--strict` it exits `1` (`reason` `needs-sign-in` in JSON).
+- `--json` prints one JSON object: `ok`, `reason` (`null`, `failed`, `none`, `stale` or `needs-sign-in`), `needsSignIn` (count), `intervalDays` and the whole `report` (or `null`). For monitoring scripts.
+- `--run` runs a check in this process first and stores it. It tests every connected integration read-only and dry-runs every recipe in the configured browser (see `cdpEndpoint`), so a recipe that needs a person (signed out, a "Confirm access" prompt) is reported as *needs sign-in* and not waited for. Do not run it next to a portal that uses the same local browser profile; with the browser sidecar it queues behind other runs like any other check.
+
+The check creates nothing at any provider and prints no value.
 
 ## vapid
 

@@ -8,6 +8,7 @@ Messages are quoted as the English portal shows them. Nothing below ever require
 - [Host not allowed, port in use](#host-not-allowed-port-in-use)
 - [Vault and keychain](#vault-and-keychain)
 - [Chrome not found or the browser run fails](#chrome-not-found-or-the-browser-run-fails)
+- [Reading the live check](#reading-the-live-check)
 - [Windows paths and links](#windows-paths-and-links)
 - [Folder links and `.env` export](#folder-links-and-env-export)
 - [Provider and approval problems](#provider-and-approval-problems)
@@ -77,6 +78,25 @@ The vault is optional: `vault.enabled: false` keeps tokens in memory for the ses
 - A run waits for you: sign-in, 2FA and CAPTCHA are yours. It aborts after `automation.loginTimeoutMinutes` (default 10).
 - "A browser run is already in progress (secret ...). Wait for it or cancel it first.": only one browser run at a time. Cancel the running one on the secret's page.
 - A step fails ("Step 3 (...) failed"): the provider's page changed or the recipe was never verified. Do a dry run and see [RECIPES.md](RECIPES.md#testing). If a token had already been created, its name is in the message: delete it at the provider.
+
+## Reading the live check
+
+Every `automation.liveCheckDays` days (default 7, `0` = off) the portal tests against the real accounts that every connected integration and every browser recipe still works, so a change at a provider shows up within a week instead of at the next renewal. See it on **Integrations**, card *Live check*, or with `secret-desk live-check`. *Check now* runs it at once. It creates nothing at a provider and never reads, stores or logs a value; a report holds ids, results, step labels, error kinds and short sanitized texts.
+
+| Result | Meaning | Counts as failure |
+|---|---|---|
+| connection `ok` / recipe `ok` | The read-only test passed. A recipe ran every step up to, but not including, the click that would create a token. | no |
+| connection `failed` | The provider rejected the key or answered unexpectedly (the text names the check). Reconnect the key on **Integrations**. | **yes** |
+| connection `not-connected` | No key is stored for it. Reported, not a problem. | no |
+| recipe `failed` | The browser could not be started or reached (`browser`; a dead browser container is reported, not hidden), or a step no longer works: the report names the step (as the recipe writes it) and the error kind (`step`: page or selector changed, `host`: the page left the allowed hosts, `timeout`: the page did not answer within 120 seconds or a wait ran out). The provider's page changed: see [RECIPES.md](RECIPES.md#testing) and fix the recipe. | **yes** |
+| recipe `needs-sign-in` | The browser is signed out at that provider, or the provider asked for a confirmation ("Confirm access", a code, a CAPTCHA). The check does not wait and types nothing. Sign in on **Integrations** and run it again. Inconclusive, so not a failure, but nothing is proven for it: the card and `live-check` warn with the count, and `live-check --strict` exits 1. | no |
+| recipe `skipped` | Not testable without real data (a required parameter without a default, steps that work on a list of real items such as repositories), the account does not offer the feature (`unsupported`), or the account offers nothing to test. The text says which. | no |
+
+- **"Live check too old"** (older than twice the interval, or none yet): the schedule is not keeping up. Is the portal running, is the browser free? A check never starts while another browser run is active and is tried again every minute until it can.
+- **Everything is `needs-sign-in`:** the browser session expired. Signing in again (guided sign-in) fixes all recipes of that provider at once.
+- **Notification.** With `automation.liveCheckNotify` set, a check with failures sends one POST with `{ ok, failedConnections, failedRecipes, needsSignIn, finishedAt }` to that address, also when nothing failed but a recipe needs a sign-in. Only ids go out. A failing webhook is logged (`live check notification failed (...)`, without the address) and never fails the check.
+- **Log.** One line per check: `live check (schedule) ok; connections 5 ok, 0 failed, 3 not connected; recipes 6 ok, 0 failed, 2 need sign-in, 1 skipped`.
+- **What it cannot see.** The check stops before the click that creates a token (the form is filled with the placeholder name `secret-desk-live-check` and the recipe's own defaults), so a change on the page that shows the new token, or in reading it, is only found by a real renewal.
 
 ## Windows paths and links
 

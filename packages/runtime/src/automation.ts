@@ -37,6 +37,7 @@ import {
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+import { LiveCheckStore, type LiveCheckReport } from "./live-check-store.js";
 import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
 
 export type { SessionLifetime, SignInCheck, SignInSource };
@@ -194,6 +195,8 @@ export interface AutomationOptions {
   now?: () => Date;
   /** File that keeps the sign-in memory across restarts. Without it the memory lives in this process only. */
   signInStateFile?: string;
+  /** File that keeps the live check reports across restarts. Without it they live in this process only. */
+  liveCheckStateFile?: string;
 }
 
 const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
@@ -248,7 +251,10 @@ export class AutomationManager {
   readonly signInFreshHours: number;
   readonly signInCheckHours: number;
   readonly renewalWarnDays: number;
+  /** Days between two live checks (`automation.liveCheckDays`, 0 = off). */
+  readonly liveCheckDays: number;
   readonly #signIn: SignInStore;
+  readonly #liveCheck: LiveCheckStore;
   readonly problems: { file: string; message: string }[] = [];
   readonly recipes: AutomationRecipeInfo[] = [];
   readonly #chromePath: string | undefined;
@@ -272,12 +278,16 @@ export class AutomationManager {
     this.signInFreshHours = c.signInFreshHours;
     this.signInCheckHours = c.signInCheckHours;
     this.renewalWarnDays = c.renewalWarnDays;
+    this.liveCheckDays = c.liveCheckDays;
     this.#signIn = new SignInStore(opts.signInStateFile ?? null);
+    this.#liveCheck = new LiveCheckStore(opts.liveCheckStateFile ?? null);
     this.#now = opts.now ?? (() => new Date());
   }
 
   /** Rezepte laden und je Rezept einen Browser-Anbieter `<id>-browser` registrieren. Ungueltige Rezepte landen in `problems`. */
   async load(): Promise<void> {
+    // The live check also tests the API connections, so its reports exist with the browser automation off.
+    await this.#liveCheck.load();
     if (!this.enabled) return;
     await this.#signIn.load();
     const { config, configDir, inventoryDir, providers } = this.opts;
@@ -356,6 +366,21 @@ export class AutomationManager {
   /** Waits until the sign-in memory is on disk (tests, shutdown). */
   flushSignIn(): Promise<void> {
     return this.#signIn.flush();
+  }
+
+  /** The stored live check reports, newest first. */
+  liveCheckReports(): LiveCheckReport[] {
+    return this.#liveCheck.reports();
+  }
+
+  /** Keeps a finished live check report (the last 12, also on disk when a file is configured). */
+  recordLiveCheck(report: LiveCheckReport): void {
+    this.#liveCheck.add(report);
+  }
+
+  /** Waits until the live check reports are on disk (tests, shutdown). */
+  flushLiveCheck(): Promise<void> {
+    return this.#liveCheck.flush();
   }
 
   /** The clock this manager uses (the scheduler follows it, so tests can drive both). */

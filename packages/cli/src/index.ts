@@ -42,6 +42,7 @@ import {
 
 import { browserCmd } from "./browser.js";
 import { doctorExitCode, runDoctor } from "./doctor.js";
+import { liveCheckCmd } from "./live-check.js";
 import { syncCmd } from "./sync.js";
 
 export interface Io {
@@ -86,6 +87,8 @@ Aufruf: secret-desk <befehl> [optionen]
   browser run    Rezept im Browser ausfuehren, mit --dry nur bis vor "Erzeugen"   <rezept-id> --dry [--name <n>] [--owner <o>] [--days <t>] [--repos a,b] [--out <ordner>]
   inventory normalize  Namen vereinheitlichen und Werte automatisch beziehen: Plan anzeigen (nur Namen, keine Werte)
                    --config <datei>   [--apply all|<id>,<id>...]   [--yes]   (aendert nur das Inventar, nie GitHub)
+  live-check     Letzten Live-Check ausgeben (alle Integrationen und Browser-Rezepte gegen die echten Konten, legt nichts an), Exit 1 bei Fehler, ohne Bericht oder aelter als das Doppelte von automation.liveCheckDays
+                   --config <datei>   [--json]   [--run] [--strict] (Rezepte, die eine Anmeldung brauchen, gelten dann als Fehler) (vorher einen Lauf in diesem Prozess starten)
   vapid          Neues VAPID-Schluesselpaar ausgeben
   about          Version, Lizenz und Herkunft ausgeben (auch --version)
 `;
@@ -144,6 +147,8 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return rest[0] === "normalize" ? await normalizeCmd(rest.slice(1), io) : usage(io);
       case "browser":
         return await browserCmd(rest, io);
+      case "live-check":
+        return await liveCheckCmd(rest, io);
       case "vapid": {
         const keys = generateVapidKeys();
         io.out(`VAPID_PUBLIC_KEY=${keys.publicKey}`);
