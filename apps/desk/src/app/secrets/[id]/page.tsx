@@ -215,7 +215,7 @@ function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: s
   const cancel = useMutation(async () => api<AutomationRunState>("POST", `automation/runs/${enc(secretId)}/cancel`));
   const status = state?.status ?? "idle";
   const live = status === "running" || status === "waiting-human";
-  if (!live && !starting && status === "idle") return <div className="mb-6"><Notice tone="info" title={t("secretDetail.browserTitle")}>{t("secretDetail.browserUnverified")}</Notice></div>;
+  if (!live && !starting && status === "idle") return null;
   const tone = status === "failed" ? "danger" : status === "cancelled" ? "warn" : status === "done" ? "success" : status === "waiting-human" ? "warn" : "info";
   const title =
     status === "waiting-human" ? t("secretDetail.browserWaiting")
@@ -233,7 +233,6 @@ function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: s
           {state?.host ? <p className="text-xs">{t("secretDetail.browserHost", { host: state.host })}</p> : null}
           {live && state?.step ? <p className="tabular text-xs">{t("secretDetail.browserStep", { index: state.step.index, total: state.step.total })}</p> : null}
           {state?.createdName ? <p>{t("secretDetail.browserCreated", { name: state.createdName })}</p> : null}
-          <p className="text-xs">{t("secretDetail.browserUnverified")}</p>
           {live ? <p className="text-xs">{t("secretDetail.browserReloadHint")}</p> : null}
           <div className="flex flex-wrap gap-2 pt-1">
             {live ? <Button variant="danger" loading={cancel.pending} onClick={async () => { await cancel.run(); onChanged(); }}>{t("secretDetail.browserCancel")}</Button> : null}
