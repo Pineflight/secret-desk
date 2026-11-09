@@ -248,6 +248,12 @@ async function notify(rt: Runtime, report: LiveCheckReport, log: (line: string) 
   }
 }
 
+/** Throws {@link LiveCheckBusyError} when a check must not start now. */
+function assertCanStart(rt: Runtime): void {
+  if (running.has(rt)) throw new LiveCheckBusyError("running");
+  if (hasRecipes(rt) && rt.automation.isBusy()) throw new LiveCheckBusyError("browser-busy");
+}
+
 const names = (items: { id: string; result: string }[]): string => items.filter((i) => i.result === "failed").map((i) => i.id).join(", ");
 
 /**
@@ -255,8 +261,7 @@ const names = (items: { id: string; result: string }[]): string => items.filter(
  * logs one line, and tells the configured webhook about failures. Throws {@link LiveCheckBusyError} when it must not start now.
  */
 export async function runLiveCheck(rt: Runtime, options: LiveCheckOptions): Promise<LiveCheckReport> {
-  if (running.has(rt)) throw new LiveCheckBusyError("running");
-  if (hasRecipes(rt) && rt.automation.isBusy()) throw new LiveCheckBusyError("browser-busy");
+  assertCanStart(rt);
   running.add(rt);
   const log = options.log ?? ((line: string) => console.log(line));
   try {
@@ -276,6 +281,15 @@ export async function runLiveCheck(rt: Runtime, options: LiveCheckOptions): Prom
   } finally {
     running.delete(rt);
   }
+}
+
+/**
+ * Starts a manual check in the background (a check takes minutes) and returns at once; the portal polls {@link getLiveCheck}.
+ * Throws {@link LiveCheckBusyError} when one is running or the browser is busy, so the caller can answer 409.
+ */
+export function startLiveCheck(rt: Runtime, options: Omit<LiveCheckOptions, "trigger"> = {}): void {
+  assertCanStart(rt);
+  void runLiveCheck(rt, { ...options, trigger: "manual" }).catch(() => undefined);
 }
 
 /** Is the last stored report older than `days` days (or is there none)? */

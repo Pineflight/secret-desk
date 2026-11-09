@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LiveCheckScheduler, SignInScheduler } from "@secret-desk/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const dirOf = () => mkdtemp(join(tmpdir(), "sd-startup-"));
@@ -67,5 +68,29 @@ describe("getDesk", () => {
     const sweep = vi.spyOn(desk.rt.issuances, "sweep").mockRejectedValue(new Error("sweep failed"));
     await vi.advanceTimersByTimeAsync(60_000);
     expect(sweep).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the sign-in checks and the weekly live check in the background, and neither in the demo", async () => {
+    const signIn = vi.spyOn(SignInScheduler.prototype, "start");
+    const liveCheck = vi.spyOn(LiveCheckScheduler.prototype, "start");
+    const stubs = async (demo: string) => {
+      const dir = await dirOf();
+      vi.stubEnv("SECRET_DESK_CONFIG", await configIn(dir));
+      vi.stubEnv("SECRET_DESK_DEMO", demo);
+      vi.stubEnv("SECRET_DESK_LAUNCH_SECRET_FILE", "");
+      vi.stubEnv("SECRET_DESK_NO_LAUNCH_SECRET", "1");
+      vi.stubEnv("HOME", dir);
+    };
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await stubs("");
+    const { getDesk } = await import("../src/server/desk.js");
+    await getDesk();
+    expect(signIn).toHaveBeenCalledTimes(1);
+    expect(liveCheck).toHaveBeenCalledTimes(1);
+    delete (globalThis as { __secretDesk?: unknown }).__secretDesk;
+    await stubs("1");
+    await getDesk();
+    expect(signIn).toHaveBeenCalledTimes(1);
+    expect(liveCheck).toHaveBeenCalledTimes(1);
   });
 });

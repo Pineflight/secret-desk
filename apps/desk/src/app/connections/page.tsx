@@ -8,6 +8,7 @@ import { Icon } from "@/components/Icons";
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, Skeleton } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionCheck";
+import { LiveCheckPanel } from "@/components/LiveCheckPanel";
 import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
 import { FacadeCheckContext } from "@/components/ProviderFacade";
 import { CategorySection, ProviderPageCard } from "@/components/ProviderCards";
@@ -148,6 +149,7 @@ export default function ConnectionsPage() {
         subtitle={t("connections.subtitle")}
         actions={<Button variant="primary" onClick={() => setPicking({ vendor: null })}><Icon name="plus" className="h-4 w-4" />{t("connections.add")}</Button>}
       />
+      <LiveCheckPanel />
       {conns.error ? <ErrorState error={conns.error} onRetry={conns.reload} /> : null}
       {vendors.error ? <ErrorState error={vendors.error} onRetry={vendors.reload} /> : null}
       {facades.error ? <div className="mb-3"><Notice tone="warn">{t("providers.page.facadesFailed")} <button type="button" className="underline" onClick={facades.reload}>{t("common.retry")}</button></Notice></div> : null}

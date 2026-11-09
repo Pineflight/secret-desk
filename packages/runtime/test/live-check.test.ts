@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { describeSelector } from "@secret-desk/automation";
-import { LIVE_CHECK_PLACEHOLDER, LiveCheckBusyError, getLiveCheck, isLiveCheckRunning, liveCheckDriver, liveCheckDue, runLiveCheck } from "../src/live-check.js";
+import { LIVE_CHECK_PLACEHOLDER, LiveCheckBusyError, getLiveCheck, isLiveCheckRunning, liveCheckDriver, liveCheckDue, runLiveCheck, startLiveCheck } from "../src/live-check.js";
 import { FAKE_HOOK_URL, FAKE_PAGE_TEXT, FAKE_TOKEN, GENERATE, driverFor, newWorld, setup } from "./helpers/live-check-world.js";
 
 afterEach(() => {
@@ -459,5 +459,47 @@ describe("liveCheckDriver", () => {
     expect(inner.shots).toEqual([]);
     await d.close();
     expect(inner.closed).toBe(true);
+  });
+});
+
+describe("startLiveCheck (manual run from the portal)", () => {
+  it("returns at once, runs in the background as a manual run and shows as running meanwhile", async () => {
+    const world = newWorld({ signedIn: new Set(["a.example.com"]), visible: [describeSelector({ label: "Token name" })] });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const { rt, lines, log } = await setup({ recipes: ["ok-create"], world, driver: async () => (await gate, driverFor(world)) });
+    startLiveCheck(rt, { log });
+    expect(getLiveCheck(rt).running).toBe(true);
+    expect(() => startLiveCheck(rt, { log })).toThrowError(expect.objectContaining({ name: "LiveCheckBusyError", reason: "running" }));
+    release();
+    await vi.waitFor(() => expect(getLiveCheck(rt).running).toBe(false));
+    expect(getLiveCheck(rt).reports[0]).toMatchObject({ trigger: "manual", ok: true });
+    expect(lines).toHaveLength(1);
+  });
+
+  it("refuses while the browser is busy and starts nothing", async () => {
+    const { rt, log } = await setup({ recipes: ["ok-create"] });
+    rt.automation.begin("someone-else", "x", { text: "busy" });
+    expect(() => startLiveCheck(rt, { log })).toThrowError(expect.objectContaining({ reason: "browser-busy" }));
+    expect(getLiveCheck(rt)).toMatchObject({ running: false, reports: [] });
+  });
+
+  it("swallows an unexpected failure of the background run (the portal shows no new report)", async () => {
+    const { rt, log } = await setup();
+    vi.spyOn(rt.automation, "recordLiveCheck").mockImplementation(() => {
+      throw new Error("disk full");
+    });
+    startLiveCheck(rt, { log });
+    await vi.waitFor(() => expect(getLiveCheck(rt).running).toBe(false));
+    expect(getLiveCheck(rt).reports).toEqual([]);
+    vi.restoreAllMocks();
+  });
+
+  it("works without options (console log)", async () => {
+    const { rt } = await setup();
+    const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    startLiveCheck(rt);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    spy.mockRestore();
   });
 });

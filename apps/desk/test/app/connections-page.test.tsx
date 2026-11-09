@@ -21,6 +21,7 @@ const base = (routes: Record<string, FakeHandler> = {}) =>
     "GET facades": [],
     "GET secrets": [{ vendor: "github", provider: "gh-token" }],
     "GET variables": [],
+    "GET live-check": { reports: [], running: false, intervalDays: 7, stale: false },
     ...routes,
   });
 const show = (name: string) => t("providers.card.show", { name });
@@ -37,6 +38,14 @@ describe("Connections page: states of the list", () => {
     expect(container.querySelector(".sd-skeleton")).not.toBeNull();
     expect(await screen.findByText(t("connections.emptyTitle"))).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: t("providers.expandAll") })).toBeNull();
+  });
+
+  it("shows the live check card above the list, and a live check that cannot be loaded does not hide the list", async () => {
+    base({ "GET live-check": { status: 500, body: { error: "live check broke" } } });
+    renderApp(<ConnectionsPage />);
+    expect(await screen.findByRole("heading", { name: t("liveCheck.title") })).toBeInTheDocument();
+    expect(await screen.findByText(t("liveCheck.loadFailed"), { exact: false })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: show("GitHub") })).toBeInTheDocument();
   });
 
   it("shows errors of the lists and retries them", async () => {
