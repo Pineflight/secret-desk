@@ -131,6 +131,8 @@ describe("IntegrationsOverview", () => {
     expect(screen.getAllByRole("link", { name: "Verbinden" })).toHaveLength(2);
     await user.click(screen.getByRole("link", { name: "Fehlende zeigen" }));
     expect(window.sessionStorage.getItem("sd:filter:entries.params")).toBe('"missing"');
+    // The click does not start a real navigation (happy-dom would request localhost:3000).
+    expect(window.location.pathname).toBe("/");
   });
 
   it("says nothing is linked and hides the missing-parameter link when nothing is missing", async () => {

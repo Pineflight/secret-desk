@@ -120,6 +120,7 @@ describe("login methods: static checks", () => {
             { click: { role: "button", name: "GitHub" }, each: "repos" },
             { click: { role: "button", name: "Continue" }, when: { var: "stage", equals: "dev" } },
             { click: { role: "button", name: "Create", createsToken: true } },
+            { click: { role: "button", name: "Save", stopsDryRun: true } },
             { fill: { label: "Email", value: "x" } },
           ],
         },
@@ -128,7 +129,8 @@ describe("login methods: static checks", () => {
     expect(msg).toContain("login.methods.0.steps.0.each: A sign-in step must not repeat per item");
     expect(msg).toContain("login.methods.0.steps.1.when: A sign-in step must not be conditional");
     expect(msg).toContain("login.methods.0.steps.2: A sign-in step must not create a token");
-    expect(msg).toContain("login.methods.0.steps.3: A single-sign-on step is click or waitFor");
+    expect(msg).toContain("login.methods.0.steps.3: A sign-in step must not be a dry-run stop");
+    expect(msg).toContain("login.methods.0.steps.4: A single-sign-on step is click or waitFor");
   });
 });
 

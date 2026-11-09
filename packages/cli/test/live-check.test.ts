@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/index.js";
@@ -12,20 +13,30 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+/** A port nothing listens on right now. */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
 async function setup(extra = "") {
+  const port = await freePort();
   const dir = await mkdtemp(join(tmpdir(), "sd-cli-live-check-"));
   await mkdir(join(dir, "data"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   const config = join(dir, "secret-desk.config.yaml");
   await writeFile(
     config,
-    `inventory: ./inventory.yaml\nvault: { enabled: false }\nlinksFile: ${join(dir, "data", "repo-links.json")}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: SD_CLI_LC_GITHUB } }\nconnections:\n  resend: { type: env, name: SD_CLI_LC_RESEND }\nautomation:\n  enabled: false\n${extra}`,
+    `inventory: ./inventory.yaml\nvault: { enabled: false }\nlinksFile: ${join(dir, "data", "repo-links.json")}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: SD_CLI_LC_GITHUB } }\nconnections:\n  resend: { type: env, name: SD_CLI_LC_RESEND }\nserver:\n  port: ${port}\nautomation:\n  enabled: false\n${extra}`,
   );
   const out: string[] = [];
   const err: string[] = [];
   const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
   const seed = async (reports: unknown[]) => writeFile(join(dir, "data", "live-check-state.json"), JSON.stringify({ version: 1, reports }));
-  return { dir, config, out, err, io, seed };
+  return { dir, config, out, err, io, seed, port };
 }
 
 const connection = (id: string, result: string, detail?: string) => ({ id, result, ...(detail ? { detail } : {}) });
@@ -139,6 +150,20 @@ describe("secret-desk live-check", () => {
     // A second call without --run reads what the first one stored.
     expect(await main(["live-check", "--config", config], io)).toBe(0);
     expect(out[0]).toMatch(/\(von Hand\)/);
+  });
+
+  it("--run is refused while something listens on the portal port, and checks nothing", async () => {
+    const { config, io, out, err, port, dir } = await setup();
+    const server: Server = createServer();
+    await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+    try {
+      expect(await main(["live-check", "--config", config, "--run"], io)).toBe(2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    expect(err.join("\n")).toMatch(new RegExp(`127\\.0\\.0\\.1:${port} laeuft bereits ein Portal.*Jetzt pruefen`));
+    expect(out).toEqual([]);
+    await expect(readFile(join(dir, "data", "live-check-state.json"), "utf8")).rejects.toThrow();
   });
 
   it("--run exits 1 when an integration fails, and no value appears in the output", async () => {

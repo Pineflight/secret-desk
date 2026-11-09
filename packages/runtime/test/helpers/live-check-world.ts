@@ -162,10 +162,10 @@ export async function setup(opts: SetupOptions = {}) {
     `inventory: ./inventory.yaml\nlinksFile: ${join(dir, "data", "repo-links.json")}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${opts.connections ?? ""}${opts.automation ?? ""}`,
   );
   const world = opts.world ?? newWorld();
-  const fetchCalls: { url: string; method: string; body: string | undefined }[] = [];
+  const fetchCalls: { url: string; method: string; body: string | undefined; redirect: string | undefined }[] = [];
   const baseFetch = opts.fetch ?? ((async () => new Response("{}", { status: 200 })) as unknown as typeof fetch);
   const recordingFetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    fetchCalls.push({ url: String(url), method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined });
+    fetchCalls.push({ url: String(url), method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined, redirect: init?.redirect });
     return baseFetch(url, init);
   }) as unknown as typeof fetch;
   const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {

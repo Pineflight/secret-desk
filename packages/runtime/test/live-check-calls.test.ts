@@ -49,15 +49,35 @@ describe("live check: calls to the connection check", () => {
     expect(report.connections[1]).toEqual({ id: "b", result: "failed", detail: "" });
     expect(report.connections[2]!.result).toBe("failed");
     expect(JSON.stringify(report) + lines.join("\n")).not.toContain(SHAPED_VALUE);
-    expect(report.connections[2]!.detail).toContain("***");
+    // The message of an unexpected error never reaches the report: a fixed text and the error's name.
+    expect(report.connections[2]).toEqual({ id: "c", result: "failed", detail: "The connection check failed (Error)." });
     expect(report.ok).toBe(false);
+  });
+
+  it("strips the query and fragment of an address in the checker's detail", async () => {
+    mocks.listConnections.mockResolvedValue([{ id: "a", connected: true }, { id: "b", connected: true }]);
+    mocks.checkConnection
+      .mockResolvedValueOnce({ id: "a", ok: false, checks: [item("a", "fail", "GET https://api.example.com/v1/keys?token=QUERYSECRET#frag failed, see http://[broken")] })
+      .mockResolvedValueOnce({ id: "b", ok: false, checks: [item("b", "fail", "no address, just words")] });
+    const { rt, log } = await setup();
+    const report = await runLiveCheck(rt, { trigger: "manual", log });
+    expect(report.connections[0]!.detail).toBe("Check of a: GET https://api.example.com/v1/keys failed, see [address]");
+    expect(JSON.stringify(report)).not.toContain("QUERYSECRET");
+  });
+
+  it("a thrown value that is not an Error is named by its type only", async () => {
+    mocks.listConnections.mockResolvedValue([{ id: "a", connected: true }]);
+    mocks.checkConnection.mockRejectedValueOnce("page text https://x.example/?q=1");
+    const { rt, log } = await setup();
+    const report = await runLiveCheck(rt, { trigger: "manual", log });
+    expect(report.connections[0]!.detail).toBe("The connection check failed (string).");
   });
 
   it("a connection list that cannot be read is one failed item, not a crash", async () => {
     mocks.listConnections.mockRejectedValue(new Error("vault unreadable"));
     const { rt, log } = await setup();
     const report = await runLiveCheck(rt, { trigger: "manual", log });
-    expect(report.connections).toEqual([{ id: "connections", result: "failed", detail: "The list of connections could not be read: vault unreadable" }]);
+    expect(report.connections).toEqual([{ id: "connections", result: "failed", detail: "The list of connections could not be read (Error)." }]);
     expect(report.ok).toBe(false);
     expect(mocks.checkConnection).not.toHaveBeenCalled();
   });

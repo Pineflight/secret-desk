@@ -112,9 +112,10 @@ describe("FacadeFlow browser check", () => {
     const portal = fakePortal({ ...noRun });
     renderApp(flow({ facade: facadeInfo({ available: false, reason: "automation is off" }) }));
     expect(await screen.findByText("Nicht verfügbar: automation is off")).toBeInTheDocument();
-    expect(screen.getByText("Die Anmeldung im Browser ließ sich nicht prüfen. Du kannst dich unten anmelden.")).toBeInTheDocument();
+    // The notice renders at once; the "could not be checked" text is set by an effect after it, so wait for it instead of reading it synchronously.
+    expect(await screen.findByText("Die Anmeldung im Browser ließ sich nicht prüfen. Du kannst dich unten anmelden.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Anmelden und verbinden" })).toBeDisabled();
     expect(portal.callsTo("POST", `${BASE}/check`)).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Anmelden und verbinden" })).toBeDisabled();
   });
 
   it("shows an empty reason as nothing", async () => {

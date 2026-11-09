@@ -15,6 +15,13 @@ beforeEach(() => {
   vi.stubGlobal("fetch", noNetwork);
 });
 
+// happy-dom starts a real navigation (a request to http://localhost:3000, ECONNREFUSED after the test) when an `<a href>` is clicked and
+// nothing prevents it. The router is a fake here, so a click on a link never has to leave the page: the default action is cancelled
+// after every handler ran. `location` still changes with the address, which tests may read.
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Element && event.target.closest("a[href]")) event.preventDefault();
+});
+
 // happy-dom reports an English browser; the app defaults to German, so tests start in German unless they store another locale.
 beforeEach(() => {
   window.localStorage.setItem("sd-locale", "de");

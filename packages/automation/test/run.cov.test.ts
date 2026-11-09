@@ -310,13 +310,14 @@ describe("optional clicks", () => {
     await runRecipe(optional(), VARS, defaulted);
     expect(defaulted.waits[0]!.ms).toBe(3000);
   });
-  it("another wait error ends the run", async () => {
-    const d = driverFor();
+  it("another wait error skips the click and the run goes on", async () => {
+    const d = driverFor({ visible: [CREATE_KEY, 'button "Cookies"'] });
     d.waitOnly = onlyCookies;
     d.waitImpl = async () => {
       throw new Error("page crashed");
     };
-    expect((await fails(runRecipe(optional(), VARS, d))).message).toContain("Aktion nicht moeglich.");
+    await expect(runRecipe(optional(), VARS, d)).resolves.toBeDefined();
+    expect(d.calls).not.toContain('click button "Cookies"');
   });
   it("a click that cannot be done is skipped, but a host problem, an abort and a failing hook end the run", async () => {
     const d = driverFor({
@@ -475,6 +476,27 @@ describe("dry run and revoke", () => {
     const dry = await dryRunRecipe(recipe([{ goto: HOME }]), VARS, d);
     expect(dry.executed).toBe(1);
     expect(d.calls).not.toContain(`click ${CREATE_KEY}`);
+  });
+  it("a dry run stops before a stopsDryRun click, a real run clicks it", async () => {
+    const SAVE = 'button "Save"';
+    const r = recipe([{ goto: HOME }, { click: { role: "button", name: "Save", stopsDryRun: true } }, { goto: HOME }]);
+    const dry = driverFor({ visible: [CREATE_KEY, SAVE] });
+    const result = await dryRunRecipe(r, VARS, dry);
+    expect(result.executed).toBe(1);
+    expect(dry.calls).not.toContain(`click ${SAVE}`);
+    expect(dry.calls.filter((c) => c.startsWith("goto"))).toHaveLength(1);
+    const real = driverFor({ visible: [CREATE_KEY, SAVE] });
+    await runRecipe(r, VARS, real);
+    expect(real.calls).toContain(`click ${SAVE}`);
+  });
+  it("a stop marker whose when is false still stops the dry run", async () => {
+    for (const marker of [{ createsToken: true }, { stopsDryRun: true }]) {
+      const r = recipe([{ goto: HOME }, { click: { role: "button", name: "Save", ...marker }, when: { var: "stage", equals: "never" } }, { goto: HOME }]);
+      const dry = driverFor({ visible: [CREATE_KEY, 'button "Save"'] });
+      const result = await dryRunRecipe(r, VARS, dry);
+      expect(result.executed).toBe(1);
+      expect(dry.calls.filter((c) => c.startsWith("goto"))).toHaveLength(1);
+    }
   });
 });
 

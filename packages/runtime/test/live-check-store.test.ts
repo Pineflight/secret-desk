@@ -59,6 +59,17 @@ describe("parseLiveCheckReport", () => {
     expect(none.recipes).toEqual([]);
   });
 
+  it("turns control characters into spaces, so a tampered file cannot inject terminal escapes", () => {
+    const parsed = parseLiveCheckReport({
+      ...report(2),
+      connections: [{ id: "c", result: "failed", detail: "a\u001b[31mred\u0007\u0000b\u009bc\u007fd\ne" }],
+      recipes: [{ id: "r", result: "failed", step: "s\u001b]0;title", kind: "k\r", detail: "ok" }],
+    })!;
+    expect(parsed.connections[0]!.detail).toBe("a [31mred  b c d e");
+    expect(parsed.recipes[0]).toMatchObject({ step: "s ]0;title", kind: "k " });
+    expect(JSON.stringify(parsed)).not.toMatch(/\\u00(?:1b|07|00|9b|7f)/);
+  });
+
   it("limits the number of items", () => {
     const many = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}`, result: "ok" }));
     expect(parseLiveCheckReport({ ...report(2), connections: many })!.connections).toHaveLength(200);

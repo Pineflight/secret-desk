@@ -178,6 +178,17 @@ describe("live check: recipes", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("skips a recipe whose inputs fail unexpectedly with the error name only", async () => {
+    const { rt, log } = await setup({ recipes: ["ok-create"] });
+    const real = rt.automation.now.bind(rt.automation);
+    // The first call stamps the report; the call that derives the recipe inputs fails.
+    vi.spyOn(rt.automation, "now").mockImplementationOnce(real).mockImplementationOnce(() => {
+      throw new RangeError("clock says https://t.example/?q=QUERYSECRET");
+    });
+    const report = await runLiveCheck(rt, { trigger: "manual", log });
+    expect(report.recipes[0]).toMatchObject({ id: "ok-create", result: "skipped", detail: "Inputs cannot be derived (RangeError)." });
+  });
+
   it("skips a recipe whose steps all work on a list of items", async () => {
     const { rt, log, world } = await setup({ recipes: ["list-only"] });
     const report = await runLiveCheck(rt, { trigger: "manual", log });
@@ -197,8 +208,13 @@ describe("live check: recipes", () => {
     const a = await setup({ recipes: ["ok-create"], driver: () => Promise.reject(new Error("Chrome not found")) });
     const ra = await runLiveCheck(a.rt, { trigger: "manual", log: a.log });
     expect(ra.recipes[0]).toMatchObject({ result: "failed", kind: "browser" });
-    expect(ra.recipes[0]!.detail).toMatch(/Browser not available: Chrome not found/);
+    expect(ra.recipes[0]!.detail).toBe("Browser not available (Error).");
     expect(ra.ok).toBe(false);
+    // A browser library message can hold an address with a query or page text: none of it reaches the report.
+    const leaky = await setup({ recipes: ["ok-create"], driver: () => Promise.reject(new TypeError("page.goto: net::ERR https://c.example.com/a?code=QUERYSECRET text SECRETPAGETEXT")) });
+    const rl = await runLiveCheck(leaky.rt, { trigger: "manual", log: leaky.log });
+    expect(rl.recipes[0]!.detail).toBe("Browser not available (TypeError).");
+    expect(JSON.stringify(rl) + leaky.lines.join("\n")).not.toMatch(/QUERYSECRET|SECRETPAGETEXT/);
     const b = await setup({
       recipes: ["ok-create"],
       driver: () => {
@@ -385,6 +401,15 @@ describe("live check: the notification", () => {
     await runLiveCheck(none.rt, { trigger: "manual", log: none.log });
     expect(none.fetchCalls).toEqual([]);
     expect(none.lines).toHaveLength(1);
+  });
+
+  it("never follows a redirect of the webhook, and a 3xx counts as a failed delivery that fails nothing", async () => {
+    const redirect = (async () => new Response(null, { status: 302, headers: { location: "https://elsewhere.example.com/" } })) as unknown as typeof fetch;
+    const { rt, log, lines, fetchCalls } = await setup({ ...failing, world: newWorld({ signedIn: new Set(["c.example.com"]) }), automation: withHook(), env: { HOOK_URL: FAKE_HOOK_URL }, fetch: redirect });
+    const report = await runLiveCheck(rt, { trigger: "manual", log });
+    expect(fetchCalls.filter((c) => c.method === "POST").map((c) => c.redirect)).toEqual(["manual"]);
+    expect(lines[1]).toBe("secret-desk: live check notification failed (HTTP 302)");
+    expect(report.recipes[0]!.result).toBe("failed");
   });
 
   it("logs a failing webhook without the address and still returns the report", async () => {

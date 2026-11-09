@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadRecipes, loadRecipesDetailed, loginMethodsOf, textPattern } from "../src/index.js";
+import { FakeDriver, dryRunRecipe, loadRecipes, loadRecipesDetailed, loginMethodsOf, textPattern } from "../src/index.js";
 
 const RECIPES = resolve(import.meta.dirname, "../../../recipes");
 
@@ -44,6 +44,25 @@ describe("bundled recipes", () => {
     expect(r.revoke?.steps.length).toBeGreaterThan(0);
     expect(r.mask.length).toBeGreaterThan(0);
     expect((await readFile(join(RECIPES, "grafana-cloud-access-policy.yaml"), "utf8")).split("\n")[0]).toMatch(/^# STATUS: .*nothing else of this recipe is verified/);
+  });
+  it("a dry run of grafana-cloud-access-policy never clicks Create access policy or Create token", async () => {
+    const r = (await loadRecipes([RECIPES])).find((x) => x.id === "grafana-cloud-access-policy")!;
+    // Every element is "visible", so a click is only missing when the run stopped before it.
+    const d = new FakeDriver({
+      url: "https://grafana.com/profile/org",
+      on: (e, drv) => {
+        if (e.action === "goto") drv.url = e.key;
+        if (e.action === "click") drv.url = "https://grafana.com/orgs/acme/access-policies";
+      },
+    });
+    Object.defineProperty(d, "visible", { value: Object.assign(new Set<string>(), { has: () => true }) });
+    const result = await dryRunRecipe(r, { name: "probe", expiry: "90 days" }, d);
+    expect(result.executed).toBeGreaterThan(5);
+expect(d.calls).toContain('click link "New access policy" (exact)');
+    expect(d.calls.some((c) => c.includes("Add scope"))).toBe(true);
+    expect(d.calls.some((c) => c.includes("Create access policy"))).toBe(false);
+    expect(d.calls.some((c) => c.includes("Create token"))).toBe(false);
+    expect(d.calls.some((c) => c.includes("Add token"))).toBe(false);
   });
   it("anthropic-admin-key has a passwordless email sign-in with a code step, a Google button, and captures only an admin key", async () => {
     const r = (await loadRecipes([RECIPES])).find((x) => x.id === "anthropic-admin-key")!;

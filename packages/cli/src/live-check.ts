@@ -1,3 +1,4 @@
+import { connect } from "node:net";
 import { parseArgs } from "node:util";
 import { createRuntime, getLiveCheck, runLiveCheck, type LiveCheckReport } from "@secret-desk/runtime";
 import type { Io } from "./index.js";
@@ -16,10 +17,27 @@ function problemLines(report: LiveCheckReport): string[] {
   return lines;
 }
 
+const PORT_PROBE_TIMEOUT_MS = 500;
+
+/** Does something accept connections on this port of the local machine? A short TCP connect; no data is sent. */
+function listensOn(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    const done = (listening: boolean): void => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.setTimeout(PORT_PROBE_TIMEOUT_MS, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
 /**
  * `secret-desk live-check --config <file> [--json] [--run] [--strict]`: prints the last live check report. Exit 1 when it failed, when there
  * is none, or when it is older than twice the interval (`automation.liveCheckDays`); 0 otherwise. With `--run` a check runs in this
- * process first (it uses the configured browser, so do not run it next to a portal that uses the same local browser profile).
+ * process first. It uses the configured browser, so it is refused while something listens on the portal port of the configuration
+ * (a running portal would drive the same browser: use its *Check now* button).
  */
 export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, json: { type: "boolean" }, run: { type: "boolean" }, strict: { type: "boolean" } } });
@@ -27,6 +45,10 @@ export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
   // The reports live in the data directory next to the sign-in memory, shared with the portal.
   const rt = await createRuntime(values.config, { persistSignIn: true });
   if (values.run) {
+    if (await listensOn(rt.config.server.port)) {
+      io.err(`live-check --run ist nicht moeglich: auf 127.0.0.1:${rt.config.server.port} laeuft bereits ein Portal. Dort den Knopf "Jetzt pruefen" (Integrationen, Live-Check) benutzen, sonst steuern zwei Laeufe denselben Browser.`);
+      return 2;
+    }
     await runLiveCheck(rt, { trigger: "manual", log: () => undefined });
     await rt.automation.flushLiveCheck();
   }

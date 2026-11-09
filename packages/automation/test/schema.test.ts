@@ -157,6 +157,10 @@ describe("when, optional and attribute", () => {
     expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", optional: true, createsToken: true } }]))).toThrow(/schliessen sich aus/);
     expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", timeoutSeconds: 4 } }]))).toThrow(/nur zu optional/);
   });
+  it("stopsDryRun is a plain flag that excludes optional", () => {
+    expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", stopsDryRun: true } }]))).not.toThrow();
+    expect(() => RecipeSchema.parse(doc([{ click: { css: "#b", optional: true, stopsDryRun: true } }]))).toThrow(/optional und stopsDryRun schliessen sich aus/);
+  });
   it("token attribute must look like an attribute name", () => {
     expect(() => RecipeSchema.parse(doc([], {}, { attribute: "data-text" }))).not.toThrow();
     expect(() => RecipeSchema.parse(doc([], {}, { attribute: "x y" }))).toThrow();

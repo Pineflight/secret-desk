@@ -90,7 +90,8 @@ steps:
   - fill: { css: 'input[role=combobox][placeholder="Search…"]', value: "stack-service-accounts:write" }
   - click: { role: option, name: '/^stack-service-accounts:write/', first: true }
   - screenshot: richtlinie-vorher
-  - click: { role: button, name: "Create access policy", exact: true }
+  # Creates the policy at the provider: a dry run stops here.
+  - click: { role: button, name: "Create access policy", exact: true, stopsDryRun: true }
   # Back on the list: find the new policy by its name and add a token to it.
   - waitFor: { visible: { css: 'input[aria-label="Search access policies"]' }, timeoutSeconds: 60 }
   - fill: { css: 'input[aria-label="Search access policies"]', value: "{{name}}" }

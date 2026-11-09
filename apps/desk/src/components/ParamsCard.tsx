@@ -21,13 +21,15 @@ export function ParamsCard({ secret, focusSignal, notice, onChanged }: { secret:
   const [draft, setDraft] = useState<Draft>({});
   const first = secret.places.find((p) => "repo" in p);
   const repo = first && "repo" in first ? first.repo : "";
-  const pv = useDraftParams(editing ? base.data!.provider : null, repo, secret.stage, draft);
+  const pv = useDraftParams(editing ? (base.data?.provider ?? null) : null, repo, secret.stage, draft);
   const save = useMutation(async (params: Record<string, unknown>) => api<ParamsView>("PUT", `secrets/${enc(secret.id)}/params`, { params }));
   const data = base.data;
 
   const startEdit = () => {
-    // Only called with data: the button renders after the load, and the effect below checks it first.
-    setDraft(toDraft(data!.specs, data!.values));
+    /* v8 ignore start -- defensive: the button renders after the load and the effect below checks data first */
+    if (!data) return;
+    /* v8 ignore stop */
+    setDraft(toDraft(data.specs, data.values));
     save.reset();
     setEditing(true);
   };

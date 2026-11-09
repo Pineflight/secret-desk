@@ -44,9 +44,9 @@ async function init(): Promise<Desk> {
   // Abgelaufene, nicht bestaetigte Werte verwerfen (der neue Wert wird beim Anbieter wieder geloescht).
   setInterval(() => void rt.issuances.sweep(issuanceDeps(rt)).catch(() => undefined), 60_000).unref();
   // Check the browser sign-ins in the background (automation.signInCheckHours), so expired sessions show up before a renewal needs one.
-  // Weekly live check (automation.liveCheckDays): a read-only test of every integration and a dry run of every recipe, so a provider change shows up in a week.
   if (!demo) {
     startSignInScheduler(rt);
+    // Weekly live check (automation.liveCheckDays): a read-only test of every integration and a dry run of every recipe, so a provider change shows up in a week.
     startLiveCheckScheduler(rt);
   }
   return desk;

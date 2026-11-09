@@ -81,7 +81,24 @@ export function liveCheckDriver(inner: BrowserDriver): BrowserDriver {
   };
 }
 
-const clean = (text: string): string => safeText(text, []);
+/** A URL in a text keeps its origin and path: the query and the fragment can carry tokens, ids or page text. */
+const stripUrls = (text: string): string =>
+  text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (match) => {
+    try {
+      const url = new URL(match);
+      return url.origin + url.pathname;
+    } catch {
+      return "[address]";
+    }
+  });
+
+const clean = (text: string): string => safeText(stripUrls(text), []);
+
+/**
+ * Text for an error that is not a RecipeRunError. A browser library message can hold an address with a query or page text, so
+ * only a fixed text and the error's name reach the report.
+ */
+const unexpected = (what: string, err: unknown): string => clean(`${what} (${err instanceof Error ? err.name : typeof err}).`);
 
 /** What a recipe needs to run without a real entry: the fixed placeholder for names, the recipe's own defaults for its parameters. */
 function placeholderVars(recipe: Recipe, now: Date): Record<string, string> {
@@ -119,7 +136,7 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
   try {
     vars = placeholderVars(recipe, rt.automation.now());
   } catch (err) {
-    return skipped(id, `Inputs cannot be derived: ${(err as Error).message}`);
+    return skipped(id, err instanceof RecipeRunError ? `Inputs cannot be derived: ${err.message}` : unexpected("Inputs cannot be derived", err));
   }
   // Steps that act on each item of a list (the repositories of a token) cannot run without real items: they are left out.
   const steps = recipe.steps.filter((s) => !("each" in s && s.each));
@@ -171,7 +188,7 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
     }
     // Not a recipe error: the browser could not be started or reached (closing errors are ignored by the driver wrapper). A dead
     // browser is exactly what the check has to report.
-    return { id, result: "failed", ...step, kind: "browser", detail: clean(`Browser not available: ${(err as Error).message}`) };
+    return { id, result: "failed", ...step, kind: "browser", detail: unexpected("Browser not available", err) };
   } finally {
     clearTimeout(timer);
     ctx.cancel.removeEventListener("abort", onCancel);
@@ -190,7 +207,7 @@ async function checkConnections(rt: Runtime): Promise<LiveCheckConnection[]> {
   try {
     list = await listConnections(rt);
   } catch (err) {
-    return [{ id: "connections", result: "failed", detail: clean(`The list of connections could not be read: ${(err as Error).message}`) }];
+    return [{ id: "connections", result: "failed", detail: unexpected("The list of connections could not be read", err) }];
   }
   for (const c of list) {
     if (!c.connected) {
@@ -202,7 +219,7 @@ async function checkConnections(rt: Runtime): Promise<LiveCheckConnection[]> {
       const r = await checkConnection(rt, c.id, { deep: false });
       out.push(r.ok ? { id: c.id, result: "ok" } : { id: c.id, result: "failed", detail: connectionDetail(r) });
     } catch (err) {
-      out.push({ id: c.id, result: "failed", detail: clean((err as Error).message) });
+      out.push({ id: c.id, result: "failed", detail: unexpected("The connection check failed", err) });
     }
   }
   return out;
@@ -246,7 +263,8 @@ async function notify(rt: Runtime, report: LiveCheckReport, log: (line: string) 
     // The address may carry a token: it is read here, used once and appears in no log line and no error text.
     const url = (await rt.connections.token(LIVE_CHECK_NOTIFY_CONNECTION)).reveal();
     if (!/^https?:\/\//i.test(url.trim())) throw new Error("not an http(s) address");
-    const res = await rt.fetch(url.trim(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS) });
+    // Never follow a redirect: it would send the report to an address nobody configured. A 3xx counts as a failed delivery.
+    const res = await rt.fetch(url.trim(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), redirect: "manual", signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS) });
     log(res.ok ? "secret-desk: live check notification sent" : `secret-desk: live check notification failed (HTTP ${res.status})`);
   } catch (err) {
     log(`secret-desk: live check notification failed (${err instanceof NotConnectedError ? "address not available" : "request failed"})`);

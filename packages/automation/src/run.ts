@@ -210,7 +210,7 @@ class Runner {
     if (this.options.signal?.aborted) this.fail("abort", "Abgebrochen.");
   }
 
-  /** Fuehrt Schritte aus. Mit stopAtCreate endet es vor dem ersten createsToken-Schritt und liefert true. */
+  /** Fuehrt Schritte aus. Mit stopAtCreate endet es vor dem ersten createsToken- oder stopsDryRun-Schritt und liefert true. */
   async execute(steps: Step[], stopAtCreate: boolean): Promise<boolean> {
     this.#total = steps.length;
     // Eine leere Liste (zum Beispiel keine Repos) darf nicht still dazu fuehren, dass Schritte entfallen: Fehler vor dem ersten Klick.
@@ -222,6 +222,8 @@ class Runner {
     for (const [i, step] of steps.entries()) {
       this.#index = i + 1;
       this.#aborted();
+      // A dry run stops at the first marked step before its `when` is looked at: a false `when` must not let it pass.
+      if (stopAtCreate && "click" in step && (step.click.createsToken || step.click.stopsDryRun)) return true;
       if ("when" in step && step.when) {
         let holds: boolean;
         try {
@@ -231,7 +233,6 @@ class Runner {
         }
         if (!holds) continue;
       }
-      if (stopAtCreate && "click" in step && step.click.createsToken) return true;
       this.hooks.onProgress?.({ index: this.#index, total: this.#total, label: describeStep(step) });
       const items = "each" in step && step.each ? this.vars[step.each]!.split(",").map((s) => s.trim()).filter(Boolean) : [undefined];
       for (const item of items) {

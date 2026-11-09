@@ -263,6 +263,8 @@ describe("kind read: schema", () => {
   it("never offers a create step", () => {
     expect(messages({ steps: [{ click: { role: "button", name: "Create", createsToken: true } }] })).toContain("must not create anything");
     expect(messages({ capture: { ...base.capture, fallback: { steps: [{ click: { role: "button", name: "Go", createsToken: true } }], values: base.capture.values } } })).toContain("must not create anything");
+    expect(messages({ steps: [{ click: { role: "button", name: "Save", stopsDryRun: true } }] })).toContain("must not change anything");
+    expect(messages({ capture: { ...base.capture, fallback: { steps: [{ click: { role: "button", name: "Go", stopsDryRun: true } }], values: base.capture.values } } })).toContain("must not change anything");
   });
   it("has no token, no revoke, no expiry and no external id", () => {
     expect(messages({ capture: { ...base.capture, token: { find: { css: "#t" } } } })).toContain("capture.values");

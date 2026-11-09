@@ -56,7 +56,9 @@ const CONNECTION_RESULTS: readonly LiveCheckConnectionResult[] = ["ok", "failed"
 const RECIPE_RESULTS: readonly LiveCheckRecipeResult[] = ["ok", "failed", "needs-sign-in", "skipped"];
 
 const validTime = (v: unknown): v is string => typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v));
-const text = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v.slice(0, MAX_TEXT) : undefined);
+// A damaged or tampered file must not smuggle terminal escapes into CLI output: control characters become spaces.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+const text = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v.slice(0, MAX_TEXT).replace(CONTROL, " ") : undefined);
 const idOf = (v: unknown): string | undefined => (typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,120}$/.test(v) ? v : undefined);
 const records = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.slice(0, MAX_ITEMS).filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null) : []);
 

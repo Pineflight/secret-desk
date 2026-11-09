@@ -145,6 +145,24 @@ describe("ParamsCard editing", () => {
     expect(portal.calls.some((c) => c.path.startsWith("providers/acme/params?") && c.path.includes("repo=acme-app") && c.path.includes("stage=dev"))).toBe(true);
   });
 
+  it("survives a new secret id while editing (the query drops its data until the next load arrives)", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    fakePortal({
+      "GET secrets/s1/params": view(),
+      "GET secrets/s2/params": async () => { await gate; return view({ secretId: "s2", values: { account: "a1", name: "other" } }); },
+      "GET providers/acme/params*": draftView,
+    });
+    const { user, rerender, container } = renderApp(<ParamsCard secret={secret()} focusSignal={0} notice={null} onChanged={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Bearbeiten" }));
+    await screen.findByLabelText(/name de/);
+    rerender(<ParamsCard secret={secret({ id: "s2" })} focusSignal={0} notice={null} onChanged={() => {}} />);
+    await waitFor(() => expect(container.querySelector(".h-24")).not.toBeNull());
+    release();
+    await waitFor(() => expect(container.querySelector(".h-24")).toBeNull());
+    expect(await screen.findByLabelText(/name de/)).toBeInTheDocument();
+  });
+
   it("closes the editor without a request when nothing changed, and on cancel", async () => {
     const portal = fakePortal({ "GET secrets/s1/params": view(), "GET providers/acme/params*": draftView });
     const { user } = renderApp(<ParamsCard secret={secret()} focusSignal={0} notice={null} onChanged={() => {}} />);

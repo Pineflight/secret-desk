@@ -383,5 +383,6 @@ describe("login.form schema", () => {
     expect(messages({ ...FORM, start: "https://evil.test/login" })).toMatch(/nicht host\/allowHosts/);
     expect(messages({ ...FORM, start: "https://example.test/{{login.username}}" })).toMatch(/variables/);
     expect(messages({ ...FORM, steps: [...FORM.steps, { click: { css: "#x", createsToken: true } }] })).toMatch(/must not create a token/);
+    expect(messages({ ...FORM, steps: [...FORM.steps, { click: { css: "#x", stopsDryRun: true } }] })).toMatch(/must not be a dry-run stop/);
   });
 });

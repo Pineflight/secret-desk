@@ -118,6 +118,11 @@ const stepVariants = {
       click: withSelector({
         createsToken: z.boolean().optional(),
         /**
+         * A dry run stops before this click, like before a `createsToken` click, because it already creates or changes
+         * something at the provider (a policy, a project). A real run ignores it. Never combine this with optional.
+         */
+        stopsDryRun: z.boolean().optional(),
+        /**
          * The element may be absent (a cookie banner, a one-time notice): wait `timeoutSeconds` for it and skip the step
          * when it does not show up. Never combine this with createsToken.
          */
@@ -126,6 +131,7 @@ const stepVariants = {
         timeoutSeconds: z.number().positive().max(30).optional(),
       }).superRefine((v, ctx) => {
         if (v.optional && v.createsToken) ctx.addIssue({ code: "custom", message: "optional und createsToken schliessen sich aus" });
+        if (v.optional && v.stopsDryRun) ctx.addIssue({ code: "custom", message: "optional und stopsDryRun schliessen sich aus" });
         if (v.timeoutSeconds !== undefined && !v.optional) ctx.addIssue({ code: "custom", message: "timeoutSeconds gehoert nur zu optional: true" });
       }),
       each: Each,
@@ -463,6 +469,9 @@ function readProblems(r: {
   const creating = (steps: Step[]): boolean => steps.some((s) => "click" in s && s.click.createsToken === true);
   if (creating(r.steps)) add(["steps"], "A read recipe must not create anything (no createsToken)");
   if (c.fallback && creating(c.fallback.steps)) add(["capture", "fallback", "steps"], "A read recipe must not create anything (no createsToken)");
+  const stopping = (steps: Step[]): boolean => steps.some((s) => "click" in s && s.click.stopsDryRun === true);
+  if (stopping(r.steps)) add(["steps"], "A read recipe must not change anything (no stopsDryRun)");
+  if (c.fallback && stopping(c.fallback.steps)) add(["capture", "fallback", "steps"], "A read recipe must not change anything (no stopsDryRun)");
   const names = Object.keys(c.values ?? {});
   if (names.length < 1 || names.length > 2) {
     add(["capture", "values"], "capture.values needs one or two values");
@@ -515,6 +524,7 @@ function loginFormProblems(form: LoginForm, r: HostFields): { path: (string | nu
     if ("each" in step && step.each) add(["steps", i, "each"], "A sign-in step must not repeat per item");
     if ("when" in step && step.when) add(["steps", i, "when"], "A sign-in step must not be conditional");
     if ("click" in step && step.click.createsToken) add(["steps", i], "A sign-in step must not create a token");
+    if ("click" in step && step.click.stopsDryRun) add(["steps", i], "A sign-in step must not be a dry-run stop");
     // Sign-in variables only in the value of a fill: selectors and conditions end up in error texts and logs.
     const rest = "fill" in step ? { ...step.fill, value: "" } : step;
     if (stringsOf(rest).some((t) => placeholdersOf(t).length > 0)) add(["steps", i], "Only the value of a fill step may use {{login.username}} or {{login.password}}");
@@ -559,6 +569,7 @@ function loginMethodProblems(methods: LoginMethod[], hasForm: boolean): { path: 
       if ("each" in step && step.each) add([i, "steps", j, "each"], "A sign-in step must not repeat per item");
       if ("when" in step && step.when) add([i, "steps", j, "when"], "A sign-in step must not be conditional");
       if ("click" in step && step.click.createsToken) add([i, "steps", j], "A sign-in step must not create a token");
+      if ("click" in step && step.click.stopsDryRun) add([i, "steps", j], "A sign-in step must not be a dry-run stop");
       if (stringsOf(step).some((t) => placeholdersOf(t).length > 0)) add([i, "steps", j], "No variables allowed in single-sign-on steps");
     });
   });

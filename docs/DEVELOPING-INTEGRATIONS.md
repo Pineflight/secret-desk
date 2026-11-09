@@ -56,7 +56,7 @@ human in the window.
 
 ## 3. Dry-run a recipe
 
-A dry run walks the recipe up to, but not including, the step marked `createsToken: true`. Nothing is created.
+A dry run walks the recipe up to, but not including, the first step marked `createsToken: true` or `stopsDryRun: true`. Nothing is created or changed.
 
 ```bash
 # desktop, local Chrome
@@ -131,7 +131,7 @@ These are not options; a recipe or provider that bends them is not merged.
   foreign host is rejected when the recipe loads.
 - Any unexpected state aborts: element missing, wrong page, timeout, an option that does not exist. Nothing is written to
   GitHub then. `select` never guesses.
-- Exactly the click that creates something carries `createsToken: true`. A dry run stops right before it.
+- Exactly the click that creates something carries `createsToken: true`. A dry run stops right before it. A click that already creates or changes something earlier (for example a form that creates a policy first) carries `stopsDryRun: true`; a real run ignores that flag.
 - Only one browser run at a time (one profile, one window). A second one is refused with "a browser run is already in
   progress"; the portal queues *Check sign-in* so this does not happen from a click.
 - A recipe never contains a token, password or code. The guided sign-in types the credentials the human entered for that run,

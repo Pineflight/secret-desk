@@ -25,6 +25,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Alle Ressourcen auf \"None\" lassen und nur \"Webhook Endpoints, Event Destinations\" auf \"Write\" setzen.", "Leave all resources on \"None\" and set only \"Webhook Endpoints, Event Destinations\" to \"Write\"."],
   ["Webhook Endpoints, Event Destinations: Write (schliesst Lesen ein)", "Webhook Endpoints, Event Destinations: Write (includes read)"],
   ["optional und createsToken schliessen sich aus", "optional and createsToken exclude each other"],
+  ["optional und stopsDryRun schliessen sich aus", "optional and stopsDryRun exclude each other"],
   ["timeoutSeconds gehoert nur zu optional: true", "timeoutSeconds belongs to optional: true only"],
   ["exact gehoert nur zu role mit name oder zu label", "exact belongs to role with name, or to label"],
   // Cloudflare Worker secrets (places of scope cloudflare-worker)
