@@ -7,7 +7,7 @@ Run: `npx vitest run` (add `--coverage` for the 100% gate). Typecheck covers `te
 - `*.test.ts` run in **node**: libs, server router, security, anything without a DOM.
 - `*.test.tsx` run in **happy-dom** (project `dom`): components, pages and hooks (`renderHook`). Hook tests live in `*.test.tsx` files as well, even without JSX.
 - The `@/` alias works in both projects (same as in the app).
-- `test/setup-dom.ts` (dom project only): jest-dom matchers, RTL `cleanup`, `localStorage.clear()`, `vi.unstubAllGlobals()` and the `next/navigation` fake after every test, and the stored locale `de` before every test (happy-dom is English, the app defaults to German).
+- `test/setup-dom.ts` (dom project only): jest-dom matchers, RTL `cleanup`, `localStorage.clear()`, `sessionStorage.clear()` (the page filters of `usePersistedState` live there), `vi.unstubAllGlobals()` and the `next/navigation` fake after every test, and the stored locale `de` before every test (happy-dom is English, the app defaults to German).
 
 ## Helpers (`test/helpers/`)
 

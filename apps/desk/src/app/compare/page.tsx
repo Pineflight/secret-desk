@@ -133,7 +133,7 @@ export default function ComparePage() {
   const gapCount = visible.filter((r) => r.parity === "gap").length;
   const orphanCount = visible.filter((r) => r.ids.length === 0).length;
 
-  const hideRepo = (repo: string) => setHiddenRepos((h) => (h.includes(repo) ? h : [...h, repo]));
+  const hideRepo = (repo: string) => setHiddenRepos((h) => [...h, repo]);
   const unhideRepo = (repo: string) => setHiddenRepos((h) => h.filter((x) => x !== repo));
 
   const toggleStage = (id: string) => {
@@ -265,21 +265,19 @@ export default function ComparePage() {
         <section aria-label={t("compare.sumTitle")} className="mb-8">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {orderedStages.map((s) => {
-              const n = totals[s.id];
+              const n = totals[s.id]!;
               return (
                 <Card key={s.id} className={`!p-4 ${compared.includes(s.id) ? "ring-1 ring-primary/30" : ""}`}>
                   <SectionLabel>{s.label}</SectionLabel>
-                  {n ? (
-                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-                      <dt className="text-muted-text">{t("compare.sumExpected")}</dt><dd className="tabular text-right font-semibold">{n.expected}</dd>
-                      <dt className="text-muted-text">{t("compare.sumPresent")}</dt><dd className="tabular text-right font-semibold">{data.live ? n.present : "–"}</dd>
-                      <dt className="text-muted-text">{t("compare.sumMissing")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.missing ? "text-danger-text" : ""}`}>{data.live ? n.missing : "–"}</dd>
-                      <dt className="text-muted-text">{t("compare.sumUnexpected")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.unexpected ? "text-warn-text" : ""}`}>{data.live ? n.unexpected : "–"}</dd>
-                      {data.live && n.error ? <><dt className="text-muted-text">{t("compare.sumError")}</dt><dd className="tabular text-right font-semibold text-danger-text">{n.error}</dd></> : null}
-                      {n.needed ? <><dt className="text-muted-text">{t("compare.sumNeeded")}</dt><dd className="tabular text-right font-semibold text-warn-text">{n.needed}</dd></> : null}
-                      {n.levelMismatch ? <><dt className="text-muted-text">{t("compare.sumLevelMismatch")}</dt><dd className="tabular text-right font-semibold">{n.levelMismatch}</dd></> : null}
-                    </dl>
-                  ) : null}
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+                    <dt className="text-muted-text">{t("compare.sumExpected")}</dt><dd className="tabular text-right font-semibold">{n.expected}</dd>
+                    <dt className="text-muted-text">{t("compare.sumPresent")}</dt><dd className="tabular text-right font-semibold">{data.live ? n.present : "–"}</dd>
+                    <dt className="text-muted-text">{t("compare.sumMissing")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.missing ? "text-danger-text" : ""}`}>{data.live ? n.missing : "–"}</dd>
+                    <dt className="text-muted-text">{t("compare.sumUnexpected")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.unexpected ? "text-warn-text" : ""}`}>{data.live ? n.unexpected : "–"}</dd>
+                    {data.live && n.error ? <><dt className="text-muted-text">{t("compare.sumError")}</dt><dd className="tabular text-right font-semibold text-danger-text">{n.error}</dd></> : null}
+                    {n.needed ? <><dt className="text-muted-text">{t("compare.sumNeeded")}</dt><dd className="tabular text-right font-semibold text-warn-text">{n.needed}</dd></> : null}
+                    {n.levelMismatch ? <><dt className="text-muted-text">{t("compare.sumLevelMismatch")}</dt><dd className="tabular text-right font-semibold">{n.levelMismatch}</dd></> : null}
+                  </dl>
                 </Card>
               );
             })}
@@ -298,7 +296,7 @@ export default function ComparePage() {
         </section>
       ) : null}
 
-      {data && (data.ignored ?? []).length > 0 ? (
+      {data && data.ignored.length > 0 ? (
         <p className="mb-4 text-xs text-muted" title={t("compare.ignoredHint")}>
           <span className="font-medium text-muted-text">{t("compare.ignoredTitle")} ({data.ignored.length})</span>: {data.ignored.join(", ")}. {t("compare.ignoredHint")}
         </p>
@@ -370,7 +368,7 @@ export default function ComparePage() {
       ) : null}
 
       {paged.groups.map((g) => {
-        const full = groups.find((x) => x.repo === g.repo) ?? g;
+        const full = groups.find((x) => x.repo === g.repo)!;
         const hasOther = full.rows.some((r) => r.other);
         const repoInfo = data?.repos.find((x) => x.name === g.repo);
         return (
@@ -523,7 +521,7 @@ function AdoptLinks({ row, stages, t }: { row: ViewRow; stages: { id: string; la
     <p className="mt-1 flex flex-wrap gap-x-3 text-xs">
       {items.map((c) => (
         <Link key={c.key} href={adoptLink(c, adoptDescription(t, c.files))} className="font-medium text-primary hover:underline">
-          {items.length > 1 ? t("compare.adoptStage", { stage: stages.find((s) => s.id === c.stage)?.label ?? c.stage }) : t("compare.adopt")}
+          {items.length > 1 ? t("compare.adoptStage", { stage: stages.find((s) => s.id === c.stage)!.label }) : t("compare.adopt")}
         </Link>
       ))}
     </p>
@@ -550,7 +548,7 @@ function AdoptAllDialog({ candidates, stages, environmentOf, onClose, onDone, t 
         await api("POST", req.path, req.body);
         done += 1;
       } catch (e) {
-        failed.push(t("compare.adoptFailed", { name: `${c.repo}/${c.name}`, message: e instanceof Error ? e.message : String(e) }));
+        failed.push(t("compare.adoptFailed", { name: `${c.repo}/${c.name}`, message: (e as Error).message }));
       }
     }
     setBusy(false);

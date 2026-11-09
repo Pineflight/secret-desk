@@ -16,4 +16,5 @@ afterEach(() => {
   resetNavigation();
   vi.unstubAllGlobals();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
