@@ -2,10 +2,12 @@ import { vi } from "vitest";
 import { ConnectionStore, SecretSchema, SecretValue, type IssueContext, type RevokeContext, type Stage, type StageKind, type VerifyContext } from "@secret-desk/core";
 
 export const CONN_TOKEN = "CONN-TOKEN-1234567890";
+/** An Anthropic Admin key for the `anthropic` connection, built at run time (no key-like literal in the repo). */
+export const ADMIN_TOKEN = ["sk-ant", "admin01", "CONN-TOKEN-1234567890"].join("-");
 export const ISSUED = "ISSUED-VALUE-ABCDEFGH";
 
 /** Fehlerantwort, die beide Werte enthaelt. */
-export const LEAK = JSON.stringify({ message: `denied ${CONN_TOKEN}`, value: ISSUED });
+export const LEAK = JSON.stringify({ message: `denied ${CONN_TOKEN} ${ADMIN_TOKEN}`, value: ISSUED });
 
 export type Call = { url: string; method: string; headers: Record<string, string>; body: string | undefined; signal: AbortSignal | undefined; redirect: RequestRedirect | undefined };
 export type Reply = { status?: number; body?: unknown };
@@ -55,7 +57,7 @@ export function routeFetch(...routes: Route[]) {
 
 export function connections(...ids: string[]): ConnectionStore {
   const store = new ConnectionStore();
-  for (const id of ids) store.session.set(id, CONN_TOKEN);
+  for (const id of ids) store.session.set(id, id === "anthropic" ? ADMIN_TOKEN : CONN_TOKEN);
   return store;
 }
 
@@ -101,7 +103,7 @@ export function verifyCtx(
 /** Beleg: weder Wert noch Verbindungs-Token in den Befunden. */
 export function expectNoLeak(checks: unknown, extra: string[] = []): void {
   const s = JSON.stringify(checks);
-  for (const bad of [ISSUED, CONN_TOKEN, ...extra]) if (s.includes(bad)) throw new Error(`Befunde enthalten einen Wert: ${bad.slice(0, 4)}...`);
+  for (const bad of [ISSUED, CONN_TOKEN, ADMIN_TOKEN, ...extra]) if (s.includes(bad)) throw new Error(`Befunde enthalten einen Wert: ${bad.slice(0, 4)}...`);
 }
 
 export const byId = (checks: { id: string; status: string }[]) => Object.fromEntries(checks.map((c) => [c.id, c.status]));

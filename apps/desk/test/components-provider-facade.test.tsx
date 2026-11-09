@@ -67,6 +67,51 @@ describe("FacadeFlow browser check", () => {
     expect(await screen.findByRole("button", { name: "Abbrechen" })).toBeInTheDocument();
   });
 
+  describe("a provider with two ways to connect (Anthropic)", () => {
+    const ways = [
+      { id: "team", label: "facade.variant.anthropic.team", promise: "facade.promise.anthropic.team" },
+      { id: "personal", label: "facade.variant.anthropic.personal", promise: null },
+    ];
+
+    it("shows a radio group with nothing preselected and keeps the button disabled until one is chosen", async () => {
+      const portal = fakePortal({ ...noRun, [`POST ${BASE}/check`]: SIGNED_IN, [`POST ${BASE}/connect`]: runState({ status: "running", kind: "connect" }) });
+      const { user } = renderApp(flow({ facade: facadeInfo({ variants: ways }) }));
+      const connect = await screen.findByRole("button", { name: "Mit angemeldetem Browser verbinden" });
+      const team = screen.getAllByRole("radio", { name: /Team-Organisation/ })[0]!;
+      const personal = screen.getAllByRole("radio", { name: /Persönlich \(Einzelperson\)/ })[0]!;
+      expect(screen.getAllByRole("group", { name: "Wie möchtest du Stripe verbinden?" }).length).toBeGreaterThan(0);
+      expect(team).not.toBeChecked();
+      expect(personal).not.toBeChecked();
+      expect(screen.getAllByText(/Mit dem Admin-Schlüssel deiner Organisation/).length).toBeGreaterThan(0);
+      expect(connect).toBeDisabled();
+      await user.click(personal);
+      expect(personal).toBeChecked();
+      expect(connect).toBeEnabled();
+      await user.click(connect);
+      await waitFor(() => expect(portal.callsTo("POST", `${BASE}/connect`)).toHaveLength(1));
+      expect(portal.callsTo("POST", `${BASE}/connect`)[0]?.body).toEqual({ projectId: "", inputs: {}, variant: "personal" });
+    });
+
+    it("sends the chosen way with the sign-in", async () => {
+      const portal = fakePortal({ ...noRun, [`POST ${BASE}/check`]: SIGNED_OUT, [`POST ${BASE}/sign-in`]: runState({ status: "running" }) });
+      const { user } = renderApp(flow({ facade: facadeInfo({ variants: ways }) }));
+      await fillSignIn(user);
+      const submit = screen.getByRole("button", { name: "Anmelden und verbinden" });
+      expect(submit).toBeDisabled();
+      await user.click(screen.getAllByRole("radio", { name: /Team-Organisation/ })[0]!);
+      await user.click(submit);
+      await waitFor(() => expect(portal.callsTo("POST", `${BASE}/sign-in`)).toHaveLength(1));
+      expect(portal.callsTo("POST", `${BASE}/sign-in`)[0]?.body).toMatchObject({ variant: "team" });
+    });
+
+    it("shows no radio group for a provider without variants", async () => {
+      fakePortal({ ...noRun, [`POST ${BASE}/check`]: SIGNED_OUT });
+      renderApp(flow());
+      await screen.findByText(/Der Browser ist bei Stripe nicht angemeldet/);
+      expect(screen.queryByRole("radio")).toBeNull();
+    });
+  });
+
   it("folds the typed sign-in and the pasted key under 'Other ways' next to a signed-in browser", async () => {
     fakePortal({ ...noRun, [`POST ${BASE}/check`]: SIGNED_IN });
     renderApp(flow({ fallback: <p>paste a key here</p> }));

@@ -192,6 +192,6 @@ export default {
   "connectionPurpose.grafanaCloud": "Konto-Token: legt Zugriffsrichtlinien und Cloud-Tokens an, zum Beispiel das Lese-Token der Statusseite.",
   "connectionName.openai": "Admin-Schlüssel der Organisation",
   "connectionPurpose.openai": "Legt Service-Accounts mit eigenem Projektschlüssel an und widerruft sie.",
-  "connectionName.anthropic": "Admin-Schlüssel (optional)",
-  "connectionPurpose.anthropic": "Listet Workspaces, prüft und deaktiviert API-Schlüssel. Die API-Schlüssel selbst entstehen im angemeldeten Browser.",
+  "connectionName.anthropic": "Anthropic-Schlüssel (Team oder persönlich)",
+  "connectionPurpose.anthropic": "Team-Organisation: Admin-Schlüssel, listet Workspaces, prüft und deaktiviert API-Schlüssel. Persönlich: normaler API-Schlüssel, secret-desk prüft nur, dass er funktioniert.",
 } satisfies Record<string, string>;

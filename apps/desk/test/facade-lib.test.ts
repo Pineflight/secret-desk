@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserSignInOf, chosenMethod, needsPassword, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, countsText, elapsedSeconds, failureText, isFinished, isRunning, otherWays, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
+import { browserSignInOf, chosenMethod, needsPassword, clock, codeValid, connectButtonState, consentItems, defaultMethod, dialogView, methodsOf, signInButtonState, variantBody, variantChosen, variantsOf, countsText, elapsedSeconds, failureText, isFinished, isRunning, otherWays, remainingSeconds, signInValid, stepsOf, type FacadeInfo, type FacadeState } from "../src/lib/facade";
 import { messages } from "../src/messages";
 
 const base: FacadeState = { secretId: "facade:revenuecat", providerId: "revenuecat", status: "running", text: "", startedAt: "2026-11-02T10:00:00.000Z", updatedAt: "2026-11-02T10:00:00.000Z" };
@@ -159,6 +159,22 @@ describe("connect dialog state", () => {
     expect(chosenMethod(facade(), "")).toBe("email");
   });
 
+  it("a provider with variants needs one chosen (nothing is preselected); one without needs nothing", () => {
+    const anthropic = facade({ variants: [{ id: "team", label: "facade.variant.anthropic.team", promise: null }, { id: "personal", label: "facade.variant.anthropic.personal", promise: null }] });
+    expect(variantsOf(facade())).toEqual([]);
+    expect(variantsOf(anthropic)).toHaveLength(2);
+    expect(variantChosen(facade(), "")).toBe(true);
+    expect(variantChosen(anthropic, "")).toBe(false);
+    expect(variantChosen(anthropic, "enterprise")).toBe(false);
+    expect(variantChosen(anthropic, "personal")).toBe(true);
+    expect(variantBody(facade(), "personal")).toEqual({});
+    expect(variantBody(anthropic, "personal")).toEqual({ variant: "personal" });
+    expect(connectButtonState(anthropic, {}, false)).toBe("disabled");
+    expect(connectButtonState(anthropic, {}, false, "team")).toBe("ready");
+    expect(signInButtonState(anthropic, "a@b.test", "pw", {}, false)).toBe("disabled");
+    expect(signInButtonState(anthropic, "a@b.test", "pw", {}, false, "email", "personal")).toBe("ready");
+  });
+
   it("derives the button states: busy, disabled and ready", () => {
     const stripe = facade({ inputs: [{ param: "mode", label: "Modus", labelEn: "Mode", options: ["sandbox", "live"], pattern: null, help: null }] });
     expect(connectButtonState(stripe, {}, false)).toBe("disabled");
@@ -189,7 +205,7 @@ describe("connect dialog state", () => {
       for (const m of ["email", "google", "apple", "microsoft", "github"]) {
         for (const k of ["method", "methodEmail", "methodPassword"]) expect(messages[lang][`facade.${k}.${m}`], `${lang} ${k} ${m}`).toBeTruthy();
       }
-      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "promise.anthropic", "passwordless", "checkingBrowser", "connectSignedIn", "otherWays", "otherWay.email", "otherWay.emailWhen", "otherWay.key", "otherWay.keyWhen", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
+      for (const k of ["promise.revenuecat", "promise.stripe", "promise.openai", "promise.anthropic.team", "promise.anthropic.personal", "variant.anthropic.team", "variant.anthropic.personal", "variantLegend", "passwordless", "checkingBrowser", "connectSignedIn", "otherWays", "otherWay.email", "otherWay.emailWhen", "otherWay.key", "otherWay.keyWhen", "approvalWait", "consentTitle", "consentAccept", "consentDecline", "fail.captcha"]) {
         expect(messages[lang][`facade.${k}`], `${lang} ${k}`).toBeTruthy();
       }
     }
