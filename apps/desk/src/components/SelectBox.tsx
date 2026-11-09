@@ -50,7 +50,6 @@ export function SelectBox({ id, value, onChange, children, disabled, required, c
     close();
   };
   const openList = (initialQuery = "") => {
-    if (disabled) return;
     setQuery(initialQuery);
     setActive(initialQuery ? 0 : Math.max(0, options.findIndex((o) => o.value === value)));
     setOpen(true);

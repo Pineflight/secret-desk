@@ -36,7 +36,7 @@ export function ResourceMapPanel({ data }: { data: ConnectionResources }) {
   const del = useMutation(async (body: Record<string, unknown>) => api<unknown>("DELETE", "resource-map", body));
   if (kinds.length === 0) return null;
   if (map.error) return <Notice tone="warn">{t("params.map.loadError", { error: map.error.message })}</Notice>;
-  const entries = entriesOfKinds(map.data?.entries ?? [], kinds);
+  const entries = entriesOfKinds(map.data!.entries, kinds);
   const nameOf = (k: string, v: string, fallback?: string) => {
     const found = data.resources[k]?.options.find((o) => String(o.value) === v);
     return found ? optionText(found) : (fallback ?? v);
@@ -44,7 +44,7 @@ export function ResourceMapPanel({ data }: { data: ConnectionResources }) {
 
   const add = async () => {
     const chosen = options.find((o) => String(o.value) === value);
-    if (!repo.trim() || !chosen) return;
+    if (!chosen) return;
     const body = { kind: activeKind, repo: repo.trim(), ...(stage ? { stage } : {}), value, label: chosen.label };
     if (await put.run(body)) {
       toast.success(t("params.map.saved"));

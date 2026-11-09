@@ -47,7 +47,7 @@ function ProblemNotice({ problem, onRetry }: { problem: DiscoveryProblem; onRetr
   return (
     <Notice tone="warn" title={t(`${key}.title`)}>
       <p>{t(`${key}.text`)}</p>
-      {problem.code !== "rate-limit" ? <p className="mt-1">{t("teamPicker.problem.rights", { rights: problem.neededRights.join(", ") })}</p> : null}
+      <p className="mt-1">{t("teamPicker.problem.rights", { rights: problem.neededRights.join(", ") })}</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <Link href="/connections" className="text-primary underline">{t("teamPicker.problem.link")}</Link>
         <Button onClick={onRetry}>{t("teamPicker.retry")}</Button>
@@ -103,7 +103,7 @@ export function TeamConfigPicker({ onChange }: Props) {
   // Suggestions only fill an empty field and never replace a choice; none of them completes a step (the person confirms).
   // Repository: only an accessible private repository qualifies.
   useEffect(() => {
-    if (hydrated && !repo) setChoice((c) => (c.repo ? c : { ...c, repo: initialRepo(repos.data) }));
+    if (hydrated && !repo) setChoice((c) => ({ ...c, repo: initialRepo(repos.data) }));
   }, [hydrated, repos.data, repo]);
   // Default branch of the chosen repository.
   useEffect(() => {
@@ -185,7 +185,7 @@ export function TeamConfigPicker({ onChange }: Props) {
   };
 
   const steps = stepperState({ repo, branch, path: dataReady ? path : "", modeAllowed: modeAllowed(current), confirmed });
-  const statusOf = (id: StepId): StepStatus => steps.find((x) => x.id === id)?.status ?? "todo";
+  const statusOf = (id: StepId): StepStatus => steps.find((x) => x.id === id)!.status;
   // The repository list collapses to one line once a repository is chosen; "Change" opens it again.
   const [changingRepo, setChangingRepo] = useState(false);
   const repoListOpen = !repo || !confirmed.repo || changingRepo;
@@ -248,7 +248,7 @@ export function TeamConfigPicker({ onChange }: Props) {
           {confirmed.repo && repo ? (
             <div className="space-y-2">
               <div className="grid gap-3 sm:grid-cols-2">
-                <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setChoice((c) => withBranch(c, e.target.value))} disabled={!branches.data || (branches.data.branches.length ?? 0) === 0}>
+                <SelectField label={t("teamSync.config.branch")} value={branch} onChange={(e) => setChoice((c) => withBranch(c, e.target.value))} disabled={!branches.data || branches.data.branches.length === 0}>
                   {(branches.data?.branches ?? []).map((b) => <option key={b} value={b}>{b === branches.data?.defaultBranch ? `${b} (${t("teamPicker.branch.default")})` : b}</option>)}
                 </SelectField>
                 {branch ? (
