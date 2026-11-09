@@ -16,7 +16,7 @@ import {
   type Recipe,
   type SudoAnswer,
 } from "@secret-desk/automation";
-import { ANTHROPIC_API_PREFIX, isAnthropicApiKey } from "@secret-desk/providers";
+import { ANTHROPIC_API_PREFIXES, isAnthropicApiKey } from "@secret-desk/providers";
 import { InventoryError, IssuanceError, redact, STRIPE_ACCOUNT_PATTERN, stripeConnectionId, stripeKeyMode, type SecretValue, type StripeAccountMode } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
@@ -130,7 +130,7 @@ async function stripeKeyAccount(rt: Runtime, key: SecretValue): Promise<string |
  */
 async function anthropicApiKeyProblem(rt: Runtime, key: SecretValue): Promise<string | null> {
   const value = key.reveal();
-  if (!isAnthropicApiKey(value)) return `The new key does not start with ${ANTHROPIC_API_PREFIX}, so it is not a normal API key and was not stored.`;
+  if (!isAnthropicApiKey(value)) return `The new key does not start with ${ANTHROPIC_API_PREFIXES.join(" or ")}, so it is not a normal API key and was not stored.`;
   let status: number;
   try {
     const res = await rt.fetch("https://api.anthropic.com/v1/models?limit=1", { method: "GET", headers: { "x-api-key": value, "anthropic-version": "2023-06-01", Accept: "application/json", "User-Agent": "secret-desk" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });

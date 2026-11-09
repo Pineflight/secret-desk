@@ -1,4 +1,4 @@
-# STATUS: sign-in verified live 2026-11-04 (German Console, individual organization; email plus one-time code). The key dialog fields (name, expiry, workspace, submit button) were checked by a read-only probe that created no key. The view after creation (capture of the key), the choice of another expiry or workspace, and revoke are NOT verified.
+# STATUS: sign-in verified live 2026-11-04 (German Console, individual organization; email plus one-time code). The key dialog fields (name, expiry, workspace, submit button) were checked by a read-only probe that created no key. The view after creation and the capture of the key were verified live on 2026-11-09 with one-day keys. The choice of another workspace, and revoke are NOT verified.
 # Creates an Anthropic API key on platform.claude.com (Settings, API keys, "Create key") in a workspace. The key is shown once,
 # in a dialog. The Admin API cannot create API keys, so this recipe is the only way to make one; it works for an individual
 # organization too (no admin key needed). Revoke goes through the Admin API when the `anthropic` connection holds an Admin key
@@ -57,16 +57,18 @@ steps:
     when: { all: [{ var: workspace, notEquals: "" }, { var: workspace, notEquals: "Default" }] }
   - screenshot: formular-vorher
   - click: { css: "[role=dialog] button[type=submit]", createsToken: true }
-  # not verified: the view after creation; the key is read from any readonly input or code element of the dialog.
-  - waitFor: { visible: { css: "[role=dialog] input[readonly], [role=dialog] code" } }
+  # The form stays open for a few seconds while the key is created, with its name field read-only. The key then appears as plain
+  # text in a new view ("Deinen API-Schlüssel speichern"), in an element with this test id (checked live on 2026-11-09; the id
+  # says "admin", it is the same view for a normal key). Leaving this page early cancels the creation.
+  - waitFor: { visible: { testid: admin-api-key }, timeoutSeconds: 30 }
 capture:
   token:
-    find: { css: "[role=dialog] input[readonly], [role=dialog] code" }
-    pattern: "^sk-ant-api[0-9]*-[A-Za-z0-9_-]+$"
+    find: { testid: admin-api-key }
+    pattern: "^sk-ant-(?:api|usr)[0-9]*-[A-Za-z0-9_-]{40,}$"
   externalId: { from: name }
   expires: { from: days }
 mask:
-  - { css: "[role=dialog] input[readonly], [role=dialog] code" }
+  - { testid: admin-api-key }
 revoke:
   # not verified: the row is found by the key's name; the menu and the confirm button are guesses (both languages).
   steps:

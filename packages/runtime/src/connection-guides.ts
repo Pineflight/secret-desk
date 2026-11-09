@@ -236,7 +236,7 @@ export function connectionGuide(id: string, owner: string, options: { grafanaBas
         url: "https://platform.claude.com/settings/keys",
         steps: [
           "Team-Organisation: in der Anthropic-Console unter Settings, Admin keys einen Admin-Key anlegen (nur Organisations-Admins). Er beginnt mit sk-ant-admin.",
-          "Persoenlich: unter Settings, API keys einen normalen API-Schluessel anlegen. Er beginnt mit sk-ant-api. Der Schluessel wird nur einmal angezeigt.",
+          "Persoenlich: unter Settings, API keys einen normalen API-Schluessel anlegen. Er beginnt mit sk-ant-usr oder sk-ant-api. Der Schluessel wird nur einmal angezeigt.",
           "Den Schluessel kopieren und unten einfuegen. Einfacher geht es ueber \"Mit Anthropic verbinden\": der angemeldete Browser legt den Schluessel an.",
         ],
         permissions: ["Team: Admin-Key der Organisation (Workspaces lesen, API-Schluessel lesen und deaktivieren)", "Persoenlich: normaler API-Schluessel (nur Pruefung, dass er funktioniert)"],

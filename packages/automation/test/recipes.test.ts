@@ -110,8 +110,19 @@ expect(d.calls).toContain('click link "New access policy" (exact)');
     expect(option.test("60 Tage (3. Jan. 2027)") && option.test("60 days (Jan 3, 2027)") && !option.test("30 Tage")).toBe(true);
     expect(r.capture.externalId).toEqual({ from: "name" });
     const pattern = new RegExp(r.capture.token.pattern!);
-    expect(pattern.test("sk-ant-api03-AbC_d-123")).toBe(true);
-    expect(pattern.test("sk-ant-admin01-AbC_d-123")).toBe(false);
+    const tail = "AbC_d-123".repeat(6);
+    expect(pattern.test(`sk-ant-api03-${tail}`)).toBe(true);
+    expect(pattern.test(`sk-ant-admin01-${tail}`)).toBe(false);
+    expect(pattern.test("secret-desk-integration-2026-11-09-1603")).toBe(false);
+    // The runner stores the first capture group when there is one: the whole key must be what is stored.
+    const usr = `sk-ant-usr-${tail}`;
+    const match = pattern.exec(usr)!;
+    expect(match[1] ?? match[0]).toBe(usr);
+    // The key is read from its own element, not from the read-only name field of the form that is still open.
+    expect(r.capture.token.find).toEqual({ testid: "admin-api-key" });
+    expect(r.mask).toEqual([{ testid: "admin-api-key" }]);
+    const shown = r.steps.at(-1);
+    expect(shown).toMatchObject({ waitFor: { visible: { testid: "admin-api-key" } } });
     expect(r.revoke?.steps.length).toBeGreaterThan(0);
   });
   it("the anthropic recipes state what is verified and what is not", async () => {
