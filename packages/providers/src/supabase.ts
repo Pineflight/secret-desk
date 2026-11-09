@@ -155,7 +155,7 @@ interface ApiKey {
 
 function jwtRole(value: string): string | undefined {
   try {
-    const payload = JSON.parse(Buffer.from(value.split(".")[1] ?? "", "base64url").toString("utf8")) as { role?: unknown };
+    const payload = JSON.parse(Buffer.from(value.split(".")[1]!, "base64url").toString("utf8")) as { role?: unknown };
     return typeof payload.role === "string" ? payload.role : undefined;
   } catch {
     return undefined;

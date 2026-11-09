@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider } from "@secret-desk/core";
+import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type VerifyContext } from "@secret-desk/core";
 import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, isRecord, probeWithConnection, step } from "./checks.js";
 import { badResponse, callWithToken, JSON_HEADERS, optionalString, ProviderError, revokeIdempotent, seg } from "./http.js";
@@ -66,6 +66,20 @@ async function preflightResend(ctx: PreflightContext): Promise<PreflightResult> 
   return { resource, findings };
 }
 
+/** Die Liste der Schluessel ist seitenweise: alle Seiten lesen (bis zu 20), sonst fehlt ein aelterer Schluessel scheinbar. */
+async function readKeyList(ctx: VerifyContext): Promise<{ status: number; list: Record<string, unknown>[] | undefined }> {
+  let r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100`);
+  const pageOf = (json: unknown) => (isRecord(json) && Array.isArray(json["data"]) ? json["data"].filter(isRecord) : undefined);
+  let list = pageOf(r.json);
+  for (let page = 1; page < 20 && list && list.length > 0 && isRecord(r.json) && r.json["has_more"] === true && !list.some((k) => String(k["id"]) === ctx.externalId); page += 1) {
+    r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100&after=${seg(String(list[list.length - 1]!["id"]))}`);
+    const next = pageOf(r.json);
+    if (!next || r.status < 200 || r.status >= 300) return { status: r.status, list: undefined };
+    list = [...list, ...next];
+  }
+  return { status: r.status, list };
+}
+
 export const resendProvider: Provider = {
   id: ID,
   label: "Resend API-Key",
@@ -93,20 +107,8 @@ export const resendProvider: Provider = {
   },
   verify(ctx) {
     return step(ctx, "exists", "Schluessel beim Anbieter", async () => {
-      // Die Liste ist seitenweise: alle Seiten lesen (bis zu 20), sonst fehlt ein aelterer Schluessel scheinbar.
-      let r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100`);
-      const pageOf = (json: unknown) => (isRecord(json) && Array.isArray(json["data"]) ? json["data"].filter(isRecord) : undefined);
-      let list = pageOf(r.json);
-      for (let page = 1; page < 20 && list && list.length > 0 && isRecord(r.json) && r.json["has_more"] === true && !list.some((k) => String(k["id"]) === ctx.externalId); page += 1) {
-        r = await probeWithConnection(ID, ctx, "resend", `${API}?limit=100&after=${seg(String(list[list.length - 1]!["id"]))}`);
-        const next = pageOf(r.json);
-        if (!next || r.status < 200 || r.status >= 300) {
-          list = undefined;
-          break;
-        }
-        list = [...list, ...next];
-      }
-      if (r.status < 200 || r.status >= 300 || !list) return [check("exists", "Schluessel beim Anbieter", "warn", { actual: `HTTP ${r.status}`, detail: "Liste der Schluessel nicht lesbar" })];
+      const { status, list } = await readKeyList(ctx);
+      if (!list || status < 200 || status >= 300) return [check("exists", "Schluessel beim Anbieter", "warn", { actual: `HTTP ${status}`, detail: "Liste der Schluessel nicht lesbar" })];
       const entry = list.find((k) => String(k["id"]) === ctx.externalId);
       if (!ctx.externalId || !entry) return [check("exists", "Schluessel beim Anbieter", "fail", { expected: ctx.externalId ?? "Kennung", actual: "nicht in der Liste" })];
       const out: Check[] = [check("exists", "Schluessel beim Anbieter", "pass", { actual: `Kennung ${ctx.externalId}` })];

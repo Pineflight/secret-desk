@@ -442,7 +442,7 @@ export const RecipeSchema = z
     }
   })
   // Hand `host` to everything downstream as a string: with `hosts` it is the first host (see `resolveRecipe` for the one to use).
-  .transform((r) => ({ ...r, host: r.host ?? Object.values(r.hosts ?? {})[0] ?? "" }));
+  .transform((r) => ({ ...r, host: r.host ?? Object.values(r.hosts!)[0]! }));
 
 export type Recipe = z.infer<typeof RecipeSchema>;
 
@@ -472,9 +472,9 @@ function readProblems(r: {
     const other = Object.keys(c.fallback.values).sort().join(",");
     if (other !== [...names].sort().join(",")) add(["capture", "fallback", "values"], "The fallback reads the same value names as capture.values");
   }
-  const param = (key: string | undefined, path: string): RecipeParam | undefined => {
+  const param = (key: string, path: string): RecipeParam | undefined => {
     const p = r.params.find((x) => x.key === key);
-    if (!p) add(["capture", path], `capture.${path} names the parameter ${key ?? "?"}, which is not declared under params`);
+    if (!p) add(["capture", path], `capture.${path} names the parameter ${key}, which is not declared under params`);
     return p;
   };
   if (names.length === 2 && c.pick === undefined) add(["capture", "pick"], "Two values need capture.pick (the parameter that says which value the entry takes)");

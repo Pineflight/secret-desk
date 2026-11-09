@@ -265,7 +265,8 @@ export async function signIn(recipeIn: Recipe, creds: LoginCredentials, driver: 
         } else if ("click" in step) {
           await driver.click(pickSelector(step["click"]));
           emit({ type: "submitted" });
-        } else if ("waitFor" in step) {
+        } else {
+          // The last kind: a sign-in step is a fill, a click or a waitFor (recipe schema, built-in flows); anything else fails the step.
           const w = step["waitFor"] as Condition & { timeoutSeconds?: number };
           const cond = resolveCondition({ ...(w.url !== undefined ? { url: w.url } : {}), ...(w.visible ? { visible: w.visible } : {}), ...(w.hidden ? { hidden: w.hidden } : {}), ...(w.text !== undefined ? { text: w.text } : {}) }, {});
           await driver.waitFor(cond, (w.timeoutSeconds ?? step["timeoutSeconds"] ?? STEP_TIMEOUT_S) * 1000, signal);

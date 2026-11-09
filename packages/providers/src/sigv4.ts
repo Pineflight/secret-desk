@@ -47,7 +47,7 @@ export function signRequest(input: SignInput): Signed {
   const names = Object.keys(headers).sort();
   const canonicalHeaders = names.map((n) => `${n}:${headers[n]}\n`).join("");
   const signedHeaders = names.join(";");
-  const path = url.pathname.split("/").map((p) => encode(decodeURIComponent(p))).join("/") || "/";
+  const path = url.pathname.split("/").map((p) => encode(decodeURIComponent(p))).join("/");
   const query = [...url.searchParams.entries()]
     .map(([k, v]) => [encode(k), encode(v)] as const)
     .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1))
