@@ -367,7 +367,7 @@ async function varsCmd(args: string[], io: Io): Promise<number> {
     }
     case "add": {
       if (!values.id || !values.name || !values.stage || !(values.place?.length ?? 0)) throw new Error("vars add --id --name --stage --place repo[:env]...");
-      const places = (values.place ?? []).map((p) => {
+      const places = values.place!.map((p) => {
         const [repo, environment] = p.split(":");
         return environment ? { repo: repo!, scope: "environment" as const, environment } : { repo: repo!, scope: "repository" as const };
       });
@@ -390,8 +390,8 @@ export function orderTemplatesByRefs<T extends { id: string; entries: { from: { 
     path.add(t.id);
     for (const e of t.entries) {
       if (e.from.type !== "ref" || !e.from.template || !ids.has(e.from.template)) continue;
-      const dep = templates.find((x) => x.id === e.from.template);
-      if (dep) visit(dep, path);
+      // `ids` holds every template id of the run, so the lookup always finds the template.
+      visit(templates.find((x) => x.id === e.from.template)!, path);
     }
     path.delete(t.id);
     done.add(t.id);
@@ -437,7 +437,7 @@ async function envExport(args: string[], io: Io): Promise<number> {
     const picked = values.template ? all.filter((t) => t.id === values.template) : repos.map((r) => all.find((t) => t.repo === r && t.stage === stage));
     const missingAt = picked.findIndex((t) => !t);
     if (picked.length === 0 || missingAt !== -1) {
-      io.err(`Error: no ${stage} template for ${values.template ?? repos[missingAt] ?? repos.join(", ")}.`);
+      io.err(`Error: no ${stage} template for ${values.template ?? repos[missingAt]}.`);
       return 1;
     }
     const runValues = new Map<string, string>();
