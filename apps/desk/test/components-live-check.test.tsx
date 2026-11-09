@@ -72,6 +72,12 @@ describe("LiveCheckPanel", () => {
     expect(screen.queryByText(/älter als/)).not.toBeInTheDocument();
   });
 
+  it("warns with the count when recipes could not be checked because they need a sign-in", async () => {
+    fakePortal({ "GET live-check": state({ reports: [report({ summary: { connections: { ok: 1, failed: 0, notConnected: 0 }, recipes: { ok: 0, failed: 0, needsSignIn: 3, skipped: 0 } } })] }) });
+    renderApp(<LiveCheckPanel />);
+    expect(await screen.findByText(/3 Rezepte konnten nicht geprüft werden: bitte anmelden/)).toBeInTheDocument();
+  });
+
   it("shows a good automatic run as all good", async () => {
     fakePortal({ "GET live-check": state() });
     renderApp(<LiveCheckPanel />);

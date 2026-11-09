@@ -41,7 +41,7 @@ describe("secret-desk live-check", () => {
     expect(out.join("\n")).toMatch(/Noch kein Live-Check-Bericht/);
     out.length = 0;
     expect(await main(["live-check", "--config", config, "--json"], io)).toBe(1);
-    expect(JSON.parse(out[0]!)).toEqual({ ok: false, reason: "none", intervalDays: 7, report: null });
+    expect(JSON.parse(out[0]!)).toEqual({ ok: false, reason: "none", intervalDays: 7, needsSignIn: 0, report: null });
   });
 
   it("prints the last report and exits 0 when it is fine and recent", async () => {
@@ -77,6 +77,7 @@ describe("secret-desk live-check", () => {
       "[needs-sign-in] Rezept sign (goto)",
       "[skipped      ] Rezept list: All steps work on a list of real items.",
       "[failed       ] Rezept bare",
+      "WARNUNG: 1 Rezepte konnten nicht geprueft werden: bitte anmelden.",
     ]);
   });
 
@@ -94,6 +95,28 @@ describe("secret-desk live-check", () => {
     const off = await setup("  liveCheckDays: 0\n");
     await off.seed([report(200)]);
     expect(await main(["live-check", "--config", off.config], off.io)).toBe(0);
+  });
+
+  it("recipes that need a sign-in could not be checked: a warning and exit 0, exit 1 only with --strict", async () => {
+    const { config, io, out, seed } = await setup();
+    await seed([report(1, { recipes: [{ id: "a", result: "needs-sign-in", step: "goto" }, { id: "b", result: "needs-sign-in" }] })]);
+    expect(await main(["live-check", "--config", config], io)).toBe(0);
+    expect(out.at(-1)).toBe("WARNUNG: 2 Rezepte konnten nicht geprueft werden: bitte anmelden. (Exit 0; mit --strict ist das ein Fehler.)");
+    out.length = 0;
+    expect(await main(["live-check", "--config", config, "--strict"], io)).toBe(1);
+    expect(out.at(-1)).toBe("WARNUNG: 2 Rezepte konnten nicht geprueft werden: bitte anmelden.");
+    out.length = 0;
+    expect(await main(["live-check", "--config", config, "--json"], io)).toBe(0);
+    expect(JSON.parse(out[0]!)).toMatchObject({ ok: true, reason: null, needsSignIn: 2 });
+    out.length = 0;
+    expect(await main(["live-check", "--config", config, "--json", "--strict"], io)).toBe(1);
+    expect(JSON.parse(out[0]!)).toMatchObject({ ok: false, reason: "needs-sign-in", needsSignIn: 2 });
+  });
+
+  it("--strict changes nothing for a report without unchecked recipes", async () => {
+    const { config, io, seed } = await setup();
+    await seed([report(1)]);
+    expect(await main(["live-check", "--config", config, "--strict"], io)).toBe(0);
   });
 
   it("--json prints the whole report for machines", async () => {

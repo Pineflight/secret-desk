@@ -193,11 +193,12 @@ describe("live check: recipes", () => {
     expect(report.ok).toBe(true);
   });
 
-  it("skips (not fails) when the browser cannot be started or opened", async () => {
+  it("fails (kind browser) when the browser cannot be started or opened: a dead browser is what the check must report", async () => {
     const a = await setup({ recipes: ["ok-create"], driver: () => Promise.reject(new Error("Chrome not found")) });
     const ra = await runLiveCheck(a.rt, { trigger: "manual", log: a.log });
-    expect(ra.recipes[0]).toMatchObject({ result: "skipped" });
+    expect(ra.recipes[0]).toMatchObject({ result: "failed", kind: "browser" });
     expect(ra.recipes[0]!.detail).toMatch(/Browser not available: Chrome not found/);
+    expect(ra.ok).toBe(false);
     const b = await setup({
       recipes: ["ok-create"],
       driver: () => {
@@ -207,8 +208,24 @@ describe("live check: recipes", () => {
       },
     });
     const rb = await runLiveCheck(b.rt, { trigger: "manual", log: b.log });
-    expect(rb.recipes[0]).toMatchObject({ result: "skipped" });
-    expect(rb.ok).toBe(true);
+    expect(rb.recipes[0]).toMatchObject({ result: "failed", kind: "browser" });
+    expect(rb.ok).toBe(false);
+  });
+
+  it("ignores an error while closing the browser after a run that worked", async () => {
+    const world = newWorld({ signedIn: new Set(["a.example.com"]), visible: [describeSelector({ label: "Token name" })] });
+    const { rt, log } = await setup({
+      recipes: ["ok-create"],
+      world,
+      driver: () => {
+        const d = driverFor(world);
+        d.close = () => Promise.reject(new Error("already gone"));
+        return d;
+      },
+    });
+    const report = await runLiveCheck(rt, { trigger: "manual", log });
+    expect(report.recipes[0]).toMatchObject({ result: "ok" });
+    expect(report.ok).toBe(true);
   });
 
   it("ends a hung page after the per-recipe timeout, closes the browser and goes on with the next recipe", async () => {
@@ -342,13 +359,22 @@ describe("live check: the notification", () => {
     const posts = fetchCalls.filter((c) => c.method === "POST");
     expect(posts).toHaveLength(1);
     expect(posts[0]!.url).toBe(FAKE_HOOK_URL);
-    expect(JSON.parse(posts[0]!.body!)).toEqual({ ok: false, failedConnections: ["resend"], failedRecipes: ["broken-click"], finishedAt: report.finishedAt });
-    expect(Object.keys(JSON.parse(posts[0]!.body!)).sort()).toEqual(["failedConnections", "failedRecipes", "finishedAt", "ok"]);
+    expect(JSON.parse(posts[0]!.body!)).toEqual({ ok: false, failedConnections: ["resend"], failedRecipes: ["broken-click"], needsSignIn: [], finishedAt: report.finishedAt });
+    expect(Object.keys(JSON.parse(posts[0]!.body!)).sort()).toEqual(["failedConnections", "failedRecipes", "finishedAt", "needsSignIn", "ok"]);
     expect(posts[0]!.body).not.toContain(FAKE_TOKEN);
     expect(posts[0]!.body).not.toContain(FAKE_PAGE_TEXT);
     expect(lines).toHaveLength(2);
     expect(lines[1]).toBe("secret-desk: live check notification sent");
     leaks(report, lines);
+  });
+
+  it("also sends when nothing failed but a recipe needs a sign-in (the browser part proved nothing), ids only", async () => {
+    const { rt, log, fetchCalls } = await setup({ recipes: ["signed-out"], automation: withHook(), env: { HOOK_URL: FAKE_HOOK_URL }, fetch: apiFetch });
+    const report = await runLiveCheck(rt, { trigger: "schedule", log });
+    expect(report.ok).toBe(true);
+    const posts = fetchCalls.filter((c) => c.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0]!.body!)).toEqual({ ok: true, failedConnections: [], failedRecipes: [], needsSignIn: ["signed-out"], finishedAt: report.finishedAt });
   });
 
   it("does not send anything when the check is ok, or when no webhook is configured", async () => {

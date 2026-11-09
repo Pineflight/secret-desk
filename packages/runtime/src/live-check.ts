@@ -76,7 +76,8 @@ export function liveCheckDriver(inner: BrowserDriver): BrowserDriver {
     readAttribute: (sel, name) => (name.toLowerCase() === "href" ? inner.readAttribute(sel, name) : refuse("attributes")),
     screenshot: () => Promise.resolve(Buffer.alloc(0)),
     waitFor: (cond, timeoutMs, signal) => inner.waitFor(cond, timeoutMs, signal),
-    close: () => inner.close(),
+    // A browser that fails to close must not change the result of a run that worked.
+    close: () => inner.close().catch(() => undefined),
   };
 }
 
@@ -153,7 +154,7 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
     if (outcome === "timeout") {
       controller.abort();
       // A page that hangs ignores the signal; closing the browser ends the run in the background.
-      await driver.close().catch(() => undefined);
+      await driver.close();
       return { id, result: "failed", ...(seen.label !== undefined ? { step: clean(seen.label) } : {}), kind: "timeout", detail: `No answer within ${Math.round(ctx.timeoutMs / 1000)} seconds.` };
     }
     if ("done" in outcome) return { id, result: "ok", detail: `${outcome.done.executed} steps ran${left > 0 ? `, ${left} per-item step(s) left out` : ""}; stopped before creating anything.` };
@@ -168,8 +169,9 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
       if (err.kind === "params" || err.kind === "unsupported") return { ...skipped(id, err.message), kind: err.kind };
       return { id, result: "failed", ...step, kind: err.kind, detail: clean(err.message) };
     }
-    // Not a recipe error: the browser itself could not be started or closed. That says nothing about the provider.
-    return skipped(id, `Browser not available: ${(err as Error).message}`);
+    // Not a recipe error: the browser could not be started or reached (closing errors are ignored by the driver wrapper). A dead
+    // browser is exactly what the check has to report.
+    return { id, result: "failed", ...step, kind: "browser", detail: clean(`Browser not available: ${(err as Error).message}`) };
   } finally {
     clearTimeout(timer);
     ctx.cancel.removeEventListener("abort", onCancel);
@@ -228,13 +230,16 @@ async function checkRecipes(rt: Runtime, timeoutMs: number): Promise<LiveCheckRe
   }
 }
 
-/** Sends the ids of the failed items to the configured address. Failures here are logged and never fail the check. */
+/** Sends the ids of the failed items and of the recipes that need a sign-in to the configured address. Failures here are logged and never fail the check. */
 async function notify(rt: Runtime, report: LiveCheckReport, log: (line: string) => void): Promise<void> {
-  if (report.ok || !rt.config.automation.liveCheckNotify) return;
+  const needsSignIn = report.recipes.filter((r) => r.result === "needs-sign-in").map((r) => r.id);
+  // Recipes that could not be checked mean the browser part proved nothing: worth a message even when nothing failed.
+  if ((report.ok && needsSignIn.length === 0) || !rt.config.automation.liveCheckNotify) return;
   const payload = {
     ok: report.ok,
     failedConnections: report.connections.filter((c) => c.result === "failed").map((c) => c.id),
     failedRecipes: report.recipes.filter((r) => r.result === "failed").map((r) => r.id),
+    needsSignIn,
     finishedAt: report.finishedAt,
   };
   try {

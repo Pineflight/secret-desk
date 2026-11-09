@@ -95,6 +95,7 @@ export function LiveCheckPanel() {
       {start.error ? <div className="mt-3"><Notice tone="warn">{busy ? t("liveCheck.busy") : t("liveCheck.startFailed")}</Notice></div> : null}
       {state && state.intervalDays === 0 ? <p className="mt-3 text-xs text-muted">{t("liveCheck.off")}</p> : null}
       {state?.stale ? <div className="mt-3"><Notice tone="warn">{last ? t("liveCheck.stale", { days: state.intervalDays * 2 }) : t("liveCheck.noneYet")}</Notice></div> : null}
+      {last && last.summary.recipes.needsSignIn > 0 ? <div className="mt-3"><Notice tone="warn">{t("liveCheck.needsSignInWarn", { count: last.summary.recipes.needsSignIn })}</Notice></div> : null}
       {last ? (
         <div className="mt-3">
           <p className="text-sm">

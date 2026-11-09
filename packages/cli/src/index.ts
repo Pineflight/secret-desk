@@ -88,7 +88,7 @@ Aufruf: secret-desk <befehl> [optionen]
   inventory normalize  Namen vereinheitlichen und Werte automatisch beziehen: Plan anzeigen (nur Namen, keine Werte)
                    --config <datei>   [--apply all|<id>,<id>...]   [--yes]   (aendert nur das Inventar, nie GitHub)
   live-check     Letzten Live-Check ausgeben (alle Integrationen und Browser-Rezepte gegen die echten Konten, legt nichts an), Exit 1 bei Fehler, ohne Bericht oder aelter als das Doppelte von automation.liveCheckDays
-                   --config <datei>   [--json]   [--run] (vorher einen Lauf in diesem Prozess starten)
+                   --config <datei>   [--json]   [--run] [--strict] (Rezepte, die eine Anmeldung brauchen, gelten dann als Fehler) (vorher einen Lauf in diesem Prozess starten)
   vapid          Neues VAPID-Schluesselpaar ausgeben
   about          Version, Lizenz und Herkunft ausgeben (auch --version)
 `;

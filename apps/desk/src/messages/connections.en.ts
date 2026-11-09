@@ -143,6 +143,7 @@ export default {
   "liveCheck.result.notConnected": "Not connected",
   "liveCheck.result.needsSignIn": "Sign-in needed",
   "liveCheck.result.skipped": "Skipped",
+  "liveCheck.needsSignInWarn": "{count} recipes could not be checked: sign in. Until they are checked, nothing is proven for them.",
   "liveCheck.loadFailed": "The live check could not be loaded.",
   "liveCheck.startFailed": "The live check could not be started.",
   "liveCheck.busy": "A live check or another browser run is in progress. Please try again later.",

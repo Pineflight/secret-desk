@@ -143,6 +143,7 @@ export default {
   "liveCheck.result.notConnected": "Nicht verbunden",
   "liveCheck.result.needsSignIn": "Anmeldung nötig",
   "liveCheck.result.skipped": "Übersprungen",
+  "liveCheck.needsSignInWarn": "{count} Rezepte konnten nicht geprüft werden: bitte anmelden. Solange sie nicht geprüft sind, ist für sie nichts bewiesen.",
   "liveCheck.loadFailed": "Der Live-Check konnte nicht geladen werden.",
   "liveCheck.startFailed": "Der Live-Check konnte nicht gestartet werden.",
   "liveCheck.busy": "Es läuft schon ein Live-Check oder ein anderer Browser-Lauf. Bitte später erneut versuchen.",

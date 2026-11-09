@@ -209,13 +209,14 @@ secret-desk browser run <recipe-id> --dry [--recipes <dir>]... [--chrome-path <p
 ## live-check
 
 ```bash
-secret-desk live-check --config <file> [--json] [--run]
+secret-desk live-check --config <file> [--json] [--run] [--strict]
 ```
 
 Prints the last report of the weekly live check ([TROUBLESHOOTING.md](TROUBLESHOOTING.md#reading-the-live-check)): when it ran, the counts, and one line for everything that is not simply fine (integration or recipe id, result, the step and error kind of a failed recipe step, a short sanitized text). The reports are the ones the portal stores next to the sign-in memory (`live-check-state.json` in the data directory), so the CLI shows what the portal did.
 
 - **Exit `1`** when the last report has a failure, when there is no report yet, or when it is older than twice `automation.liveCheckDays` (the schedule is not keeping up). Otherwise `0`. With `liveCheckDays: 0` the age is not judged. `2` is an error such as a missing `--config`, or `--run` while the browser is busy with another run.
-- `--json` prints one JSON object: `ok`, `reason` (`null`, `failed`, `none` or `stale`), `intervalDays` and the whole `report` (or `null`). For monitoring scripts.
+- **Recipes that need a sign-in** could not be checked (provider sessions expire, so this can be the normal outcome). The report stays ok and the exit code `0`, but the output ends with a warning ("N Rezepte konnten nicht geprueft werden: bitte anmelden"). With `--strict` it exits `1` (`reason` `needs-sign-in` in JSON).
+- `--json` prints one JSON object: `ok`, `reason` (`null`, `failed`, `none`, `stale` or `needs-sign-in`), `needsSignIn` (count), `intervalDays` and the whole `report` (or `null`). For monitoring scripts.
 - `--run` runs a check in this process first and stores it. It tests every connected integration read-only and dry-runs every recipe in the configured browser (see `cdpEndpoint`), so a recipe that needs a person (signed out, a "Confirm access" prompt) is reported as *needs sign-in* and not waited for. Do not run it next to a portal that uses the same local browser profile; with the browser sidecar it queues behind other runs like any other check.
 
 The check creates nothing at any provider and prints no value.

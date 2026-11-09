@@ -17,13 +17,13 @@ function problemLines(report: LiveCheckReport): string[] {
 }
 
 /**
- * `secret-desk live-check --config <file> [--json] [--run]`: prints the last live check report. Exit 1 when it failed, when there
+ * `secret-desk live-check --config <file> [--json] [--run] [--strict]`: prints the last live check report. Exit 1 when it failed, when there
  * is none, or when it is older than twice the interval (`automation.liveCheckDays`); 0 otherwise. With `--run` a check runs in this
  * process first (it uses the configured browser, so do not run it next to a portal that uses the same local browser profile).
  */
 export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
-  const { values } = parseArgs({ args, options: { config: { type: "string" }, json: { type: "boolean" }, run: { type: "boolean" } } });
-  if (!values.config) throw new Error("live-check --config <datei> [--json] [--run]");
+  const { values } = parseArgs({ args, options: { config: { type: "string" }, json: { type: "boolean" }, run: { type: "boolean" }, strict: { type: "boolean" } } });
+  if (!values.config) throw new Error("live-check --config <datei> [--json] [--run] [--strict]");
   // The reports live in the data directory next to the sign-in memory, shared with the portal.
   const rt = await createRuntime(values.config, { persistSignIn: true });
   if (values.run) {
@@ -32,9 +32,11 @@ export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
   }
   const { reports, stale, intervalDays } = getLiveCheck(rt);
   const last = reports[0];
-  const reason = last === undefined ? "none" : !last.ok ? "failed" : stale ? "stale" : null;
+  // Recipes that need a sign-in could not be checked: the report stays ok, but with --strict this counts as a failure.
+  const unchecked = last?.summary.recipes.needsSignIn ?? 0;
+  const reason = last === undefined ? "none" : !last.ok ? "failed" : stale ? "stale" : values.strict && unchecked > 0 ? "needs-sign-in" : null;
   if (values.json) {
-    io.out(JSON.stringify({ ok: reason === null, reason, intervalDays, report: last ?? null }));
+    io.out(JSON.stringify({ ok: reason === null, reason, intervalDays, needsSignIn: unchecked, report: last ?? null }));
     return reason === null ? 0 : 1;
   }
   if (last === undefined) {
@@ -46,6 +48,7 @@ export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
   io.out(`Integrationen: ${s.connections.ok} in Ordnung, ${s.connections.failed} fehlgeschlagen, ${s.connections.notConnected} nicht verbunden`);
   io.out(`Rezepte: ${s.recipes.ok} in Ordnung, ${s.recipes.failed} fehlgeschlagen, ${s.recipes.needsSignIn} brauchen Anmeldung, ${s.recipes.skipped} uebersprungen`);
   for (const l of problemLines(last)) io.out(l);
+  if (unchecked > 0) io.out(`WARNUNG: ${unchecked} Rezepte konnten nicht geprueft werden: bitte anmelden.${values.strict || reason !== null ? "" : " (Exit 0; mit --strict ist das ein Fehler.)"}`);
   if (reason === "stale") io.out(`Der letzte Bericht ist aelter als ${intervalDays * 2} Tage (das Doppelte des Intervalls): die geplante Pruefung kommt nicht hinterher.`);
   return reason === null ? 0 : 1;
 }
