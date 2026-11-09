@@ -25,13 +25,13 @@ export const ANTHROPIC_DEFAULT_WORKSPACE = "Default";
 /** The recipe whose browser provider gets the Admin API extras. */
 export const ANTHROPIC_KEY_RECIPE = "anthropic-api-key";
 
-/** An organization Admin key starts with this; a normal API key (also from an individual account) starts with `sk-ant-api`. */
+/** An organization Admin key starts with this; a normal API key starts with `sk-ant-usr` (linked to a person, the Console default since late 2026) or `sk-ant-api`. */
 export const ANTHROPIC_ADMIN_PREFIX = "sk-ant-admin";
-export const ANTHROPIC_API_PREFIX = "sk-ant-api";
+export const ANTHROPIC_API_PREFIXES = ["sk-ant-usr", "sk-ant-api"] as const;
 /** Text for a stored Anthropic value that is neither key kind. Names both prefixes; never the value. */
-export const ANTHROPIC_KEY_KIND_PROBLEM = "Das ist kein Anthropic-Schluessel (ein Admin-Key beginnt mit sk-ant-admin, ein normaler API-Schluessel mit sk-ant-api).";
+export const ANTHROPIC_KEY_KIND_PROBLEM = "Das ist kein Anthropic-Schluessel (ein Admin-Key beginnt mit sk-ant-admin, ein normaler API-Schluessel mit sk-ant-usr oder sk-ant-api).";
 export const isAnthropicAdminKey = (value: string): boolean => value.trim().startsWith(ANTHROPIC_ADMIN_PREFIX);
-export const isAnthropicApiKey = (value: string): boolean => value.trim().startsWith(ANTHROPIC_API_PREFIX);
+export const isAnthropicApiKey = (value: string): boolean => ANTHROPIC_API_PREFIXES.some((prefix) => value.trim().startsWith(prefix));
 
 type FetchFn = typeof fetch;
 type Ctx = { connections: ConnectionStore; fetch: FetchFn };

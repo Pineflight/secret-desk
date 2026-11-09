@@ -9,7 +9,7 @@ import { FACADES, getFacadeState, listFacades, startFacadeConnect, startFacadeSi
 import { createRuntime } from "../src/runtime.js";
 
 const ADMIN_KEY = "sk-ant-admin01-A1b2C3d4E5f6G7h8I9j0K1l2M3n4";
-const API_KEY = "sk-ant-api03-Z9y8X7w6V5u4T3s2R1q0P9o8N7m6";
+const API_KEY = "sk-ant-usr-Z9y8X7w6V5u4T3s2R1q0P9o8N7m6Z9y8X7w6V5u4T3s2R1q0";
 const CODE = "424242";
 const human = { kind: "human", name: "alice" } as const;
 const FIELD = 'css input[type="email"], input[name="email"]';
@@ -17,6 +17,8 @@ const CODE_FIELD = 'css input[autocomplete="one-time-code"], input[name="code"],
 const NAME_FIELD = "css [role=dialog] input[type=text] >> nth=0";
 const CREATE_BUTTON = "css [role=dialog] button[type=submit]";
 const DIALOG_KEY = "css [role=dialog] input[readonly], [role=dialog] code";
+const PERSONAL_KEY = "testid admin-api-key";
+const READ_ONLY_NAME = "css [role=dialog] input[readonly]";
 
 interface Site {
   signedIn: boolean;
@@ -75,8 +77,10 @@ function driverFor(site: Site): FakeDriver {
       if (e.action === "click" && e.key === CREATE_BUTTON) {
         site.keyName = drv.filled.get(NAME_FIELD) ?? drv.filled.get('Platzhalter "my-secret-key"') ?? "";
         site.personalKeyName = drv.filled.get('Platzhalter "my-secret-key"') ?? null;
-        drv.visible.add(DIALOG_KEY);
-        drv.texts.set(DIALOG_KEY, site.personal ? API_KEY : ADMIN_KEY);
+        // While the key is created the form stays open with its name field read-only; that field must not be mistaken for the key.
+        drv.visible.add(READ_ONLY_NAME);
+        drv.visible.add(site.personal ? PERSONAL_KEY : DIALOG_KEY);
+        drv.texts.set(site.personal ? PERSONAL_KEY : DIALOG_KEY, site.personal ? API_KEY : ADMIN_KEY);
       }
     },
   });
@@ -350,7 +354,7 @@ describe("facade: anthropic, Personal (a normal API key)", () => {
     it("refuses any other kind of value without calling Anthropic", async () => {
       let called = false;
       const problem = await personal.verifyKey!(rtWith(async () => { called = true; return new Response("{}"); }), SecretValue.from(ADMIN_KEY), {});
-      expect(problem).toMatch(/does not start with sk-ant-api/);
+      expect(problem).toMatch(/does not start with sk-ant-usr or sk-ant-api/);
       expect(problem).not.toContain(ADMIN_KEY);
       expect(called).toBe(false);
     });

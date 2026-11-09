@@ -159,6 +159,7 @@ describe("anthropic key kinds", () => {
     expect(isAnthropicAdminKey(` ${["sk-ant", "admin01", "x"].join("-")} `)).toBe(true);
     expect(isAnthropicAdminKey(["sk-ant", "api03", "x"].join("-"))).toBe(false);
     expect(isAnthropicApiKey(` ${["sk-ant", "api03", "x"].join("-")}`)).toBe(true);
+    expect(isAnthropicApiKey(["sk-ant", "usr", "x"].join("-"))).toBe(true);
     expect(isAnthropicApiKey(["sk-ant", "admin01", "x"].join("-"))).toBe(false);
     expect(isAnthropicApiKey("other")).toBe(false);
   });
