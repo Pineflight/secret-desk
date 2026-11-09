@@ -78,7 +78,7 @@ export class PlaywrightDriver implements BrowserDriver {
       this.#remote = await chromium.connectOverCDP(target, { timeout, slowMo: this.#opts.slowMoMs ?? 0 });
     } catch (err) {
       // The library message may repeat the address, which can carry credentials.
-      const detail = (err as Error).message.split("\n")[0] ?? "";
+      const detail = (err as Error).message.split("\n")[0]!;
       throw new Error(`Cannot connect to the remote browser at ${shown}: ${detail.split(endpoint).join(shown)}`.slice(0, 400));
     }
     const context = this.#remote.contexts()[0];

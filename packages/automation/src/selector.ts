@@ -42,10 +42,10 @@ const REGEX_TEXT = /^\/(.+)\/([a-z]*)$/s;
 export function textPattern(value: string): RegExp | null {
   const m = REGEX_TEXT.exec(value);
   if (!m) return null;
-  const flags = m[2] ?? "";
+  const flags = m[2]!;
   // Other letters after the last slash (`/path/to`) mean a plain text, not a pattern.
   if (!/^[imsu]*$/.test(flags)) return null;
-  return new RegExp(m[1] ?? "", flags);
+  return new RegExp(m[1]!, flags);
 }
 
 /** What a driver hands to the browser: the regular expression for a `/pattern/flags` text, else the text itself. */

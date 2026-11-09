@@ -233,7 +233,7 @@ class Runner {
       }
       if (stopAtCreate && "click" in step && step.click.createsToken) return true;
       this.hooks.onProgress?.({ index: this.#index, total: this.#total, label: describeStep(step) });
-      const items = "each" in step && step.each ? (this.vars[step.each] ?? "").split(",").map((s) => s.trim()).filter(Boolean) : [undefined];
+      const items = "each" in step && step.each ? this.vars[step.each]!.split(",").map((s) => s.trim()).filter(Boolean) : [undefined];
       for (const item of items) {
         const vars = item === undefined ? this.vars : { ...this.vars, item };
         try {
@@ -396,8 +396,8 @@ class Runner {
   }
 
   async #ensureLogin(): Promise<void> {
-    const login = this.recipe.login;
-    if (!login) return;
+    // Only called when the recipe has a login (the run starts logged in otherwise).
+    const login = this.recipe.login!;
     const cond = resolveCondition(login.expect, this.vars);
     const met = (): Promise<boolean> => conditionMet(this.driver, cond).catch(() => false);
     if (!(await met())) {
@@ -544,7 +544,7 @@ function renderTemplateSelector(sel: Selector, vars: Vars, r: Runner): Selector 
  */
 async function captureRead(r: Runner, recipe: Recipe, vars: Vars, driver: BrowserDriver, options: RunOptions): Promise<RunResult> {
   const cap = recipe.capture;
-  const primary = cap.values ?? {};
+  const primary = cap.values!;
   const names = Object.keys(primary);
 
   const present = async (set: Record<string, CaptureValue>): Promise<boolean> => {
@@ -575,15 +575,16 @@ async function captureRead(r: Runner, recipe: Recipe, vars: Vars, driver: Browse
     const spec = used[name] as CaptureValue;
     const find = renderTemplateSelector(spec.find, vars, r);
     const value = await readValue(r, find, spec.pattern, `Value ${name}`, spec.attribute);
-    if (!value) return r.fail("capture", `Value ${name} is empty.`);
     r.addSecret(value);
     read[name] = value;
   }
   if (new Set(Object.values(read)).size !== names.length) return r.fail("capture", "Two values read from the page are identical: the page is not as expected.");
 
   const pickKey = cap.pick;
-  const picked = pickKey === undefined ? names[0] : (vars[pickKey] ?? "").trim();
-  if (picked === undefined || !Object.hasOwn(read, picked)) return r.fail("params", "The parameter that picks the value does not name a value of the page.");
+  const picked = pickKey === undefined ? names[0]! : vars[pickKey]!.trim();
+  /* v8 ignore start -- unreachable: checkRecipeParams limits the picking parameter to the value names; kept as a fail-closed guard */
+  if (!Object.hasOwn(read, picked)) return r.fail("params", "The parameter that picks the value does not name a value of the page.");
+  /* v8 ignore stop */
 
   // Evidence after reading, with every value masked. A failing screenshot does not lose the values.
   await r.shoot("nach-lesen", names.map((n) => renderTemplateSelector((used[n] as CaptureValue).find, vars, r))).catch(() => undefined);

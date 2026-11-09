@@ -275,8 +275,8 @@ export async function confirmAccess(flow: SudoFlow, io: SudoIo): Promise<void> {
     }
   }
 
-  async function readNumber(): Promise<string> {
-    for (const area of flow.mobile?.area ?? []) {
+  async function readNumber(areas: readonly Selector[]): Promise<string> {
+    for (const area of areas) {
       const text = await driver.readText(area).catch(() => "");
       const n = sudoNumberFrom(text);
       if (n) return n;
@@ -413,7 +413,7 @@ export async function confirmAccess(flow: SudoFlow, io: SudoIo): Promise<void> {
           await io.checkHost();
           await driver.click(mobile.start);
           await waitText(mobile.waiting, 15_000);
-          emit({ type: "mobile", number: await readNumber() });
+          emit({ type: "mobile", number: await readNumber(mobile.area) });
           if (await gone(mobileMs)) return confirmed(emit);
           problem = "timeout";
         }
