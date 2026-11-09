@@ -59,8 +59,8 @@ export function SyncToGitHubDialog({ repo, onClose, onDone }: { repo?: string | 
   const busy = progress !== null;
 
   const run = async (): Promise<void> => {
-    if (!plan || count === 0) return;
-    const parts = batches(plan, selected);
+    // The confirm button is disabled without a plan or a selection, so there is always something to send here.
+    const parts = batches(plan!, selected);
     const total = parts.reduce((n, p) => n + p.length, 0);
     const all: SyncOutcome[] = [];
     setRunError(null);
