@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **MCP server: an empty `SECRET_DESK_URL` counts as unset** and falls back to `http://127.0.0.1:4747` instead of sending requests to an empty address.
+- An optional recipe step, such as a cookie banner, no longer ends a run when looking for its element breaks unexpectedly.
 - **GitHub fine-grained token recipe (team token and browser tokens):** GitHub can ask "Confirm access" again when "Generate token" is clicked, if the sudo window ran out after the form opened. The run waited for the confirmation dialog and then the token, failed with "Token bei GitHub erstellen", and never offered the confirmation in the portal. Both clicks are now followed by a `confirmAccess` step that goes on at once when no prompt appears and otherwise lets the portal answer it.
 
 - **Grafana Cloud access policy tokens with a narrow scope pass their check:** a token whose policy may not read access policies (for example `metrics:read` only) got HTTP 401 from the policy-list probe and was discarded as rejected. The check now reads the policy's scopes through the `grafana-cloud` connection and, when the policy lacks `accesspolicies:read`, confirms the new token exists under its id instead of probing with it.

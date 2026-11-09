@@ -70,6 +70,17 @@ describe("optional click that cannot act", () => {
     expect(res.value.reveal()).toBe(TOKEN);
   });
 
+  it("is skipped, not failed, when looking for the element breaks with an unexpected error", async () => {
+    const d = blocked([]);
+    const waitFor = d.waitFor.bind(d);
+    d.waitFor = async (cond, ms, signal) => {
+      if (cond.visible?.css === "#banner") throw new Error("page is navigating");
+      return waitFor(cond, ms, signal);
+    };
+    const res = await runRecipe(recipe([banner]), VARS, d, {}, { pollMs: 5 });
+    expect(res.value.reveal()).toBe(TOKEN);
+  });
+
   it("a click that is not optional still fails when it cannot act", async () => {
     const calls: string[] = [];
     const err = (await runRecipe(recipe([{ click: { css: "#banner" } }]), VARS, blocked(calls), {}, { pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
