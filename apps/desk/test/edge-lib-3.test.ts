@@ -13,6 +13,7 @@ import { nextTab } from "../src/lib/tabs";
 import { neededRightsLine } from "../src/lib/team-picker";
 import { SECTIONS } from "../src/lib/team-sync";
 import { createLabelKey, type TeamTokenMeta, readyTokenExpiry, teamTokenSteps, tokenCovers } from "../src/lib/team-token";
+import { readStored, writeStored } from "../src/lib/persisted-state";
 import { pushToast } from "../src/lib/toast-queue";
 import { summarizeDrift } from "../src/lib/variable-list";
 
@@ -194,6 +195,13 @@ describe("small pure helpers", () => {
     const list = pushToast(pushToast([], a), b);
     const again = pushToast(list, { ...a, id: 3 });
     expect(again.map((t) => t.id)).toEqual([1, 2]);
+  });
+});
+
+describe("persisted state without a browser", () => {
+  it("returns the fallback and writes nothing", () => {
+    expect(readStored("k", "fallback")).toBe("fallback");
+    expect(() => writeStored("k", 1, 0)).not.toThrow();
   });
 });
 

@@ -27,7 +27,8 @@ const isReply = (v: unknown): v is { status: number; body?: unknown } =>
 
 /**
  * Replaces `fetch` for the portal API client (`src/lib/api.ts`). `/api/session` always succeeds with a fake CSRF value.
- * Routes are keyed `"METHOD path"` (path without the `/api/ui/` prefix). An unknown route answers 404 so the test fails loudly.
+ * Routes are keyed `"METHOD path"` (path without the `/api/ui/` prefix, query string included); a key ending in `*` matches a
+ * path prefix, so `"GET providers/acme/params*"` takes any query. An unknown route answers 404 so the test fails loudly.
  * Restored by `vi.unstubAllGlobals()` in test/setup-dom.ts.
  */
 export function fakePortal(routes: Record<string, FakeHandler> = {}): FakePortal {
@@ -44,7 +45,8 @@ export function fakePortal(routes: Record<string, FakeHandler> = {}): FakePortal
       const raw = init?.body;
       const call: PortalCall = { method, path, headers: (init?.headers ?? {}) as Record<string, string>, body: typeof raw === "string" ? JSON.parse(raw) : raw };
       calls.push(call);
-      const handler = routes[`${method} ${path}`];
+      const wanted = `${method} ${path}`;
+      const handler = routes[wanted] ?? routes[Object.keys(routes).find((k) => k.endsWith("*") && wanted.startsWith(k.slice(0, -1))) ?? ""];
       if (handler === undefined) return json(404, { error: `no fake route for ${method} ${path}` });
       const reply = typeof handler === "function" ? await (handler as (c: PortalCall) => FakeReply | Promise<FakeReply>)(call) : handler;
       return isReply(reply) ? json(reply.status, reply.body ?? {}) : json(200, reply);
