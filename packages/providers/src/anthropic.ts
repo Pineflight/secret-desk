@@ -42,8 +42,7 @@ async function listAll(ctx: Ctx, path: string): Promise<Record<string, unknown>[
   const out: Record<string, unknown>[] = [];
   let after: string | undefined;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const sep = path.includes("?") ? "&" : "?";
-    const json = await adminCall<unknown>(ctx, `${API}${path}${sep}limit=100${after ? `&after_id=${seg(after)}` : ""}`, { method: "GET" });
+    const json = await adminCall<unknown>(ctx, `${API}${path}?limit=100${after ? `&after_id=${seg(after)}` : ""}`, { method: "GET" });
     const items = asList(json, "data");
     out.push(...items);
     const last = (isRecord(json) ? str(json["last_id"]) : undefined) ?? (items.length > 0 ? str(items[items.length - 1]!["id"]) : undefined);
