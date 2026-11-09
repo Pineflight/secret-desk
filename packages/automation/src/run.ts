@@ -289,6 +289,8 @@ class Runner {
         : (err as Error).name === "TemplateError"
           ? (err as Error).message
           : "Aktion nicht moeglich";
+    // Only the error type: the message of a browser library can repeat what is on the page.
+    console.warn(`secret-desk: recipe ${this.recipe.id} step ${i + 1} failed with ${(err as Error).name}`);
     return this.fail("step", `Schritt ${i + 1} (${describeStep(step)}) fehlgeschlagen: ${reason}.`);
   }
 
@@ -308,18 +310,13 @@ class Runner {
   /** Runs one step. Resolves to false when an optional step found nothing to do. */
   async #run(step: Step, vars: Vars): Promise<boolean> {
     if ("click" in step && step.click.optional) {
-      // An optional element (a cookie banner) is waited for briefly; absent means there is nothing to do.
-      await this.checkHost();
+      // An optional element (a cookie banner) is waited for briefly. Absent, covered, disabled, detached on the way or a page that
+      // is still navigating: nothing to do, the next step has its own wait. The run still stops for an abort, a page outside the
+      // recipe's hosts and a failed hook.
       const sel = pickSelector(renderValue(step.click, vars));
       try {
+        await this.checkHost();
         await this.driver.waitFor({ visible: sel }, (step.click.timeoutSeconds ?? OPTIONAL_TIMEOUT_S) * 1000, this.options.signal);
-      } catch (err) {
-        if (err instanceof WaitTimeoutError) return false;
-        throw err;
-      }
-      // The element is there but cannot be acted on (covered, disabled, detached on the way): nothing to do either. The run
-      // still stops for an abort and for a page outside the recipe's hosts.
-      try {
         await this.#perform(step, vars);
       } catch (err) {
         if (err instanceof RecipeRunError || err instanceof WaitAbortedError || err instanceof HookFailure) throw err;
