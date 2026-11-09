@@ -1,11 +1,14 @@
 name: CI
 
-# Typpruefung, Tests und Build auf einem GitHub-gehosteten Runner.
+# Typecheck, tests with 100% coverage and build on a GitHub-hosted runner.
+# The weekly schedule catches drift in dependencies and runtimes without a code change.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
 
 permissions:
   contents: read
