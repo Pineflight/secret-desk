@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The result of a sign-in on an account without admin keys no longer ticks "key created" and "connected": neither happened.
 - Recipes started from the portal no longer fail when a wait simply runs out, for example at a cookie banner that is not shown or a button that an account does not have.
 - **MCP server: an empty `SECRET_DESK_URL` counts as unset** and falls back to `http://127.0.0.1:4747` instead of sending requests to an empty address.
 - An optional recipe step, such as a cookie banner, no longer ends a run when looking for its element breaks unexpectedly.
