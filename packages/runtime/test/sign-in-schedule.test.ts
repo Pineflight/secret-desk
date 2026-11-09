@@ -2,8 +2,8 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeDriver } from "@secret-desk/automation";
-import { describe, expect, it } from "vitest";
-import { SignInScheduler, dueSignInChecks } from "../src/sign-in-schedule.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SignInScheduler, dueSignInChecks, startSignInScheduler } from "../src/sign-in-schedule.js";
 import { createRuntime } from "../src/runtime.js";
 
 interface World {
@@ -196,5 +196,92 @@ describe("sign-in memory across restarts", () => {
     const second = await open();
     expect(second.automation.signInChecks()).toMatchObject([{ host: HOSTS.openai, signedIn: true, source: "run" }]);
     expect(await readFile(join(dir, "data", "sign-in-state.json"), "utf8")).not.toMatch(/cookie|token|password/i);
+  });
+});
+
+describe("due checks: inconsistent recipe lists", () => {
+  it("skips a listed recipe that cannot be loaded and counts a host shared by two recipes once", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    const openai = rt.automation.recipes.find((r) => r.canCheckSignIn && rt.automation.recipe(r.id) && dueSignInChecks(rt, new Date()).some((d) => d.recipe.id === r.id && d.host === HOSTS.openai))!;
+    const original = rt.automation.recipe.bind(rt.automation);
+    rt.automation.recipes.unshift({ ...openai, id: "ghost-recipe" }, { ...openai, id: "twin-recipe" });
+    vi.spyOn(rt.automation, "recipe").mockImplementation((id) => (id === "ghost-recipe" ? undefined : id === "twin-recipe" ? original(openai.id) : original(id)));
+    const hosts = dueSignInChecks(rt, new Date()).map((d) => d.host);
+    expect(hosts.filter((h) => h === HOSTS.openai)).toHaveLength(1);
+  });
+});
+
+describe("scheduler: results and edge cases", () => {
+  it("a check that cannot start the browser is a failed result, logged with its code and retried only after the pause", async () => {
+    const { rt, scheduler, lines } = await setup(AUTOMATION_6H);
+    vi.spyOn(rt.automation, "newDriver").mockRejectedValue(new Error("browser unreachable"));
+    const tick = await scheduler.tick();
+    expect(tick.checked.length).toBeGreaterThan(0);
+    expect(tick.checked.every((c) => c.result === "failed")).toBe(true);
+    expect(lines[0]).toMatch(/^secret-desk: scheduled sign-in check [a-z.]+: failed \([a-z-]+\)$/);
+    expect((await scheduler.tick()).checked).toEqual([]);
+  });
+
+  it("a signed-in host is logged as signed in", async () => {
+    const { scheduler, lines } = await setup(AUTOMATION_6H, { [HOSTS.peechoLive]: true });
+    const tick = await scheduler.tick();
+    expect(tick.checked.find((c) => c.host === HOSTS.peechoLive)?.result).toBe("signed-in");
+    expect(lines.some((l) => l.endsWith(`${HOSTS.peechoLive}: signed in`))).toBe(true);
+  });
+
+  it("without a timeout option the checks still run (default wait), and without a log option they log to the console", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    vi.spyOn(rt.automation, "newDriver").mockRejectedValue(new Error("browser unreachable"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const tick = await new SignInScheduler(rt).tick();
+    expect(tick.checked.length).toBeGreaterThan(0);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^secret-desk: scheduled sign-in check .*: failed \(/));
+  });
+
+  it("stops the pass when another browser run takes over: busy before the first check, or null after some checks", async () => {
+    const { rt, scheduler } = await setup(AUTOMATION_6H);
+    const busy = vi.spyOn(rt.automation, "isBusy");
+    busy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    expect(await scheduler.tick()).toEqual({ skipped: "busy", checked: [] });
+    busy.mockReset();
+    const calls: boolean[] = [false, false, true];
+    busy.mockImplementation(() => calls.shift() ?? true);
+    const second = await scheduler.tick();
+    expect(second.skipped).toBeNull();
+    expect(second.checked).toHaveLength(1);
+  });
+});
+
+describe("scheduler: timer", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("starts once, ticks on the interval, survives a failing tick and stops", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    const scheduler = new SignInScheduler(rt, { intervalMs: 1000, log: () => undefined });
+    const tick = vi.spyOn(scheduler, "tick").mockRejectedValue(new Error("tick failed"));
+    vi.useFakeTimers();
+    scheduler.start();
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(tick).toHaveBeenCalledTimes(3);
+    scheduler.stop();
+    scheduler.stop();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(tick).toHaveBeenCalledTimes(3);
+  });
+
+  it("startSignInScheduler returns a running scheduler (defaults for all options)", async () => {
+    const { rt } = await setup(AUTOMATION_6H);
+    vi.useFakeTimers();
+    const s = startSignInScheduler(rt);
+    expect(s).toBeInstanceOf(SignInScheduler);
+    const tick = vi.spyOn(s, "tick").mockResolvedValue({ skipped: "off", checked: [] });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+    s.stop();
+    const custom = startSignInScheduler(rt, { intervalMs: 500, log: () => undefined });
+    custom.stop();
   });
 });

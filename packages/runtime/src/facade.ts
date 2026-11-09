@@ -351,7 +351,7 @@ export function credentialsFrom(body: Record<string, unknown>, needsPassword = t
 export function portalFrom(recipe: Recipe, body: Record<string, unknown>, inputs: Record<string, string> = {}): Recipe {
   if (!recipe.hosts) return recipe;
   const given = typeof body["host"] === "string" ? body["host"].trim() : "";
-  return resolvePortal(recipe, given !== "" ? given : (inputs[recipe.hostBy ?? ""] ?? ""));
+  return resolvePortal(recipe, given !== "" ? given : (inputs[recipe.hostBy!] ?? ""));
 }
 
 function resolvePortal(recipe: Recipe, choice: string): Recipe {
@@ -423,14 +423,16 @@ class Tracker {
 
   /** Marks the active phase as failed. */
   fail(): FacadeTimelineEntry[] {
-    const last = this.#timeline.at(-1);
-    if (last?.state === "active") last.state = "failed";
-    return [...this.#timeline];
+    return this.#close("failed");
   }
 
   done(): FacadeTimelineEntry[] {
-    const last = this.#timeline.at(-1);
-    if (last?.state === "active") last.state = "done";
+    return this.#close("done");
+  }
+
+  /** Only the newest entry can still be active (phase() closes the one before it). */
+  #close(state: "done" | "failed"): FacadeTimelineEntry[] {
+    for (const entry of this.#timeline) if (entry.state === "active") entry.state = state;
     return [...this.#timeline];
   }
 }
@@ -455,7 +457,7 @@ function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
     return { code, message: clean(err.message), messageEn: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
   }
   if (cancelled) return { code: "cancelled", message: "Cancelled.", messageEn: "Cancelled." };
-  const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0] ?? "") : "";
+  const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0]!) : "";
   return { code: "browser", message: text || "The browser could not be used.", messageEn: text || "The browser could not be used." };
 }
 

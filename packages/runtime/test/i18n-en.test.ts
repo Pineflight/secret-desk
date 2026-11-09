@@ -223,3 +223,38 @@ describe("coverage: every German source text has an English catalog entry", () =
     expect(missing).toEqual([]);
   });
 });
+
+describe("translateEn: composed texts", () => {
+  it("translates the rest of a 'head: rest' text and keeps the head", () => {
+    expect(translateEn("server.port: Ungueltiges JSON")).toBe("server.port: Invalid JSON");
+  });
+
+  it("leaves a 'head: rest' text alone when the rest is unknown", () => {
+    expect(translateEn("server.port: nothing to translate here")).toBe("server.port: nothing to translate here");
+  });
+
+  it("stops at a bounded depth instead of recursing forever", () => {
+    const deep = Array.from({ length: 12 }, () => "a").join(": ");
+    expect(translateEn(deep)).toBe(deep);
+  });
+});
+
+describe("translateDeep: objects that are not plain data", () => {
+  it("returns class instances and dates as they are", () => {
+    const when = new Date("2026-11-01T00:00:00Z");
+    class Box {
+      label = "Datei";
+    }
+    const box = new Box();
+    const out = translateDeep({ when, box, nested: [when] }, "en");
+    expect(out.when).toBe(when);
+    expect(out.box).toBe(box);
+    expect(out.box.label).toBe("Datei");
+    expect(out.nested[0]).toBe(when);
+  });
+
+  it("translates objects without a prototype", () => {
+    const bare = Object.assign(Object.create(null) as Record<string, string>, { hint: "Nicht konfiguriert" });
+    expect(translateDeep(bare, "en")).toEqual({ hint: "Not configured" });
+  });
+});

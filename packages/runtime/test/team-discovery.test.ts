@@ -2,7 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { GitHubClient, GitHubError, GitHubInputError } from "@secret-desk/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntime } from "../src/runtime.js";
 import {
   CONVENTIONAL_TEAM_FILE,
@@ -97,6 +98,9 @@ class Fake {
   branches = ["main", "dev"];
   tree = ["README.md", "secret-desk.team.yaml"];
   reposStatus = 200;
+  contentsStatus = 0;
+  omitDefaultBranch = false;
+  installationLogin = "acme";
   granted: Record<string, string> = { contents: "write", pull_requests: "write", metadata: "read" };
   validTokens = new Set<string>();
   readonly fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -106,14 +110,14 @@ class Fake {
     this.auth.push(bearer);
     this.paths.push(`${method} ${url.pathname}`);
     const j = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
-    if (url.pathname === "/app/installations") return j([{ id: 7, account: { login: "acme" } }]);
+    if (url.pathname === "/app/installations") return j([{ id: 7, account: { login: this.installationLogin } }]);
     if (url.pathname === "/app/installations/7/access_tokens") {
       this.tokenRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       this.validTokens.add(INSTALL_TOKEN);
       return j({ token: INSTALL_TOKEN, expires_at: "2099-01-01T00:00:00Z", permissions: this.granted, repositories: [] }, 201);
     }
     if (!this.validTokens.has(bearer)) return j({ message: "Bad credentials" }, 401);
-    const asApi = (r: RepoDef) => ({ name: r.name, owner: { login: "acme" }, private: r.private, archived: false, default_branch: r.default_branch ?? "main", pushed_at: r.pushed_at ?? null, permissions: { push: r.push ?? true } });
+    const asApi = (r: RepoDef) => ({ name: r.name, owner: { login: "acme" }, private: r.private, archived: false, ...(this.omitDefaultBranch ? {} : { default_branch: r.default_branch ?? "main" }), pushed_at: r.pushed_at ?? null, permissions: { push: r.push ?? true } });
     if (url.pathname === "/user/repos" || url.pathname === "/installation/repositories") {
       if (this.reposStatus !== 200) return j({ message: "denied" }, this.reposStatus);
       const items = this.repos.map(asApi);
@@ -128,6 +132,7 @@ class Fake {
     if (rest === "branches") return j(this.branches.map((name) => ({ name })));
     if (rest.startsWith("git/ref/heads/")) return this.branches.includes(decodeURIComponent(rest.slice("git/ref/heads/".length))) ? j({ object: { sha: "head1" } }) : j({ message: "Not Found" }, 404);
     if (rest === "git/trees/head1") return j({ tree: this.tree.map((p) => ({ path: p, type: "blob" })), truncated: false });
+    if (rest.startsWith("contents/") && this.contentsStatus) return j({ message: "contents denied" }, this.contentsStatus);
     if (rest.startsWith("contents/")) return def.holdsFile ? j({ type: "file", sha: "s1", content: Buffer.from(FILE).toString("base64") }) : j({ message: "Not Found" }, 404);
     if (rest.startsWith("pulls")) return j([]);
     return j({ message: "Not Found" }, 404);
@@ -329,5 +334,97 @@ describe("permission check per mode", () => {
   it("rejects an unknown mode", async () => {
     const { rt } = await setup({ auth: "pat" });
     await expect(checkTeamModeAccess(rt, { ...input, mode: "everything" })).rejects.toThrow(/ungueltig/);
+  });
+});
+
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("preselection with repositories that were never pushed", () => {
+  it("name hints without a push time keep their order stable and still win", () => {
+    const repos = [repo("team-config", { pushedAt: null }), repo("x-secret-desk", { pushedAt: null })];
+    expect(choosePreselectedRepo(repos)).toBe("acme/team-config");
+    expect(choosePreselectedRepo([repo("team-config", { pushedAt: null }), repo("x-secret-desk", { pushedAt: "2026-01-01T00:00:00Z" })])).toBe("acme/x-secret-desk");
+    expect(choosePreselectedRepo([repo("a", { pushedAt: null }), repo("b", { pushedAt: "2026-01-01T00:00:00Z" })], new Set(["acme/a", "acme/b"]))).toBe("acme/b");
+  });
+});
+
+describe("failures become problems or are rethrown", () => {
+  it("an App that is not installed on the owner", async () => {
+    const fake = new Fake();
+    fake.installationLogin = "someone-else";
+    const { rt } = await setup({ auth: "app", fake });
+    expect(await listTeamRepos(rt)).toMatchObject({ problem: { code: "app-not-installed" }, repos: [] });
+  });
+
+  it("rate limit while listing", async () => {
+    const fake = new Fake();
+    fake.reposStatus = 429;
+    const { rt } = await setup({ auth: "pat", fake });
+    expect(await listTeamRepos(rt)).toMatchObject({ problem: { code: "rate-limit" } });
+  });
+
+  it("an unexpected GitHub error or a network error is not hidden", async () => {
+    const fake = new Fake();
+    fake.reposStatus = 500;
+    const { rt } = await setup({ auth: "pat", fake });
+    await expect(listTeamRepos(rt)).rejects.toBeInstanceOf(GitHubError);
+    vi.spyOn(GitHubClient.prototype, "listVisibleRepos").mockRejectedValueOnce(new TypeError("socket closed"));
+    await expect(listTeamRepos(rt)).rejects.toThrow("socket closed");
+  });
+
+  it("probing for the team file stops at a rate limit and ignores other unreadable repositories", async () => {
+    const fake = new Fake();
+    fake.repos = [
+      { name: "alpha", private: true, pushed_at: "2026-03-01T00:00:00Z" },
+      { name: "beta", private: true, pushed_at: "2026-02-01T00:00:00Z", holdsFile: true },
+    ];
+    fake.contentsStatus = 429;
+    const { rt } = await setup({ auth: "pat", fake });
+    expect(await listTeamRepos(rt)).toMatchObject({ problem: null, preselected: null });
+    expect(fake.paths.filter((p) => p.includes("/contents/"))).toHaveLength(1);
+    fake.paths.length = 0;
+    fake.contentsStatus = 403;
+    expect((await listTeamRepos(rt)).preselected).toBeNull();
+    expect(fake.paths.filter((p) => p.includes("/contents/"))).toHaveLength(2);
+  });
+
+  it("a probe failing with a non-GitHub error is also skipped", async () => {
+    const fake = new Fake();
+    fake.repos = [{ name: "alpha", private: true, pushed_at: "2026-03-01T00:00:00Z" }];
+    const { rt } = await setup({ auth: "pat", fake });
+    vi.spyOn(GitHubClient.prototype, "getContentFile").mockRejectedValueOnce(new Error("boom"));
+    expect((await listTeamRepos(rt)).preselected).toBeNull();
+  });
+});
+
+describe("branches and files: defaults and defensive input errors", () => {
+  it("a repository without a default branch falls back to main", async () => {
+    const fake = new Fake();
+    fake.omitDefaultBranch = true;
+    const { rt } = await setup({ auth: "pat", fake });
+    expect(await listTeamBranches(rt, "acme/team-config")).toMatchObject({ defaultBranch: "main", branches: ["main", "dev"] });
+  });
+
+  it("GitHub-side input validation errors are reported as input errors", async () => {
+    const { rt } = await setup({ auth: "pat" });
+    vi.spyOn(GitHubClient.prototype, "listBranches").mockRejectedValueOnce(new GitHubInputError("bad name"));
+    await expect(listTeamBranches(rt, "acme/team-config")).rejects.toThrow(/Feld repo: Format/);
+    vi.spyOn(GitHubClient.prototype, "listFilePaths").mockRejectedValueOnce(new GitHubInputError("bad name"));
+    await expect(listTeamFiles(rt, "acme/team-config", "main")).rejects.toThrow(/Feld repo oder branch/);
+  });
+
+  it("GitHub errors on branches and files become problems", async () => {
+    const { rt } = await setup({ auth: "pat" });
+    vi.spyOn(GitHubClient.prototype, "listBranches").mockRejectedValueOnce(new GitHubError(403, "forbidden"));
+    expect(await listTeamBranches(rt, "acme/team-config")).toMatchObject({ problem: { code: "missing-permission" }, branches: [], defaultBranch: null });
+    vi.spyOn(GitHubClient.prototype, "listFilePaths").mockRejectedValueOnce(new GitHubError(401, "bad credentials"));
+    expect(await listTeamFiles(rt, "acme/team-config", "main")).toMatchObject({ problem: { code: "token-rejected" }, files: [], canCreate: false });
+  });
+
+  it("isTeamFilePath copes with a path without a file name", () => {
+    expect(isTeamFilePath("")).toBe(false);
   });
 });

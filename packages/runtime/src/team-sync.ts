@@ -318,7 +318,7 @@ export interface TeamPushPlan {
 }
 
 /** Every secret text the team file must never contain: own token, GitHub PAT, App private key, the tokens of every connected provider and the installation token of this operation. */
-async function teamTokenText(rt: Runtime, sess?: TeamSession): Promise<string[]> {
+async function teamTokenText(rt: Runtime, sess: TeamSession): Promise<string[]> {
   const out: string[] = [];
   for (const id of [TEAM_SYNC_CONNECTION, GITHUB_CONNECTION, GITHUB_APP_KEY_CONNECTION]) {
     try {
@@ -341,7 +341,7 @@ async function teamTokenText(rt: Runtime, sess?: TeamSession): Promise<string[]>
   } catch {
     /* an unreadable store lists nothing; the exact ids above and the shape patterns still apply */
   }
-  if (sess) out.push(...sess.secrets());
+  out.push(...sess.secrets());
   return out;
 }
 
@@ -500,7 +500,7 @@ export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = proc
     const fromEnv = teamSyncFromEnv(env);
     if (fromEnv && !rt.config.teamSync) {
       await setupTeamSync(rt, fromEnv);
-      if (inventoryEmpty(rt) && (await teamTokenSource(rt, rt.config.teamSync ? scopeOf(rt.config.teamSync) : {})) !== "none") {
+      if (inventoryEmpty(rt) && (await teamTokenSource(rt, scopeOf(requireConfig(rt)))) !== "none") {
         const check = await checkTeamSync(rt);
         // Unattended: only entries that are new are applied. Changed or removed entries stay pending for the portal preview.
         if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) {

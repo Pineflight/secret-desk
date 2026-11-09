@@ -251,7 +251,7 @@ export async function listRepos(rt: Runtime, opts: { live?: boolean; includePath
       for (const [oldName, newName] of renames) rows.get(oldName)!.renamedTo = newName;
     } catch (err) {
       // Nie blockieren: ohne Verbindung oder bei GitHub-Fehlern bleibt es bei der Inventar-Liste.
-      github = err instanceof NotConnectedError ? "off" : err instanceof GitHubError ? "unavailable" : "unavailable";
+      github = err instanceof NotConnectedError ? "off" : "unavailable";
     }
   }
 
