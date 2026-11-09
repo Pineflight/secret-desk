@@ -68,12 +68,7 @@ function driverFor(site: Site): FakeDriver {
       if (e.action === "click" && e.key === 'button "Create key"') drv.visible.add('button "Continue with an API key"');
       if (e.action === "click" && e.key === 'button "Continue with an API key"') {
         drv.visible.add('Platzhalter "my-secret-key"');
-        drv.visible.add('button "30 days (Dec 4, 2026)"');
         drv.visible.add(CREATE_BUTTON);
-      }
-      if (e.action === "click" && e.key === 'button "30 days (Dec 4, 2026)"') {
-        drv.visible.add('option "60 days (Jan 3, 2027)"');
-        drv.visible.add('option "90 days (Feb 2, 2027)"');
       }
       if (e.action === "click" && e.key.startsWith("option ")) site.expiryOption = e.key;
       if (e.action === "click" && e.key === 'button "Admin-Schlüssel erstellen"') { drv.visible.add("css [role=dialog] input[type=text]"); drv.visible.add(NAME_FIELD); drv.visible.add(CREATE_BUTTON); }
@@ -286,19 +281,19 @@ describe("facade: anthropic", () => {
 describe("facade: anthropic, Personal (a normal API key)", () => {
   const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 
-  it("creates a normal API key with a 90-day expiry, stores it as the anthropic connection and checks it with /v1/models", async () => {
+  it("creates a normal API key with a 30-day expiry, stores it as the anthropic connection and checks it with /v1/models", async () => {
     const { rt, site, calls } = await setup({ personal: true });
     startFacadeConnect(rt, human, "anthropic", { variant: "personal" });
     await until(() => finished(rt));
     const end = getFacadeState(rt, human, "anthropic");
     expect(end.failure?.messageEn).toBeUndefined();
     expect(end.status).toBe("done");
-    // `days` is a base variable, not a recipe parameter: the 90 days of the variant must reach the recipe (it picks the option).
-    expect(site.expiryOption).toMatch(/^option "90 days/);
+    // 30 days is the dialog's default: the recipe keeps it and opens no expiry list.
+    expect(site.expiryOption).toBeNull();
     expect(site.personalKeyName).toMatch(/^secret-desk-integration-\d{4}-\d{2}-\d{2}-\d{4}$/);
     expect(end.result).toMatchObject({ connected: true, connectionId: "anthropic", storedIn: "session", keyName: site.personalKeyName, counts: { workspaces: 1 } });
     expect((await rt.connections.token("anthropic")).reveal()).toBe(API_KEY);
-    expect(rt.connections.session.expires("anthropic")).toBe(dayOf(new Date(Date.now() + 90 * 86_400_000)));
+    expect(rt.connections.session.expires("anthropic")).toBe(dayOf(new Date(Date.now() + 30 * 86_400_000)));
     // one call to verify the new key, one for the connection test; the Admin API is never called
     expect(calls.map((c) => c.url)).toEqual(["https://api.anthropic.com/v1/models?limit=1", "https://api.anthropic.com/v1/models?limit=1"]);
     expect(calls.every((c) => c.headers["x-api-key"] === API_KEY && !("Authorization" in c.headers))).toBe(true);
@@ -328,7 +323,7 @@ describe("facade: anthropic, Personal (a normal API key)", () => {
     const end = getFacadeState(rt, human, "anthropic");
     expect(end.failure).toBeUndefined();
     expect(end.status).toBe("done");
-    expect(site.expiryOption).toMatch(/^option "90 days/);
+    expect(site.expiryOption).toBeNull();
     expect((await rt.connections.token("anthropic")).reveal()).toBe(API_KEY);
   });
 

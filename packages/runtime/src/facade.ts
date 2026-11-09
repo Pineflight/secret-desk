@@ -187,8 +187,8 @@ export const FACADES: readonly FacadeDescriptor[] = [
     summary: [{ key: "workspaces", kind: "anthropic.workspace" }],
     variants: [
       { id: "team", label: "facade.variant.anthropic.team", recipeId: "anthropic-admin-key", keyParams: {}, keyOptional: true, promise: "facade.promise.anthropic.team" },
-      // 90 days is an option of the Console dialog; `days` carries it to the recipe (and the expiry day to the connection).
-      { id: "personal", label: "facade.variant.anthropic.personal", recipeId: "anthropic-api-key", keyParams: {}, keyExpiryDays: 90, promise: "facade.promise.anthropic.personal", verifyKey: (rt, key) => anthropicApiKeyProblem(rt, key) },
+      // 30 days is the default of the Console dialog (it has no 90 days); `days` carries it to the recipe and the expiry day to the connection.
+      { id: "personal", label: "facade.variant.anthropic.personal", recipeId: "anthropic-api-key", keyParams: {}, keyExpiryDays: 30, promise: "facade.promise.anthropic.personal", verifyKey: (rt, key) => anthropicApiKeyProblem(rt, key) },
     ],
   },
   {
