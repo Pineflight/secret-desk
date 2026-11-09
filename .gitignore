@@ -16,3 +16,4 @@ secret-desk.state.json
 .secret-desk-evidence/
 .evidence/
 *.tsbuildinfo
+.vitest/
