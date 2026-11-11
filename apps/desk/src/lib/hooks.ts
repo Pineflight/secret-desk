@@ -110,3 +110,20 @@ export function useDebounced<T>(value: T, ms: number): T {
   }, [value, ms]);
   return v;
 }
+
+/**
+ * Does the media query match right now? `initial` is what the server render and the first client render use (no window
+ * there); the real value is read right after mount and follows every change. Without `matchMedia` it stays `initial`.
+ */
+export function useMediaQuery(query: string, initial = false): boolean {
+  const [matches, setMatches] = useState(initial);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const list = window.matchMedia(query);
+    setMatches(list.matches);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
+    list.addEventListener("change", onChange);
+    return () => list.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}

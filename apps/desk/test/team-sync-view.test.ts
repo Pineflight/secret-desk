@@ -17,6 +17,19 @@ describe("tokenLine", () => {
     expect(tokenLine(tokenInfo({ active: activeToken({ mode: "pull" }) }), "acme/team", "pull-push", "pull-request")).toBe("not-covered");
     expect(tokenLine(tokenInfo({ active: activeToken() }), "acme/other", "pull", "pull-request")).toBe("not-covered");
   });
+  it("reports the GitHub integration when connected without a team token", () => {
+    for (const tokenSource of ["github-pat", "github-app"] as const) {
+      expect(tokenLine(tokenInfo(), "acme/team", "pull-push", "pull-request", { connected: true, tokenSource })).toBe("integration");
+    }
+  });
+  it("keeps warning without a team token when not connected or the source is the team token", () => {
+    expect(tokenLine(tokenInfo(), "acme/team", "pull", "pull-request", { connected: false, tokenSource: "none" })).toBe("missing");
+    expect(tokenLine(tokenInfo(), "acme/team", "pull", "pull-request", { connected: true, tokenSource: "own" })).toBe("missing");
+    expect(tokenLine(tokenInfo(), "acme/team", "pull", "pull-request", { connected: false, tokenSource: "github-pat" })).toBe("missing");
+  });
+  it("still reports an expired token when the integration is connected", () => {
+    expect(tokenLine(tokenInfo({ active: activeToken({ valid: false }) }), "acme/team", "pull", "pull-request", { connected: true, tokenSource: "github-pat" })).toBe("expired");
+  });
   it("reports a valid covering token", () => {
     expect(tokenLine(tokenInfo({ active: activeToken() }), "acme/team", "pull-push", "pull-request")).toBe("valid");
   });
@@ -30,6 +43,10 @@ describe("tokenDetailsOpen", () => {
   });
   it("stays closed for a valid covering token without activity", () => {
     expect(tokenDetailsOpen(valid(), "valid")).toBe(false);
+  });
+  it("stays closed for the integration line, but opens for a run or a pending revocation", () => {
+    expect(tokenDetailsOpen(tokenInfo(), "integration")).toBe(false);
+    expect(tokenDetailsOpen(tokenInfo({ run: runState({ status: "failed" }) }), "integration")).toBe(true);
   });
   it.each(["missing", "expired", "not-covered"] as const)("opens for %s", (line) => {
     expect(tokenDetailsOpen(valid(), line)).toBe(true);

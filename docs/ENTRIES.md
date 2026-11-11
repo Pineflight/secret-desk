@@ -16,7 +16,7 @@ All filters sit in **one toolbar** above the table: a search field, the *Kind* s
 
 *Kind: All | Secrets | Variables* is part of the toolbar; the numbers show how many entries each choice would list under the other filters. The choice is in the URL: `?kind=secret` or `?kind=variable` (anything else means all).
 
-Other filters in the URL: `stage`, `status`, `repo`, `tag`, `q`. Example: `/entries?stage=production&status=missing` (used by links from Compare, Overview and Repositories). *Group by* and *Sort by* apply to both kinds.
+Other filters in the URL: `stage`, `status`, `repo`, `tag`, `q`. Example: `/entries?stage=production&status=missing` (used by links from Compare, Overview and Repositories). `status` also takes a comma-separated list: `status=soon,due` shows entries that are *Expiring soon* or *Due* (the link of the *Due soon* tile on the Overview); the status select offers this combination only while the URL carries it. *Group by* and *Sort by* apply to both kinds.
 
 ## Columns
 

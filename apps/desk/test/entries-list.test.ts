@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SecretView, VariableView } from "@secret-desk/runtime";
 import {
-  SECRET_STATUSES, VARIABLE_STATUSES, activeKinds, counts, effectiveFilters, entriesHref, initialNewKind, narrowingFilters, needsComparison, parseKind, secretMatches, statusKinds, variableMatches,
+  SECRET_STATUSES, VARIABLE_STATUSES, activeKinds, counts, effectiveFilters, entriesHref, initialNewKind, narrowingFilters, needsComparison, parseKind, parseStatusList, isStatusCombination, SOON_OR_DUE, secretMatches, statusKinds, variableMatches,
   type EntryFilters,
 } from "../src/lib/entries-list";
 import { buildIndex } from "../src/lib/palette-index";
@@ -180,5 +180,75 @@ describe("navigation", () => {
     expect(shell).not.toContain('href: "/variables"');
     expect(messages.de["common.nav.entries"]).toBe("Secrets und Variablen");
     expect(messages.en["common.nav.entries"]).toBe("Secrets and variables");
+  });
+});
+
+describe("status list (?status=soon,due)", () => {
+  it("parses a single value exactly as before and an empty one as no filter", () => {
+    expect(parseStatusList("soon")).toEqual({ mode: "list", statuses: ["soon"] });
+    expect(parseStatusList("nonsense")).toEqual({ mode: "list", statuses: ["nonsense"] });
+    for (const v of ["", null, undefined]) expect(parseStatusList(v)).toEqual({ mode: "none" });
+  });
+
+  it("splits a list, drops unknown tokens, blanks and duplicates", () => {
+    expect(parseStatusList("soon,due")).toEqual({ mode: "list", statuses: ["soon", "due"] });
+    expect(parseStatusList(" soon , bogus,,due,soon")).toEqual({ mode: "list", statuses: ["soon", "due"] });
+    expect(parseStatusList("soon,foo")).toEqual({ mode: "list", statuses: ["soon"] });
+  });
+
+  it("a non-empty list without any valid token is invalid, not 'no filter'", () => {
+    for (const v of ["foo,bar", ",", "foo,", "bogus,"]) expect(parseStatusList(v)).toEqual({ mode: "invalid" });
+  });
+
+  it("an invalid status list matches nothing, like a single unknown value", () => {
+    for (const status of ["foo,bar", ",", "foo,", "foo"]) {
+      const f = { ...none, status };
+      expect(secretMatches(secret({ status: "ok" }), f)).toBe(false);
+      expect(variableMatches(variable(), f, { v1: [{ state: "in-sync" }] })).toBe(false);
+      expect(statusKinds(status)).toEqual([]);
+      expect(needsComparison(status)).toBe(false);
+    }
+    expect(isStatusCombination("foo,bar", SOON_OR_DUE)).toBe(false);
+    expect(statusKinds("soon,foo")).toEqual(["secret"]);
+    expect(secretMatches(secret({ status: "soon" }), { ...none, status: "soon,foo" })).toBe(true);
+  });
+
+  it("recognises a combination in any order", () => {
+    expect(isStatusCombination("due,soon", SOON_OR_DUE)).toBe(true);
+    expect(isStatusCombination("soon,due", SOON_OR_DUE)).toBe(true);
+    expect(isStatusCombination("soon", SOON_OR_DUE)).toBe(false);
+    expect(isStatusCombination("soon,expired", SOON_OR_DUE)).toBe(false);
+    expect(isStatusCombination("", SOON_OR_DUE)).toBe(false);
+  });
+
+  it("filters secrets by any status of the list", () => {
+    const f = { ...none, status: "soon,due" };
+    expect(secretMatches(secret({ status: "soon" }), f)).toBe(true);
+    expect(secretMatches(secret({ status: "due" }), f)).toBe(true);
+    expect(secretMatches(secret({ status: "ok" }), f)).toBe(false);
+    expect(secretMatches(secret({ status: "ok" }), { ...none, status: "bogus," })).toBe(false);
+  });
+
+  it("filters variables by any state of the list and maps ok to in-sync", () => {
+    const drifts = { v1: [{ state: "different" }], v2: [{ state: "in-sync" }] };
+    const f = { ...none, status: "ok,different" };
+    expect(variableMatches(variable({ id: "v1" }), f, drifts)).toBe(true);
+    expect(variableMatches(variable({ id: "v2" }), f, drifts)).toBe(true);
+    expect(variableMatches(variable({ id: "v3" }), f, drifts)).toBe(false);
+  });
+
+  it("derives the kinds and the comparison need from the whole list", () => {
+    expect(statusKinds("soon,due")).toEqual(["secret"]);
+    expect(statusKinds("soon,different")).toEqual(["secret", "variable"]);
+    expect(statusKinds("bogus,")).toEqual([]);
+    expect(needsComparison("soon,due")).toBe(false);
+    expect(needsComparison("soon,different")).toBe(true);
+    expect(needsComparison("not-compared,expired")).toBe(false);
+  });
+
+  it("hides variables for the soon-or-due combination and says so", () => {
+    const f = { ...none, status: SOON_OR_DUE };
+    expect(activeKinds(f)).toEqual(["secret"]);
+    expect(narrowingFilters(f, "variable")).toEqual(["status"]);
   });
 });

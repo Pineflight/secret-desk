@@ -2,16 +2,16 @@
 import { useState } from "react";
 import { attachmentUrl, evidenceSvgUrl } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
 import { Dialog } from "./Dialog";
 
 /** Beleg nur per <img>, nie inline eingesetzt. */
 export function EvidenceImage({ secretId, reportId, createdAt, className = "", zoomable = false }: { secretId: string; reportId: string; createdAt: string; className?: string; zoomable?: boolean }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const alt = t("reviews.evidenceAlt", { date: formatDateTime(createdAt) });
   // eslint-disable-next-line @next/next/no-img-element
-  const img = <img src={evidenceSvgUrl(secretId, reportId)} alt={alt} className={`rounded-xl border border-line bg-card ${className}`} loading="lazy" />;
+  const img = <img src={evidenceSvgUrl(secretId, reportId, locale)} alt={alt} className={`rounded-xl border border-line bg-card ${className}`} loading="lazy" />;
   if (!zoomable) return img;
   return (
     <>
@@ -19,7 +19,7 @@ export function EvidenceImage({ secretId, reportId, createdAt, className = "", z
       {open ? (
         <Dialog title={alt} onClose={() => setOpen(false)} wide>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={evidenceSvgUrl(secretId, reportId)} alt={alt} className="w-full rounded-xl border border-line" />
+          <img src={evidenceSvgUrl(secretId, reportId, locale)} alt={alt} className="w-full rounded-xl border border-line" />
         </Dialog>
       ) : null}
     </>

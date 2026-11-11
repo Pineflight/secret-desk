@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useDebounced, useMutation, useNow, useQuery } from "../src/lib/hooks";
+import { useDebounced, useMediaQuery, useMutation, useNow, useQuery } from "../src/lib/hooks";
 import { notifyInventoryChange } from "../src/lib/refresh";
 
 afterEach(() => vi.useRealTimers());
@@ -178,5 +178,40 @@ describe("useNow and useDebounced", () => {
     expect(result.current).toBe("a");
     act(() => { vi.advanceTimersByTime(60); });
     expect(result.current).toBe("c");
+  });
+});
+
+describe("useMediaQuery", () => {
+  function stubMedia(initial: boolean) {
+    const listeners = new Set<(e: { matches: boolean }) => void>();
+    const list = {
+      matches: initial,
+      addEventListener: vi.fn((_: string, fn: (e: { matches: boolean }) => void) => listeners.add(fn)),
+      removeEventListener: vi.fn((_: string, fn: (e: { matches: boolean }) => void) => listeners.delete(fn)),
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => list));
+    return { list, fire: (matches: boolean) => listeners.forEach((fn) => fn({ matches })) };
+  }
+
+  it("reads the current value after mount and follows changes", () => {
+    const media = stubMedia(false);
+    const { result } = renderHook(() => useMediaQuery("(min-width: 640px)", true));
+    expect(result.current).toBe(false);
+    act(() => media.fire(true));
+    expect(result.current).toBe(true);
+  });
+
+  it("unsubscribes on unmount", () => {
+    const media = stubMedia(true);
+    const { result, unmount } = renderHook(() => useMediaQuery("(min-width: 640px)"));
+    expect(result.current).toBe(true);
+    unmount();
+    expect(media.list.removeEventListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the initial value without matchMedia", () => {
+    vi.stubGlobal("matchMedia", undefined);
+    expect(renderHook(() => useMediaQuery("(min-width: 640px)", true)).result.current).toBe(true);
+    expect(renderHook(() => useMediaQuery("(min-width: 640px)")).result.current).toBe(false);
   });
 });

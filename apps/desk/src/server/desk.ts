@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ensureConfigFile } from "@secret-desk/core";
+import { ensureConfigFile, exportTeamBundle } from "@secret-desk/core";
 import { createRuntime, issuanceDeps, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime, type RuntimeOptions } from "@secret-desk/runtime";
 import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
 
@@ -24,11 +24,19 @@ async function launchSecretOptions(): Promise<{ launchSecret?: string }> {
 async function init(): Promise<Desk> {
   const demo = process.env.SECRET_DESK_DEMO === "1";
   const configPath = process.env.SECRET_DESK_CONFIG ?? resolve(process.cwd(), "../../secret-desk.config.yaml");
-  // Demo: simuliertes GitHub, eigener Agenten-Token im Temp-Ordner, keine echten Anfragen.
-  const options: RuntimeOptions = demo ? { watchInventory: true, fetch: await (await import("./demo")).createDemoFetch(), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv } : { watchInventory: true, persistSignIn: true };
+  // Demo: simuliertes GitHub, eigener Agenten-Token im Temp-Ordner, keine echten Anfragen. The simulated team repository holds the local team
+  // file with a few changes (read lazily: the runtime exists by the time the first request arrives).
+  let demoRuntime: Runtime | undefined;
+  const demoModule = demo ? await import("./demo") : undefined;
+  const options: RuntimeOptions = demoModule
+    ? { watchInventory: true, fetch: await demoModule.createDemoFetch({ teamFile: () => demoModule.deriveDemoTeamFile(exportTeamBundle(demoRuntime!.inventory.data)) }), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv }
+    : { watchInventory: true, persistSignIn: true };
   // Container: fehlt die Datei unter SECRET_DESK_CONFIG, wird eine Minimalkonfiguration angelegt (statt ENOENT) und der Assistent startet.
   if (process.env.SECRET_DESK_CONFIG && !demo) await ensureConfigFile(configPath);
   const rt = await createRuntime(configPath, options);
+  demoRuntime = rt;
+  // Demo with team sync in the configuration: remember a past sync before the first check, so the preview is "changed in the repository", not a conflict.
+  await demoModule?.seedDemoTeamSync(rt);
   void startupTeamSync(rt);
   // Demo: erlaubter Ordner im Temp-Ordner des Systems (die Beispielkonfiguration nennt /tmp, das es unter Windows nicht gibt).
   if (demo) rt.config.policy.envRoots = [join(tmpdir(), "secret-desk-demo")];

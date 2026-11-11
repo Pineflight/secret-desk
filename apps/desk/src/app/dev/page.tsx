@@ -4,7 +4,7 @@ import type { DevEnvResult } from "@secret-desk/runtime";
 import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, Checkbox, Disclosure, Notice, PageHeader, SectionLabel, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useMutation, useQuery } from "@/lib/hooks";
+import { useMediaQuery, useMutation, useQuery } from "@/lib/hooks";
 import { Skeleton, EmptyState, ErrorState, Field } from "@/components/ui";
 import { RepoPicker } from "@/components/RepoPicker";
 import { EnvDownload } from "@/components/EnvDownload";
@@ -153,8 +153,12 @@ function entryDetail(e: TemplateEntry, t: (key: string, vars?: Record<string, st
   return t("dev.detailGenerated");
 }
 
-function TemplateCard({ t: tpl }: { t: Template }) {
+/** Below sm the cards form an accordion (header toggles the body); from sm up every card is open and has no toggle. */
+function TemplateCard({ t: tpl, defaultOpen = false }: { t: Template; defaultOpen?: boolean }) {
   const t = useT();
+  const wide = useMediaQuery("(min-width: 640px)", true);
+  const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
   const toast = useToast();
   const [typed, setTyped] = useState<string | null>(null);
   const [overwrite, setOverwrite] = useState(false);
@@ -184,15 +188,27 @@ function TemplateCard({ t: tpl }: { t: Template }) {
     ? t("dev.keysSummary", { count: tpl.entries.length, input: requiredKeys.length })
     : t("dev.keysSummaryNone", { count: tpl.entries.length });
 
+  const header = (
+    <>
+      <div>
+        <p className="font-medium">{tpl.repo}</p>
+        <p className="text-xs text-muted">{t("dev.templateAndFile", { id: tpl.id, file: tpl.file })}</p>
+      </div>
+      <span className="flex shrink-0 items-center gap-2">
+        <StageBadge stage={tpl.stage} />
+        {!wide ? <Icon name="chevron" className={`h-4 w-4 text-muted ${open ? "-rotate-90" : "rotate-90"}`} /> : null}
+      </span>
+    </>
+  );
+
   return (
     <Card>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{tpl.repo}</p>
-          <p className="text-xs text-muted">{t("dev.templateAndFile", { id: tpl.id, file: tpl.file })}</p>
-        </div>
-        <StageBadge stage={tpl.stage} />
-      </div>
+      {wide ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">{header}</div>
+      ) : (
+        <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} className="flex min-h-10 w-full items-center justify-between gap-2 text-left">{header}</button>
+      )}
+      <div id={bodyId} hidden={!(wide || open)}>
       {run.error ? <div className="mt-3"><Notice tone="danger">{run.error.message}</Notice></div> : null}
       {result?.status === "needs-input" ? <div className="mt-3"><Notice tone="warn" title={t("dev.missingInputs")}>{t("dev.missingList", { message: result.message, keys: result.keys.join(", ") })}</Notice></div> : null}
       {result?.status === "written" ? (
@@ -232,6 +248,7 @@ function TemplateCard({ t: tpl }: { t: Template }) {
           ))}
         </ul>
       </Disclosure>
+      </div>
     </Card>
   );
 }
@@ -263,7 +280,7 @@ export default function DevPage() {
       {q.loading && !q.data ? <Skeleton className="h-48" /> : null}
       {q.data && q.data.length === 0 ? <EmptyState title={t("dev.noTemplates")} icon="terminal">{t("dev.noTemplatesText")}</EmptyState> : null}
       <div className="mb-4"><EnvExportCard /></div>
-      <div className="grid gap-4 lg:grid-cols-2">{(q.data ?? []).map((tpl) => <TemplateCard key={tpl.id} t={tpl} />)}</div>
+      <div className="grid gap-4 lg:grid-cols-2">{(q.data ?? []).map((tpl, i) => <TemplateCard key={tpl.id} t={tpl} defaultOpen={i === 0} />)}</div>
       <details className="mt-8 rounded-2xl border border-line bg-card p-5">
         <summary className="cursor-pointer text-sm font-medium">{t("dev.freeExport")}</summary>
         <div className="mt-4"><FreeExport /></div>

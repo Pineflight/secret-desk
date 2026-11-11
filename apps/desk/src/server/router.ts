@@ -427,7 +427,8 @@ const raw: [string, RegExp, Raw][] = [
 ];
 
 const rawHuman: [string, RegExp, Raw][] = [
-  ["GET", /^evidence\/([^/]+)\/([^/]+)\/svg$/, async ({ rt, params }) => new Response(await evidenceSvg(rt, params[0]!, params[1]!), { headers: { "content-type": "image/svg+xml", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'", "x-content-type-options": "nosniff", "cache-control": "no-store" } })],
+  // The image comes from an <img> tag, which cannot send the language header: it also reads ?lang=en. Without either it stays German.
+  ["GET", /^evidence\/([^/]+)\/([^/]+)\/svg$/, async ({ rt, params, req, query }) => new Response(await evidenceSvg(rt, params[0]!, params[1]!, optQ(query, "lang") === "en" || req.headers.get("x-secret-desk-lang") === "en" ? "en" : "de"), { headers: { "content-type": "image/svg+xml", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'", "x-content-type-options": "nosniff", "cache-control": "no-store" } })],
   ["GET", /^evidence\/([^/]+)\/([^/]+)\/attachments\/([^/]+)$/, async ({ rt, params, err }) => {
     const a = await readAttachment(rt, params[0]!, params[1]!, params[2]!);
     if (!a) return err(404, "Anlage nicht gefunden");

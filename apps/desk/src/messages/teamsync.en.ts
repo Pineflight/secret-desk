@@ -213,5 +213,8 @@ const m: Record<string, string> = {
   "setup.choice.github": "Load from GitHub",
   "setup.choice.upload": "Upload a file",
   "setup.choice.empty": "Start empty",
+  "teamSync.token.integration": "Uses your GitHub integration. A separate team token is optional.",
+  "teamSync.push.confirmPr": "Confirm and create pull request",
+  "teamSync.push.donePrToast": "Pull request created.",
 };
 export default m;

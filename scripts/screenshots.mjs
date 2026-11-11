@@ -70,6 +70,14 @@ writeFileSync(
     "github:",
     "  owner: acme",
     "  auth: { type: pat, source: { type: env, name: GITHUB_DEMO_TOKEN } }",
+    // Team sync as in examples/demo/secret-desk.team.config.yaml: simulated repository, read and push through a pull request.
+    "teamSync:",
+    "  repo: acme/team-config",
+    "  branch: main",
+    "  path: secret-desk.team.yaml",
+    "  mode: pull-push",
+    "  push: { strategy: pull-request, branch: secret-desk/team-sync }",
+    "  pullOnStart: true",
     "policy: { agentStages: [dev], envRoots: [] }",
     // Own vault, link file and key: the screenshots never touch your real vault, keychain or folder links.
     `vault: { enabled: true, file: ${JSON.stringify(join(work, "vault.json"))} }`,
@@ -86,7 +94,7 @@ const nextEnvBefore = existsSync(nextEnvFile) ? readFileSync(nextEnvFile, "utf8"
 const agentsFileExisted = existsSync(join(deskDir, "AGENTS.md"));
 
 // 3. Start the portal in its own process group so that it can be stopped completely through our own handle.
-const env = { ...process.env, SECRET_DESK_DEMO: "1", SECRET_DESK_NO_LAUNCH_SECRET: "1", SECRET_DESK_USER: "alice", SECRET_DESK_VAULT_KEY: randomBytes(32).toString("base64"), SECRET_DESK_CONFIG: configPath };
+const env = { ...process.env, SECRET_DESK_DEMO: "1", SECRET_DESK_DEMO_SEED: "1", SECRET_DESK_NO_LAUNCH_SECRET: "1", SECRET_DESK_USER: "alice", SECRET_DESK_VAULT_KEY: randomBytes(32).toString("base64"), SECRET_DESK_CONFIG: configPath };
 const args = ["--filter", "@secret-desk/desk", "exec", "next", "dev", "-H", "127.0.0.1", "-p", String(port)];
 const pnpmJs = process.env.npm_execpath && /pnpm/i.test(process.env.npm_execpath) ? process.env.npm_execpath : undefined;
 const win = process.platform === "win32";
@@ -274,7 +282,7 @@ try {
     await page.keyboard.type("stripe");
     await page.waitForTimeout(600);
   });
-  await shot("team", "/team");
+  // The setup page shows the choice (load from GitHub, upload, start empty) whether or not team sync is configured.
   await shot("setup", "/setup");
 
   // Phone width: the same portal in a second browser context.
@@ -306,6 +314,23 @@ try {
     console.log(`  ${name}.png  (${path}, 375x812)`);
   }
   await phone.close();
+
+  // Team sync last: applying the simulated team file adds entries, which would change the shots above.
+  // team.png: configured Team page after "Sync now" (state notice, apply buttons, preview).
+  await shot("team", "/team", async () => {
+    await page.getByRole("button", { name: "Sync now" }).click();
+    await page.getByRole("button", { name: "Add new entries (existing stay)" }).waitFor({ timeout: 30_000 });
+    await page.waitForTimeout(400);
+  });
+  // team-push.png: after taking over with "add new", the push plan of the pull-request strategy (confirm button and preview).
+  await shot("team-push", "/team", async () => {
+    await page.getByRole("button", { name: "Sync now" }).click();
+    await page.getByRole("button", { name: "Add new entries (existing stay)" }).click();
+    await page.getByText("Team sync applied.").first().waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Create pull request", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm and create pull request" }).waitFor({ timeout: 30_000 });
+    await page.waitForTimeout(400);
+  });
 
   const bad = taken.filter((f) => statSync(f).size < 10_000);
   if (bad.length > 0) throw new Error(`suspiciously small screenshots (blank page?): ${bad.join(", ")}`);

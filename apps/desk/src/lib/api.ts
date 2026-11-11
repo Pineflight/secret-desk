@@ -132,8 +132,9 @@ export async function api<T>(method: string, path: string, body?: unknown, retri
 
 export const enc = encodeURIComponent;
 
-export function evidenceSvgUrl(secretId: string, reportId: string): string {
-  return `/api/ui/evidence/${enc(secretId)}/${enc(reportId)}/svg`;
+/** The evidence sheet as SVG, in the given UI language (`?lang=de|en`). */
+export function evidenceSvgUrl(secretId: string, reportId: string, locale: "de" | "en"): string {
+  return `/api/ui/evidence/${enc(secretId)}/${enc(reportId)}/svg?lang=${locale}`;
 }
 
 export function attachmentUrl(secretId: string, reportId: string, file: string): string {

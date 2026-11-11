@@ -41,7 +41,7 @@ describe("Overview page", () => {
     await screen.findByText(t("home.statExpired"));
     const hrefOf = (label: string) => screen.getByText(label).closest("a")!.getAttribute("href");
     expect(hrefOf(t("home.statExpired"))).toBe("/entries?status=expired");
-    expect(hrefOf(t("home.statSoon"))).toBe("/entries?status=soon");
+    expect(hrefOf(t("home.statSoon"))).toBe("/entries?status=soon%2Cdue");
     expect(hrefOf(t("home.statMissing"))).toBe("/entries?kind=secret&status=missing");
     expect(hrefOf(t("home.statReviews"))).toBe("/reviews");
     const attention = screen.getByText(t("home.attention"));
@@ -49,13 +49,12 @@ describe("Overview page", () => {
     expect(attention.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("counts on the soon card only what its link lists: soon secrets, not the due ones", async () => {
+  it("counts soon and due secrets on the soon card, as its link lists them", async () => {
     fakePortal({ ...base, "GET overview": overview({ byStatus: { ok: 0, unknown: 0, soon: 3, "no-date": 0, due: 2, missing: 0, expired: 0 } }) });
     renderApp(<OverviewPage />);
     const card = (await screen.findByText(t("home.statSoon"))).closest("a")!;
-    expect(card).toHaveAttribute("href", "/entries?status=soon");
-    expect(card).toHaveTextContent("3");
-    expect(card).not.toHaveTextContent("5");
+    expect(card).toHaveAttribute("href", "/entries?status=soon%2Cdue");
+    expect(card).toHaveTextContent("5");
   });
 
   it("loads the integrations block only when it scrolls into view", async () => {

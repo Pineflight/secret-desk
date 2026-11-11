@@ -2,6 +2,7 @@ import { hostForParams } from "@secret-desk/automation";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
 import { connectionGuide } from "./connection-guides.js";
+import { translateDeep } from "./i18n-en.js";
 import { neededRights } from "./team-sync.js";
 import {
   EnvEntrySchema,
@@ -576,8 +577,12 @@ export async function getEvidence(rt: Runtime, secretId: string, reportId: strin
   return r;
 }
 
-export async function evidenceSvg(rt: Runtime, secretId: string, reportId: string): Promise<string> {
-  return renderEvidenceSvg(await getEvidence(rt, secretId, reportId));
+/** The evidence sheet as an image. `lang: "en"` also translates the stored check texts with the catalogue of the API boundary; default "de" is unchanged. */
+export async function evidenceSvg(rt: Runtime, secretId: string, reportId: string, lang: "de" | "en" = "de"): Promise<string> {
+  const report = await getEvidence(rt, secretId, reportId);
+  // Only the human text fields are translated: expected/actual are data values and must stay as stored.
+  const checks = lang === "en" ? report.checks.map((c) => ({ ...c, label: translateDeep(c.label, "en"), ...(c.detail !== undefined ? { detail: translateDeep(c.detail, "en") } : {}) })) : report.checks;
+  return renderEvidenceSvg({ ...report, checks }, lang);
 }
 
 export async function attachEvidence(rt: Runtime, actor: Actor, secretId: string, reportId: string, bytes: Uint8Array, mime: string, note?: string) {

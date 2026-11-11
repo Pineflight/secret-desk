@@ -50,6 +50,12 @@ describe("demo GitHub", () => {
     expect((await gh("/repos/acme/fresh/actions/variables", { method: "POST", body: JSON.stringify({ name: "A", value: "1" }) })).status).toBe(201);
   });
 
+  it("answers 404 instead of rejecting when a request body is not a JSON object", async () => {
+    for (const body of ["not json {", "null", "5"]) {
+      expect((await gh("/orgs/acme/repos", { method: "POST", body })).status).toBe(404);
+    }
+  });
+
   it("does not simulate anything else", async () => {
     const res = await gh("/user");
     expect(res.status).toBe(404);

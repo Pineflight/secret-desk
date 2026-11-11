@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
 import { ApiError, api, ensureSession, type SessionInfo } from "@/lib/api";
-import { useDebounced, useQuery } from "@/lib/hooks";
+import { useDebounced, useMediaQuery, useQuery } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
 import { useInventorySync } from "@/lib/inventory-sync";
 import { subscribeRefresh } from "@/lib/refresh";
@@ -66,6 +66,8 @@ export function Shell({ children }: { children: ReactNode }) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+  // The short placeholder follows the viewport, not the input device: below 640px the long one would be cut off.
+  const wide = useMediaQuery("(min-width: 640px)", true);
   const dq = useDebounced(q, 250);
   const overview = useQuery<Overview>("shell-overview", () => api<Overview>("GET", "overview"), { refreshMs: 15000 });
   const about = useQuery<{ version: string; displayVersion: string; releaseUrl: string | null }>("shell-about", () => api<{ version: string; displayVersion: string; releaseUrl: string | null }>("GET", "about"));
@@ -205,7 +207,7 @@ export function Shell({ children }: { children: ReactNode }) {
           }}
         >
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t(touch ? "common.searchPlaceholderShort" : "common.searchPlaceholder")} aria-label={t("common.search")} autoComplete="off" className={`w-full rounded-xl border border-line bg-card py-2 pl-9 text-sm placeholder:text-muted ${touch ? "pr-3" : "pr-20"}`} />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t(wide ? "common.searchPlaceholder" : "common.searchPlaceholderShort")} aria-label={t("common.search")} autoComplete="off" className={`w-full rounded-xl border border-line bg-card py-2 pl-9 text-sm placeholder:text-muted ${touch ? "pr-3" : "pr-20"}`} />
           {!touch ? (
             <button type="button" onClick={() => setPaletteOpen(true)} title={t("palette.hint.shortcut", { key: shortcutLabel(platform, locale) })} aria-label={t("palette.open")} aria-keyshortcuts={platform === "mac" ? "Meta+K" : "Control+K"} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-page px-1.5 py-0.5 text-[11px] font-medium text-muted-text ring-1 ring-inset ring-line hover:text-ink">
               <kbd className="font-sans">{shortcutLabel(platform, locale)}</kbd>

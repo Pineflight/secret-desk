@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { useT } from "@/lib/i18n";
 import { refreshCounts } from "@/lib/refresh";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { useToast } from "@/lib/toast";
 import { loadStages } from "@/lib/use-stages";
 import type { PushPlan, SyncCheck, SyncStatus } from "@/lib/team-sync";
@@ -38,7 +38,7 @@ export function TeamSyncPanel() {
   }, [tokenRunning, polling]);
   // The details open as soon as there is something to do there; the person can still close them.
   const [manageOpen, setManageOpen] = useState(false);
-  const wantOpen = s?.repo && s.mode ? tokenDetailsOpen(tokenInfo.data, tokenLine(tokenInfo.data, s.repo, s.mode, s.pushStrategy ?? "pull-request")) : false;
+  const wantOpen = s?.repo && s.mode ? tokenDetailsOpen(tokenInfo.data, tokenLine(tokenInfo.data, s.repo, s.mode, s.pushStrategy ?? "pull-request", s)) : false;
   useEffect(() => {
     if (wantOpen) setManageOpen(true);
   }, [wantOpen]);
@@ -68,7 +68,7 @@ export function TeamSyncPanel() {
   const push = async () => {
     const r = await pushM.run();
     if (r) {
-      toast.success(t("teamSync.push.done"));
+      toast.success(t(plan?.strategy === "direct" ? "teamSync.push.done" : "teamSync.push.donePrToast"));
       setPushUrl(r.pullRequest?.url ?? null);
       setPlan(null);
       status.reload();
@@ -78,7 +78,7 @@ export function TeamSyncPanel() {
   if (!s) return null;
   const canApply = check?.remoteSha && check.diff && !check.diff.empty;
   const strategy = s.pushStrategy ?? "pull-request";
-  const line = s.repo && s.mode ? tokenLine(tokenInfo.data, s.repo, s.mode, strategy) : null;
+  const line = s.repo && s.mode ? tokenLine(tokenInfo.data, s.repo, s.mode, strategy, s) : null;
   if (!s.configured) {
     return (
       <Card>
@@ -94,17 +94,17 @@ export function TeamSyncPanel() {
   }
   return (
     <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <SectionLabel>{t("teamSync.title")}</SectionLabel>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="break-all font-mono">{s.repo}</span>
             <span className="break-all font-mono text-muted-text">{s.path} @ {s.branch}</span>
             <span className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted-text ring-1 ring-inset ring-line">{t(`teamSync.mode.${s.mode}`)}</span>
-            <span className="text-muted-text">{t("teamSync.lastSync")}: <span>{s.lastSyncAt ?? t("teamSync.never")}</span></span>
+            <span className="text-muted-text">{t("teamSync.lastSync")}: {s.lastSyncAt ? <time dateTime={s.lastSyncAt} title={s.lastSyncAt}>{formatDateTime(s.lastSyncAt)}</time> : <span>{t("teamSync.never")}</span>}</span>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 lg:shrink-0">
           <Button variant="primary" className="min-h-10" loading={checkM.pending} disabled={!s.connected} onClick={() => void sync()}>{t("teamSync.syncNow")}</Button>
           {s.mode === "pull-push" ? <Button className="min-h-10" loading={planM.pending} disabled={!s.connected} onClick={() => void loadPlan()}>{strategy === "direct" ? t("teamSync.push.title") : t("teamSync.push.createPr")}</Button> : null}
         </div>
@@ -113,7 +113,7 @@ export function TeamSyncPanel() {
         {s.lastError ? <Notice tone="warn" title={t("teamSync.error")}>{s.lastError}</Notice> : null}
         {checkM.error ? <Notice tone="danger">{checkM.error.message}</Notice> : null}
         {planM.error ? <Notice tone="danger">{planM.error.message}</Notice> : null}
-        {s.pendingPullUrl ? <p className="text-sm">{t("teamSync.push.pending")} <a href={s.pendingPullUrl} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">{s.pendingPullUrl}</a></p> : null}
+        {s.pendingPullUrl && !pushUrl ? <p className="text-sm">{t("teamSync.push.pending")} <a href={s.pendingPullUrl} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">{s.pendingPullUrl}</a></p> : null}
         {pushUrl ? <Notice tone="success">{t("teamSync.push.donePr")} <a href={pushUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">{pushUrl}</a></Notice> : null}
       </div>
       {check ? (
@@ -144,12 +144,12 @@ export function TeamSyncPanel() {
       ) : null}
       {plan ? (
         <div className="mt-4 space-y-3">
-          <h3 className="text-sm font-medium">{t("teamSync.push.title")}</h3>
+          <h3 className="text-sm font-medium">{plan.strategy === "direct" ? t("teamSync.push.title") : t("teamSync.push.createPr")}</h3>
           <p className="text-sm text-muted-text">{plan.strategy === "direct" ? t("teamSync.push.direct", { branch: plan.targetBranch }) : t("teamSync.push.pr", { branch: s.branch ?? "", pushBranch: plan.targetBranch })}</p>
           {pushM.error ? <Notice tone="danger">{pushM.error.message}</Notice> : null}
           {plan.diff.empty ? <p className="text-sm">{t("teamSync.push.nothing")}</p> : (
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" className="min-h-10" loading={pushM.pending} onClick={() => void push()}>{t("teamSync.push.confirm")}</Button>
+              <Button variant="primary" className="min-h-10" loading={pushM.pending} onClick={() => void push()}>{plan.strategy === "direct" ? t("teamSync.push.confirm") : t("teamSync.push.confirmPr")}</Button>
               <Button className="min-h-10" onClick={() => setPlan(null)}>{t("teamSync.apply.cancel")}</Button>
             </div>
           )}
@@ -159,7 +159,7 @@ export function TeamSyncPanel() {
       {s.repo && s.mode ? (
         <div className="mt-4 border-t border-line pt-3">
           {line ? (
-            <p className={`text-sm ${line === "valid" ? "text-success-text" : "text-warn-text"}`}>
+            <p className={`text-sm ${line === "valid" ? "text-success-text" : line === "integration" ? "text-muted-text" : "text-warn-text"}`}>
               {line === "valid" ? `✓ ${t("teamSync.token.valid", { date: formatDate(tokenInfo.data?.active?.expires) })}` : t(`teamSync.token.${line}`)}
             </p>
           ) : null}
