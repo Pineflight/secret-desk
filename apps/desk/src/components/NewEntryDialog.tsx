@@ -13,9 +13,10 @@ import { useT } from "@/lib/i18n";
 export function NewEntryDialog({ initialKind, sources, prefill, onClose, onCreated }: { initialKind: EntryKind; sources: SourceDef[]; prefill: Prefill | null; onClose: () => void; onCreated: () => void }) {
   const t = useT();
   const [kind, setKind] = useState<EntryKind>(initialKind);
+  const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
   return (
-    <Dialog title={t("entries.newTitle")} description={kind === "secret" ? t("secrets.dialogDesc") : t("variables.newDesc")} onClose={onClose} wide>
-      <div className="mb-4">
+    <Dialog title={t("entries.newTitle")} description={kind === "secret" ? t("secrets.dialogDesc") : t("variables.newDesc")} onClose={onClose} wide footer={<div ref={setFooterHost} className="contents" />}>
+      <div className="mb-3">
         <SegmentSwitch
           label={t("entries.kind")}
           value={kind}
@@ -23,7 +24,7 @@ export function NewEntryDialog({ initialKind, sources, prefill, onClose, onCreat
           options={[{ id: "secret", label: t("entries.kindSecret") }, { id: "variable", label: t("entries.kindVariable") }]}
         />
       </div>
-      {kind === "secret" ? <SecretForm key="secret" initial={prefill} onClose={onClose} onCreated={onCreated} /> : <VariableForm key="variable" sources={sources} initial={prefill} onClose={onClose} onCreated={onCreated} />}
+      {kind === "secret" ? <SecretForm key="secret" footerHost={footerHost} initial={prefill} onClose={onClose} onCreated={onCreated} /> : <VariableForm key="variable" footerHost={footerHost} sources={sources} initial={prefill} onClose={onClose} onCreated={onCreated} />}
     </Dialog>
   );
 }

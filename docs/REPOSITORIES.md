@@ -4,6 +4,8 @@ The **Repositories** page (`/repos`) lists every repository secret-desk knows, a
 
 ![Repositories](images/repositories.png)
 
+The page header has **Find locally** and **Compare with GitHub**; the search box and the table follow. Each row has *Link* (or the linked folder) and *Export .env*. A short tour of all screens: [UI-GUIDE.md](UI-GUIDE.md).
+
 ## Where the list comes from
 
 The list combines three sources:

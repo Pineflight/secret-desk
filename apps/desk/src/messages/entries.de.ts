@@ -1,6 +1,9 @@
 export default {
   "entries.title": "Secrets und Variablen",
-  "entries.subtitle": "Nur Metadaten: Die Werte von Secrets werden hier nie gespeichert. Variablen behalten ihren Sollwert, GitHub wird dagegen abgeglichen.",
+  "entries.subtitle": "Nur Metadaten, Werte von Secrets werden nie gespeichert.",
+  "entries.subtitleHint": "Variablen behalten ihren Sollwert, GitHub wird dagegen abgeglichen.",
+  "entries.moreFilters": "Weitere Filter",
+  "entries.reset": "Zurücksetzen",
   "entries.counts": "{secrets} Secrets, {variables} Variablen",
   "entries.kind": "Art",
   "entries.kindAll": "Alle",

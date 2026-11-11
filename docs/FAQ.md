@@ -52,6 +52,10 @@ A stage is secret-desk's notion of a place in your delivery path with a behavior
 
 Settings, *Add stage*, or in the YAML: `{ id: qa, kind: test, environment: qa }`. Behavior follows `kind`.
 
+## Where is the main button of a screen?
+
+In the first screen you see, without scrolling: *New* on Secrets and variables, *Write everything to GitHub* on Compare, *Generate file* on each Dev environment card, *Add integration* on Integrations, *Sync now* on Team, and the confirm buttons of a dialog in its fixed footer. Less common controls (extra filters, optional fields, older check results) sit in closed sections. See [UI-GUIDE.md](UI-GUIDE.md).
+
 ## Why does Compare show something as missing that exists in GitHub?
 
 Check the environment name the stage derives, the token's access to the repository, and whether the value lives at repository level instead of the environment ("level-mismatch"). See [COMPARE.md](COMPARE.md).

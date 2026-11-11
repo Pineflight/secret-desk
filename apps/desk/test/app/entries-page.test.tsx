@@ -206,6 +206,7 @@ describe("Entries page: filters", () => {
     entries([secret("auto-key", { automatic: true }), secret("hand-key"), secret("param-key", { params: { status: "missing", missing: ["x"] } })], []);
     const { user } = renderApp(<EntriesPage />);
     await screen.findByText(counts(3, 0));
+    await user.click(screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) }));
     await pick(user, screen.getByLabelText(new RegExp(t("entries.provider"))), t("secrets.automatic"));
     await screen.findByText(counts(1, 0));
     await pick(user, screen.getByLabelText(new RegExp(t("entries.provider"))), t("entries.all"));
@@ -248,6 +249,7 @@ describe("Entries page: filters", () => {
     await screen.findByText(counts(0, 1));
     await pick(user, screen.getByLabelText(t("meta.filterRepo")), t("meta.all"));
     await screen.findByText(counts(2, 2));
+    await user.click(screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) }));
     await pick(user, screen.getByLabelText(t("meta.group")), t("meta.groupRepo"));
     expect(await screen.findAllByText("acme/app")).not.toHaveLength(0);
     await pick(user, screen.getByLabelText(t("meta.group")), t("meta.groupStage"));
@@ -520,7 +522,33 @@ describe("Entries page: list actions", () => {
   });
 });
 
+describe("Entries page: heading", () => {
+  it("keeps the long subtitle sentence reachable as the description of the heading", async () => {
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    await ready();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleDescription(t("entries.subtitleHint"));
+  });
+});
+
 describe("Entries page: new entries and normalizing", () => {
+  it("hides the page-level new button below sm because the topbar offers the same action", async () => {
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    await ready();
+    expect(screen.getByRole("button", { name: t("entries.new") })).toHaveClass("hidden", "sm:inline-flex");
+  });
+
+  it("opens the dialog from the topbar link target and keeps every active filter in the URL", async () => {
+    navigation.set("/entries?q=alpha&tag=ops&repo=acme/app&kind=secret&stage=dev&status=soon&new=1");
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    const target = navigation.router.replace.mock.calls.at(-1)![0] as string;
+    const kept = new URL(target, "http://x").searchParams;
+    expect(Object.fromEntries(kept)).toEqual({ q: "alpha", tag: "ops", repo: "acme/app", kind: "secret", stage: "dev", status: "soon" });
+  });
+
   it("opens the new-entry dialog from the button and closes it", async () => {
     entries(SECRETS, VARIABLES);
     const { user } = renderApp(<EntriesPage />);
@@ -701,5 +729,60 @@ describe("Entries page: closing dialogs", () => {
     navigation.set("/entries?stage=staging");
     rerender(<EntriesPage />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("keeps the secondary filters behind one button and opens them by itself when one is active", async () => {
+    sessionStorage.setItem("sd:filter:entries.provider", JSON.stringify("auto"));
+    entries([secret("auto-key", { automatic: true }), secret("hand-key")], []);
+    const { user } = renderApp(<EntriesPage />);
+    const more = screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) });
+    await waitFor(() => expect(more).toHaveAttribute("aria-expanded", "true"));
+    expect(more).toHaveTextContent("1");
+    expect(screen.getByLabelText(new RegExp(t("entries.provider")))).toBeInTheDocument();
+    await user.click(more);
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).toBeNull();
+  });
+
+  it("keeps the list search, the filters, the more-filters toggle and reset in one toolbar row", async () => {
+    navigation.set("/entries?status=expired");
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    const more = await screen.findByRole("button", { name: new RegExp(t("entries.moreFilters")) });
+    const row = more.parentElement!;
+    expect(row).toContainElement(screen.getByLabelText(t("entries.status")));
+    expect(row).toContainElement(screen.getByRole("searchbox", { name: t("common.pageSearch") }));
+    expect(row).toContainElement(screen.getByRole("button", { name: t("entries.reset") }));
+    expect(screen.getByRole("searchbox", { name: t("common.pageSearch") }).closest("div.min-w-\\[12rem\\]")).not.toBeNull();
+  });
+
+  it("starts closed without secondary filters and offers no reset until a filter is set", async () => {
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    await screen.findByText(counts(2, 2));
+    expect(screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: t("entries.reset") })).toBeNull();
+  });
+
+  it("resets every filter with one control", async () => {
+    sessionStorage.setItem("sd:filter:entries.provider", JSON.stringify("auto"));
+    sessionStorage.setItem("sd:filter:entries.browse", JSON.stringify({ repo: "", sort: "stage", group: "repo" }));
+    navigation.set("/entries?kind=secret&status=expired");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await user.click(await screen.findByRole("button", { name: t("entries.reset") }));
+    expect(navigation.router.replace).toHaveBeenCalledWith("/entries");
+    await waitFor(() => expect(sessionStorage.getItem("sd:filter:entries.provider")).toBeNull());
+    expect(sessionStorage.getItem("sd:filter:entries.browse")).toBeNull();
+  });
+
+  it("offers only the filters that exist for variables inside the secondary row", async () => {
+    navigation.set("/entries?kind=variable");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await user.click(await screen.findByRole("button", { name: new RegExp(t("entries.moreFilters")) }));
+    expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).toBeNull();
+    expect(screen.getByLabelText(t("meta.sort"))).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: t("meta.sortExpires") })).toBeNull();
   });
 });

@@ -8,6 +8,16 @@ Source: pure logic in [`packages/core/src/compare.ts`](../packages/core/src/comp
 
 ![Compare, live](images/compare-live.png)
 
+## The page
+
+The two bulk actions sit in the page header: **Write everything to GitHub** and **Copy as Markdown**. Below the header is **one toolbar**: the live toggle (*Check live against GitHub*) with its status next to it (*Inventory only* or *Live state from GitHub*), the repository and type selects, the name search, the compared-stage chips and the checkboxes (*Deviations only*, *Gaps first*, *Normalize names*). With the live toggle on, the toolbar also shows *All repositories of the organization*, *Evaluate workflows*, *Only needed by workflows* and a *Reload* button. A line under the toolbar says which state you see and what *missing* and *only in GitHub* mean; a closed section, *What do these options do?*, explains the checkboxes. A compact summary strip under the toolbar lists expected, present, missing and unexpected per stage, followed by one line with the row counts. The page header and the toolbar are in the first screen, so nothing needs scrolling before you can act; with the live toggle on, the notice about unreadable targets and the strip follow right below the toolbar.
+
+Before you turn the live toggle on, the page shows the inventory only:
+
+![Compare, inventory only](images/compare.png)
+
+On a phone (375 px) the toolbar stacks into one column: [compare at 375 px](images/compare-375.png).
+
 ## The matrix
 
 - **Rows** are a repository and a name, per kind (secret or variable). The name is the place's `name` or else the entry's `name`.
@@ -98,4 +108,4 @@ An inventory repository that is missing from GitHub's list is resolved with `GET
 
 ## Portal controls
 
-Reload, **Copy as Markdown** (the current view as a table), filters by repository, type, name search, *Deviations only*, *Gaps first*, *Only needed by workflows*, *Normalize names*, compared-stage chips, and per-cell details (which entries expect it, which targets were checked, actual names, workflows that need it).
+*Write everything to GitHub* and **Copy as Markdown** (the current view as a table) in the page header; in the toolbar the live toggle, *Reload*, filters by repository, type, name search, *Deviations only*, *Gaps first*, *Only needed by workflows*, *Normalize names*, compared-stage chips, and per-cell details (which entries expect it, which targets were checked, actual names, workflows that need it).

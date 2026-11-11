@@ -17,7 +17,7 @@ export const BROWSE_DEFAULT: BrowseState = { repo: "", sort: "name", group: "non
 export function RepoFilter({ value, onChange, repos }: { value: BrowseState; onChange: (v: BrowseState) => void; repos: string[] }) {
   const t = useT();
   return (
-    <div className="w-52">
+    <div className="w-44">
       <SelectField label={t("meta.filterRepo")} value={value.repo} onChange={(e) => onChange({ ...value, repo: e.target.value })}>
         <option value="">{t("meta.all")}</option>
         {repos.map((r) => <option key={r} value={r}>{r}</option>)}

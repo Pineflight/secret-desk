@@ -21,8 +21,8 @@ export function PageSearch({ value, onChange, count, total }: { value: string; o
   }, []);
   const active = value.trim() !== "";
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-3">
-      <div className="relative w-full max-w-md">
+    <div className="flex min-w-[12rem] flex-1 flex-wrap items-center gap-3">
+      <div className="relative w-full min-w-[12rem] flex-1 sm:max-w-sm">
         <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
         <input
           ref={input}
@@ -37,6 +37,7 @@ export function PageSearch({ value, onChange, count, total }: { value: string; o
           }}
           placeholder={t("common.pageSearchPlaceholder")}
           aria-label={t("common.pageSearch")}
+          title={t("common.pageSearchHint")}
           aria-keyshortcuts="/"
           autoComplete="off"
           className="w-full rounded-xl border border-line bg-card py-2 pl-9 pr-9 text-sm placeholder:text-muted"

@@ -198,6 +198,9 @@ describe("PageSearch", () => {
     await user.click(screen.getByRole("button", { name: "Suche leeren" }));
     expect(onChange).toHaveBeenLastCalledWith("");
     expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("placeholder", "In Liste suchen");
+    expect(input).toHaveAttribute("title", "Suchen in dieser Liste (Taste /)");
+    expect(input.parentElement).toHaveClass("flex-1", "min-w-[12rem]");
   });
 
   it("shows no count while counts are unknown", () => {

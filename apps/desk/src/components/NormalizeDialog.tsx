@@ -107,7 +107,19 @@ export function NormalizeDialog({ onClose, onChanged, onCompleteParams }: { onCl
   const toggle = (id: string, on: boolean) => setSelected((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
 
   return (
-    <Dialog title={t("normalize.title")} description={t("normalize.desc")} onClose={onClose} wide>
+    <Dialog
+      title={t("normalize.title")}
+      description={t("normalize.desc")}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Button onClick={onClose}>{t("normalize.close")}</Button>
+          <Button disabled={chosen.length === 0 || busy} loading={busy} onClick={() => void apply(chosen.map((c) => c.id))}>{t("normalize.applySelected", { count: chosen.length })}</Button>
+          <Button variant="primary" disabled={applicable.length === 0 || busy} onClick={() => void apply(applicable.map((c) => c.id))}><Icon name="check" />{t("normalize.applyAll", { count: applicable.length })}</Button>
+        </>
+      }
+    >
       <div className="space-y-6">
         {result && result.needsParams.length > 0 ? (
           <Notice tone="success" title={t("normalize.nextTitle")}>
@@ -131,11 +143,6 @@ export function NormalizeDialog({ onClose, onChanged, onCompleteParams }: { onCl
             </section>
           );
         })}
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button onClick={onClose}>{t("normalize.close")}</Button>
-          <Button disabled={chosen.length === 0 || busy} loading={busy} onClick={() => void apply(chosen.map((c) => c.id))}>{t("normalize.applySelected", { count: chosen.length })}</Button>
-          <Button variant="primary" disabled={applicable.length === 0 || busy} onClick={() => void apply(applicable.map((c) => c.id))}><Icon name="check" />{t("normalize.applyAll", { count: applicable.length })}</Button>
-        </div>
       </div>
     </Dialog>
   );

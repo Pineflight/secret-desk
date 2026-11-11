@@ -1,6 +1,7 @@
 export default {
   "team.title": "Team",
   "team.subtitle": "Teile, welche Secrets und Variablen es gibt, ohne einen einzigen Wert weiterzugeben.",
+  "team.fileExchange": "Dateiaustausch",
   "team.exportTitle": "Team-Konfiguration herunterladen",
   "team.exportText": "Eine Datei mit Namen, Zielen, Anbietern und Vorlagen. Sie enthält keine Werte und keine Zugangsschlüssel. Teammitglieder können sie importieren und sehen dann dieselbe Übersicht.",
   "team.download": "Herunterladen",

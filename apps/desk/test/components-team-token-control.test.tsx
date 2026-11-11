@@ -41,6 +41,19 @@ describe("TeamTokenControl idle states", () => {
     expect(screen.queryByText("Team-Token", { exact: true })).toBeNull();
   });
 
+  it("puts the status and the primary button before the explanation and the rights", async () => {
+    info(tokenInfo({ active: activeToken() }));
+    renderApp(control());
+    const button = await screen.findByRole("button", { name: "Neues Team-Token erstellen" });
+    const status = screen.getByText(/Team-Token secret-desk-team/);
+    const explanation = screen.getByText(/secret-desk erstellt ein eigenes Token/);
+    const rights = screen.getByRole("list", { name: "Rechte des Team-Tokens" });
+    const follows = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    follows(status, button);
+    follows(button, explanation);
+    follows(explanation, rights);
+  });
+
   it("starts the creation with repository, mode, strategy and branch", async () => {
     const onCreated = vi.fn();
     const portal = info(tokenInfo(), { [`POST ${TOKEN}`]: {} });
@@ -234,6 +247,28 @@ describe("TeamTokenControl run", () => {
     const { user } = renderApp(control());
     await user.click(await screen.findByRole("button", { name: "Abbrechen" }));
     expect(await screen.findByText(/ist bereit und gültig/)).toBeInTheDocument();
+  });
+});
+
+describe("TeamTokenControl onChanged", () => {
+  it("reports a cancel, a finished revocation and a run that changes status", async () => {
+    let state = tokenInfo({ run: running() });
+    const onChanged = vi.fn();
+    info(state, { [`GET ${TOKEN}`]: () => state, [`POST ${TOKEN}/cancel`]: () => { state = tokenInfo({ run: runState({ status: "cancelled" }) }); return {}; } });
+    const { user } = renderApp(control({ onChanged }));
+    await user.click(await screen.findByRole("button", { name: "Abbrechen" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    await screen.findByRole("button", { name: "Team-Token erstellen" });
+    expect(onChanged.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reports a revocation marked as done", async () => {
+    let state = tokenInfo({ pendingRevocation: { tokenName: "old-token", repo: "acme/team", since: "2026-01-01", url: "https://github.test/x" } });
+    const onChanged = vi.fn();
+    info(state, { [`GET ${TOKEN}`]: () => state, [`POST ${TOKEN}/revocation-done`]: () => { state = tokenInfo(); return {}; } });
+    const { user } = renderApp(control({ onChanged }));
+    await user.click(await screen.findByRole("button", { name: "Habe ich gelöscht" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 });
 

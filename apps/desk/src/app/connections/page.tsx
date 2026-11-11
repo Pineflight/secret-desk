@@ -11,7 +11,7 @@ import { ConnectionCheckPanel, type CheckResult } from "@/components/ConnectionC
 import { LiveCheckPanel } from "@/components/LiveCheckPanel";
 import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
 import { FacadeCheckContext } from "@/components/ProviderFacade";
-import { CategorySection, ProviderPageCard } from "@/components/ProviderCards";
+import { ProviderGrid, ProviderPageCard } from "@/components/ProviderCards";
 import { ConnectionLinesList } from "@/components/ConnectionLines";
 import type { FacadeInfo } from "@/lib/facade";
 import { buildCards, connectionInfo, connectionLines, groupByCategory, stripeAccounts, isInUse, showsLegacyHint, signInPrompts, type ProviderCard, type VendorsResponse } from "@/lib/provider-cards";
@@ -147,7 +147,16 @@ export default function ConnectionsPage() {
       <PageHeader
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
-        actions={<Button variant="primary" onClick={() => setPicking({ vendor: null })}><Icon name="plus" className="h-4 w-4" />{t("connections.add")}</Button>}
+        actions={
+          <>
+            {used.length > 0 ? (
+              <Button onClick={() => setOpen(allExpanded(open, used.map((c) => c.id)) ? collapseAll() : expandAll(open, used.map((c) => c.id)))}>
+                {allExpanded(open, used.map((c) => c.id)) ? t("providers.collapseAll") : t("providers.expandAll")}
+              </Button>
+            ) : null}
+            <Button variant="primary" onClick={() => setPicking({ vendor: null })}><Icon name="plus" className="h-4 w-4" />{t("connections.add")}</Button>
+          </>
+        }
       />
       <LiveCheckPanel />
       {conns.error ? <ErrorState error={conns.error} onRetry={conns.reload} /> : null}
@@ -160,16 +169,9 @@ export default function ConnectionsPage() {
           <Button variant="primary" onClick={() => setPicking({ vendor: null })}>{t("connections.add")}</Button>
         </EmptyState>
       ) : null}
-      {used.length > 0 ? (
-        <div className="mb-3 flex justify-end">
-          <Button onClick={() => setOpen(allExpanded(open, used.map((c) => c.id)) ? collapseAll() : expandAll(open, used.map((c) => c.id)))}>
-            {allExpanded(open, used.map((c) => c.id)) ? t("providers.collapseAll") : t("providers.expandAll")}
-          </Button>
-        </div>
-      ) : null}
-      {groups.map((g) => (
-        <CategorySection key={g.category} category={g.category} grid="cards" level="h2">
-          {g.cards.map((card) => {
+      {groups.length > 0 ? (
+        <ProviderGrid>
+          {groups.flatMap((g) => g.cards).map((card) => {
             const phase = phases.get(card.id);
             const outcome = outcomes[card.id];
             const problem = outcomeProblem(outcome, locale, t);
@@ -223,8 +225,8 @@ export default function ConnectionsPage() {
               </li>
             );
           })}
-        </CategorySection>
-      ))}
+        </ProviderGrid>
+      ) : null}
       {picking !== false && cards && vendors.data ? (
         <IntegrationPicker
           initial={picking}
@@ -361,8 +363,8 @@ function ConnectionCard({ c, cardId, onGuide, onDisconnect, disconnecting, open,
               <Button onClick={onGuide}>{t("connections.guide")}</Button>
               {c.source === "session" || c.source === "vault" ? <Button loading={disconnecting} onClick={onDisconnect}>{t("connections.disconnect")}</Button> : null}
             </div>
-            <ConnectionDefaultsSummary id={c.id} />
             <ConnectionCheckPanel id={c.id} name={labelOf(c)} cardId={cardId} onResult={setChecked} />
+            <ConnectionDefaultsSummary id={c.id} />
           </>
         ) : null}
       </div>

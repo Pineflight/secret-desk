@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Checkbox, Notice, Pill, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Checkbox, FormFooter, Notice, Pill, SelectField, TextAreaField, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { ConnectionCheckPanel } from "@/components/ConnectionCheck";
 import { FacadeFlow } from "@/components/ProviderFacade";
@@ -41,15 +41,16 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
   const [vendor, setVendor] = useState<string | null>(initial.vendor);
   const [sub, setSub] = useState<Sub>(initial.key ? { kind: "key", id: initial.key } : initial.signIn ? { kind: "signin", portal: initial.portal ?? null, ...(initial.inputs ? { inputs: initial.inputs } : {}) } : null);
   const [q, setQ] = useState("");
+  const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
   const card = vendor ? (cards.find((c) => c.id === vendor) ?? null) : null;
 
   if (card) {
     // A view about one of several connections is titled with that connection, not the vendor (Grafana: stack vs. account token).
     const heading = dialogHeading(card, sub);
     return (
-      <Dialog title={heading.titleKey ? t(heading.titleKey, { name: heading.title, key: heading.nameKey ? t(heading.nameKey) : "" }) : heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl">
+      <Dialog title={heading.titleKey ? t(heading.titleKey, { name: heading.title, key: heading.nameKey ? t(heading.nameKey) : "" }) : heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl" footer={sub?.kind === "key" && conns.some((c) => c.id === sub.id) ? <div ref={setFooterHost} className="contents" /> : undefined}>
         <button type="button" onClick={() => (sub ? setSub(null) : setVendor(null))} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{sub ? t("connections.back") : t("providers.back")}</button>
-        <VendorDetail card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={() => onChanged(card.id, null)} onSignedIn={() => onChanged(card.id, initial.renewal ? "renewal" : "reconnect")} onDone={onClose} />
+        <VendorDetail footerHost={footerHost} card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={() => onChanged(card.id, null)} onSignedIn={() => onChanged(card.id, initial.renewal ? "renewal" : "reconnect")} onDone={onClose} />
       </Dialog>
     );
   }
@@ -58,7 +59,7 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
   const groups = groupByCategory(shown, categories);
   return (
     <Dialog title={t("providers.pickTitle")} description={t("providers.pickDesc")} onClose={onClose} size="xl">
-      <input type="search" autoComplete="off" placeholder={t("providers.search")} aria-label={t("providers.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-5 w-full`} />
+      <input type="search" autoComplete="off" placeholder={t("providers.search")} aria-label={t("providers.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-4 w-full`} />
       {groups.map((g) => (
         <CategorySection key={g.category} category={g.category}>
           {g.cards.map((c) => (
@@ -109,7 +110,7 @@ function AccountBlocks({ blocks, canConnect, unavailable, onConnect }: { blocks:
 }
 
 /** A provider's ways in, each with one plain sentence. */
-function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, onSignedIn, onDone }: { card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onSignedIn: () => void; onDone: () => void }) {
+function VendorDetail({ footerHost, card, conns, facades, signedIn, sub, setSub, onChanged, onSignedIn, onDone }: { footerHost: HTMLElement | null; card: ProviderCard; conns: Connection[]; facades: FacadeInfo[]; signedIn: ReadonlySet<string>; sub: Sub; setSub: (s: Sub) => void; onChanged: () => void; onSignedIn: () => void; onDone: () => void }) {
   const t = useT();
   const facade = card.signIn.facade ? facades.find((f) => f.id === card.signIn.facade!.id) : undefined;
   const paste = facade ? conns.find((c) => c.id === facade.connectionId) : undefined;
@@ -117,7 +118,7 @@ function VendorDetail({ card, conns, facades, signedIn, sub, setSub, onChanged, 
 
   if (sub?.kind === "key") {
     const c = conns.find((x) => x.id === sub.id);
-    return c ? <ConnectionDetail c={c} onChanged={onChanged} onDone={onDone} /> : null;
+    return c ? <ConnectionDetail c={c} footerHost={footerHost} onChanged={onChanged} onDone={onDone} /> : null;
   }
   if (sub?.kind === "hand") {
     const p = card.byHand.find((x) => x.id === sub.id);
@@ -212,9 +213,10 @@ function ProviderDetail({ p }: { p: Pick<Provider, "guide"> }) {
 }
 
 /** noExpiry: the provider's keys do not expire, so no lifetime is asked for (RevenueCat). */
-function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Connection; onChanged: () => void; onDone: () => void; noExpiry?: boolean }) {
+function ConnectionDetail({ c, footerHost, onChanged, onDone, noExpiry = false }: { c: Connection; footerHost?: HTMLElement | null; onChanged: () => void; onDone: () => void; noExpiry?: boolean }) {
   const t = useT();
   const toast = useToast();
+  const formId = useId();
   const [value, setValue] = useState("");
   const [preset, setPreset] = useState("90");
   const [custom, setCustom] = useState("");
@@ -240,13 +242,15 @@ function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Conne
       setConnectedNow(true);
     }
   };
+  // With a footer host (the picker dialog) the buttons sit in the non-scrolling footer, otherwise right below the form.
+  const place = (node: ReactNode) => <FormFooter host={footerHost}>{node}</FormFooter>;
   if (connectedNow) {
     return (
       <div className="space-y-4 text-sm">
         <Notice tone="success">{t("params.conn.afterConnect")}</Notice>
         <ConnectionCheckPanel id={c.id} name={name} {...(c.vendor ? { cardId: c.vendor } : {})} onResult={() => undefined} />
         <ConnectionResourcesPanel id={c.id} />
-        <div className="flex justify-end"><Button variant="primary" onClick={onDone}>{t("params.conn.done")}</Button></div>
+        {place(<div className="flex justify-end"><Button variant="primary" onClick={onDone}>{t("params.conn.done")}</Button></div>)}
       </div>
     );
   }
@@ -277,7 +281,7 @@ function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Conne
       {c.permissions.length > 0 ? <ul className="mt-3 flex flex-wrap gap-1.5">{c.permissions.map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted">{r}</li>)}</ul> : null}
       {c.steps.length > 0 ? <ol className="mt-3 list-decimal space-y-1 pl-5 text-muted">{c.steps.map((s, i) => <li key={i}>{s}</li>)}</ol> : null}
       {!c.connected && c.hint ? <p className="mt-3 text-xs text-muted">{c.hint}</p> : null}
-      <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-5 space-y-2 border-t border-line pt-5">
+      <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="mt-5 space-y-2 border-t border-line pt-5">
         <label htmlFor={`tok-${c.id}`} className="block font-medium">{noExpiry ? t("connections.pasteKey") : t("connections.step3")}</label>
         <input id={`tok-${c.id}`} type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} font-mono`} />
         {mismatch ? <Notice tone="warn">{t(mismatch === "live" ? "connections.prefixLive" : "connections.prefixTest")}</Notice> : null}
@@ -289,7 +293,7 @@ function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Conne
           </div>
         ) : null}
         {set.error ? <Notice tone="danger">{set.error.message}</Notice> : null}
-        <Button type="submit" variant="primary" loading={set.pending} disabled={!valid}>{t("connections.connect")}</Button>
+        {place(<Button type="submit" form={formId} variant="primary" loading={set.pending} disabled={!valid}>{t("connections.connect")}</Button>)}
       </form>
     </div>
   );
@@ -297,6 +301,7 @@ function ConnectionDetail({ c, onChanged, onDone, noExpiry = false }: { c: Conne
 
 export function AddProviderDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const t = useT();
+  const formId = useId();
   const toast = useToast();
   const [f, setF] = useState({ id: "", label: "", url: "", steps: "" });
   const [localError, setLocalError] = useState<string | null>(null);
@@ -317,17 +322,23 @@ export function AddProviderDialog({ onClose, onAdded }: { onClose: () => void; o
     }
   };
   return (
-    <Dialog title={t("connections.addProviderTitle")} description={t("connections.addProviderDesc")} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
+    <Dialog
+      title={t("connections.addProviderTitle")}
+      description={t("connections.addProviderDesc")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("connections.cancel")}</Button>
+          <Button type="submit" form={formId} variant="primary" loading={add.pending} disabled={!f.label.trim() || !f.id.trim() || !f.url.trim()}>{t("connections.addProvider")}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
         <TextField label={t("connections.fieldName")} required value={f.label} onChange={(e) => set("label", e.target.value)} autoComplete="off" data-autofocus />
         <TextField label={t("connections.fieldId")} hint={t("connections.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" />
         <TextField label={t("connections.fieldUrl")} hint={t("connections.fieldUrlHint")} required type="url" value={f.url} onChange={(e) => set("url", e.target.value)} autoComplete="off" />
         <TextAreaField label={t("connections.fieldSteps")} hint={t("connections.fieldStepsHint")} rows={5} value={f.steps} onChange={(e) => set("steps", e.target.value)} />
         {localError || add.error ? <Notice tone="danger">{localError ?? add.error?.message}</Notice> : null}
-        <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>{t("connections.cancel")}</Button>
-          <Button type="submit" variant="primary" loading={add.pending} disabled={!f.label.trim() || !f.id.trim() || !f.url.trim()}>{t("connections.addProvider")}</Button>
-        </div>
       </form>
     </Dialog>
   );

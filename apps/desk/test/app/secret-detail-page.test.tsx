@@ -203,6 +203,24 @@ describe("Secret detail: history", () => {
     expect(screen.getByText(t("common.overall.pass"))).toBeInTheDocument();
   });
 
+  it("shows the three newest reviews and folds older ones into a disclosure", async () => {
+    page({ "GET evidence/s1": [1, 2, 3, 4, 5].map((n) => report(`r${n}`, `2026-0${n}-01T10:00:00.000Z`)) });
+    const { container } = renderApp(<SecretDetailPage />);
+    await screen.findByText("fp-r5");
+    const details = container.querySelector("details")!;
+    expect(within(details).getByText(t("secretDetail.historyOlder", { count: 2 }))).toBeInTheDocument();
+    expect(details.textContent).toContain("fp-r2");
+    expect(details.textContent).toContain("fp-r1");
+    expect(details.textContent).not.toContain("fp-r3");
+  });
+
+  it("renders no disclosure for three or fewer reviews", async () => {
+    page({ "GET evidence/s1": [1, 2, 3].map((n) => report(`r${n}`, `2026-0${n}-01T10:00:00.000Z`)) });
+    const { container } = renderApp(<SecretDetailPage />);
+    await screen.findByText("fp-r3");
+    expect(container.querySelector("details")).toBeNull();
+  });
+
   it("shows the empty state and the history error with a retry", async () => {
     let fail = true;
     page({ "GET evidence/s1": () => (fail ? { status: 500, body: { error: "history broke" } } : []) });

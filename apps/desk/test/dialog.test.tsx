@@ -88,4 +88,42 @@ describe("Dialog", () => {
     await user.keyboard("{Tab}a");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  it("renders the footer outside the scrolling body and keeps its buttons in the focus trap", async () => {
+    const { user } = renderApp(<Dialog title="A" onClose={() => {}} footer={<button>save</button>}><input aria-label="field" /></Dialog>);
+    const footerButton = screen.getByRole("button", { name: "save" });
+    const body = screen.getByLabelText("field").parentElement!;
+    expect(body).toHaveClass("overflow-y-auto");
+    expect(body).not.toContainElement(footerButton);
+    expect(screen.getByRole("dialog")).toContainElement(footerButton);
+    footerButton.focus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Dialog schließen" })).toHaveFocus();
+  });
+
+  it("cycles from the last footer button to the first element and back with Shift+Tab", async () => {
+    const { user } = renderApp(<Dialog title="A" onClose={() => {}} footer={<><button>cancel</button><button>save</button></>}><input aria-label="field" /></Dialog>);
+    const close = screen.getByRole("button", { name: "Dialog schließen" });
+    const save = screen.getByRole("button", { name: "save" });
+    save.focus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(save).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "cancel" })).toHaveFocus();
+  });
+
+  it("renders no footer bar without a footer", () => {
+    renderApp(<Dialog title="A" onClose={() => {}}>x</Dialog>);
+    expect(document.querySelector(".border-t.border-line")).toBeNull();
+  });
+
+  it("renders no empty body for a dialog with only a description and a footer", () => {
+    renderApp(<Dialog title="A" description="Sure?" onClose={() => {}} footer={<button>go</button>} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.querySelector(".overflow-y-auto")).toBeNull();
+    expect(screen.getByText("Sure?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "go" })).toBeInTheDocument();
+  });
 });

@@ -4,6 +4,7 @@ import { SelectBox } from "./SelectBox";
 import Link from "next/link";
 import type { ChangeEvent, ButtonHTMLAttributes, KeyboardEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useId } from "react";
+import { createPortal } from "react-dom";
 import type { StatusLevel } from "@secret-desk/core";
 import { ApiError } from "@/lib/api";
 import { nextTab } from "@/lib/tabs";
@@ -19,11 +20,14 @@ export function SectionLabel({ children, className = "" }: { children: ReactNode
   return <h2 className={`text-[11px] font-semibold uppercase tracking-wide text-muted ${className}`}>{children}</h2>;
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+/** `description`: longer help for the heading that does not fit the subtitle line; kept in a visually hidden element the heading points to. */
+export function PageHeader({ title, subtitle, description, actions }: { title: string; subtitle?: ReactNode; description?: string; actions?: ReactNode }) {
+  const descriptionId = useId();
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight" {...(description ? { "aria-describedby": descriptionId } : {})}>{title}</h1>
+        {description ? <span id={descriptionId} className="sr-only">{description}</span> : null}
         {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -121,11 +125,11 @@ export function TextAreaField({ label, hint, ...rest }: TextareaHTMLAttributes<H
   );
 }
 
-export function Checkbox({ checked, onChange, children, disabled }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean }) {
+export function Checkbox({ checked, onChange, children, disabled, describedBy }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean; /** Id of the element with the help text for this option. */ describedBy?: string }) {
   const id = useId();
   return (
     <div className="flex items-start gap-3">
-      <input id={id} type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--sd-primary)]" />
+      <input id={id} type="checkbox" checked={checked} disabled={disabled} aria-describedby={describedBy} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--sd-primary)]" />
       <label htmlFor={id} className="text-sm">{children}</label>
     </div>
   );
@@ -146,7 +150,48 @@ export function ListSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-export function EmptyState({ title, children, icon = "inbox" }: { title: string; children?: ReactNode; icon?: string }) {
+export function ActionBar({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`sd-action-bar ${className}`}>{children}</div>;
+}
+
+/**
+ * Form buttons for the footer bar of a surrounding Dialog: `host` is the footer element (null until it is mounted, then
+ * nothing is rendered). Without a `host` the buttons stay inline, so a form also works outside a dialog footer.
+ * `error` is shown as an alert across the footer width above the buttons, so it is visible next to the submit button
+ * even when the dialog body is scrolled.
+ */
+export function FormFooter({ host, error, children }: { host?: HTMLElement | null; error?: ReactNode; children: ReactNode }) {
+  const body = (
+    <>
+      {error ? <div className="w-full basis-full text-left"><Notice tone="danger">{error}</Notice></div> : null}
+      {children}
+    </>
+  );
+  if (host === undefined) return <div className="flex flex-wrap justify-end gap-2">{body}</div>;
+  return host ? createPortal(body, host) : null;
+}
+
+export function Disclosure({ summary, children, defaultOpen = false, open, onToggle, className = "" }: { summary: ReactNode; children: ReactNode; defaultOpen?: boolean; /** Controlled state; with it the caller owns whether the section is open. */ open?: boolean; onToggle?: (open: boolean) => void; className?: string }) {
+  return (
+    <details open={open ?? defaultOpen} onToggle={onToggle ? (e) => onToggle(e.currentTarget.open) : undefined} className={`sd-disclosure ${className}`}>
+      <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <Icon name="chevron" className="sd-disclosure-chevron h-4 w-4 shrink-0 text-muted" />
+        {summary}
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+export function EmptyState({ title, children, icon = "inbox", compact = false }: { title: string; children?: ReactNode; icon?: string; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-dashed border-line px-4 py-3 text-sm">
+        <p className="font-medium">{title}</p>
+        {children ? <div className="text-muted">{children}</div> : null}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line px-6 py-12 text-center">
       <span className="rounded-full bg-page p-3 text-muted"><Icon name={icon} className="h-6 w-6" /></span>

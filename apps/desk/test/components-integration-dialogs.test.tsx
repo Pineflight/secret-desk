@@ -53,6 +53,11 @@ describe("IntegrationPicker list", () => {
     expect(screen.getByText("Kein Anbieter passt.")).toBeInTheDocument();
   });
 
+  it("keeps the gap below the search field at 16px", () => {
+    renderApp(picker());
+    expect(screen.getByRole("searchbox")).toHaveClass("mb-4");
+  });
+
   it("opens a provider and goes back to the list, and adds a custom provider", async () => {
     const onNewProvider = vi.fn();
     const { user } = renderApp(picker({ onNewProvider }));
@@ -275,6 +280,12 @@ describe("IntegrationPicker pasted key", () => {
     renderApp(picker({ initial: { vendor: "acme", key: "ghost" } }));
     expect(screen.getByRole("button", { name: "← Zurück zur Auswahl" })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Zugangsschlüssel/)).toBeNull();
+    expect(screen.getByRole("dialog").querySelector(".border-t.border-line")).toBeNull();
+  });
+
+  it("mounts the footer bar only when the key exists", () => {
+    open();
+    expect(screen.getByRole("dialog").querySelector(".border-t.border-line")).not.toBeNull();
   });
 
   it("describes the key, its link with the chosen lifetime and the permissions", async () => {

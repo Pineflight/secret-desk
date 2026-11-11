@@ -45,34 +45,44 @@ export default function TeamPage() {
     <>
       <PageHeader title={t("team.title")} subtitle={t("team.subtitle")} />
       <div className="mb-6"><TeamSyncPanel /></div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionLabel>{t("team.exportTitle")}</SectionLabel>
-          <p className="mt-3 text-sm text-muted-text">{t("team.exportText")}</p>
-          <a href="/api/ui/team-export" download className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:brightness-95"><Icon name="download" />{t("team.download")}</a>
-        </Card>
-        <Card>
-          <SectionLabel>{t("team.importTitle")}</SectionLabel>
-          <form onSubmit={(e) => { e.preventDefault(); if (!text.trim()) return; if (replace) setConfirming(true); else void submit(); }} className="mt-3 space-y-3">
-            <div className="space-y-1">
-              <label htmlFor="team-datei" className="block text-sm font-medium">{t("team.loadFile")}</label>
-              <input id="team-datei" ref={fileRef} type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={() => void readFile()} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary-light file:px-3 file:py-1.5 file:text-primary" />
-            </div>
-            <TextAreaField label={t("team.pasteText")} rows={8} value={text} onChange={(e) => setText(e.target.value)} className="font-mono" spellCheck={false} />
-            <Checkbox checked={replace} onChange={setReplace}>{t("team.replace")}</Checkbox>
-            {imp.error ? <Notice tone="danger">{imp.error.message}</Notice> : null}
-            {result ? <Notice tone="success" title={t("team.importDone")}>{t("team.importSummary", { added: count(result.added), skipped: count(result.skipped) })}</Notice> : null}
-            <Button type="submit" variant="primary" loading={imp.pending} disabled={!text.trim()}><Icon name="upload" />{t("team.import")}</Button>
-          </form>
-        </Card>
-      </div>
-      {confirming ? (
-        <Dialog title={t("team.confirmReplaceTitle")} description={t("team.confirmReplaceText")} onClose={() => setConfirming(false)}>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button onClick={() => setConfirming(false)}>{t("team.confirmReplaceCancel")}</Button>
-            <Button variant="danger" loading={imp.pending} onClick={() => void submit()}>{t("team.confirmReplaceYes")}</Button>
+      <Card>
+        <SectionLabel>{t("team.fileExchange")}</SectionLabel>
+        <div className="mt-3 grid gap-6 lg:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-medium">{t("team.exportTitle")}</h3>
+            <p className="mt-1 text-sm text-muted-text">{t("team.exportText")}</p>
+            <a href="/api/ui/team-export" download className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:brightness-95"><Icon name="download" />{t("team.download")}</a>
           </div>
-        </Dialog>
+          <div>
+            <h3 className="text-sm font-medium">{t("team.importTitle")}</h3>
+            <form onSubmit={(e) => { e.preventDefault(); if (!text.trim()) return; if (replace) setConfirming(true); else void submit(); }} className="mt-2 space-y-3">
+              <div className="space-y-1">
+                <label htmlFor="team-datei" className="block text-sm font-medium">{t("team.loadFile")}</label>
+                <input id="team-datei" ref={fileRef} type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={() => void readFile()} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary-light file:px-3 file:py-1.5 file:text-primary" />
+              </div>
+              <TextAreaField label={t("team.pasteText")} rows={4} value={text} onChange={(e) => setText(e.target.value)} className="font-mono" spellCheck={false} />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Checkbox checked={replace} onChange={setReplace}>{t("team.replace")}</Checkbox>
+                <Button type="submit" variant="primary" className="min-h-10" loading={imp.pending} disabled={!text.trim()}><Icon name="upload" />{t("team.import")}</Button>
+              </div>
+              {imp.error ? <Notice tone="danger">{imp.error.message}</Notice> : null}
+              {result ? <Notice tone="success" title={t("team.importDone")}>{t("team.importSummary", { added: count(result.added), skipped: count(result.skipped) })}</Notice> : null}
+            </form>
+          </div>
+        </div>
+      </Card>
+      {confirming ? (
+        <Dialog
+          title={t("team.confirmReplaceTitle")}
+          description={t("team.confirmReplaceText")}
+          onClose={() => setConfirming(false)}
+          footer={
+            <>
+              <Button onClick={() => setConfirming(false)}>{t("team.confirmReplaceCancel")}</Button>
+              <Button variant="danger" loading={imp.pending} onClick={() => void submit()}>{t("team.confirmReplaceYes")}</Button>
+            </>
+          }
+        />
       ) : null}
     </>
   );

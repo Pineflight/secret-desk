@@ -191,12 +191,12 @@ export function TeamConfigPicker({ onChange }: Props) {
   const repoListOpen = !repo || !confirmed.repo || changingRepo;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {problem?.code === "rate-limit" ? <ShortNotice text={t("teamPicker.problem.rate-limit.title")} onRetry={retry} /> : null}
       {problem && problem.code !== "rate-limit" ? <ProblemNotice problem={problem} onRetry={retry} /> : null}
       {!problem && networkError ? <ShortNotice text={t("teamPicker.problem.network")} onRetry={retry} /> : null}
 
-      <ol className="space-y-4" aria-label={t("teamPicker.stepsLabel")}>
+      <ol className="space-y-3" aria-label={t("teamPicker.stepsLabel")}>
         <SetupStep number={1} title={t("teamPicker.step.repo")} status={statusOf("repo")}>
           {!repoListOpen ? (
             <p className="flex flex-wrap items-center gap-3 text-sm">

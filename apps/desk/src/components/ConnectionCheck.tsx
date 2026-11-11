@@ -64,7 +64,7 @@ export function CheckList({ result }: { result: CheckResult }) {
   return (
     <div className="mt-3 text-sm" role="status">
       <Notice tone={result.ok ? "success" : "danger"}>{result.ok ? t("connections.testOk") : t("connections.testProblems")}</Notice>
-      <ul className="mt-2 divide-y divide-line">
+      <ul className="mt-2 max-h-[50vh] divide-y divide-line overflow-y-auto">
         {result.checks.map((c) => (
           <li key={c.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2">
             <Badge info={{ ...checkInfo(c.status) }} />

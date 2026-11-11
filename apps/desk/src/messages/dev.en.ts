@@ -49,7 +49,7 @@ export default {
   "dev.written": "Written",
   "dev.keysList": "Keys: {keys}",
   "dev.title": "Dev environment",
-  "dev.subtitle": "Generates a local .env file from a repo's template. Only the path and key names are shown, never values.",
+  "dev.subtitle": "Generates a local .env file from a repo template. Never values, only the path and key names.",
   "dev.noTemplates": "No templates",
   "dev.noTemplatesText": "There is no dev template yet. Use the free export below.",
   "dev.freeExport": "Other template / free export",
@@ -68,4 +68,7 @@ export default {
   "dev.exportRepo": "Export .env",
   "dev.exportRepoAria": "Export .env for {name}",
   "dev.exportClose": "Close",
+  "dev.keysSummary": "{count} keys · your input needed for {input}",
+  "dev.keysSummaryNone": "{count} keys · no input needed",
+  "dev.exportRepoPlaceholder": "Type or pick a repository",
 } satisfies Record<string, string>;

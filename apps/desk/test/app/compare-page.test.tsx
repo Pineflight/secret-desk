@@ -2,6 +2,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 import ComparePage from "@/app/compare/page";
 import { translate as t } from "@/lib/i18n";
+import de from "@/messages/compare.de";
+import en from "@/messages/compare.en";
 import { fakePortal, type FakeHandler } from "../helpers/portal";
 import { renderApp } from "../helpers/render";
 import { pick } from "../helpers/select";
@@ -23,7 +25,37 @@ describe("Compare page: states", () => {
     const { container } = renderApp(<ComparePage />);
     expect(container.querySelector(".sd-skeleton")).not.toBeNull();
     expect(await screen.findByText(t("compare.emptyFirst"))).toBeInTheDocument();
-    expect(screen.getByText(t("compare.offlineNotice"))).toBeInTheDocument();
+    const status = screen.getByText(t("compare.statusOffline")).closest("[role=status]")!;
+    expect(status).toHaveTextContent(t("compare.statusOffline"));
+    expect(status).toHaveTextContent(t("compare.offlineNotice"));
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(screen.getAllByText(t("compare.offlineNotice"), { exact: false })).toHaveLength(1);
+  });
+
+  it("keeps the option hints reachable: one closed disclosure and aria-describedby on each option", async () => {
+    compare(result({ rows: [consistent] }));
+    const { user } = renderApp(<ComparePage />);
+    await ready();
+    const disclosure = screen.getByText(t("compare.optionsHelp")).closest("details")!;
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(document.querySelector("[title]:has(input[type=checkbox])")).toBeNull();
+    const described = (name: string) => document.getElementById(screen.getByRole("checkbox", { name: new RegExp(name) }).getAttribute("aria-describedby")!);
+    expect(described(t("compare.live"))).toHaveTextContent(t("compare.liveHint"));
+    expect(described(t("compare.normalize"))).toHaveTextContent(t("compare.normalizeHint"));
+    expect(screen.getByRole("group", { name: t("compare.stagesLabel") })).toHaveAccessibleDescription(t("compare.stagesHint"));
+    expect(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) })).toHaveAccessibleDescription(t("compare.liveHint"));
+    expect(screen.queryByText(t("compare.allReposHint"))).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
+    expect(described(t("compare.allRepos"))).toHaveTextContent(t("compare.allReposHint"));
+    expect(described(t("compare.workflows"))).toHaveTextContent(t("compare.workflowsHint"));
+  });
+
+  it("keeps the write-to-GitHub action in the page header, disabled until the data is there", async () => {
+    compare(result({ rows: [consistent] }));
+    renderApp(<ComparePage />);
+    expect(screen.getByRole("button", { name: t("compare.sync.button") })).toBeDisabled();
+    await ready();
+    expect(screen.getByRole("button", { name: t("compare.sync.button") })).toBeEnabled();
   });
 
   it("shows the error and retries", async () => {
@@ -101,14 +133,51 @@ describe("Compare page: live reading", () => {
       release(undefined);
       await gate;
     });
-    expect(await screen.findByText(t("compare.liveNotice"))).toBeInTheDocument();
+    const status = (await screen.findByText(t("compare.statusLive"))).closest("[role=status]")!;
+    expect(status).toHaveTextContent(t("compare.liveNotice"));
   });
 
-  it("lists read errors of the targets", async () => {
-    compare(liveResult({ errors: [{ target: "web/env:production", message: "429 rate limited" }] }));
+  it("shows one warning line with the count and the target list in a closed disclosure, before the summary and the table", async () => {
+    const errors = [1, 2, 3].map((n) => ({ target: `web/env:t${n}`, message: `429 rate limited ${n}` }));
+    compare(liveResult({ errors }));
     renderApp(<ComparePage />);
-    expect(await screen.findByText("429 rate limited", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText(t("compare.errorsTitle"))).toBeInTheDocument();
+    const message = await screen.findByText("429 rate limited 1", { exact: false });
+    const title = screen.getByText(t("compare.errorsTitle", { count: 3 }));
+    const details = title.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toContainElement(message);
+    expect(details.querySelectorAll("li")).toHaveLength(3);
+    const summary = screen.getByRole("region", { name: t("compare.sumTitle") });
+    const table = document.querySelector("table")!;
+    expect(details.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("groups the live options and the reload button in one container", async () => {
+    compare(liveResult());
+    const { user } = renderApp(<ComparePage />);
+    await ready();
+    expect(screen.queryByTestId("compare-live-options")).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
+    const group = await screen.findByTestId("compare-live-options");
+    expect(group).toContainElement(screen.getByRole("button", { name: t("compare.refresh") }));
+    expect(group.querySelectorAll("input[type=checkbox]")).toHaveLength(2);
+  });
+
+  it("does not repeat the short status in the explanatory sentence (live and offline, de and en)", async () => {
+    compare(liveResult());
+    const { user } = renderApp(<ComparePage />);
+    await ready();
+    const offline = screen.getByText(t("compare.statusOffline")).closest("[role=status]")!;
+    expect(offline.textContent!.split(t("compare.statusOffline"))).toHaveLength(2);
+    await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
+    const live = (await screen.findByText(t("compare.statusLive"))).closest("[role=status]")!;
+    expect(live.textContent!.split(t("compare.statusLive"))).toHaveLength(2);
+    expect(live.closest(".mb-4")!.querySelectorAll("[role=status]")).toHaveLength(1);
+    for (const lang of [de, en]) {
+      expect((lang["compare.liveNotice"] as string).startsWith((lang["compare.statusLive"] as string).replace(/\.$/, ""))).toBe(false);
+      expect(lang["compare.offlineNotice"]).not.toContain(String(lang["compare.statusOffline"]).replace(/\.$/, ""));
+    }
   });
 
   it("asks for the normalized names", async () => {

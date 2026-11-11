@@ -37,7 +37,7 @@ export const ACTIONS_GROUP_CLASS = "flex w-[10.5rem] items-center justify-end ga
  */
 export function ListTable({ columns, columnClasses = [], minWidth = 720, stickyLast = false, children }: { columns: ReactNode[]; columnClasses?: string[]; minWidth?: number; stickyLast?: boolean; children: ReactNode }) {
   return (
-    <Card className="overflow-x-auto !p-0">
+    <Card className="relative overflow-x-auto !p-0">
       <table className={`w-full text-left text-sm ${stickyLast ? "sd-sticky-last" : ""}`} style={{ minWidth: minWidth || undefined }}>
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
@@ -81,7 +81,7 @@ export function SegmentSwitch<T extends string>({ label, value, options, onChang
             type="button"
             aria-pressed={value === o.id}
             onClick={() => onChange(o.id)}
-            className={`rounded-lg px-3 py-1 text-sm font-medium ${value === o.id ? "bg-card text-ink shadow-sm" : "text-muted-text hover:text-ink"}`}
+            className={`min-h-10 rounded-lg px-3 py-1 text-sm font-medium sm:min-h-0 ${value === o.id ? "bg-card text-ink shadow-sm" : "text-muted-text hover:text-ink"}`}
           >
             {o.label}
             {o.count !== undefined ? <span className="tabular ml-1.5 text-xs text-muted">{o.count}</span> : null}

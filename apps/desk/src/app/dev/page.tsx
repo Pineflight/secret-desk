@@ -2,7 +2,7 @@
 import { useId, useState } from "react";
 import type { DevEnvResult } from "@secret-desk/runtime";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, Checkbox, Notice, PageHeader, SectionLabel, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Disclosure, Notice, PageHeader, SectionLabel, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { Skeleton, EmptyState, ErrorState, Field } from "@/components/ui";
@@ -178,6 +178,12 @@ function TemplateCard({ t: tpl }: { t: Template }) {
     if (res.status === "written") toast.success(t("dev.fileWritten"));
   };
 
+  const requiredKeys = promptKeys.filter((k) => !optionalKeys.includes(k));
+  const orderedPromptKeys = [...requiredKeys, ...optionalKeys];
+  const keysSummary = requiredKeys.length > 0
+    ? t("dev.keysSummary", { count: tpl.entries.length, input: requiredKeys.length })
+    : t("dev.keysSummaryNone", { count: tpl.entries.length });
+
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -187,39 +193,45 @@ function TemplateCard({ t: tpl }: { t: Template }) {
         </div>
         <StageBadge stage={tpl.stage} />
       </div>
-      <ul className="mt-3 divide-y divide-line text-sm">
-        {tpl.entries.map((e) => (
-          <li key={e.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <div className="min-w-0">
-              <code className="text-xs">{e.key}</code>
-              {e.description ? <p className="text-xs text-muted-text">{e.description}</p> : null}
-              <p className="text-xs text-muted-text">{entryDetail(e, t)}</p>
-            </div>
-            <Badge info={{ label: SOURCE_KEYS[e.source] ? t(SOURCE_KEYS[e.source]!) : e.source, tone: SOURCE_TONE[e.source], icon: e.source === "prompt" ? "hand" : "dot" }} />
-          </li>
-        ))}
-      </ul>
-      <form onSubmit={(ev) => { ev.preventDefault(); void submit(); }} className="mt-4 space-y-3 border-t border-line pt-4">
-        <TextField label={t("dev.filePath")} hint={folder && typed === null ? t("dev.filePathFromLink") : t("dev.filePathHintTpl")} required value={path} onChange={(e) => setPath(e.target.value)} autoComplete="off" />
-        {promptKeys.map((k) => (
-          <div key={k} className="space-y-1">
-            <label htmlFor={`p-${tpl.id}-${k}`} className="block text-sm font-medium">{t(optionalKeys.includes(k) ? "dev.promptOptional" : "dev.promptRequired", { key: k })}</label>
-            <input id={`p-${tpl.id}-${k}`} type="password" autoComplete="off" spellCheck={false} value={values[k] ?? ""} onChange={(e) => setValues((o) => ({ ...o, [k]: e.target.value }))} className={`${inputClass} font-mono`} />
-          </div>
-        ))}
-        <Checkbox checked={overwrite} onChange={setOverwrite}>{t("dev.overwrite")}</Checkbox>
-        {run.error ? <Notice tone="danger">{run.error.message}</Notice> : null}
-        {result?.status === "needs-input" ? <Notice tone="warn" title={t("dev.missingInputs")}>{t("dev.missingList", { message: result.message, keys: result.keys.join(", ") })}</Notice> : null}
-        {result?.status === "written" ? (
+      {run.error ? <div className="mt-3"><Notice tone="danger">{run.error.message}</Notice></div> : null}
+      {result?.status === "needs-input" ? <div className="mt-3"><Notice tone="warn" title={t("dev.missingInputs")}>{t("dev.missingList", { message: result.message, keys: result.keys.join(", ") })}</Notice></div> : null}
+      {result?.status === "written" ? (
+        <div className="mt-3">
           <Notice tone="success" title={t("dev.written")}>
             <span className="break-all font-mono">{result.path}</span>
             <span className="block text-xs">{t("dev.keysList", { keys: result.keys.join(", ") })}</span>
             {result.skipped && result.skipped.length > 0 ? <span className="block text-xs">{t("dev.skippedList", { keys: result.skipped.join(", ") })}</span> : null}
             {result.warnings.map((w, i) => <span key={i} className="mt-1 block">{w}</span>)}
           </Notice>
-        ) : null}
-        <Button type="submit" variant="primary" loading={run.pending}><Icon name="terminal" />{t("dev.createFile")}</Button>
+        </div>
+      ) : null}
+      <form onSubmit={(ev) => { ev.preventDefault(); void submit(); }} className="mt-3 space-y-3">
+        <TextField label={t("dev.filePath")} hint={folder && typed === null ? t("dev.filePathFromLink") : undefined} placeholder={t("dev.filePathHintTpl")} required value={path} onChange={(e) => setPath(e.target.value)} autoComplete="off" />
+        {orderedPromptKeys.map((k) => (
+          <div key={k} className="space-y-1">
+            <label htmlFor={`p-${tpl.id}-${k}`} className="block text-sm font-medium">{t(optionalKeys.includes(k) ? "dev.promptOptional" : "dev.promptRequired", { key: k })}</label>
+            <input id={`p-${tpl.id}-${k}`} type="password" autoComplete="off" spellCheck={false} value={values[k] ?? ""} onChange={(e) => setValues((o) => ({ ...o, [k]: e.target.value }))} className={`${inputClass} font-mono`} />
+          </div>
+        ))}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Checkbox checked={overwrite} onChange={setOverwrite}>{t("dev.overwrite")}</Checkbox>
+          <Button type="submit" variant="primary" loading={run.pending}><Icon name="terminal" />{t("dev.createFile")}</Button>
+        </div>
       </form>
+      <Disclosure className="mt-3 border-t border-line pt-1" summary={keysSummary}>
+        <ul className="max-h-[50vh] divide-y divide-line overflow-y-auto text-sm">
+          {tpl.entries.map((e) => (
+            <li key={e.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <div className="min-w-0">
+                <code className="text-xs">{e.key}</code>
+                {e.description ? <p className="text-xs text-muted-text">{e.description}</p> : null}
+                <p className="text-xs text-muted-text">{entryDetail(e, t)}</p>
+              </div>
+              <Badge info={{ label: SOURCE_KEYS[e.source] ? t(SOURCE_KEYS[e.source]!) : e.source, tone: SOURCE_TONE[e.source], icon: e.source === "prompt" ? "hand" : "dot" }} />
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
     </Card>
   );
 }
@@ -228,16 +240,15 @@ function TemplateCard({ t: tpl }: { t: Template }) {
 function EnvExportCard() {
   const t = useT();
   const [repo, setRepo] = useState("");
-  const repoId = useId();
   return (
     <Card>
-      <p className="font-medium">{t("dev.exportTitle")}</p>
-      <div className="mt-3 space-y-3">
-        <Field label={t("dev.repository")} htmlFor={repoId}>
-          <RepoPicker id={repoId} value={repo} onChange={setRepo} />
-        </Field>
-        {repo.trim() ? <EnvDownload repo={repo.trim()} /> : null}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <p className="font-medium">{t("dev.exportTitle")}</p>
+        <div className="min-w-64 flex-1">
+          <RepoPicker value={repo} onChange={setRepo} ariaLabel={t("dev.repository")} placeholder={t("dev.exportRepoPlaceholder")} />
+        </div>
       </div>
+      {repo.trim() ? <div className="mt-3"><EnvDownload repo={repo.trim()} /></div> : null}
     </Card>
   );
 }
@@ -251,8 +262,8 @@ export default function DevPage() {
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : null}
       {q.loading && !q.data ? <Skeleton className="h-48" /> : null}
       {q.data && q.data.length === 0 ? <EmptyState title={t("dev.noTemplates")} icon="terminal">{t("dev.noTemplatesText")}</EmptyState> : null}
-      <div className="mb-6"><EnvExportCard /></div>
-      <div className="grid gap-6 lg:grid-cols-2">{(q.data ?? []).map((tpl) => <TemplateCard key={tpl.id} t={tpl} />)}</div>
+      <div className="mb-4"><EnvExportCard /></div>
+      <div className="grid gap-4 lg:grid-cols-2">{(q.data ?? []).map((tpl) => <TemplateCard key={tpl.id} t={tpl} />)}</div>
       <details className="mt-8 rounded-2xl border border-line bg-card p-5">
         <summary className="cursor-pointer text-sm font-medium">{t("dev.freeExport")}</summary>
         <div className="mt-4"><FreeExport /></div>

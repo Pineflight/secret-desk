@@ -1,6 +1,9 @@
 export default {
   "entries.title": "Secrets and variables",
-  "entries.subtitle": "Metadata only: the values of secrets are never stored here. Variables keep their target value, and GitHub is compared against it.",
+  "entries.subtitle": "Metadata only, secret values are never stored.",
+  "entries.subtitleHint": "Variables keep their target value, and GitHub is compared against it.",
+  "entries.moreFilters": "More filters",
+  "entries.reset": "Reset",
   "entries.counts": "{secrets} secrets, {variables} variables",
   "entries.kind": "Kind",
   "entries.kindAll": "All",

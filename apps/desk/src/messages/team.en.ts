@@ -1,6 +1,7 @@
 export default {
   "team.title": "Team",
   "team.subtitle": "Share which secrets and variables exist without passing on a single value.",
+  "team.fileExchange": "File exchange",
   "team.exportTitle": "Download team configuration",
   "team.exportText": "A file with names, targets, providers and templates. It contains no values and no access keys. Team members can import it and then see the same overview.",
   "team.download": "Download",

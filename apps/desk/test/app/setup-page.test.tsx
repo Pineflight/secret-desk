@@ -31,10 +31,77 @@ function readyGitHub(file: string, extra: Record<string, FakeHandler> = {}) {
   });
 }
 
+describe("Setup page: choice", () => {
+  it("starts on GitHub and shows only the chosen panel", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    const group = screen.getByRole("radiogroup", { name: t("setup.choice.label") });
+    expect(screen.getByRole("radio", { name: t("setup.choice.github") })).toHaveAttribute("aria-checked", "true");
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: t("setup.github.preview") })).toBeInTheDocument();
+    expect(screen.queryByLabelText(t("setup.upload.title"))).toBeNull();
+    expect(screen.queryByRole("button", { name: t("setup.empty.start") })).toBeNull();
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
+    expect(screen.getByLabelText(t("setup.upload.title"))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: t("setup.github.preview") })).toBeNull();
+    expect(screen.getByRole("radio", { name: t("setup.choice.github") })).toHaveAttribute("aria-checked", "false");
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.empty") }));
+    expect(screen.getByRole("button", { name: t("setup.empty.start") })).toBeInTheDocument();
+    expect(screen.queryByLabelText(t("setup.upload.title"))).toBeNull();
+  });
+});
+
+describe("Setup page: choice keyboard", () => {
+  const radio = (key: string) => screen.getByRole("radio", { name: t(`setup.choice.${key}`) });
+
+  it("keeps only the checked radio in the Tab order", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    expect(radio("github")).toHaveAttribute("tabindex", "0");
+    expect(radio("upload")).toHaveAttribute("tabindex", "-1");
+    expect(radio("empty")).toHaveAttribute("tabindex", "-1");
+    await user.click(radio("upload"));
+    expect(radio("github")).toHaveAttribute("tabindex", "-1");
+    expect(radio("upload")).toHaveAttribute("tabindex", "0");
+  });
+
+  it("moves and selects with the arrow keys, wrapping at both ends", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    radio("github").focus();
+    await user.keyboard("{ArrowRight}");
+    expect(radio("upload")).toHaveFocus();
+    expect(radio("upload")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowDown}");
+    expect(radio("empty")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(radio("github")).toHaveFocus();
+    expect(radio("github")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowLeft}");
+    expect(radio("empty")).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(radio("upload")).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(radio("github")).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(radio("empty")).toHaveFocus();
+    expect(radio("empty")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("ignores other keys", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    radio("github").focus();
+    await user.keyboard("a");
+    expect(radio("github")).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 describe("Setup page: start empty", () => {
   it("dismisses the setup and offers to continue", async () => {
     const portal = fakePortal({ "POST team-sync/dismiss-setup": {}, "GET stages": [] });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.empty") }));
     await user.click(screen.getByRole("button", { name: t("setup.empty.start") }));
     expect(await screen.findByText(t("setup.done"))).toBeInTheDocument();
     expect(screen.getByRole("link", { name: t("setup.continue") })).toHaveAttribute("href", "/");
@@ -45,6 +112,7 @@ describe("Setup page: start empty", () => {
   it("shows the failure and stays on the setup", async () => {
     fakePortal({ "POST team-sync/dismiss-setup": { status: 500, body: { error: "cannot dismiss" } } });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.empty") }));
     await user.click(screen.getByRole("button", { name: t("setup.empty.start") }));
     expect(await screen.findByText("cannot dismiss")).toBeInTheDocument();
     expect(screen.queryByText(t("setup.done"))).toBeNull();
@@ -57,6 +125,7 @@ describe("Setup page: upload", () => {
   it("previews an uploaded file, applies it and finishes", async () => {
     const portal = fakePortal({ "POST team-sync/preview-text": diff(), "POST team-import": { added: 1, skipped: 0 }, "POST team-sync/dismiss-setup": {}, "GET stages": [] });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
     await user.upload(screen.getByLabelText(t("setup.upload.title")), file());
     expect(await screen.findByText("+ new-secret", { exact: false })).toBeInTheDocument();
     expect(portal.callsTo("POST", "team-sync/preview-text")[0]!.body).toEqual({ text: "secrets: []" });
@@ -67,7 +136,8 @@ describe("Setup page: upload", () => {
 
   it("ignores a change event without a file", async () => {
     const portal = fakePortal({});
-    renderApp(<SetupPage />);
+    const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
     await act(async () => {
       screen.getByLabelText(t("setup.upload.title")).dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -77,6 +147,7 @@ describe("Setup page: upload", () => {
   it("shows a preview failure and offers no apply button", async () => {
     fakePortal({ "POST team-sync/preview-text": { status: 400, body: { error: "not a team file" } } });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
     await user.upload(screen.getByLabelText(t("setup.upload.title")), file());
     expect(await screen.findByText("not a team file")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: t("setup.upload.apply") })).toBeNull();
@@ -85,6 +156,7 @@ describe("Setup page: upload", () => {
   it("keeps the preview and shows the failure when the import fails", async () => {
     fakePortal({ "POST team-sync/preview-text": diff(), "POST team-import": { status: 409, body: { error: "import refused" } } });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
     await user.upload(screen.getByLabelText(t("setup.upload.title")), file());
     await user.click(await screen.findByRole("button", { name: t("setup.upload.apply") }));
     expect(await screen.findByText("import refused")).toBeInTheDocument();
@@ -94,6 +166,7 @@ describe("Setup page: upload", () => {
   it("says so when the uploaded file changes nothing", async () => {
     fakePortal({ "POST team-sync/preview-text": { empty: true, sections: {} } });
     const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
     await user.upload(screen.getByLabelText(t("setup.upload.title")), file());
     expect(await screen.findByText(t("teamSync.diff.none"))).toBeInTheDocument();
   });
@@ -182,5 +255,28 @@ describe("Setup page: GitHub", () => {
     await screen.findByRole("button", { name: t("setup.github.apply") });
     await user.click(screen.getByRole("radio", { name: new RegExp(t("teamSync.mode.pull-push")) }));
     await waitFor(() => expect(screen.queryByRole("button", { name: t("setup.github.apply") })).toBeNull());
+  });
+});
+
+describe("Setup page: confirm before preview", () => {
+  const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  it("puts the apply button before the GitHub preview diff", async () => {
+    readyGitHub("team.yaml", { "POST team-sync/check": { state: "different", remoteSha: "sha-1", diff: diff() } });
+    const { user } = renderApp(<SetupPage />);
+    const preview = await screen.findByRole("button", { name: t("setup.github.preview") });
+    await waitFor(() => expect(preview).toBeEnabled());
+    await user.click(preview);
+    const apply = await screen.findByRole("button", { name: t("setup.github.apply") });
+    before(apply, await screen.findByText("+ new-secret", { exact: false }));
+  });
+
+  it("puts the apply button before the upload preview diff", async () => {
+    fakePortal({ "POST team-sync/preview-text": diff() });
+    const { user } = renderApp(<SetupPage />);
+    await user.click(screen.getByRole("radio", { name: t("setup.choice.upload") }));
+    await user.upload(screen.getByLabelText(t("setup.upload.title")), new File(["secrets: []"], "team.yaml", { type: "text/yaml" }));
+    const apply = await screen.findByRole("button", { name: t("setup.upload.apply") });
+    before(apply, screen.getByText("+ new-secret", { exact: false }));
   });
 });

@@ -132,17 +132,21 @@ export function ProviderTile({ card, onOpen }: { card: ProviderCard; onOpen: () 
   );
 }
 
-/** A category section: heading plus its tiles or cards. */
-export function CategorySection({ category, children, grid = "tiles", level = "h3" }: { category: string; children: ReactNode; grid?: "tiles" | "cards"; level?: "h2" | "h3" }) {
+/** A category section: heading plus its tiles. */
+export function CategorySection({ category, children }: { category: string; children: ReactNode }) {
   const t = useT();
   const id = useId();
-  const Heading = level;
   return (
-    <section aria-labelledby={id} className="mt-6 first:mt-0">
-      <Heading id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t(`category.${category}`)}</Heading>
-      <ul className={`grid gap-3 ${grid === "tiles" ? "sm:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2"}`}>{children}</ul>
+    <section aria-labelledby={id} className="mt-6 first:mt-0 first-of-type:mt-0">
+      <h3 id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t(`category.${category}`)}</h3>
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</ul>
     </section>
   );
+}
+
+/** The provider cards of the page: one responsive grid for all categories (each card names its own category). */
+export function ProviderGrid({ children }: { children: ReactNode }) {
+  return <ul className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">{children}</ul>;
 }
 
 const SIGN_IN_TEXT: Record<SignInStatus, string> = {
@@ -182,7 +186,7 @@ export function CardDetails({ card, signIn, hostPhases, results }: { card: Provi
   const resultLabel = (r: ActivityResult): string => t(r.ok ? "activity.lastOk" : "activity.lastFail", { time: clockTime(r.at) });
   return (
     <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-      <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</span>
+      <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: t("providers.countSecrets", { count: card.secrets }), variables: t("providers.countVariables", { count: card.variables }) }) : t("providers.countsNone")}</span>
       {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
       {lines.length > 0 ? lines.map((l) => {
@@ -221,49 +225,53 @@ export function ProviderPageCard({ card, view, open, onToggle, signIn, hostPhase
   const purposeOf = usePurpose();
   const bodyId = useId();
   const metaText = view.meta ? t(view.meta.key, { ...metaVars(view.meta, t), ...(view.meta.date ? { date: formatDate(view.meta.date) } : {}), ...(view.meta.days !== undefined ? { days: daysLabel(view.meta.days) } : {}) }) : "";
+  const showActions = (onSignIn && signInPrompts.length > 0) || (setUp && view.badge === "none");
   return (
     <Card className="flex h-full w-full min-w-0 flex-col break-words">
-      <h4>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-controls={bodyId}
-          aria-label={t(open ? "providers.card.hide" : "providers.card.show", { name: card.label })}
-          className="flex w-full items-start gap-3 rounded-xl text-left"
-        >
-          <ProviderLogo icon={card.icon} label={card.label} />
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium">{card.label}</span>
-              <span className="inline-flex items-center gap-2">
-                {busy ? <BusySpinner label={t("activity.running", { name: card.label })} /> : last ? <ResultMark result={last} label={t(last.ok ? "activity.lastOk" : "activity.lastFail", { time: clockTime(last.at) })} /> : null}
-                <CollapsedBadge kind={view.badge} />
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <h4 className="min-w-0 flex-1 basis-64">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            aria-label={t(open ? "providers.card.hide" : "providers.card.show", { name: card.label })}
+            className="flex w-full items-start gap-3 rounded-xl text-left"
+          >
+            <ProviderLogo icon={card.icon} label={card.label} />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted">{t(`category.${card.category}`)}</span>
+              <span className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{card.label}</span>
+                <span className="inline-flex items-center gap-2">
+                  {busy ? <BusySpinner label={t("activity.running", { name: card.label })} /> : last ? <ResultMark result={last} label={t(last.ok ? "activity.lastOk" : "activity.lastFail", { time: clockTime(last.at) })} /> : null}
+                  <CollapsedBadge kind={view.badge} />
+                </span>
               </span>
+              <span className="block text-xs text-muted">{purposeOf(card)}</span>
+              {metaText ? <span className={`mt-1 block text-xs ${view.meta?.problem ? "font-medium text-warn-text" : "text-muted"}`}>{metaText}</span> : null}
             </span>
-            <span className="block text-xs text-muted">{purposeOf(card)}</span>
-            {metaText ? <span className={`mt-1 block text-xs ${view.meta?.problem ? "font-medium text-warn-text" : "text-muted"}`}>{metaText}</span> : null}
-          </span>
-          <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
-        </button>
-      </h4>
-      {/* Beside the header, not in it: a button inside the header button would be invalid. */}
-      {(onSignIn && signInPrompts.length > 0) || (setUp && view.badge === "none") ? (
-        <div className="mt-2 flex flex-wrap gap-2 pl-[3.25rem]">
-          {setUp && view.badge === "none" ? <Button variant="primary" onClick={setUp} aria-label={t("providers.setUpLabel", { name: card.label })}>{t("providers.setUp")}</Button> : null}
-          {onSignIn ? signInPrompts.map((p) => (
-            <Button key={p.portal ?? "all"} onClick={() => onSignIn(p.portal)} aria-label={p.portal ? t("providers.signIn.buttonLabelAt", { name: card.label, portal: p.portal }) : t("providers.signIn.buttonLabel", { name: card.label })}>
-              {p.portal ? t("providers.signIn.buttonAt", { portal: p.portal }) : t("providers.signIn.button")}
-            </Button>
-          )) : null}
-        </div>
-      ) : null}
+            <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
+          </button>
+        </h4>
+        {/* Beside the header button, not in it: a button inside the header button would be invalid. They wrap under the title on narrow cards. */}
+        {showActions ? (
+          <div className="flex flex-wrap gap-2 max-sm:pl-[3.25rem]">
+            {setUp && view.badge === "none" ? <Button variant="primary" onClick={setUp} aria-label={t("providers.setUpLabel", { name: card.label })}>{t("providers.setUp")}</Button> : null}
+            {onSignIn ? signInPrompts.map((p) => (
+              <Button key={p.portal ?? "all"} onClick={() => onSignIn(p.portal)} aria-label={p.portal ? t("providers.signIn.buttonLabelAt", { name: card.label, portal: p.portal }) : t("providers.signIn.buttonLabel", { name: card.label })}>
+                {p.portal ? t("providers.signIn.buttonAt", { portal: p.portal }) : t("providers.signIn.button")}
+              </Button>
+            )) : null}
+          </div>
+        ) : null}
+      </div>
       <div id={bodyId} hidden={!open}>
         {open ? (
           <>
             <CardDetails card={card} signIn={signIn} {...(hostPhases ? { hostPhases } : {})} {...(results ? { results } : {})} />
+            {actions ? <div className="mt-3 flex min-w-0 flex-wrap gap-2">{actions}</div> : null}
             {children}
-            {actions ? <div className="mt-4 flex min-w-0 flex-wrap gap-2">{actions}</div> : null}
           </>
         ) : null}
       </div>

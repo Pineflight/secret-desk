@@ -104,6 +104,35 @@ describe("Review detail: content", () => {
   });
 });
 
+describe("Review detail: decision bar", () => {
+  it("keeps confirm and reject in a sticky bar that precedes the attachment upload and follows the evidence", async () => {
+    page();
+    const { container } = renderApp(<ReviewDetailPage />);
+    const confirm = await screen.findByRole("button", { name: t("reviews.detail.confirm") });
+    const reject = screen.getByRole("button", { name: t("reviews.detail.reject") });
+    const bar = container.querySelector(".sd-action-bar")!;
+    expect(bar).toContainElement(confirm);
+    expect(bar).toContainElement(reject);
+    const evidenceImage = container.querySelector("img")!;
+    const upload = screen.getByRole("button", { name: t("reviews.detail.addAttachment") });
+    const before = Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(evidenceImage.compareDocumentPosition(confirm) & before).toBeTruthy();
+    expect(confirm.compareDocumentPosition(upload) & before).toBeTruthy();
+  });
+
+  it("shows the hint and the error message inside the bar, and no hint once everything is ticked or expired", async () => {
+    page({ "POST reviews/iss-1/confirm": { status: 500, body: { error: "commit failed" } } });
+    const { user, container } = renderApp(<ReviewDetailPage />);
+    await screen.findByRole("button", { name: t("reviews.detail.confirm") });
+    const bar = container.querySelector(".sd-action-bar") as HTMLElement;
+    expect(within(bar).getByText(t("reviews.detail.tickAll"))).toBeInTheDocument();
+    await tickAll(user);
+    expect(within(bar).queryByText(t("reviews.detail.tickAll"))).toBeNull();
+    await user.click(screen.getByRole("button", { name: t("reviews.detail.confirm") }));
+    expect(await within(bar).findByText("commit failed")).toBeInTheDocument();
+  });
+});
+
 describe("Review detail: confirm", () => {
   it("needs every checklist item ticked, can untick, and confirms with the note", async () => {
     const portal = page({ "POST reviews/iss-1/confirm": commit() });

@@ -2,6 +2,7 @@ export default {
   "meta.descTooLong": "The description is longer than {max} characters.",
   "meta.linkInvalid": "The link must start with http:// or https://.",
   "meta.tags": "Tags",
+  "meta.optionalDetails": "Optional details (description, owner, link, tags)",
   "meta.tagRemove": "Remove tag {tag}",
   "meta.tagPlaceholder": "for example payments, acme-web (Enter or comma)",
   "meta.tagHint": "Lowercase letters, digits and hyphens, at most 12.",

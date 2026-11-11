@@ -2,6 +2,7 @@ export default {
   "meta.descTooLong": "Die Beschreibung ist länger als {max} Zeichen.",
   "meta.linkInvalid": "Der Link muss mit http:// oder https:// beginnen.",
   "meta.tags": "Schlagworte",
+  "meta.optionalDetails": "Optionale Angaben (Beschreibung, Verantwortlich, Link, Schlagworte)",
   "meta.tagRemove": "Schlagwort {tag} entfernen",
   "meta.tagPlaceholder": "zum Beispiel zahlungen, acme-web (Enter oder Komma)",
   "meta.tagHint": "Kleinbuchstaben, Ziffern und Bindestriche, höchstens 12.",

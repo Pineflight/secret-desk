@@ -134,7 +134,18 @@ export function StagesPanel({ stages }: { stages: StageView[] }) {
       ) : null}
 
       {removeDraft ? (
-        <Dialog title={t("settings.removeTitle", { id: removeDraft.id })} onClose={() => setRemoving(null)}>
+        <Dialog
+          title={t("settings.removeTitle", { id: removeDraft.id })}
+          onClose={() => setRemoving(null)}
+          footer={
+            <>
+              <Button data-autofocus="" onClick={() => setRemoving(null)}>{t("settings.cancel")}</Button>
+              <Button variant="danger" disabled={block !== null} loading={save.pending} onClick={async () => {
+                if (await commit(drafts.filter((_, j) => j !== removeIndex), t("settings.removed", { id: removeDraft.id }))) setRemoving(null);
+              }}><Icon name="trash" />{t("settings.remove")}</Button>
+            </>
+          }
+        >
           <div className="space-y-4">
             {block === "policy" ? (
               <Notice tone="warn">{t("settings.removeBlockedPolicy", { id: removeDraft.id })}</Notice>
@@ -144,12 +155,6 @@ export function StagesPanel({ stages }: { stages: StageView[] }) {
               <p className="text-sm text-muted-text">{t("settings.removeBody")}</p>
             )}
             {save.error ? <ErrorState error={save.error} /> : null}
-            <div className="flex justify-end gap-2">
-              <Button data-autofocus="" onClick={() => setRemoving(null)}>{t("settings.cancel")}</Button>
-              <Button variant="danger" disabled={block !== null} loading={save.pending} onClick={async () => {
-                if (await commit(drafts.filter((_, j) => j !== removeIndex), t("settings.removed", { id: removeDraft.id }))) setRemoving(null);
-              }}><Icon name="trash" />{t("settings.remove")}</Button>
-            </div>
           </div>
         </Dialog>
       ) : null}

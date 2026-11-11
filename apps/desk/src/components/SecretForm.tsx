@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { EntryPreflight } from "@secret-desk/core";
 import type { SecretView } from "@secret-desk/runtime";
 import { ParamsForm } from "@/components/ParamsForm";
 import { MetaFields, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
-import { Button, Notice, SelectField, TextField } from "@/components/ui";
+import { Button, Disclosure, FormFooter, Notice, SelectField, TextField } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation, useQuery } from "@/lib/hooks";
 import { emptyPlaceRow, rowsToPlaces, type PlaceRow } from "@/lib/places";
@@ -25,8 +25,9 @@ interface ProviderRow {
 }
 
 /** Form to create a secret entry (metadata only). The surrounding dialog comes from NewEntryDialog. */
-export function SecretForm({ initial = null, onClose, onCreated }: { initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
+export function SecretForm({ initial = null, footerHost, onClose, onCreated }: { initial?: Prefill | null; footerHost?: HTMLElement | null; onClose: () => void; onCreated: () => void }) {
   const { t, locale } = useI18n();
+  const formId = useId();
   const defs = useStageDefs();
   const toast = useToast();
   const providers = useQuery<ProviderRow[]>("providers", () => api<ProviderRow[]>("GET", "providers"));
@@ -34,6 +35,8 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
   const [rows, setRows] = useState<PlaceRow[]>([initial ? prefillRow(defs, initial) : emptyPlaceRow()]);
   const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
+  // The optional details open by themselves when the failing field is in there.
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(initial?.description));
   const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const [paramDraft, setParamDraft] = useState<Draft>({});
@@ -54,10 +57,16 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
     const { places, error } = rowsToPlaces(rows, { stage: stageId, environment: environmentOf(defs, stageId) });
     if (error) return setLocalError(error);
     const metaError = validateMeta(meta);
-    if (metaError) return setLocalError(metaError);
+    if (metaError) {
+      setDetailsOpen(true);
+      return setLocalError(metaError);
+    }
     if (kindOf(defs, stageId) !== "dev" && places.length === 0) return setLocalError(t("secrets.needTarget"));
     const ttl = f.ttlDays.trim() ? Number(f.ttlDays) : undefined;
-    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) return setLocalError(t("secrets.ttlInvalid"));
+    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) {
+      setDetailsOpen(true);
+      return setLocalError(t("secrets.ttlInvalid"));
+    }
     if (!canSave(specs, paramDraft, pv.view?.defaults ?? {})) return setLocalError(missing.length > 0 ? t("params.create.missing", { keys: missingText }) : t("params.problem.wrong_type", { label: t("params.title") }));
     const params = toParams(specs, paramDraft).params;
     const res = await create.run({
@@ -89,13 +98,10 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
-      <MetaFields value={meta} onChange={setMeta} />
+    <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField label={t("secrets.fieldId")} hint={t("secrets.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
         <TextField label={t("secrets.fieldName")} hint={t("secrets.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
-        <TextField label={t("secrets.fieldTitle")} value={f.title} onChange={(e) => set("title", e.target.value)} />
-        <TextField label={t("secrets.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
         <SelectField label={t("secrets.stage")} value={stageId} onChange={(e) => set("stage", e.target.value)}>
           {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
         </SelectField>
@@ -104,14 +110,6 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
           <option value="manual">{t("secrets.providerManual")}</option>
           {(providers.data ?? []).filter((p) => p.id !== "manual").map((p) => <option key={p.id} value={p.id}>{p.browser ? p.label : `${p.label} (${p.kind === "automatic" ? t("secrets.providerKindAuto") : t("secrets.providerKindManual")})`}</option>)}
         </SelectField>
-        <SelectField label={t("secrets.expiry")} value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
-          <option value="none">{t("secrets.expNone")}</option>
-          <option value="possible">{t("secrets.expPossible")}</option>
-          <option value="required">{t("secrets.expRequired")}</option>
-          <option value="unknown">{t("secrets.expUnknown")}</option>
-        </SelectField>
-        <TextField label={t("secrets.expiresOn")} type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
-        <TextField label={t("secrets.ttlDays")} inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
       </div>
       <PlacesEditor rows={rows} onChange={setRows} stage={stageId} allowWorker />
       {!manualProvider && pv.error ? <Notice tone="warn">{t("params.create.loadError", { error: pv.error.message })}</Notice> : null}
@@ -127,12 +125,27 @@ export function SecretForm({ initial = null, onClose, onCreated }: { initial?: P
         </section>
       ) : null}
       {kindOf(defs, stageId) === "dev" ? <p className="text-xs text-muted">{t("secrets.devNoTarget")}</p> : null}
-      {localError || create.error ? <Notice tone="danger">{localError ?? create.error?.message}</Notice> : null}
-      <div className="flex justify-end gap-2">
+      <Disclosure summary={t("meta.optionalDetails")} open={detailsOpen} onToggle={setDetailsOpen}>
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField label={t("secrets.fieldTitle")} value={f.title} onChange={(e) => set("title", e.target.value)} />
+            <TextField label={t("secrets.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
+            <SelectField label={t("secrets.expiry")} value={f.expiry} onChange={(e) => set("expiry", e.target.value)}>
+              <option value="none">{t("secrets.expNone")}</option>
+              <option value="possible">{t("secrets.expPossible")}</option>
+              <option value="required">{t("secrets.expRequired")}</option>
+              <option value="unknown">{t("secrets.expUnknown")}</option>
+            </SelectField>
+            <TextField label={t("secrets.expiresOn")} type="date" disabled={f.expiry === "none"} value={f.expires} onChange={(e) => set("expires", e.target.value)} />
+            <TextField label={t("secrets.ttlDays")} inputMode="numeric" value={f.ttlDays} onChange={(e) => set("ttlDays", e.target.value.replace(/\D/g, ""))} />
+          </div>
+          <MetaFields value={meta} onChange={setMeta} />
+        </div>
+      </Disclosure>
+      <FormFooter host={footerHost} error={localError ?? create.error?.message}>
         <Button onClick={onClose}>{t("secrets.cancel")}</Button>
-        <Button type="submit" variant="primary" loading={create.pending} disabled={!manualProvider && issues.length > 0}>{t("secrets.create")}</Button>
-      </div>
+        <Button type="submit" form={formId} variant="primary" loading={create.pending} disabled={!manualProvider && issues.length > 0}>{t("secrets.create")}</Button>
+      </FormFooter>
     </form>
   );
 }
-
