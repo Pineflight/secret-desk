@@ -138,7 +138,8 @@ try {
 
   // 5. Screenshots.
   mkdirSync(outDir, { recursive: true });
-  browser = await chromium.launch({ executablePath: chromePath, headless: true });
+  // Note: the native file picker label follows the operating system language, not the page locale.
+  browser = await chromium.launch({ executablePath: chromePath, headless: true, args: ["--lang=en-US"] });
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, colorScheme: "light", locale: "en-US" });
   await context.addInitScript(() => {
     try {
@@ -150,16 +151,38 @@ try {
   const page = await context.newPage();
   const taken = [];
 
+  // The first visit of a route compiles it in `next dev`, which can abort a navigation: try again.
+  const open = async (target, path) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await target.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+        return;
+      } catch (err) {
+        if (attempt >= 3) throw err;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  };
   const settle = async () => {
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await page.waitForTimeout(700);
   };
   const shot = async (name, path, prepare) => {
-    await page.goto(`${base}${path}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
-    await settle();
-    // Hide the Next.js development indicator, it is not part of the product.
-    await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
-    if (prepare) await prepare();
+    // The first visit of a route compiles it in `next dev` and may reload the page once: start the whole step again
+    // when the page navigates under us.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await open(page, path);
+        await settle();
+        // Hide the Next.js development indicator, it is not part of the product.
+        await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+        if (prepare) await prepare();
+        break;
+      } catch (err) {
+        if (attempt >= 3) throw err;
+        await page.waitForTimeout(1500);
+      }
+    }
     const file = join(outDir, `${name}.png`);
     await page.screenshot({ path: file });
     taken.push(file);
@@ -167,7 +190,7 @@ try {
   };
 
   // Load the portal once so that a session exists.
-  await page.goto(`${base}/`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+  await open(page, "/");
   await settle();
 
   // A pending review for the review screenshot: ask for a renewal of a demo secret (random value, nothing leaves the machine).
@@ -191,6 +214,11 @@ try {
   await shot("overview", "/");
 
   await shot("entries", "/entries");
+  // The new entry dialog: required fields first, the optional details stay in a closed disclosure.
+  await shot("new-entry", "/entries?new=1", async () => {
+    await page.getByRole("dialog").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+  });
   await shot("secret-detail", "/secrets/cloudflare-deploy-acme-app");
   if (reviewId) {
     await shot("reviews", "/reviews");
@@ -203,8 +231,6 @@ try {
     await page.getByText("Check live against GitHub", { exact: false }).first().click();
     await page.waitForTimeout(1500);
     await settle();
-    await page.evaluate(() => window.scrollTo(0, 560));
-    await page.waitForTimeout(300);
   });
   await shot("repositories", "/repos");
   // Integrations: store made-up tokens in the throw-away vault so that the cards show their connected state. They are never used.
@@ -230,17 +256,56 @@ try {
   // The picker: one tile per provider, grouped by category.
   await shot("integrations-picker", "/connections", async () => {
     await page.getByRole("button", { name: "Add integration" }).first().click();
-    await page.getByRole("dialog").waitFor();
+    await page.getByRole("dialog").waitFor({ timeout: 15_000 });
     await page.waitForTimeout(400);
   });
   // The lower part of the picker: the providers with hand-kept marks (OpenAI, Peecho, VesselAPI).
   await shot("integrations-picker-more", "/connections", async () => {
     await page.getByRole("button", { name: "Add integration" }).first().click();
-    await page.getByRole("dialog").waitFor();
+    await page.getByRole("dialog").waitFor({ timeout: 15_000 });
     await page.getByRole("dialog").getByText("Peecho", { exact: true }).first().scrollIntoViewIfNeeded();
     await page.waitForTimeout(400);
   });
   await shot("settings", "/settings");
+  // The command palette, opened with the keyboard shortcut and a search term.
+  await shot("command-palette-1440", "/", async () => {
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByRole("dialog").waitFor({ timeout: 15_000 });
+    await page.keyboard.type("stripe");
+    await page.waitForTimeout(600);
+  });
+  await shot("team", "/team");
+  await shot("setup", "/setup");
+
+  // Phone width: the same portal in a second browser context.
+  const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1, colorScheme: "light", locale: "en-US" });
+  await phone.addInitScript(() => {
+    try {
+      window.localStorage.setItem("sd-locale", "en");
+    } catch {
+      /* storage blocked */
+    }
+  });
+  const phonePage = await phone.newPage();
+  for (const [name, path] of [["overview-375", "/"], ["entries-375", "/entries"], ["compare-375", "/compare"], ["dev-env-375", "/dev"]]) {
+    await open(phonePage, path);
+    await phonePage.waitForLoadState("networkidle").catch(() => undefined);
+    await phonePage.waitForTimeout(700);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await phonePage.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+        break;
+      } catch (err) {
+        if (attempt >= 3) throw err;
+        await phonePage.waitForTimeout(700);
+      }
+    }
+    const file = join(outDir, `${name}.png`);
+    await phonePage.screenshot({ path: file });
+    taken.push(file);
+    console.log(`  ${name}.png  (${path}, 375x812)`);
+  }
+  await phone.close();
 
   const bad = taken.filter((f) => statSync(f).size < 10_000);
   if (bad.length > 0) throw new Error(`suspiciously small screenshots (blank page?): ${bad.join(", ")}`);

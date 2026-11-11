@@ -14,6 +14,7 @@ Messages are quoted as the English portal shows them. Nothing below ever require
 - [Provider and approval problems](#provider-and-approval-problems)
 - [Parameters and resources](#parameters-and-resources)
 - [Compare shows errors](#compare-shows-errors)
+- [A control is missing on a page](#a-control-is-missing-on-a-page)
 - [Agents](#agents)
 - [Build and tests](#build-and-tests)
 
@@ -81,7 +82,7 @@ The vault is optional: `vault.enabled: false` keeps tokens in memory for the ses
 
 ## Reading the live check
 
-Every `automation.liveCheckDays` days (default 7, `0` = off) the portal tests against the real accounts that every connected integration and every browser recipe still works, so a change at a provider shows up within a week instead of at the next renewal. See it on **Integrations**, card *Live check*, or with `secret-desk live-check`. *Check now* runs it at once. It creates nothing at a provider and never reads, stores or logs a value; a report holds ids, results, step labels, error kinds and short sanitized texts.
+Every `automation.liveCheckDays` days (default 7, `0` = off) the portal tests against the real accounts that every connected integration and every browser recipe still works, so a change at a provider shows up within a week instead of at the next renewal. See it on **Integrations**, in the *Live check* bar at the top (a status badge, the last run and *Details and explanation*, which opens by itself when something failed), or with `secret-desk live-check`. *Check now* in the bar runs it at once. It creates nothing at a provider and never reads, stores or logs a value; a report holds ids, results, step labels, error kinds and short sanitized texts.
 
 | Result | Meaning | Counts as failure |
 |---|---|---|
@@ -145,6 +146,18 @@ How parameters, lists and suggestions work: [RESOURCES.md](RESOURCES.md).
 - HTTP 429: GitHub's rate limit; wait and reload. Use *All repositories* sparingly on big organizations.
 - "token needs Contents: Read, or link the repository locally" for workflows: add the optional permission or link the repository to a local folder.
 - A repository you do not care about appears (`.github`, an Upptime `status` repository): add it to `compare.ignoreRepos`.
+
+## A control is missing on a page
+
+Screens put the main action first and keep the rest one click away. See [UI-GUIDE.md](UI-GUIDE.md) for where each control sits.
+
+- **Provider, Parameters, Group by or Sort by are not on Secrets and variables:** they are behind *More filters* in the toolbar. While one of them is active the section stays open and *Reset* appears.
+- **The list is shorter than expected:** a filter is active. Press *Reset* in the toolbar; the count next to the subtitle shows how many entries match.
+- **Optional fields are missing in *New entry*:** title, product, expiry, description, owner, link and tags are in the closed *Optional details* section.
+- **The key list of a repository on Dev environment is closed:** open the section "N keys ...". The path, the inputs and *Generate file* are above it.
+- **Compare: *All repositories of the organization* or *Evaluate workflows* are missing:** they appear in the toolbar once *Check live against GitHub* is on.
+- **The team token on Team is one line:** *Manage token* opens the details; it opens by itself when the token is missing or expired.
+- **The submit button of a dialog is out of sight:** it is in the fixed footer at the bottom of the dialog, not in the scrolling body.
 
 ## Agents
 

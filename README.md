@@ -48,6 +48,7 @@ secret-desk closes these gaps without becoming a second secret store:
 
 ## Features
 
+- **Task-first screens:** every page puts its main action in the first viewport. Dialogs have a fixed footer with submit and cancel, and *New entry* asks for the required fields first. See the [UI guide](docs/UI-GUIDE.md).
 - **Expiry overview:** secrets listed by stage and status (ok, soon, due, expired, missing), with description, owner, link and tags. A daily workflow can raise expiry reminders as GitHub issues (`secret-desk check`, [examples/workflows](examples/workflows/secret-desk-expiry.yml)).
 - **Two-stage issuance with review evidence:** generate at the provider, verify, review report plus evidence image, human confirmation (optionally with your own screenshot), then write. Providers without an API use the same flow with a manual paste. See [Architecture](docs/ARCHITECTURE.md#the-path-of-a-new-value).
 - **Configurable stages:** define your own stages (default `dev`, `staging`, `production`, `shared`). Behavior follows the stage `kind`, not its name. See [Stages](docs/STAGES.md).
@@ -63,7 +64,7 @@ secret-desk closes these gaps without becoming a second secret store:
 - **Full sync in one pass:** read what every workflow needs, normalize names, create every value a provider can create and load every variable from its source, then write all of it. See [Full sync](docs/FULL-SYNC.md).
 - **Dev `.env` export:** per-repository templates produce a working `.env.local` on demand (defaults, random values, VAPID pairs, prefixed secrets, personal dev tokens, variables, keys of the local Supabase stack, values shared between repositories, optional inputs) with mode 600, stored nowhere. See [below](#working-envlocal-in-one-command) and [docs/DEV-ENV.md](docs/DEV-ENV.md).
 - **Search and command palette:** ⌘K / Ctrl K opens a palette over secrets, variables, repositories, stages, integrations, providers, pages and actions (metadata only, never values) with typo-tolerant matching, filters such as `stage:staging`, suggestions and recent items. See [Search](docs/SEARCH.md).
-- **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal asks for it at the first start, shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
+- **Team file and team sync:** export the configuration without values so new team members import it and start, or keep it in a private GitHub repository: the portal offers it at the first start (load from GitHub, upload a file or start empty), shows a preview before taking anything over and pushes changes back as a pull request after you confirm. See [Team](docs/TEAM.md).
 
 ### Supported integrations
 
@@ -92,10 +93,14 @@ All screenshots come from the built-in demo (simulated GitHub, made-up data) and
 
 | | |
 |---|---|
-| [![Secrets and variables](docs/images/entries.png)](docs/images/entries.png)<br>**Secrets and variables:** one list with a kind switch; status, stage, expiry and targets at a glance | [![Review](docs/images/review-detail.png)](docs/images/review-detail.png)<br>**Review:** evidence image, checklist, confirm or reject |
-| [![Compare](docs/images/compare-live.png)](docs/images/compare-live.png)<br>**Compare:** live matrix of names against stages | [![Variables](docs/images/variables.png)](docs/images/variables.png)<br>**Variables:** the same list with *Kind: Variables*, expected value against GitHub |
-| [![Integrations](docs/images/integrations.png)](docs/images/integrations.png)<br>**Integrations:** one card per provider, connection state, guides, test connection | [![Settings](docs/images/settings.png)](docs/images/settings.png)<br>**Settings:** freely configurable stages |
-| [![Repositories](docs/images/repositories.png)](docs/images/repositories.png)<br>**Repositories:** link folders on this machine | [![Reviews](docs/images/reviews.png)](docs/images/reviews.png)<br>**Reviews:** open reviews waiting for a human |
+| [![Secrets and variables](docs/images/entries.png)](docs/images/entries.png)<br>**Secrets and variables:** one list, one toolbar (search, kind, repository, stage, status; more filters behind a button) | [![New entry](docs/images/new-entry.png)](docs/images/new-entry.png)<br>**New entry:** required fields first, optional details in a closed section, fixed *Create* / *Cancel* footer |
+| [![Review](docs/images/review-detail.png)](docs/images/review-detail.png)<br>**Review:** evidence image, checklist, confirm or reject in a sticky action bar | [![Reviews](docs/images/reviews.png)](docs/images/reviews.png)<br>**Reviews:** open reviews waiting for a human |
+| [![Compare](docs/images/compare-live.png)](docs/images/compare-live.png)<br>**Compare:** one toolbar with the live toggle, a compact summary strip, *Write everything to GitHub* and *Copy as Markdown* in the header | [![Variables](docs/images/variables.png)](docs/images/variables.png)<br>**Variables:** the same list with *Kind: Variables*, expected value against GitHub |
+| [![Integrations](docs/images/integrations.png)](docs/images/integrations.png)<br>**Integrations:** a compact live check bar and one card per provider in a grid | [![Team](docs/images/team.png)](docs/images/team.png)<br>**Team:** team sync with GitHub and one *File exchange* card |
+| [![Setup](docs/images/setup.png)](docs/images/setup.png)<br>**First start:** load the team configuration from GitHub, upload a team file, or start empty | [![Repositories](docs/images/repositories.png)](docs/images/repositories.png)<br>**Repositories:** link folders on this machine |
+| [![Settings](docs/images/settings.png)](docs/images/settings.png)<br>**Settings:** freely configurable stages | [![Overview](docs/images/overview.png)](docs/images/overview.png)<br>**Overview:** stat cards link to the filtered lists, the attention list comes first |
+
+The same screens at phone width (375 px): [overview](docs/images/overview-375.png), [entries](docs/images/entries-375.png), [compare](docs/images/compare-375.png), [dev environment](docs/images/dev-env-375.png). A short tour of every screen: [docs/UI-GUIDE.md](docs/UI-GUIDE.md).
 
 ## Working .env.local in one command
 
@@ -237,6 +242,7 @@ Known limits:
 
 | Document | Contents |
 |---|---|
+| [UI guide](docs/UI-GUIDE.md) | A short tour of every screen: what you do there, where the main action is |
 | [Getting started](docs/GETTING-STARTED.md) | Demo, your own configuration, inventory, GitHub token, first renewal, dev `.env` |
 | [Configuration](docs/CONFIGURATION.md) | Every field of `secret-desk.config.yaml` and `inventory.yaml` |
 | [CLI](docs/CLI.md) | All commands and options |
@@ -244,7 +250,7 @@ Known limits:
 | [Agent API](docs/AGENT-API.md) | HTTP reference of `/api/agent` ([OpenAPI](docs/openapi-agent.yaml)) |
 | [Integration API](docs/INTEGRATION-API.md) | Stable contract for other systems (issue trackers, wikis, CI), webhooks plan, Jira, Confluence and Azure DevOps examples ([OpenAPI](docs/api/openapi.yaml)) |
 | [Stages](docs/STAGES.md) | Stage kinds, environment derivation, custom stages, team export |
-| [Compare](docs/COMPARE.md) | Cell states, parity, orphans, workflow needs, live reading |
+| [Compare](docs/COMPARE.md) | Cell states, parity, orphans, workflow needs, live reading, the toolbar |
 | [Repositories](docs/REPOSITORIES.md) | Selection, local links, path rules, search, renames |
 | [Integrations](docs/INTEGRATIONS.md) | Permissions per integration, test connection, write test, vault |
 | [Providers](docs/PROVIDERS.md) | Supported providers, parameters, how well each endpoint is verified |

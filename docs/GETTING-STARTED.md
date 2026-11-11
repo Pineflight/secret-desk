@@ -23,11 +23,11 @@ pnpm build
 pnpm demo
 ```
 
-Open <http://127.0.0.1:4747>. The demo uses a **simulated GitHub** inside the process and made-up data (`acme-app`, `alice`, `example.com`) from [`examples/demo`](../examples/demo). Nothing leaves your machine and no account is needed. In the demo you can:
+Open <http://127.0.0.1:4747>. You land on **Overview**: the stat cards (*Expired*, *Due soon*, *Missing*, *Open reviews*) link to the filtered lists, and the list of entries that need attention comes before the integrations block. For a tour of every screen see [UI-GUIDE.md](UI-GUIDE.md). The demo uses a **simulated GitHub** inside the process and made-up data (`acme-app`, `alice`, `example.com`) from [`examples/demo`](../examples/demo). Nothing leaves your machine and no account is needed. In the demo you can:
 
 - Look at **Overview** and **Secrets and variables** (kind, expiry, status, targets). The *Kind* switch (*All*, *Secrets*, *Variables*) narrows the one list; the old addresses `/secrets` and `/variables` redirect to it.
 - Open a secret and choose **Generate new value** for one with the provider `random-hex` (a random value generated locally), then go to **Reviews**, tick the checklist and **Confirm and write to GitHub**. The write goes to the simulated GitHub.
-- Open **Compare**, tick *Check live against GitHub* and look at gaps between stages.
+- Open **Compare**, tick *Check live against GitHub* in the toolbar and look at gaps between stages. The summary strip under the toolbar counts expected, present and missing per stage. (The simulated GitHub has no `production` environment, so the live view reports some targets as unreadable.)
 - Switch *Kind* to *Variables* and compare the expected value with GitHub.
 
 Stop the demo with Ctrl+C. The demo turns the launch secret off (`SECRET_DESK_NO_LAUNCH_SECRET=1`); a normal start does not.
@@ -85,7 +85,9 @@ secrets:
 You can create entries in three ways:
 
 1. Edit the YAML by hand.
-2. Use **New** in the portal and pick *Secret* or *Variable* (preselected from the *Kind* switch).
+2. Use **New** in the portal (or **New entry** in the top bar) and pick *Secret* or *Variable* (preselected from the *Kind* switch). The dialog shows the required fields first; title, product, expiry, description, owner, link and tags are in the closed *Optional details* section. *Create* and *Cancel* stay in a fixed footer.
+
+   ![New entry dialog](images/new-entry.png)
 3. Let the portal find them: on **Compare**, switch on *Check live against GitHub* and *All repositories of the organization*; names that exist in GitHub but not in the inventory can be added with a prefilled dialog (metadata only, provider `manual`, expiry unknown, never a value). See [COMPARE.md](COMPARE.md#orphans-and-adding-to-the-inventory).
 
 The `staging` environment must exist in the GitHub repository before secrets can be written to it.
@@ -134,7 +136,9 @@ Then:
 2. Click **Test connection**. It makes read-only calls: login, token expiry, and a public-key read for every target in your inventory. A red line names the missing permission.
 3. Optional: open **Write test**, choose targets and run it. It creates a probe secret and variable (`SD_WRITE_PROBE`, `SD_WRITE_PROBE_VAR`) and deletes them immediately. Live stages are never preselected.
 
-**Starting from a team repository?** If your team keeps the configuration in a private GitHub repository, the welcome page (shown while the inventory is empty) loads it without typing: with the GitHub integration connected, pick the repository, branch, file and mode from lists and look at the preview before anything is taken over. See [Team](TEAM.md#choose-the-repository-from-lists).
+**Starting from a team repository?** On a first start the welcome page (shown while the inventory is empty) offers three ways in as one choice: *Load from GitHub*, *Upload a file* and *Start empty*. Only the panel you choose is shown. With the GitHub integration connected, *Load from GitHub* lets you pick the repository, branch, file and mode from lists and look at the preview before anything is taken over, without typing. See [Team](TEAM.md#choose-the-repository-from-lists).
+
+![Welcome page with the three-way choice](images/setup.png)
 
 You can run the same pre-check from the command line (only works for tokens from environment variables or 1Password; a session token lives in the portal's memory):
 
@@ -151,7 +155,7 @@ Providers with an API need to know which account, project or domain a token is f
 Use a harmless secret first (provider `random-hex`, stage `staging` or `dev`).
 
 1. **Secrets and variables**, open the secret, choose **Generate new value**. The portal creates the value in memory, checks that every target is reachable with write permission, and builds a **review report** with an evidence image. **Nothing is written to GitHub yet.**
-2. **Reviews** shows the open review. Read the findings, tick every checklist item (optionally attach your own screenshot) and choose **Confirm and write to GitHub**. The button stays disabled until every item is ticked.
+2. **Reviews** shows the open review. Read the findings, tick every checklist item (optionally attach your own screenshot) and choose **Confirm and write to GitHub**. *Confirm* and *Reject* sit in an action bar of the decision card on the right that stays in view while you scroll the evidence; the confirm button stays disabled until every item is ticked.
 3. The portal encrypts the value with the target's public key, writes it, re-checks that the name exists, revokes the old value at the provider (where the provider supports it) and records `rotatedAt`, `expires`, `verifiedAt` and `verifiedBy` in the inventory.
 4. **Reject and delete new value** instead discards it; at the provider the new value is deleted again.
 
@@ -175,7 +179,7 @@ envTemplates:
       - { key: STRIPE_SECRET_KEY, from: { type: prompt, hint: "Restricted key from the Stripe sandbox" } }
 ```
 
-Open **Dev environment**, choose the repository and generate the file. Keys with `prompt` sources are reported as *Inputs missing*; fill in the fields shown, set the path (or link the repository to a local folder under **Repositories** and leave the path empty) and generate again. The file is written with mode 600; the portal shows key names only and warns if Git does not ignore the file. From the command line:
+Open **Dev environment**. Each repository card starts with the file path, your own inputs and the **Generate file** button; the list of keys is a closed section with a count. Keys with `prompt` sources are reported as *Inputs missing*; fill in the fields shown, set the path (or link the repository to a local folder under **Repositories** and leave the path empty) and generate again. The file is written with mode 600; the portal shows key names only and warns if Git does not ignore the file. From the command line:
 
 ```bash
 node packages/cli/dist/bin.js env export --config secret-desk.config.yaml --repo acme-app --prompt STRIPE_SECRET_KEY=...

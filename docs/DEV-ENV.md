@@ -168,7 +168,11 @@ All options: [CLI.md](CLI.md#env-export).
 ## 8. Portal and agents
 
 - The portal page **Dev environment** shows each template, where every value comes from, and writes the file for a linked
-  repository. It never runs local commands: `command` keys are written as commented lines (`filled by the CLI from
+  repository. Each repository card starts with the path, your own inputs (marked *optional* or *input required*) and the **Generate file** button, so the
+  normal run needs no scrolling. The key list is a closed section with a count, for example "3 keys · your input needed for 1" or
+  "8 keys · no input needed"; open it to see where each value comes from. The **Export .env** card at the top is one row: type or pick a
+  repository, and the stage, contents and download button appear below it. *Other template / free export* is a closed section at the bottom. On a phone the cards stack: [dev environment at 375 px](images/dev-env-375.png).
+  It never runs local commands: `command` keys are written as commented lines (`filled by the CLI from
   supabase-status`), to be filled by a CLI run on the developer machine.
 - The MCP tool `desk_export_dev_env` and the agent API run the same templates for dev stages only. Agents never pass prompt
   values, never run commands, never overwrite files and never get a value back (only path, key names and sources).
