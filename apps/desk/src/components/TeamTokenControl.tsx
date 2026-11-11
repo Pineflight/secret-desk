@@ -104,11 +104,6 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, head
   return (
     <div className="space-y-3 text-sm" data-testid="team-token">
       {heading ? <p className="font-medium">{t("teamToken.title")}</p> : null}
-      <p className="text-muted-text">{t("teamToken.explainShort", { days: data.days })}</p>
-      <ul className="flex flex-wrap gap-1.5" aria-label={t("teamToken.rightsLabel")}>
-        {data.rights[mode].map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted-text ring-1 ring-inset ring-line">{r}</li>)}
-      </ul>
-
       {!data.available ? (
         <Notice tone="warn">
           {data.reason === "automation-off" ? t("teamToken.automationOff") : t("teamToken.recipeMissing")}
@@ -136,25 +131,11 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, head
         </ol>
       ) : null}
 
-      {view === "waiting" || view === "running" ? (
-        <>
-          {run.ask?.type === "credentials" ? (
-            <CredentialsPrompt name="GitHub" methods={run.ask.methods} pending={answer.pending} onSend={(body) => void answer.run("credentials", body)} />
-          ) : null}
-          {run.ask?.type === "access" ? <AccessPrompt name="GitHub" ask={run.ask} pending={answer.pending} onSend={(body) => void answer.run("access", body)} /> : null}
-          {run.needs === "mfa-code" ? <CodePrompt name="GitHub" pending={answer.pending} onSend={(code) => void answer.run("code", { code })} /> : null}
-          {run.needs === "approval" ? <ApprovalNotice name="GitHub" number={run.detail} /> : null}
-          {run.needs === "consent" ? (
-            <ConsentPrompt idp="Google" name="GitHub" scopes={run.detail} pending={answer.pending} onAnswer={(accept) => void answer.run("confirm", { accept })} />
-          ) : null}
-          {view === "waiting" && !run.ask && !run.needs ? (
-            <Notice tone="warn" title={t("teamToken.waitingTitle")}>
-              <p>{run.phase === "signin" ? t("teamToken.waiting.signin") : t("teamToken.waiting.confirm")}</p>
-            </Notice>
-          ) : null}
-        </>
+      {view === "waiting" && !run.ask && !run.needs ? (
+        <Notice tone="warn" title={t("teamToken.waitingTitle")}>
+          <p>{run.phase === "signin" ? t("teamToken.waiting.signin") : t("teamToken.waiting.confirm")}</p>
+        </Notice>
       ) : null}
-      {answer.error ? <Notice tone="danger">{answer.error.message}</Notice> : null}
 
       {view === "done" ? <Notice tone="success">{t("teamToken.done", { name: data.active?.tokenName ?? "", date: expires })}</Notice> : null}
       {view === "done" && run.result && typeof run.result === "object" && (run.result as { revoked?: boolean | null }).revoked === true ? <Notice tone="success">{t("teamToken.revoked")}</Notice> : null}
@@ -187,14 +168,33 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, head
 
       <div className="flex flex-wrap items-center gap-2">
         {running ? (
-          <Button loading={cancel.pending} onClick={() => void cancel.run()}>{t("facade.cancel")}</Button>
+          <Button className="min-h-10" loading={cancel.pending} onClick={() => void cancel.run()}>{t("facade.cancel")}</Button>
         ) : (
           <>
-            <Button variant="primary" loading={start.pending} disabled={!canStart} onClick={() => void start.run()}>{t(createLabelKey(data))}</Button>
+            <Button variant="primary" className="min-h-10" loading={start.pending} disabled={!canStart} onClick={() => void start.run()}>{t(createLabelKey(data))}</Button>
             {offerCheck ? <button type="button" disabled={check.pending} className="text-xs text-muted-text underline disabled:opacity-60" onClick={() => void check.run()}>{check.pending ? t("teamToken.checking") : t("facade.checkSignin")}</button> : null}
           </>
         )}
       </div>
+      {view === "waiting" || view === "running" ? (
+        <>
+          {run.ask?.type === "credentials" ? (
+            <CredentialsPrompt name="GitHub" methods={run.ask.methods} pending={answer.pending} onSend={(body) => void answer.run("credentials", body)} />
+          ) : null}
+          {run.ask?.type === "access" ? <AccessPrompt name="GitHub" ask={run.ask} pending={answer.pending} onSend={(body) => void answer.run("access", body)} /> : null}
+          {run.needs === "mfa-code" ? <CodePrompt name="GitHub" pending={answer.pending} onSend={(code) => void answer.run("code", { code })} /> : null}
+          {run.needs === "approval" ? <ApprovalNotice name="GitHub" number={run.detail} /> : null}
+          {run.needs === "consent" ? (
+            <ConsentPrompt idp="Google" name="GitHub" scopes={run.detail} pending={answer.pending} onAnswer={(accept) => void answer.run("confirm", { accept })} />
+          ) : null}
+        </>
+      ) : null}
+      {answer.error ? <Notice tone="danger">{answer.error.message}</Notice> : null}
+      <p className="text-muted-text">{t("teamToken.explainShort", { days: data.days })}</p>
+      <ul className="flex flex-wrap gap-1.5" aria-label={t("teamToken.rightsLabel")}>
+        {data.rights[mode].map((r) => <li key={r} className="rounded-full bg-page px-2.5 py-0.5 text-xs text-muted-text ring-1 ring-inset ring-line">{r}</li>)}
+      </ul>
+
     </div>
   );
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Dialog } from "@/components/Dialog";
 import { Badge, Button, Checkbox, ErrorState, Notice, SelectField, TextField } from "@/components/ui";
 import { useT } from "@/lib/i18n";
@@ -9,6 +9,7 @@ import { STAGE_KINDS, stageLook, type StageKind } from "@/lib/stages";
 /** Eine Stage anlegen oder bearbeiten. Speichern geschieht im Aufrufer (ganze Liste per PUT), Fehler des Servers kommen als `error` zurueck. */
 export function StageDialog({ initial, others, pending, error, onSave, onClose }: { initial: StageDraft; others: StageDraft[]; pending: boolean; error: Error | null; onSave: (d: StageDraft) => void; onClose: () => void }) {
   const t = useT();
+  const formId = useId();
   const [d, setD] = useState<StageDraft>(initial);
   const [problem, setProblem] = useState<string | null>(null);
   const set = (patch: Partial<StageDraft>) => {
@@ -25,8 +26,17 @@ export function StageDialog({ initial, others, pending, error, onSave, onClose }
   };
 
   return (
-    <Dialog title={initial.isNew ? t("settings.addTitle") : t("settings.editTitle", { id: initial.id })} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-4">
+    <Dialog
+      title={initial.isNew ? t("settings.addTitle") : t("settings.editTitle", { id: initial.id })}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("settings.cancel")}</Button>
+          <Button type="submit" form={formId} variant="primary" loading={pending}>{t("settings.save")}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-4">
         <div className="flex items-center justify-between gap-3 rounded-xl bg-page px-4 py-3">
           <span className="text-xs text-muted">{t("settings.preview")}</span>
           <Badge info={look} />
@@ -46,10 +56,6 @@ export function StageDialog({ initial, others, pending, error, onSave, onClose }
         </SelectField>
         {problem ? <Notice tone="danger">{problem}</Notice> : null}
         {error ? <ErrorState error={error} /> : null}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button onClick={onClose}>{t("settings.cancel")}</Button>
-          <Button type="submit" variant="primary" loading={pending}>{t("settings.save")}</Button>
-        </div>
       </form>
     </Dialog>
   );

@@ -8,14 +8,14 @@ import type { SecretView, VariableApplyResult, VariableView } from "@secret-desk
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { EditMetaDialog, TagChips, metaFrom } from "@/components/Meta";
-import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, FilterRow, LIST_CELL_CLASS, WIDE_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
+import { ACTIONS_CELL_CLASS, ACTIONS_GROUP_CLASS, ActionMenu, LIST_CELL_CLASS, WIDE_CELL_CLASS, LIST_ROW_CLASS, ListTable, MenuItem, RowIconButton, SegmentSwitch, TagFilterChip } from "@/components/ListTable";
 import { PageSearch } from "@/components/PageSearch";
 import { Marked } from "@/components/Marked";
 import { NormalizeDialog, countApplicable, useNormalizationPlan } from "@/components/NormalizeDialog";
 import { RemoveDialog, VariableDetail, type Auto } from "@/components/VariableDialogs";
 import { SuggestSourcesDialog, useVariableSources } from "@/components/VariableSource";
 import { BROWSE_DEFAULT, BrowseControls, GroupHeading, RepoFilter, type BrowseState } from "@/components/BrowseControls";
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, ProviderChip, SelectField, StageBadge, StatusBadge } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, Pill, ProviderChip, SelectField, StageBadge, StatusBadge } from "@/components/ui";
 import { filterBySearch, highlightTerms } from "@/lib/page-search";
 import { usePageSearch } from "@/lib/use-page-search";
 import { limitGroups } from "@/lib/paging";
@@ -257,6 +257,21 @@ export default function EntriesPage() {
     return out;
   }, [kind, status, t]);
 
+  // "More filters" holds provider, parameters, group and sort; it opens by itself as soon as one of them is active.
+  const moreActive = (showSecretFilters ? Number(Boolean(provider)) + Number(Boolean(paramsFilter)) : 0) + Number(browse.group !== BROWSE_DEFAULT.group) + Number(browse.sort !== BROWSE_DEFAULT.sort);
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (moreActive > 0) setMoreOpen(true);
+  }, [moreActive]);
+  const resetVisible = Boolean(anyFilter) || kind !== "" || provider !== "" || paramsFilter !== "" || moreActive > 0;
+  const resetFilters = () => {
+    setQ("");
+    setProvider("");
+    setParamsFilter("");
+    setBrowse(BROWSE_DEFAULT);
+    router.replace("/entries");
+  };
+
   const kindOptions: { id: KindFilter; label: string; count: number }[] = [
     { id: "", label: t("entries.kindAll"), count: switchCounts.all },
     { id: "secret", label: t("entries.kindSecrets"), count: switchCounts.secret },
@@ -271,7 +286,7 @@ export default function EntriesPage() {
     <>
       <PageHeader
         title={t("entries.title")}
-        subtitle={<>{t("entries.subtitle")}<span className="tabular mt-1 block font-medium text-ink" data-testid="entries-counts">{loaded ? t("entries.counts", { secrets: shown.secret, variables: shown.variable }) : ""}</span></>}
+        subtitle={<span title={t("entries.subtitleHint")}>{t("entries.subtitle")}{loaded ? <> · <span className="tabular font-medium text-ink" data-testid="entries-counts">{t("entries.counts", { secrets: shown.secret, variables: shown.variable })}</span></> : <span className="sr-only" data-testid="entries-counts" />}</span>}
         actions={
           <>
             {running ? (
@@ -290,47 +305,58 @@ export default function EntriesPage() {
               </ActionMenu>
             )}
             <Button onClick={() => setNormalizing(true)} data-testid="normalize-open"><Icon name="wrench" />{t("normalize.button")}{normalizeCount > 0 ? <Pill>{normalizeCount}</Pill> : null}</Button>
-            <Button variant="primary" onClick={() => setCreating(initialNewKind(null, kind))}><Icon name="plus" />{t("entries.new")}</Button>
+            {/* Below sm the topbar button opens the same dialog (?new=1 resolves to the same kind), so this one is hidden to keep the header actions on one row. */}
+            <Button variant="primary" className="hidden sm:inline-flex" onClick={() => setCreating(initialNewKind(null, kind))}><Icon name="plus" />{t("entries.new")}</Button>
           </>
         }
       />
       {live ? <div className="mb-4"><Notice tone="info">{t("secrets.liveNotice")}</Notice></div> : null}
 
-      <PageSearch value={q} onChange={setQ} count={loaded ? rows.length : null} total={loaded ? (secrets.data!.length + variables.data!.length) : null} />
-      <FilterRow>
-        <SegmentSwitch label={t("entries.kind")} value={kind} options={kindOptions} onChange={(v) => setParam("kind", v)} />
-        <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
-        <div className="w-40">
-          <SelectField label={t("entries.stage")} value={stage} onChange={(e) => setParam("stage", e.target.value)}>
-            <option value="">{t("entries.all")}</option>
-            {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
-          </SelectField>
+      <Card className="mb-4 space-y-3 !p-3">
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+          <PageSearch value={q} onChange={setQ} count={loaded ? rows.length : null} total={loaded ? (secrets.data!.length + variables.data!.length) : null} />
+          <SegmentSwitch label={t("entries.kind")} value={kind} options={kindOptions} onChange={(v) => setParam("kind", v)} />
+          <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
+          <div className="w-28">
+            <SelectField label={t("entries.stage")} value={stage} onChange={(e) => setParam("stage", e.target.value)}>
+              <option value="">{t("entries.all")}</option>
+              {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
+            </SelectField>
+          </div>
+          <div className="w-40">
+            <SelectField label={t("entries.status")} value={status} onChange={(e) => setParam("status", e.target.value)}>
+              <option value="">{t("entries.all")}</option>
+              {statusOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </SelectField>
+          </div>
+          <Button variant="secondary" aria-expanded={moreOpen} aria-controls="entries-more-filters" onClick={() => setMoreOpen((o) => !o)}>
+            <Icon name="chevron" className={`h-3.5 w-3.5 ${moreOpen ? "-rotate-90" : "rotate-90"}`} />{t("entries.moreFilters")}{moreActive > 0 ? <Pill>{moreActive}</Pill> : null}
+          </Button>
+          {resetVisible ? <Button variant="secondary" onClick={resetFilters}><Icon name="x" />{t("entries.reset")}</Button> : null}
         </div>
-        <div className="w-56">
-          <SelectField label={t("entries.status")} value={status} onChange={(e) => setParam("status", e.target.value)}>
-            <option value="">{t("entries.all")}</option>
-            {statusOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </SelectField>
-        </div>
-        {showSecretFilters ? (
-          <>
-            <div className="w-44">
-              <SelectField label={kind === "" ? `${t("entries.provider")} · ${t("entries.onlySecrets")}` : t("entries.provider")} value={provider} onChange={(e) => setProvider(e.target.value)}>
-                <option value="">{t("entries.all")}</option>
-                <option value="auto">{t("secrets.automatic")}</option>
-                <option value="manual">{t("secrets.manual")}</option>
-              </SelectField>
-            </div>
-            <div className="w-44">
-              <SelectField label={kind === "" ? `${t("params.list.filter")} · ${t("entries.onlySecrets")}` : t("params.list.filter")} value={paramsFilter} onChange={(e) => setParamsFilter(e.target.value)}>
-                <option value="">{t("params.list.filterAll")}</option>
-                <option value="missing">{t("params.list.filterMissing")}</option>
-              </SelectField>
-            </div>
-          </>
+        {moreOpen ? (
+          <div id="entries-more-filters" className="flex flex-wrap items-end gap-3 border-t border-line pt-3">
+            {showSecretFilters ? (
+              <>
+                <div className="w-44">
+                  <SelectField label={kind === "" ? `${t("entries.provider")} · ${t("entries.onlySecrets")}` : t("entries.provider")} value={provider} onChange={(e) => setProvider(e.target.value)}>
+                    <option value="">{t("entries.all")}</option>
+                    <option value="auto">{t("secrets.automatic")}</option>
+                    <option value="manual">{t("secrets.manual")}</option>
+                  </SelectField>
+                </div>
+                <div className="w-44">
+                  <SelectField label={kind === "" ? `${t("params.list.filter")} · ${t("entries.onlySecrets")}` : t("params.list.filter")} value={paramsFilter} onChange={(e) => setParamsFilter(e.target.value)}>
+                    <option value="">{t("params.list.filterAll")}</option>
+                    <option value="missing">{t("params.list.filterMissing")}</option>
+                  </SelectField>
+                </div>
+              </>
+            ) : null}
+            <BrowseControls value={browse} onChange={setBrowse} sorts={kind === "variable" ? ["name", "repo", "stage"] : ["name", "expires", "repo", "stage"]} />
+          </div>
         ) : null}
-        <BrowseControls value={browse} onChange={setBrowse} sorts={kind === "variable" ? ["name", "repo", "stage"] : ["name", "expires", "repo", "stage"]} />
-      </FilterRow>
+      </Card>
 
       <TagFilterChip tag={tag} label={t("secrets.filteredByTag")} removeLabel={t("secrets.removeFilter", { tag })} onClear={() => setTag("")} />
       {narrowNotices.map((n) => (

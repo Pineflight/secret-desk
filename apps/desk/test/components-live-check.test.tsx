@@ -22,7 +22,7 @@ const report = (over: Partial<LiveCheckReport> = {}): LiveCheckReport => ({
 const state = (over: Partial<LiveCheckState> = {}): LiveCheckState => ({ reports: [report()], running: false, intervalDays: 7, stale: false, ...over });
 
 describe("LiveCheckPanel", () => {
-  it("says so when no check ran yet, warns, and starts one with the button", async () => {
+  it("says so when no check ran yet, without an extra warning, and starts one with the button", async () => {
     let current = state({ reports: [], stale: true });
     const portal = fakePortal({
       "GET live-check": () => current,
@@ -33,7 +33,8 @@ describe("LiveCheckPanel", () => {
     });
     const { user } = renderApp(<LiveCheckPanel />);
     expect(await screen.findByText("Noch nie gelaufen")).toBeInTheDocument();
-    expect(screen.getByText(/Es gibt noch keinen Lauf/)).toBeInTheDocument();
+    expect(screen.queryByText(/Es gibt noch keinen Lauf/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Letzter Lauf/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Jetzt prüfen" }));
     await waitFor(() => expect(portal.callsTo("POST", "live-check")).toHaveLength(1));
     expect(await screen.findByText("Läuft")).toBeInTheDocument();
@@ -72,6 +73,46 @@ describe("LiveCheckPanel", () => {
     expect(screen.queryByText(/älter als/)).not.toBeInTheDocument();
   });
 
+  it("keeps title, badge, last run and the button in one bar, with the explanation in a closed disclosure", async () => {
+    fakePortal({ "GET live-check": state() });
+    renderApp(<LiveCheckPanel />);
+    const button = await screen.findByRole("button", { name: "Jetzt prüfen" });
+    const bar = button.parentElement!;
+    expect(within(bar).getByRole("heading", { name: "Live-Check" })).toBeInTheDocument();
+    expect(within(bar).getByText("In Ordnung")).toBeInTheDocument();
+    expect(within(bar).getByText(/Letzter Lauf/)).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "Details und Erklärung" });
+    expect(bar.contains(toggle)).toBe(true);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(details).toHaveAttribute("hidden");
+    expect(within(details).getByText(/Prüft gegen die echten Konten/)).toBeInTheDocument();
+    expect(bar.contains(details)).toBe(false);
+  });
+
+  it("opens and closes the details with the toggle on the bar", async () => {
+    fakePortal({ "GET live-check": state() });
+    const { user } = renderApp(<LiveCheckPanel />);
+    const toggle = await screen.findByRole("button", { name: "Details und Erklärung" });
+    const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(details).not.toHaveAttribute("hidden");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(details).toHaveAttribute("hidden");
+  });
+
+  it("opens the list on its own when something failed, and caps its height", async () => {
+    fakePortal({ "GET live-check": state({ reports: [report({ ok: false, connections: [{ id: "resend", result: "failed", detail: "HTTP 401" }], summary: { connections: { ok: 0, failed: 1, notConnected: 0 }, recipes: { ok: 1, failed: 0, needsSignIn: 0, skipped: 0 } } })] }) });
+    renderApp(<LiveCheckPanel />);
+    const toggle = await screen.findByRole("button", { name: "Details und Erklärung" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(details).not.toHaveAttribute("hidden");
+    expect(within(details).getByRole("list")).toHaveClass("max-h-[50vh]");
+  });
+
   it("warns with the count when recipes could not be checked because they need a sign-in", async () => {
     fakePortal({ "GET live-check": state({ reports: [report({ summary: { connections: { ok: 1, failed: 0, notConnected: 0 }, recipes: { ok: 0, failed: 0, needsSignIn: 3, skipped: 0 } } })] }) });
     renderApp(<LiveCheckPanel />);
@@ -90,6 +131,13 @@ describe("LiveCheckPanel", () => {
     fakePortal({ "GET live-check": state({ stale: true, intervalDays: 7 }) });
     renderApp(<LiveCheckPanel />);
     expect(await screen.findByText(/Der letzte Lauf ist älter als 14 Tage/)).toBeInTheDocument();
+  });
+
+  it("does not repeat the never-run badge as a stale warning", async () => {
+    fakePortal({ "GET live-check": state({ reports: [], stale: true }) });
+    renderApp(<LiveCheckPanel />);
+    expect(await screen.findByText("Noch nie gelaufen")).toBeInTheDocument();
+    expect(screen.queryByText(/älter als/)).not.toBeInTheDocument();
   });
 
   it("tells that the automatic check is off and does not warn", async () => {

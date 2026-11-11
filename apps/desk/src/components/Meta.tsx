@@ -178,6 +178,7 @@ export function MetaFields({ value, onChange }: { value: MetaValues; onChange: (
 /** Dialog zum Bearbeiten der beschreibenden Angaben. `path` ist `secrets/<id>` oder `variables/<id>`. */
 export function EditMetaDialog({ path, initial, notes, onClose, onSaved }: { path: string; initial: MetaValues; notes?: string | null | undefined; onClose: () => void; onSaved: () => void }) {
   const t = useT();
+  const formId = useId();
   const toast = useToast();
   const [m, setM] = useState(initial);
   const [n, setN] = useState(notes ?? "");
@@ -194,15 +195,21 @@ export function EditMetaDialog({ path, initial, notes, onClose, onSaved }: { pat
     }
   };
   return (
-    <Dialog title={t("meta.editTitle")} onClose={onClose} wide>
-      <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
+    <Dialog
+      title={t("meta.editTitle")}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Button onClick={onClose}>{t("meta.cancel")}</Button>
+          <Button type="submit" form={formId} variant="primary" loading={save.pending}>{t("meta.save")}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
+        {localError || save.error ? <Notice tone="danger">{localError ?? save.error?.message}</Notice> : null}
         <MetaFields value={m} onChange={setM} />
         {notes !== undefined ? <TextAreaField label={t("meta.notes")} rows={2} value={n} onChange={(e) => setN(e.target.value)} /> : null}
-        {localError || save.error ? <Notice tone="danger">{localError ?? save.error?.message}</Notice> : null}
-        <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>{t("meta.cancel")}</Button>
-          <Button type="submit" variant="primary" loading={save.pending}>{t("meta.save")}</Button>
-        </div>
       </form>
     </Dialog>
   );

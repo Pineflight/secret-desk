@@ -1,6 +1,8 @@
 export default {
   "compare.title": "Vergleich",
-  "compare.subtitle": "Welche Secrets und Variablen liegen auf welcher Stage, und wo fehlt etwas? Der Vergleich zeigt Lücken zwischen Stages und Abweichungen vom Inventar auf einen Blick.",
+  "compare.subtitle": "Welche Secrets und Variablen liegen auf welcher Stage, und wo fehlt etwas?",
+  "compare.statusLive": "Live-Stand von GitHub",
+  "compare.statusOffline": "Nur Inventar",
   "compare.live": "Live mit GitHub abgleichen",
   "compare.liveHint": "Liest Namen aus GitHub, nur lesend und nie Werte. Variablen werden mit dem Sollwert verglichen.",
   "compare.liveNotice": "Live-Stand von GitHub. „fehlt“ heißt: im Inventar erwartet, in GitHub nicht vorhanden. „nur in GitHub“ heißt: vorhanden, aber im Inventar unbekannt.",

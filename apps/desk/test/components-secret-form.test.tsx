@@ -348,3 +348,41 @@ describe("SecretForm provider parameters", () => {
     expect(alerts.some((a) => a.textContent === "Parameter ungültig")).toBe(true);
   });
 });
+
+describe("SecretForm layout", () => {
+  it("puts the optional details in a disclosure that is closed on create and open for a prefilled description", () => {
+    fakePortal(routes());
+    const { container, unmount } = renderApp(form());
+    expect(container.querySelector("details.sd-disclosure")).not.toHaveAttribute("open");
+    unmount();
+    const prefilled = renderApp(form({ initial: { id: "a", name: "A", repo: "web", stage: "staging", description: "Known" } }));
+    expect(prefilled.container.querySelector("details.sd-disclosure")).toHaveAttribute("open");
+  });
+
+  it("lists the required fields before the optional disclosure", () => {
+    fakePortal(routes());
+    const { container } = renderApp(form());
+    const required = screen.getByLabelText(/^Kennung/);
+    const optional = container.querySelector("details.sd-disclosure")!;
+    expect(required.compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the buttons into the footer host and still submits through the form attribute", async () => {
+    const portal = fakePortal(routes());
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    const submit = screen.getByRole("button", { name: "Anlegen" });
+    expect(host).toContainElement(submit);
+    expect(container).not.toContainElement(submit);
+    expect(submit).toHaveAttribute("form", container.querySelector("form")!.id);
+    await user.type(screen.getByLabelText(/^Kennung/), "k1");
+    await user.type(screen.getByLabelText(/^Name im Ziel/), "K1");
+    await user.type(screen.getByLabelText(/^Dienst/), "svc");
+    await user.type(screen.getByRole("combobox", { name: "Repository, Ziel 1" }), "web");
+    await user.click(submit);
+    await waitFor(() => expect(portal.callsTo("POST", "secrets")).toHaveLength(1));
+    host.remove();
+  });
+});
+

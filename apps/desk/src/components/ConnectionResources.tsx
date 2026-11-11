@@ -104,7 +104,7 @@ export function ConnectionResourcesPanel({ id, onSaved }: { id: string; onSaved?
   return (
     <div className="space-y-5 text-sm">
       {kinds.length > 0 ? (
-        <ul className="space-y-2">
+        <ul className="max-h-[50vh] space-y-2 overflow-y-auto">
           {kinds.map(([kind, r]) => (
             <li key={kind} className="rounded-xl border border-line p-3">
               <p className="font-medium">{kindName(t, kind)}{r.status === "ok" ? <span className="ml-2 text-xs font-normal text-muted">{t("params.conn.count", { count: r.options.length })}</span> : null}</p>

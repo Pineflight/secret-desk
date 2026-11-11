@@ -58,6 +58,11 @@ describe("list helpers", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it("SegmentSwitch keeps a 40px touch target on small screens and relaxes it from sm up", () => {
+    renderApp(<SegmentSwitch label="Kind" value="all" onChange={() => {}} options={[{ id: "all", label: "All" }]} />);
+    expect(screen.getByRole("button", { name: "All" })).toHaveClass("min-h-10", "sm:min-h-0");
+  });
+
   it("SegmentSwitch marks the active option, shows counts and reports a choice", async () => {
     const onChange = vi.fn();
     const { user } = renderApp(<SegmentSwitch label="Kind" value="all" onChange={onChange} options={[{ id: "all", label: "All", count: 3 }, { id: "secret", label: "Secrets" }]} />);

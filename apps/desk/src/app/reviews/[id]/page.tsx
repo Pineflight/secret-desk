@@ -7,7 +7,7 @@ import type { CommitResult } from "@secret-desk/core";
 import type { IssuanceView, SecretView } from "@secret-desk/runtime";
 import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, Checkbox, ErrorState, Notice, PageHeader, SectionLabel, Skeleton, StageBadge, TextAreaField } from "@/components/ui";
+import { ActionBar, Badge, Button, Card, Checkbox, ErrorState, Notice, PageHeader, SectionLabel, Skeleton, StageBadge, TextAreaField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { countdown, formatDate } from "@/lib/format";
 import { useMutation, useNow, useQuery } from "@/lib/hooks";
@@ -154,12 +154,14 @@ export default function ReviewDetailPage() {
             ) : null}
             <div className="mt-4"><TextAreaField label={t("reviews.detail.note")} rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></div>
             <p className="mt-4 text-xs text-muted-text">{t("reviews.detail.githubHint")}</p>
-            {confirm.error || reject.error ? <div className="mt-3"><Notice tone="danger">{(confirm.error ?? reject.error)?.message}</Notice></div> : null}
-            <div className="mt-4 flex flex-col gap-2">
-              <Button variant="primary" disabled={!canConfirm} loading={confirm.pending} onClick={() => void doConfirm()}><Icon name="check" />{t("reviews.detail.confirm")}</Button>
-              <Button variant="secondary" loading={reject.pending} onClick={() => void doReject()}><Icon name="trash" />{t("reviews.detail.reject")}</Button>
+            <ActionBar className="mt-4"><div className="w-full space-y-2">
+              {confirm.error || reject.error ? <Notice tone="danger">{(confirm.error ?? reject.error)?.message}</Notice> : null}
               {!allTicked && !expired ? <p className="text-xs text-muted">{t("reviews.detail.tickAll")}</p> : null}
-            </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" disabled={!canConfirm} loading={confirm.pending} onClick={() => void doConfirm()}><Icon name="check" />{t("reviews.detail.confirm")}</Button>
+                <Button variant="secondary" loading={reject.pending} onClick={() => void doReject()}><Icon name="trash" />{t("reviews.detail.reject")}</Button>
+              </div>
+            </div></ActionBar>
           </Card>
 
           <Card>

@@ -49,7 +49,7 @@ export default {
   "dev.written": "Geschrieben",
   "dev.keysList": "Schlüssel: {keys}",
   "dev.title": "Dev-Umgebung",
-  "dev.subtitle": "Erzeugt eine lokale .env-Datei aus der Vorlage eines Repos. Angezeigt werden nur Pfad und Schlüsselnamen, nie Werte.",
+  "dev.subtitle": "Erzeugt eine lokale .env-Datei aus einer Repo-Vorlage. Nie Werte, nur Pfad und Schlüsselnamen.",
   "dev.noTemplates": "Keine Vorlagen",
   "dev.noTemplatesText": "Es gibt noch keine Dev-Vorlage. Nutze unten den freien Export.",
   "dev.freeExport": "Andere Vorlage / freier Export",
@@ -68,4 +68,7 @@ export default {
   "dev.exportRepo": ".env exportieren",
   "dev.exportRepoAria": ".env für {name} exportieren",
   "dev.exportClose": "Schließen",
+  "dev.keysSummary": "{count} Schlüssel · Eingabe von dir nötig bei {input}",
+  "dev.keysSummaryNone": "{count} Schlüssel · keine Eingabe nötig",
+  "dev.exportRepoPlaceholder": "Repository eintippen oder auswählen",
 } satisfies Record<string, string>;

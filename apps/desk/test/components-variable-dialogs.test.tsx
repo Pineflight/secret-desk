@@ -426,6 +426,29 @@ describe("VariableForm", () => {
     await user.click(screen.getByRole("button", { name: "Anlegen" }));
     expect(await screen.findByText("Kennung vergeben")).toBeInTheDocument();
   });
+
+  it("keeps the optional details in a disclosure, closed on create and open for a prefilled description", () => {
+    fakePortal(base());
+    const { container, unmount } = renderApp(form());
+    expect(container.querySelector("details.sd-disclosure")).not.toHaveAttribute("open");
+    unmount();
+    const prefilled = renderApp(form({ initial: { id: "a", name: "A", repo: "web", stage: "staging", description: "Known" } }));
+    expect(prefilled.container.querySelector("details.sd-disclosure")).toHaveAttribute("open");
+  });
+
+  it("renders the buttons into the footer host and submits through the form attribute", async () => {
+    const portal = fakePortal(base({ "POST variables": variable() }));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    const submit = screen.getByRole("button", { name: "Anlegen" });
+    expect(host).toContainElement(submit);
+    expect(container).not.toContainElement(submit);
+    await fill(user);
+    await user.click(submit);
+    await waitFor(() => expect(portal.callsTo("POST", "variables")).toHaveLength(1));
+    host.remove();
+  });
 });
 
 describe("RemoveDialog", () => {

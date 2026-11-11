@@ -4,8 +4,8 @@ import { NewEntryDialog } from "@/components/NewEntryDialog";
 import { renderApp } from "./helpers/render";
 
 vi.mock("@/components/SecretForm", () => ({
-  SecretForm: ({ onCreated, onClose }: { onCreated: () => void; onClose: () => void }) => (
-    <div><span>secret-form</span><button onClick={onCreated}>created-secret</button><button onClick={onClose}>close-secret</button></div>
+  SecretForm: ({ onCreated, onClose, footerHost }: { onCreated: () => void; onClose: () => void; footerHost?: HTMLElement | null }) => (
+    <div><span>secret-form</span><span data-testid="secret-host">{footerHost ? "host" : "no-host"}</span><button onClick={onCreated}>created-secret</button><button onClick={onClose}>close-secret</button></div>
   ),
 }));
 vi.mock("@/components/VariableDialogs", () => ({
@@ -30,5 +30,10 @@ describe("NewEntryDialog", () => {
     const { user } = renderApp(<NewEntryDialog initialKind="variable" sources={[]} prefill={null} onClose={() => {}} onCreated={onCreated} />);
     await user.click(screen.getByText("created-variable"));
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("hands the dialog footer element to the form so its buttons can sit there", () => {
+    renderApp(<NewEntryDialog initialKind="secret" sources={[]} prefill={null} onClose={() => {}} onCreated={() => {}} />);
+    expect(screen.getByTestId("secret-host")).toHaveTextContent("host");
   });
 });

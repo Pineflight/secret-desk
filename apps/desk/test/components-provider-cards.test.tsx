@@ -7,6 +7,7 @@ import {
   CategorySection,
   CollapsedBadge,
   ProviderLogo,
+  ProviderGrid,
   ProviderPageCard,
   ProviderTile,
   ResultMark,
@@ -109,13 +110,15 @@ describe("ProviderTile and CategorySection", () => {
     expect(tile).toHaveAccessibleDescription("Secrets, Variablen und Tokens deiner Repositories");
   });
 
-  it("renders a titled section as tiles or cards at the chosen heading level", () => {
-    const { rerender } = renderApp(<CategorySection category="code"><li>one</li></CategorySection>);
+  it("renders a titled section of tiles", () => {
+    renderApp(<CategorySection category="code"><li>one</li></CategorySection>);
     expect(screen.getByRole("heading", { level: 3, name: "Code und CI" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveClass("lg:grid-cols-3");
-    rerender(<CategorySection category="code" grid="cards" level="h2"><li>one</li></CategorySection>);
-    expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument();
-    expect(screen.getByRole("list")).toHaveClass("md:grid-cols-2");
+  });
+
+  it("lays the provider cards out in one responsive grid", () => {
+    renderApp(<ProviderGrid><li>one</li></ProviderGrid>);
+    expect(screen.getByRole("list")).toHaveClass("grid-cols-1", "lg:grid-cols-2", "2xl:grid-cols-3");
   });
 });
 
@@ -219,6 +222,13 @@ describe("ProviderPageCard", () => {
     expect(screen.queryByRole("button", { name: "do it" })).toBeNull();
   });
 
+  it("puts the actions before the guides and lists of the body, and names the category", () => {
+    renderApp(<ProviderPageCard card={c} view={view()} open onToggle={() => {}} signIn={null} actions={<button>do it</button>}><p>body</p></ProviderPageCard>);
+    const action = screen.getByRole("button", { name: "do it" });
+    expect(action.compareDocumentPosition(screen.getByText("body")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Code und CI")).toBeInTheDocument();
+  });
+
   it("shows the spinner, the last result and the meta line with its problem colour", () => {
     const meta: CollapsedMeta = { kind: "expiry", problem: true, key: "providers.meta.testFailed", vars: {} };
     const last = { ok: true, at: new Date(2026, 0, 1, 10, 0).getTime(), kind: "test" as const, line: "" };
@@ -253,6 +263,8 @@ describe("ProviderPageCard", () => {
     await user.click(screen.getByRole("button", { name: "Bei GitHub live anmelden" }));
     expect(onSignIn).toHaveBeenLastCalledWith("live");
     expect(screen.getByText("Bei live anmelden")).toBeInTheDocument();
+    // The buttons share the header row with the title button (not an extra row below it).
+    expect(screen.getByRole("button", { name: "Bei GitHub anmelden" }).parentElement!.parentElement).toBe(screen.getByRole("button", { name: /Details von GitHub/ }).closest("h4")!.parentElement);
     rerender(<ProviderPageCard card={c} view={view({ badge: "none" })} open={false} onToggle={() => {}} signIn={null} signInPrompts={[{ portal: null }]} />);
     expect(screen.queryByRole("button", { name: "Bei GitHub anmelden" })).toBeNull();
     expect(within(document.body).queryByText("Anmelden")).toBeNull();

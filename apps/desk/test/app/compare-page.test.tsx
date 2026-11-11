@@ -23,7 +23,17 @@ describe("Compare page: states", () => {
     const { container } = renderApp(<ComparePage />);
     expect(container.querySelector(".sd-skeleton")).not.toBeNull();
     expect(await screen.findByText(t("compare.emptyFirst"))).toBeInTheDocument();
-    expect(screen.getByText(t("compare.offlineNotice"))).toBeInTheDocument();
+    const status = screen.getByText(t("compare.statusOffline"));
+    expect(status).toHaveAttribute("title", t("compare.offlineNotice"));
+    expect(screen.queryByText(t("compare.offlineNotice"))).toBeNull();
+  });
+
+  it("keeps the write-to-GitHub action in the page header, disabled until the data is there", async () => {
+    compare(result({ rows: [consistent] }));
+    renderApp(<ComparePage />);
+    expect(screen.getByRole("button", { name: t("compare.sync.button") })).toBeDisabled();
+    await ready();
+    expect(screen.getByRole("button", { name: t("compare.sync.button") })).toBeEnabled();
   });
 
   it("shows the error and retries", async () => {
@@ -101,7 +111,8 @@ describe("Compare page: live reading", () => {
       release(undefined);
       await gate;
     });
-    expect(await screen.findByText(t("compare.liveNotice"))).toBeInTheDocument();
+    const status = await screen.findByText(t("compare.statusLive"));
+    expect(status).toHaveAttribute("title", t("compare.liveNotice"));
   });
 
   it("lists read errors of the targets", async () => {

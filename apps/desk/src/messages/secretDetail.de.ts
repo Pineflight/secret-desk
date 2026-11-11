@@ -39,6 +39,7 @@ export default {
   "secretDetail.targets": "Ziele in GitHub",
   "secretDetail.noTargets": "Keine Ziele. Dieser Eintrag wird nur lokal genutzt.",
   "secretDetail.history": "Verlauf der Prüfungen",
+  "secretDetail.historyOlder": "{count} ältere Prüfungen anzeigen",
   "secretDetail.noReviewTitle": "Noch keine Prüfung",
   "secretDetail.noReviewText": "Sobald ein Wert geprüft wurde, steht der Beleg hier.",
   "secretDetail.confirmedBy": "Bestätigt von {by} am {date}",

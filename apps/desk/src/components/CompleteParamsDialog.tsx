@@ -58,7 +58,7 @@ export function CompleteParamsDialog({ secrets, onClose, onChanged }: { secrets:
   };
 
   return (
-    <Dialog title={t("params.complete.title")} description={t("params.complete.desc")} onClose={onClose} wide>
+    <Dialog title={t("params.complete.title")} description={t("params.complete.desc")} onClose={onClose} wide footer={<Button onClick={onClose}>{t("params.complete.close")}</Button>}>
       {q.loading && !q.data ? <><p className="mb-3 text-sm text-muted">{t("params.complete.loading")}</p><ListSkeleton rows={3} /></> : null}
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : null}
       {q.data && rows.length === 0 ? <EmptyState title={t("params.complete.empty")} icon="check" /> : null}
@@ -105,7 +105,6 @@ export function CompleteParamsDialog({ secrets, onClose, onChanged }: { secrets:
           </ul>
         </div>
       ) : null}
-      <div className="mt-5 flex justify-end"><Button onClick={onClose}>{t("params.complete.close")}</Button></div>
     </Dialog>
   );
 }

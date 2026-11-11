@@ -41,6 +41,19 @@ describe("TeamTokenControl idle states", () => {
     expect(screen.queryByText("Team-Token", { exact: true })).toBeNull();
   });
 
+  it("puts the status and the primary button before the explanation and the rights", async () => {
+    info(tokenInfo({ active: activeToken() }));
+    renderApp(control());
+    const button = await screen.findByRole("button", { name: "Neues Team-Token erstellen" });
+    const status = screen.getByText(/Team-Token secret-desk-team/);
+    const explanation = screen.getByText(/secret-desk erstellt ein eigenes Token/);
+    const rights = screen.getByRole("list", { name: "Rechte des Team-Tokens" });
+    const follows = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    follows(status, button);
+    follows(button, explanation);
+    follows(explanation, rights);
+  });
+
   it("starts the creation with repository, mode, strategy and branch", async () => {
     const onCreated = vi.fn();
     const portal = info(tokenInfo(), { [`POST ${TOKEN}`]: {} });

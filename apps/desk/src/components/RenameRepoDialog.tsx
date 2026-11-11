@@ -20,14 +20,19 @@ export function RenameRepoDialog({ from, to, onClose, onDone }: { from: string; 
     onDone();
   };
   return (
-    <Dialog title={t("repos.renameInventory")} onClose={onClose}>
+    <Dialog
+      title={t("repos.renameInventory")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("repos.cancel")}</Button>
+          <Button variant="primary" loading={rename.pending} data-autofocus onClick={() => void submit()}>{t("repos.renameInventory")}</Button>
+        </>
+      }
+    >
       <div className="space-y-4">
         <p className="text-sm">{t("repos.renameConfirm", { from, to })}</p>
         {rename.error ? <Notice tone="danger">{rename.error.message}</Notice> : null}
-        <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>{t("repos.cancel")}</Button>
-          <Button variant="primary" loading={rename.pending} data-autofocus onClick={() => void submit()}>{t("repos.renameInventory")}</Button>
-        </div>
       </div>
     </Dialog>
   );

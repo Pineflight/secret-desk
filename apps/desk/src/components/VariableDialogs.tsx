@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { VariableDrift } from "@secret-desk/core";
 import type { VariableApplyResult, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icons";
 import { EditMetaDialog, ExternalLink, MetaFields, metaBody, validateMeta, type MetaValues } from "@/components/Meta";
 import { PlacesEditor } from "@/components/PlacesEditor";
 import { NameHint } from "@/components/NormalizeDialog";
-import { Badge, Button, Checkbox, Notice, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
+import { Badge, Button, Checkbox, Disclosure, FormFooter, Notice, SelectField, StageBadge, TextField, inputClass } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import { placeText } from "@/lib/format";
 import { useMutation } from "@/lib/hooks";
@@ -167,8 +167,9 @@ export function VariableDetail({ v, sources, drift, comparing, compareError, aut
   );
 }
 
-export function VariableForm({ sources, initial = null, onClose, onCreated }: { sources: SourceDef[]; initial?: Prefill | null; onClose: () => void; onCreated: () => void }) {
+export function VariableForm({ sources, initial = null, footerHost, onClose, onCreated }: { sources: SourceDef[]; initial?: Prefill | null; footerHost?: HTMLElement | null; onClose: () => void; onCreated: () => void }) {
   const t = useT();
+  const formId = useId();
   const defs = useStageDefs();
   const toast = useToast();
   const [f, setF] = useState({ id: initial?.id ?? "", name: initial?.name ?? "", stage: initial?.stage ?? "", description: "", product: "", value: "" });
@@ -204,25 +205,29 @@ export function VariableForm({ sources, initial = null, onClose, onCreated }: { 
     }
   };
   return (
-    <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
-      <MetaFields value={meta} onChange={setMeta} />
+    <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
+      {localError ? <Notice tone="danger">{localError}</Notice> : null}
+      <SecretGuard error={create.error} ack={ack} setAck={setAck} />
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField label={t("variables.fieldId")} hint={t("variables.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
         <TextField label={t("variables.fieldName")} hint={t("variables.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
         <SelectField label={t("variables.stage")} value={stageId} onChange={(e) => set("stage", e.target.value)}>
           {defs.map((d) => <option key={d.id} value={d.id}>{labelOf(defs, d.id)}</option>)}
         </SelectField>
-        <TextField label={t("variables.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
         <TextField label={t("variables.fieldValue")} value={f.value} onChange={(e) => set("value", e.target.value)} autoComplete="off" spellCheck={false} />
       </div>
       <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
       <SourceSection mode="create" sources={sources} value={src} onChange={setSrc} repo={rows.map((r) => r.repo.trim()).find(Boolean) ?? ""} stage={stageId} onUseValue={(val) => set("value", val)} />
-      {localError ? <Notice tone="danger">{localError}</Notice> : null}
-      <SecretGuard error={create.error} ack={ack} setAck={setAck} />
-      <div className="flex justify-end gap-2">
+      <Disclosure summary={t("meta.optionalDetails")} defaultOpen={Boolean(initial?.description)}>
+        <div className="space-y-4">
+          <TextField label={t("variables.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
+          <MetaFields value={meta} onChange={setMeta} />
+        </div>
+      </Disclosure>
+      <FormFooter host={footerHost}>
         <Button onClick={onClose}>{t("variables.cancel")}</Button>
-        <Button type="submit" variant="primary" loading={create.pending}>{t("variables.create")}</Button>
-      </div>
+        <Button type="submit" form={formId} variant="primary" loading={create.pending}>{t("variables.create")}</Button>
+      </FormFooter>
     </form>
   );
 }
@@ -232,13 +237,18 @@ export function RemoveDialog({ v, onClose, onDone }: { v: VariableView; onClose:
   const toast = useToast();
   const del = useMutation(async () => api<{ ok: boolean }>("DELETE", `variables/${enc(v.id)}`));
   return (
-    <Dialog title={t("variables.removeTitle")} onClose={onClose}>
+    <Dialog
+      title={t("variables.removeTitle")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose} data-autofocus>{t("variables.cancel")}</Button>
+          <Button variant="danger" loading={del.pending} onClick={async () => { if (await del.run()) { toast.success(t("variables.removed")); onDone(); } }}>{t("variables.remove")}</Button>
+        </>
+      }
+    >
       <p className="text-sm">{t("variables.removeText", { name: v.name })}</p>
       {del.error ? <div className="mt-3"><Notice tone="danger">{del.error.message}</Notice></div> : null}
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose} data-autofocus>{t("variables.cancel")}</Button>
-        <Button variant="danger" loading={del.pending} onClick={async () => { if (await del.run()) { toast.success(t("variables.removed")); onDone(); } }}>{t("variables.remove")}</Button>
-      </div>
     </Dialog>
   );
 }

@@ -137,7 +137,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <a href="#inhalt" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-card focus:p-2">{t("common.skip")}</a>
       {open ? <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setOpen(false)} aria-hidden="true" /> : null}
       <aside id="seitenleiste" className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line bg-card transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`} aria-label={t("common.sidebar")}>
-        <div className="flex items-center gap-2.5 px-5 py-5">
+        <div className="flex items-center gap-2.5 px-5 py-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 rounded-xl" />
           <span className="text-base font-semibold tracking-tight">secret-desk</span>
@@ -159,13 +159,13 @@ export function Shell({ children }: { children: ReactNode }) {
             })}
           </ul>
         </nav>
-        <div className="m-3 rounded-2xl border border-line bg-page p-3 text-sm">
-          <p className="font-medium">{session?.user ?? "…"}</p>
-          <p className="text-xs text-muted">{t("common.userLocal")}</p>
-          {session?.demo ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-[11px] font-medium text-[#a8420f]">{t("common.demo")}</p> : null}
-          <p className="mt-3 text-center text-[11px] leading-snug text-muted">
-            {t("about.footer")}
-            <br />
+        <div className="m-3 rounded-2xl border border-line bg-page px-3 py-2 text-sm">
+          <p className="flex flex-wrap items-center gap-x-2">
+            <span className="min-w-0 truncate font-medium">{session?.user ?? "…"}</span>
+            <span className="text-xs text-muted">{t("common.userLocal")}</span>
+            {session?.demo ? <span className="inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-[11px] font-medium text-[#a8420f]">{t("common.demo")}</span> : null}
+          </p>
+          <p className="mt-1 text-[11px] leading-snug text-muted" title={t("about.footer")}>
             <Link href="/about" className="underline hover:text-ink">{t("about.footerAbout")}</Link>
             {about.data ? (
               <>
@@ -216,7 +216,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
 
       {paletteOpen ? <CommandPalette shortcut={touch ? "" : shortcutLabel(platform, locale)} onClose={() => setPaletteOpen(false)} /> : null}
-      <main id="inhalt" className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
+      <main id="inhalt" className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-6">
         {inventoryProblem ? <p role="alert" className="mb-4 rounded-xl border border-line bg-card px-4 py-3 text-sm text-danger">{t("common.inventoryUnreadable", { message: inventoryProblem.message })}</p> : null}
         {launchRequired ? <div className="mx-auto max-w-2xl py-8 sm:py-16"><LaunchForm onSession={() => window.location.reload()} /></div> : children}</main>
     </div>

@@ -4,6 +4,7 @@ import { SelectBox } from "./SelectBox";
 import Link from "next/link";
 import type { ChangeEvent, ButtonHTMLAttributes, KeyboardEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useId } from "react";
+import { createPortal } from "react-dom";
 import type { StatusLevel } from "@secret-desk/core";
 import { ApiError } from "@/lib/api";
 import { nextTab } from "@/lib/tabs";
@@ -21,7 +22,7 @@ export function SectionLabel({ children, className = "" }: { children: ReactNode
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
@@ -146,7 +147,40 @@ export function ListSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-export function EmptyState({ title, children, icon = "inbox" }: { title: string; children?: ReactNode; icon?: string }) {
+export function ActionBar({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`sd-action-bar ${className}`}>{children}</div>;
+}
+
+/**
+ * Form buttons for the footer bar of a surrounding Dialog: `host` is the footer element (null until it is mounted, then
+ * nothing is rendered). Without a `host` the buttons stay inline, so a form also works outside a dialog footer.
+ */
+export function FormFooter({ host, children }: { host?: HTMLElement | null; children: ReactNode }) {
+  if (host === undefined) return <div className="flex flex-wrap justify-end gap-2">{children}</div>;
+  return host ? createPortal(children, host) : null;
+}
+
+export function Disclosure({ summary, children, defaultOpen = false, className = "" }: { summary: ReactNode; children: ReactNode; defaultOpen?: boolean; className?: string }) {
+  return (
+    <details open={defaultOpen} className={`sd-disclosure ${className}`}>
+      <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <Icon name="chevron" className="sd-disclosure-chevron h-4 w-4 shrink-0 text-muted" />
+        {summary}
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+export function EmptyState({ title, children, icon = "inbox", compact = false }: { title: string; children?: ReactNode; icon?: string; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-dashed border-line px-4 py-3 text-sm">
+        <p className="font-medium">{title}</p>
+        {children ? <div className="text-muted">{children}</div> : null}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line px-6 py-12 text-center">
       <span className="rounded-full bg-page p-3 text-muted"><Icon name={icon} className="h-6 w-6" /></span>

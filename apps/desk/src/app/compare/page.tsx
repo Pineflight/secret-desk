@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompareCell, CompareRepo, CompareResult, RepoNote } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
-import { FilterRow, LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable } from "@/components/ListTable";
+import { LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable } from "@/components/ListTable";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import {
@@ -169,80 +169,49 @@ export default function ComparePage() {
         subtitle={t("compare.subtitle")}
         actions={
           <>
-            {live ? (
-              <Button variant="secondary" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button>
-            ) : null}
             <Button variant="secondary" onClick={() => void copy()} disabled={!data}><Icon name="download" />{t("compare.copyMd")}</Button>
+            <Button variant="primary" disabled={!data} onClick={() => setSyncAll(true)}><Icon name="upload" />{t("compare.sync.button")}</Button>
           </>
         }
       />
 
-      <div className="mb-4 space-y-3">
-        <Checkbox checked={live} onChange={setLive}>
-          <span className="font-medium">{t("compare.live")}</span>
-          <span className="block text-xs text-muted">{t("compare.liveHint")}</span>
-        </Checkbox>
-        {live ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Checkbox checked={allRepos} onChange={setAllRepos}>
-              <span className="font-medium">{t("compare.allRepos")}</span>
-              <span className="block text-xs text-muted">{t("compare.allReposHint")}</span>
-            </Checkbox>
-            <Checkbox checked={workflows} onChange={setWorkflows}>
-              <span className="font-medium">{t("compare.workflows")}</span>
-              <span className="block text-xs text-muted">{t("compare.workflowsHint")}</span>
-            </Checkbox>
+      <Card className="mb-4 space-y-3 !p-3">
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
+            <span title={t("compare.liveHint")}>
+              <Checkbox checked={live} onChange={setLive}><span className="font-medium">{t("compare.live")}</span></Checkbox>
+            </span>
+            {live ? (
+              <>
+                <span title={t("compare.allReposHint")}><Checkbox checked={allRepos} onChange={setAllRepos}>{t("compare.allRepos")}</Checkbox></span>
+                <span title={t("compare.workflowsHint")}><Checkbox checked={workflows} onChange={setWorkflows}>{t("compare.workflows")}</Checkbox></span>
+              </>
+            ) : null}
+            <span role="status" title={live ? t("compare.liveNotice") : t("compare.offlineNotice")} className={`text-xs ${live ? "font-medium text-ink" : "text-muted"}`}>
+              {live ? (result.loading ? t("compare.liveLoading") : t("compare.statusLive")) : t("compare.statusOffline")}
+            </span>
+            {live ? <Button variant="secondary" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button> : null}
           </div>
-        ) : null}
-        <Notice tone="info">{live ? (result.loading ? t("compare.liveLoading") : t("compare.liveNotice")) : t("compare.offlineNotice")}</Notice>
-        {data && data.errors.length > 0 ? (
-          <Notice tone="warn" title={t("compare.errorsTitle")}>
-            <p>{t("compare.errorsText")}</p>
-            <ul className="mt-1 list-disc pl-5 text-xs">{data.errors.slice(0, 6).map((e, i) => <li key={i}><span className="font-medium">{e.target}</span>: {e.message}</li>)}</ul>
-          </Notice>
-        ) : null}
-      </div>
-
-      <FilterRow>
-        <div className="w-52">
-          <SelectField label={t("compare.filterRepo")} value={filters.repo} onChange={(e) => set("repo", e.target.value)}>
-            <option value="">{t("compare.all")}</option>
-            {repos.map((r) => <option key={r} value={r}>{r}</option>)}
-          </SelectField>
+          <div className="w-44">
+            <SelectField label={t("compare.filterRepo")} value={filters.repo} onChange={(e) => set("repo", e.target.value)}>
+              <option value="">{t("compare.all")}</option>
+              {repos.map((r) => <option key={r} value={r}>{r}</option>)}
+            </SelectField>
+          </div>
+          <div className="w-36">
+            <SelectField label={t("compare.kind")} value={filters.kind} onChange={(e) => set("kind", e.target.value as CompareFilters["kind"])}>
+              <option value="">{t("compare.all")}</option>
+              <option value="secret">{t("compare.kindSecret")}</option>
+              <option value="variable">{t("compare.kindVariable")}</option>
+            </SelectField>
+          </div>
+          <div className="w-48">
+            <TextField label={t("compare.search")} value={filters.q} onChange={(e) => set("q", e.target.value)} autoComplete="off" />
+          </div>
         </div>
-        <div className="w-44">
-          <SelectField label={t("compare.kind")} value={filters.kind} onChange={(e) => set("kind", e.target.value as CompareFilters["kind"])}>
-            <option value="">{t("compare.all")}</option>
-            <option value="secret">{t("compare.kindSecret")}</option>
-            <option value="variable">{t("compare.kindVariable")}</option>
-          </SelectField>
-        </div>
-        <div className="w-56">
-          <TextField label={t("compare.search")} value={filters.q} onChange={(e) => set("q", e.target.value)} autoComplete="off" />
-        </div>
-        <div className="flex flex-col justify-end gap-2 pb-1">
-          <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
-          <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
-          {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
-          {all.some((r) => r.levelMismatch) ? (
-            <Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)}>
-              <span>{t("compare.showLevelMismatch")}</span>
-              <span className="block text-xs text-muted">{t("compare.showLevelMismatchHint")}</span>
-            </Checkbox>
-          ) : null}
-          {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
-        </div>
-        <div className="flex max-w-xs flex-col justify-end pb-1">
-          <Checkbox checked={normalize} onChange={setNormalize}>
-            <span>{t("compare.normalize")}</span>
-            <span className="block text-xs text-muted">{t("compare.normalizeHint")}</span>
-          </Checkbox>
-        </div>
-      </FilterRow>
-
-      <div className="mb-5" role="group" aria-label={t("compare.stagesLabel")}>
-        <SectionLabel>{t("compare.stagesLabel")}</SectionLabel>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("compare.stagesLabel")} title={t("compare.stagesHint")}>
+          <SectionLabel>{t("compare.stagesLabel")}</SectionLabel>
           {orderedStages.map((s) => {
             const on = compared.includes(s.id);
             return (
@@ -251,47 +220,64 @@ export default function ComparePage() {
                 type="button"
                 aria-pressed={on}
                 onClick={() => toggleStage(s.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary-light text-primary" : "border-line bg-card text-muted-text hover:bg-page"}`}
+                className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary-light text-primary" : "border-line bg-card text-muted-text hover:bg-page"}`}
               >
                 {on ? <Icon name="check" className="h-3 w-3" /> : null}{s.label}
               </button>
             );
           })}
         </div>
-        <p className="mt-1 text-xs text-muted">{t("compare.stagesHint")}</p>
-      </div>
+        <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
+          <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
+          <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
+          <span title={t("compare.normalizeHint")}><Checkbox checked={normalize} onChange={setNormalize}>{t("compare.normalize")}</Checkbox></span>
+          {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
+          {all.some((r) => r.levelMismatch) ? <span title={t("compare.showLevelMismatchHint")}><Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)}>{t("compare.showLevelMismatch")}</Checkbox></span> : null}
+          {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
+        </div>
+        </div>
+      </Card>
+
+      {data && data.errors.length > 0 ? (
+        <div className="mb-4">
+          <Notice tone="warn" title={t("compare.errorsTitle")}>
+            <p>{t("compare.errorsText")}</p>
+            <ul className="mt-1 list-disc pl-5 text-xs">{data.errors.slice(0, 6).map((e, i) => <li key={i}><span className="font-medium">{e.target}</span>: {e.message}</li>)}</ul>
+          </Notice>
+        </div>
+      ) : null}
 
       {data ? (
-        <section aria-label={t("compare.sumTitle")} className="mb-8">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {orderedStages.map((s) => {
-              const n = totals[s.id]!;
-              return (
-                <Card key={s.id} className={`!p-4 ${compared.includes(s.id) ? "ring-1 ring-primary/30" : ""}`}>
-                  <SectionLabel>{s.label}</SectionLabel>
-                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-                    <dt className="text-muted-text">{t("compare.sumExpected")}</dt><dd className="tabular text-right font-semibold">{n.expected}</dd>
-                    <dt className="text-muted-text">{t("compare.sumPresent")}</dt><dd className="tabular text-right font-semibold">{data.live ? n.present : "–"}</dd>
-                    <dt className="text-muted-text">{t("compare.sumMissing")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.missing ? "text-danger-text" : ""}`}>{data.live ? n.missing : "–"}</dd>
-                    <dt className="text-muted-text">{t("compare.sumUnexpected")}</dt><dd className={`tabular text-right font-semibold ${data.live && n.unexpected ? "text-warn-text" : ""}`}>{data.live ? n.unexpected : "–"}</dd>
-                    {data.live && n.error ? <><dt className="text-muted-text">{t("compare.sumError")}</dt><dd className="tabular text-right font-semibold text-danger-text">{n.error}</dd></> : null}
-                    {n.needed ? <><dt className="text-muted-text">{t("compare.sumNeeded")}</dt><dd className="tabular text-right font-semibold text-warn-text">{n.needed}</dd></> : null}
-                    {n.levelMismatch ? <><dt className="text-muted-text">{t("compare.sumLevelMismatch")}</dt><dd className="tabular text-right font-semibold">{n.levelMismatch}</dd></> : null}
-                  </dl>
-                </Card>
-              );
-            })}
-          </div>
-          <p className="mt-2 text-xs text-muted">
-            {t("compare.sumRows", { rows: visible.length, gaps: gapCount, orphans: orphanCount })}
-            {data.live ? "" : ` ${t("compare.sumOffline")}`}
-            {neededRows > 0 ? ` ${t("compare.sumNeededRows", { count: neededRows })}.` : ""}
-            {levelRows > 0 ? ` ${t("compare.sumLevelMismatchRows", { count: levelRows })}.` : ""}
-            {hiddenNow.length > 0 && !showHidden ? ` ${t("compare.sumHidden", { count: hiddenNow.length })}` : ""}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <section aria-label={t("compare.sumTitle")} className="mb-4">
+          <Card className="!px-3 !py-2">
+            <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+              {orderedStages.map((s) => {
+                const n = totals[s.id]!;
+                const num = "tabular font-semibold";
+                return (
+                  <li key={s.id} className={`flex min-w-0 flex-wrap items-baseline gap-x-2 ${compared.includes(s.id) ? "" : "opacity-70"}`}>
+                    <span className="text-sm font-semibold">{s.label}</span>
+                    <span className="text-muted-text">{t("compare.sumExpected")} <span className={num}>{n.expected}</span></span>
+                    <span className="text-muted-text">{t("compare.sumPresent")} <span className={num}>{data.live ? n.present : "–"}</span></span>
+                    <span className="text-muted-text">{t("compare.sumMissing")} <span className={`${num} ${data.live && n.missing ? "text-danger-text" : ""}`}>{data.live ? n.missing : "–"}</span></span>
+                    <span className="text-muted-text">{t("compare.sumUnexpected")} <span className={`${num} ${data.live && n.unexpected ? "text-warn-text" : ""}`}>{data.live ? n.unexpected : "–"}</span></span>
+                    {data.live && n.error ? <span className="text-muted-text">{t("compare.sumError")} <span className={`${num} text-danger-text`}>{n.error}</span></span> : null}
+                    {n.needed ? <span className="text-muted-text">{t("compare.sumNeeded")} <span className={`${num} text-warn-text`}>{n.needed}</span></span> : null}
+                    {n.levelMismatch ? <span className="text-muted-text">{t("compare.sumLevelMismatch")} <span className={num}>{n.levelMismatch}</span></span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-xs text-muted">
+              {t("compare.sumRows", { rows: visible.length, gaps: gapCount, orphans: orphanCount })}
+              {data.live ? "" : ` ${t("compare.sumOffline")}`}
+              {neededRows > 0 ? ` ${t("compare.sumNeededRows", { count: neededRows })}.` : ""}
+              {levelRows > 0 ? ` ${t("compare.sumLevelMismatchRows", { count: levelRows })}.` : ""}
+              {hiddenNow.length > 0 && !showHidden ? ` ${t("compare.sumHidden", { count: hiddenNow.length })}` : ""}
+            </p>
             {candidates.length > 0 ? <Button variant="secondary" onClick={() => setAdoptAll(true)}><Icon name="plus" />{t("compare.adoptAll", { count: candidates.length })}</Button> : null}
-            <Button variant="secondary" onClick={() => setSyncAll(true)}><Icon name="upload" />{t("compare.sync.button")}</Button>
           </div>
         </section>
       ) : null}

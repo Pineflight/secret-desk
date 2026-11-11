@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, LinkButton, ListSkeleton, Notice, PageHeader, Pill, ProviderChip, SectionLabel, SelectField, Skeleton, Stat, StageBadge, StatusBadge, Tabs, TextAreaField, TextField } from "@/components/ui";
+import { ActionBar, Badge, Button, Card, Disclosure, FormFooter, Checkbox, EmptyState, ErrorState, Field, LinkButton, ListSkeleton, Notice, PageHeader, Pill, ProviderChip, SectionLabel, SelectField, Skeleton, Stat, StageBadge, StatusBadge, Tabs, TextAreaField, TextField } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SetupStep } from "@/components/SetupStep";
 import { SyncDiff } from "@/components/SyncDiff";
@@ -215,5 +215,42 @@ describe("SyncDiff", () => {
     expect(screen.getByText(/\+ s1/)).toHaveTextContent("neu");
     expect(screen.getByText(/~ v1/)).toHaveTextContent("geändert");
     expect(screen.getByText(/− v2/)).toHaveTextContent("nur lokal");
+  });
+
+  it("renders the sticky action bar with extra classes", () => {
+    renderApp(<ActionBar className="extra"><button>go</button></ActionBar>);
+    const bar = screen.getByRole("button", { name: "go" }).parentElement!;
+    expect(bar).toHaveClass("sd-action-bar", "extra");
+    renderApp(<ActionBar><button>plain</button></ActionBar>);
+    expect(screen.getByRole("button", { name: "plain" }).parentElement).toHaveClass("sd-action-bar");
+  });
+
+  it("renders a native disclosure that is closed unless asked to start open", () => {
+    const { container } = renderApp(<><Disclosure summary="More" className="x"><p>hidden body</p></Disclosure><Disclosure summary="Open" defaultOpen><p>shown body</p></Disclosure></>);
+    const [closed, open] = [...container.querySelectorAll("details")];
+    expect(closed).not.toHaveAttribute("open");
+    expect(closed).toHaveClass("x");
+    expect(open).toHaveAttribute("open");
+    expect(screen.getByText("More").closest("summary")).not.toBeNull();
+  });
+
+  it("renders the compact empty state without the icon circle", () => {
+    const { container } = renderApp(<><EmptyState compact title="Nothing here" /><EmptyState compact title="Nothing 2">Hint</EmptyState></>);
+    expect(screen.getByText("Nothing here")).toBeInTheDocument();
+    expect(screen.getByText("Hint")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("places form buttons inline without a host, nowhere until the host exists, and into the host afterwards", () => {
+    const { container, rerender } = renderApp(<FormFooter><button>inline</button></FormFooter>);
+    expect(screen.getByRole("button", { name: "inline" })).toBeInTheDocument();
+    rerender(<FormFooter host={null}><button>inline</button></FormFooter>);
+    expect(screen.queryByRole("button", { name: "inline" })).toBeNull();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    rerender(<FormFooter host={host}><button>inline</button></FormFooter>);
+    expect(host).toContainElement(screen.getByRole("button", { name: "inline" }));
+    expect(container).not.toContainElement(screen.getByRole("button", { name: "inline" }));
+    host.remove();
   });
 });

@@ -1,6 +1,8 @@
 export default {
   "compare.title": "Compare",
-  "compare.subtitle": "Which secrets and variables exist on which stage, and where is something missing? The comparison shows gaps between stages and deviations from the inventory at a glance.",
+  "compare.subtitle": "Which secrets and variables sit on which stage, and what is missing?",
+  "compare.statusLive": "Live state from GitHub",
+  "compare.statusOffline": "Inventory only",
   "compare.live": "Check live against GitHub",
   "compare.liveHint": "Reads names from GitHub, read-only and never values. Variables are compared with their target value.",
   "compare.liveNotice": "Live state from GitHub. “missing” means expected in the inventory but not present in GitHub. “only in GitHub” means present but unknown to the inventory.",

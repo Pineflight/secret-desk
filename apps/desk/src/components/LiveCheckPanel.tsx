@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { LiveCheckConnection, LiveCheckRecipe, LiveCheckReport } from "@secret-desk/runtime";
+import { Icon } from "@/components/Icons";
 import { Badge, Button, Card, Notice } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -56,6 +57,9 @@ function rowsOf(report: LiveCheckReport): Row[] {
 export function LiveCheckPanel() {
   const t = useT();
   const [polling, setPolling] = useState(false);
+  // null = follow the data (open on its own when something failed); true/false = the person chose.
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const detailsId = useId();
   const q = useQuery<LiveCheckState>("live-check", () => api<LiveCheckState>("GET", "live-check"), polling ? { refreshMs: POLL_MS } : {});
   const start = useMutation(() => api<LiveCheckState>("POST", "live-check"));
   const running = q.data?.running === true;
@@ -79,42 +83,47 @@ export function LiveCheckPanel() {
         : last.ok
           ? { label: t("liveCheck.state.ok"), tone: "success", icon: "check" }
           : { label: t("liveCheck.state.failed"), tone: "danger", icon: "x" };
+  const rows = last ? rowsOf(last) : [];
+  const problems = rows.filter((r) => r.result === "failed" || r.result === "needs-sign-in").length;
+  const open = chosen ?? problems > 0;
   return (
     <Card className="mb-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">{t("liveCheck.title")}</h2>
-          <p className="mt-0.5 max-w-2xl text-sm text-muted">{t("liveCheck.intro")}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {status ? <Badge info={status} /> : null}
-          <Button variant="primary" loading={running || start.pending} disabled={!state} onClick={() => void onCheck()}>{t("liveCheck.run")}</Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="text-base font-semibold">{t("liveCheck.title")}</h2>
+        {status ? <Badge info={status} /> : null}
+        <p className="min-w-0 flex-1 text-sm text-muted">
+          {last ? t("liveCheck.lastRun", { when: formatDateTime(last.finishedAt), how: t(last.trigger === "schedule" ? "liveCheck.byTimer" : "liveCheck.byHand") }) : null}
+        </p>
+        <Button variant="ghost" aria-expanded={open} aria-controls={detailsId} onClick={() => setChosen(!open)}>
+          <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted ${open ? "rotate-90" : ""}`} />{t("liveCheck.details")}
+        </Button>
+        <Button variant="primary" loading={running || start.pending} disabled={!state} onClick={() => void onCheck()}>{t("liveCheck.run")}</Button>
       </div>
       {q.error ? <div className="mt-3"><Notice tone="warn">{t("liveCheck.loadFailed")} <button type="button" className="underline" onClick={q.reload}>{t("common.retry")}</button></Notice></div> : null}
       {start.error ? <div className="mt-3"><Notice tone="warn">{busy ? t("liveCheck.busy") : t("liveCheck.startFailed")}</Notice></div> : null}
-      {state && state.intervalDays === 0 ? <p className="mt-3 text-xs text-muted">{t("liveCheck.off")}</p> : null}
-      {state?.stale ? <div className="mt-3"><Notice tone="warn">{last ? t("liveCheck.stale", { days: state.intervalDays * 2 }) : t("liveCheck.noneYet")}</Notice></div> : null}
+      {state?.stale && last ? <div className="mt-3"><Notice tone="warn">{t("liveCheck.stale", { days: state.intervalDays * 2 })}</Notice></div> : null}
       {last && last.summary.recipes.needsSignIn > 0 ? <div className="mt-3"><Notice tone="warn">{t("liveCheck.needsSignInWarn", { count: last.summary.recipes.needsSignIn })}</Notice></div> : null}
-      {last ? (
-        <div className="mt-3">
-          <p className="text-sm">
-            {t("liveCheck.lastRun", { when: formatDateTime(last.finishedAt), how: t(last.trigger === "schedule" ? "liveCheck.byTimer" : "liveCheck.byHand") })}
-          </p>
-          <p className="mt-0.5 text-xs text-muted">
-            {t("liveCheck.summary", { ok: last.summary.connections.ok, failed: last.summary.connections.failed, off: last.summary.connections.notConnected, rOk: last.summary.recipes.ok, rFailed: last.summary.recipes.failed, rSign: last.summary.recipes.needsSignIn, rSkipped: last.summary.recipes.skipped })}
-          </p>
-          <ul className="mt-2 divide-y divide-line rounded-xl border border-line text-sm">
-            {rowsOf(last).map((row) => (
-              <li key={row.key} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5">
-                <span className="min-w-0 flex-1 font-medium">{row.id}</span>
-                <Badge info={{ label: t(RESULT_KEY[row.result]), ...RESULT_BADGE[row.result] }} />
-                {row.text ? <span className="basis-full text-xs text-muted">{row.text}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      {/* Open on its own when something failed, so the failing integrations are listed right under the bar. */}
+      <div id={detailsId} hidden={!open} className="mt-3">
+        <p className="max-w-2xl text-sm text-muted">{t("liveCheck.intro")}</p>
+        {state && state.intervalDays === 0 ? <p className="mt-2 text-xs text-muted">{t("liveCheck.off")}</p> : null}
+        {last ? (
+          <>
+            <p className="mt-2 text-xs text-muted">
+              {t("liveCheck.summary", { ok: last.summary.connections.ok, failed: last.summary.connections.failed, off: last.summary.connections.notConnected, rOk: last.summary.recipes.ok, rFailed: last.summary.recipes.failed, rSign: last.summary.recipes.needsSignIn, rSkipped: last.summary.recipes.skipped })}
+            </p>
+            <ul className="mt-2 max-h-[50vh] divide-y divide-line overflow-y-auto rounded-xl border border-line text-sm">
+              {rows.map((row) => (
+                <li key={row.key} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5">
+                  <span className="min-w-0 flex-1 font-medium">{row.id}</span>
+                  <Badge info={{ label: t(RESULT_KEY[row.result]), ...RESULT_BADGE[row.result] }} />
+                  {row.text ? <span className="basis-full text-xs text-muted">{row.text}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
     </Card>
   );
 }

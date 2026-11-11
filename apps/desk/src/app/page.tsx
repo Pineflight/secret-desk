@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Overview } from "@secret-desk/runtime";
 import { api } from "@/lib/api";
 import { daysLabel, placeText } from "@/lib/format";
@@ -20,6 +20,11 @@ import { useStageDefs } from "@/lib/use-stages";
 import { labelOf } from "@/lib/stages";
 
 type StageTab = string;
+
+/** A stat card that leads to the matching list. */
+function StatLink({ href, children }: { href: string; children: ReactNode }) {
+  return <Link href={href} className="block rounded-2xl hover:ring-1 hover:ring-primary">{children}</Link>;
+}
 
 export default function OverviewPage() {
   const t = useT();
@@ -58,13 +63,13 @@ export default function OverviewPage() {
         </div>
       ) : null}
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {o ? (
           <>
-            <Stat label={t("home.statExpired")} value={o.byStatus.expired} tone={o.byStatus.expired > 0 ? "danger" : undefined} />
-            <Stat label={t("home.statSoon")} value={o.byStatus.soon + o.byStatus.due} tone={o.byStatus.soon + o.byStatus.due > 0 ? "warn" : undefined} />
-            <Stat label={t("home.statMissing")} value={o.byStatus.missing} tone={o.byStatus.missing > 0 ? "danger" : undefined} />
-            <Stat label={t("home.statReviews")} value={o.pendingReviews} tone={o.pendingReviews > 0 ? "info" : undefined} />
+            <StatLink href="/entries?status=expired"><Stat label={t("home.statExpired")} value={o.byStatus.expired} tone={o.byStatus.expired > 0 ? "danger" : undefined} /></StatLink>
+            <StatLink href="/entries?status=soon"><Stat label={t("home.statSoon")} value={o.byStatus.soon + o.byStatus.due} tone={o.byStatus.soon + o.byStatus.due > 0 ? "warn" : undefined} /></StatLink>
+            <StatLink href="/entries?status=missing"><Stat label={t("home.statMissing")} value={o.byStatus.missing} tone={o.byStatus.missing > 0 ? "danger" : undefined} /></StatLink>
+            <StatLink href="/reviews"><Stat label={t("home.statReviews")} value={o.pendingReviews} tone={o.pendingReviews > 0 ? "info" : undefined} /></StatLink>
           </>
         ) : (
           Array.from({ length: 4 }, (_, i) => (
@@ -72,8 +77,6 @@ export default function OverviewPage() {
           ))
         )}
       </div>
-
-      <div className="mb-8"><LazySection minHeight={260}><IntegrationsOverview /></LazySection></div>
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -104,6 +107,8 @@ export default function OverviewPage() {
         ) : null}
         {view.hidden > 0 ? <div className="mt-3 flex justify-center"><Button onClick={() => setPages((n) => n + 1)}>{t("common.showMore", { count: view.next })}</Button></div> : null}
       </Card>
+
+      <div className="mt-8"><LazySection minHeight={260}><IntegrationsOverview /></LazySection></div>
     </>
   );
 }

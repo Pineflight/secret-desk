@@ -11,7 +11,7 @@ import { ParamsCard } from "@/components/ParamsCard";
 import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
 import { AttachmentThumb, EvidenceImage } from "@/components/Evidence";
 import { Icon } from "@/components/Icons";
-import { Badge, Button, Card, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SectionLabel, Skeleton, StageBadge, StatusBadge } from "@/components/ui";
+import { Badge, Button, Card, Disclosure, EmptyState, ErrorState, ListSkeleton, Notice, Pill, PageHeader, ProviderChip, SectionLabel, Skeleton, StageBadge, StatusBadge } from "@/components/ui";
 import { ApiError, api, enc } from "@/lib/api";
 import { daysLabel, formatDate, formatDateTime, placeText } from "@/lib/format";
 import { useMutation, useQuery } from "@/lib/hooks";
@@ -26,6 +26,30 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
       <dt className="text-muted-text">{label}</dt>
       <dd className="text-right font-medium">{children}</dd>
     </div>
+  );
+}
+
+const HISTORY_VISIBLE = 3;
+
+function HistoryItem({ report: r }: { report: VerificationReport }) {
+  const t = useT();
+  const overall = r.checks.some((c) => c.status === "fail") ? "fail" : r.checks.some((c) => c.status === "warn") ? "warn" : "pass";
+  const c = r.confirmation;
+  return (
+    <li className="flex flex-wrap gap-4 rounded-xl border border-line p-4">
+      <div className="w-48 max-w-full shrink-0"><EvidenceImage secretId={r.secretId} reportId={r.id} createdAt={r.createdAt} zoomable className="w-full" /></div>
+      <div className="min-w-0 flex-[1_1_14rem] space-y-2 text-sm">
+        <p className="flex flex-wrap items-center gap-2"><span className="tabular font-medium">{formatDateTime(r.createdAt)}</span><Badge info={overallInfo(overall)} /></p>
+        <p className="text-muted-text">{c ? (c.decision === "confirmed" ? t("secretDetail.confirmedBy", { by: c.by, date: formatDateTime(c.at) }) : t("secretDetail.rejectedBy", { by: c.by, date: formatDateTime(c.at) })) : t("secretDetail.notConfirmed")}{c?.note ? `: ${c.note}` : ""}</p>
+        <p className="text-xs text-muted">{t("secretDetail.fingerprint")} <span className="break-all font-mono">{r.fingerprint}</span></p>
+        {r.attachments.length > 0 ? (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-text">{t("secretDetail.attachments")}</p>
+            <div className="flex flex-wrap gap-2">{r.attachments.map((a) => <AttachmentThumb key={a.file} secretId={r.secretId} reportId={r.id} file={a.file} note={a.note} />)}</div>
+          </div>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
@@ -127,6 +151,8 @@ export default function SecretDetailPage() {
         </div>
       ) : null}
 
+      <div className="grid xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:gap-x-4">
+      <div className="min-w-0">
       <Card className="mb-6">
         <div className="flex items-center justify-between gap-3">
           <SectionLabel>{t("secretDetail.description")}</SectionLabel>
@@ -147,8 +173,10 @@ export default function SecretDetailPage() {
 
       {s.params.status !== "none" ? <ParamsCard secret={s} focusSignal={paramsFocus} notice={paramsNotice} onChanged={() => { setParamsNotice(null); secret.reload(); }} /> : null}
 
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <Card>
+      </div>
+
+      <div className="min-w-0">
+        <Card className="mb-6">
           <SectionLabel>{t("secretDetail.facts")}</SectionLabel>
           <dl className="mt-2 divide-y divide-line">
             <Fact label={t("secretDetail.service")}>{s.service}</Fact>
@@ -166,40 +194,33 @@ export default function SecretDetailPage() {
             <Fact label={t("secretDetail.verifiedAt")}>{s.verifiedAt ? <><span className="tabular">{formatDate(s.verifiedAt)}</span>{s.verifiedBy ? t("secretDetail.verifiedBy", { name: s.verifiedBy }) : ""}</> : t("secretDetail.never")}</Fact>
           </dl>
         </Card>
-        <Card>
+        <Card className="mb-6">
           <SectionLabel>{t("secretDetail.targets")}</SectionLabel>
           {s.places.length ? <ul className="mt-3 flex flex-wrap gap-2">{s.places.map((p, i) => <li key={i}><Pill>{placeText(p)}</Pill></li>)}</ul> : <p className="mt-3 text-sm text-muted-text">{t("secretDetail.noTargets")}</p>}
         </Card>
       </div>
+      </div>
 
       <Card>
         <SectionLabel>{t("secretDetail.history")}</SectionLabel>
-        <div className="mt-4">
+        <div className="mt-3">
           {evidence.loading && !evidence.data ? <ListSkeleton rows={2} /> : null}
           {evidence.error ? <ErrorState error={evidence.error} onRetry={evidence.reload} /> : null}
-          {evidence.data && evidence.data.length === 0 ? <EmptyState title={t("secretDetail.noReviewTitle")} icon="shield">{t("secretDetail.noReviewText")}</EmptyState> : null}
-          <ul className="space-y-4">
-            {[...(evidence.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((r) => {
-              const overall = r.checks.some((c) => c.status === "fail") ? "fail" : r.checks.some((c) => c.status === "warn") ? "warn" : "pass";
-              const c = r.confirmation;
-              return (
-                <li key={r.id} className="flex flex-wrap gap-4 rounded-xl border border-line p-4">
-                  <div className="w-56 shrink-0"><EvidenceImage secretId={r.secretId} reportId={r.id} createdAt={r.createdAt} zoomable className="w-full" /></div>
-                  <div className="min-w-0 flex-1 space-y-2 text-sm">
-                    <p className="flex flex-wrap items-center gap-2"><span className="tabular font-medium">{formatDateTime(r.createdAt)}</span><Badge info={overallInfo(overall)} /></p>
-                    <p className="text-muted-text">{c ? (c.decision === "confirmed" ? t("secretDetail.confirmedBy", { by: c.by, date: formatDateTime(c.at) }) : t("secretDetail.rejectedBy", { by: c.by, date: formatDateTime(c.at) })) : t("secretDetail.notConfirmed")}{c?.note ? `: ${c.note}` : ""}</p>
-                    <p className="text-xs text-muted">{t("secretDetail.fingerprint")} <span className="font-mono">{r.fingerprint}</span></p>
-                    {r.attachments.length > 0 ? (
-                      <div>
-                        <p className="mb-1 text-xs font-medium text-muted-text">{t("secretDetail.attachments")}</p>
-                        <div className="flex flex-wrap gap-2">{r.attachments.map((a) => <AttachmentThumb key={a.file} secretId={r.secretId} reportId={r.id} file={a.file} note={a.note} />)}</div>
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          {evidence.data && evidence.data.length === 0 ? <EmptyState compact title={t("secretDetail.noReviewTitle")}>{t("secretDetail.noReviewText")}</EmptyState> : null}
+          {(() => {
+            const sorted = [...(evidence.data ?? [])].sort((x, y) => y.createdAt.localeCompare(x.createdAt));
+            const older = sorted.slice(HISTORY_VISIBLE);
+            return (
+              <>
+                <ul className="space-y-4">{sorted.slice(0, HISTORY_VISIBLE).map((r) => <HistoryItem key={r.id} report={r} />)}</ul>
+                {older.length > 0 ? (
+                  <Disclosure className="mt-4" summary={t("secretDetail.historyOlder", { count: older.length })}>
+                    <ul className="space-y-4">{older.map((r) => <HistoryItem key={r.id} report={r} />)}</ul>
+                  </Disclosure>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
       </Card>
 

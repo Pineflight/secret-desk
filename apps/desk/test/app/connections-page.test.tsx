@@ -66,6 +66,28 @@ describe("Connections page: states of the list", () => {
     await waitFor(() => expect(screen.queryByText("connections broke")).toBeNull());
   });
 
+  it("puts expand-all next to the add button in the header and lays all providers out in one grid", async () => {
+    base({ "GET vendors": catalog(GITHUB, STRIPE, TELEGRAM), "GET secrets": [{ vendor: "github" }, { vendor: "telegram" }] });
+    renderApp(<ConnectionsPage />);
+    const expand = await screen.findByRole("button", { name: t("providers.expandAll") });
+    const add = screen.getByRole("button", { name: t("connections.add") });
+    expect(expand.parentElement).toBe(add.parentElement);
+    const lists = screen.getAllByRole("list").filter((l) => l.classList.contains("2xl:grid-cols-3"));
+    expect(lists).toHaveLength(1);
+    expect(lists[0]).toHaveClass("grid-cols-1", "lg:grid-cols-2");
+    expect(within(lists[0]!).getAllByRole("heading", { level: 4 }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows the action of an open card before its keys", async () => {
+    base();
+    const { user } = renderApp(<ConnectionsPage />);
+    const card = await openCard(user, "GitHub");
+    const manage = card.getByRole("button", { name: t("providers.page.manage") });
+    // The header says "hide" while open, so the "show" buttons are the key rows below.
+    const key = card.getAllByRole("button", { name: /anzeigen/ })[0]!;
+    expect(manage.compareDocumentPosition(key) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("opens and closes the cards one by one and all at once", async () => {
     base({ "GET vendors": catalog(GITHUB, TELEGRAM), "GET secrets": [{ vendor: "github" }, { vendor: "telegram" }] });
     const { user } = renderApp(<ConnectionsPage />);

@@ -6,7 +6,7 @@ import type { BundleDiff, PushPlan, SyncCheck, SyncStatus } from "@/lib/team-syn
 import { fakePortal, type FakeHandler } from "./helpers/portal";
 import { renderApp } from "./helpers/render";
 import { runState } from "./helpers/run";
-import { tokenInfo } from "./helpers/team-token";
+import { activeToken, tokenInfo } from "./helpers/team-token";
 import { drainRequestsAfterEach } from "./helpers/drain";
 
 drainRequestsAfterEach();
@@ -52,21 +52,25 @@ describe("TeamSyncPanel status", () => {
     renderApp(<TeamSyncPanel />);
     expect(await screen.findByText("Team-Sync ist nicht eingerichtet.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Einrichten" })).toHaveAttribute("href", "/setup");
+    expect(screen.queryByText("Details")).toBeNull();
     expect(screen.queryByRole("button", { name: "Jetzt synchronisieren" })).toBeNull();
   });
 
-  it("shows repository, file, mode, token source, rights and the last sync", async () => {
+  it("shows repository, file, mode and the last sync in the header and the rest in the details", async () => {
     fakePortal(routes({ [STATUS]: status({ lastSyncAt: "2026-01-02 10:00" }) }));
     renderApp(<TeamSyncPanel />);
-    const list = (await screen.findByText("Repository")).closest("dl")!;
-    expect(list).toHaveTextContent("acme/team");
-    expect(list).toHaveTextContent("team.json @ main");
-    expect(list).toHaveTextContent("nur lesen");
-    expect(list).toHaveTextContent("eigenes Team-Sync-Token");
-    expect(list).toHaveTextContent("Contents: read, Metadata: read");
-    expect(list).toHaveTextContent("2026-01-02 10:00");
+    const header = (await screen.findByText("acme/team")).closest("p")!;
+    expect(header).toHaveTextContent("team.json @ main");
+    expect(header).toHaveTextContent("nur lesen");
+    expect(header).toHaveTextContent("Letzter Abgleich: 2026-01-02 10:00");
+    const details = screen.getByText("Details").closest("details")!;
+    expect(details.open).toBe(false);
+    expect(details).toHaveTextContent("eigenes Team-Sync-Token");
+    expect(details).toHaveTextContent("Contents: read, Metadata: read");
+    expect(details).toHaveTextContent("Die Team-Datei");
     expect(await screen.findByTestId("team-token")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zum Repo schieben" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pull Request anlegen" })).toBeNull();
   });
 
   it("says never synced, hides the token control without repository or mode and passes no branch", async () => {
@@ -95,14 +99,18 @@ describe("TeamSyncPanel status", () => {
     renderApp(<TeamSyncPanel />);
     expect(await screen.findByText("401 from GitHub")).toBeInTheDocument();
     expect(screen.getByText("Letzter Fehler")).toBeInTheDocument();
-    expect(screen.getByText("Offener Pull Request: https://github.test/pr/1")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "https://github.test/pr/1" });
+    expect(link).toHaveAttribute("href", "https://github.test/pr/1");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText(/Offener Pull Request:/)).toBeInTheDocument();
   });
 
   it("disables the sync buttons while GitHub is not connected", async () => {
     fakePortal(routes({ [STATUS]: status({ connected: false, mode: "pull-push" }) }));
     renderApp(<TeamSyncPanel />);
     expect(await screen.findByRole("button", { name: "Jetzt synchronisieren" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Zum Repo schieben" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pull Request anlegen" })).toBeDisabled();
   });
 });
 
@@ -191,11 +199,15 @@ describe("TeamSyncPanel push", () => {
   it("shows the plan as a pull request, then pushes and links the pull request", async () => {
     const portal = fakePortal(pushRoutes({ "POST team-sync/push-plan": plan(), "POST team-sync/push": { pushed: true, pullRequest: { url: "https://github.test/pr/9" } } }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     expect(await screen.findByText("Es wird ein Pull Request gegen main angelegt oder aktualisiert (Zweig secret-desk/team).")).toBeInTheDocument();
     expect(screen.getByText(/\+ s-new/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Bestätigen und schieben" }));
-    expect(await screen.findByText("Pull Request bereit: https://github.test/pr/9")).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: "https://github.test/pr/9" });
+    expect(link).toHaveAttribute("href", "https://github.test/pr/9");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText(/Pull Request bereit:/)).toBeInTheDocument();
     expect(portal.callsTo("POST", "team-sync/push")[0]?.body).toEqual({ confirm: true, expectLocalHash: "hash-1", expectRemoteSha: "sha-2" });
     expect(screen.queryByRole("button", { name: "Bestätigen und schieben" })).toBeNull();
   });
@@ -213,14 +225,14 @@ describe("TeamSyncPanel push", () => {
   it("uses an empty branch name in the text when the status has none", async () => {
     fakePortal(pushRoutes({ [STATUS]: status({ mode: "pull-push", branch: null }), "POST team-sync/push-plan": plan() }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     expect(await screen.findByText(/^Es wird ein Pull Request gegen\s+angelegt oder aktualisiert \(Zweig secret-desk\/team\)\.$/)).toBeInTheDocument();
   });
 
   it("says there is nothing to push and offers no confirmation", async () => {
     fakePortal(pushRoutes({ "POST team-sync/push-plan": plan({ diff: diff({}, true) }) }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     expect(await screen.findByText("Es gibt nichts zu schieben.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Bestätigen und schieben" })).toBeNull();
   });
@@ -228,7 +240,7 @@ describe("TeamSyncPanel push", () => {
   it("cancels the plan", async () => {
     fakePortal(pushRoutes({ "POST team-sync/push-plan": plan() }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     const confirm = await screen.findByRole("button", { name: "Bestätigen und schieben" });
     await user.click(within(confirm.parentElement!).getByRole("button", { name: "Abbrechen" }));
     expect(screen.queryByRole("button", { name: "Bestätigen und schieben" })).toBeNull();
@@ -238,10 +250,10 @@ describe("TeamSyncPanel push", () => {
     let planFails = true;
     fakePortal(pushRoutes({ "POST team-sync/push-plan": () => (planFails ? { status: 500, body: { error: "plan failed" } } : plan()), "POST team-sync/push": { status: 409, body: { error: "hash changed" } } }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     expect(await screen.findByText("plan failed")).toBeInTheDocument();
     planFails = false;
-    await user.click(screen.getByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(screen.getByRole("button", { name: "Pull Request anlegen" }));
     await user.click(await screen.findByRole("button", { name: "Bestätigen und schieben" }));
     expect(await screen.findByText("hash changed")).toBeInTheDocument();
   });
@@ -249,10 +261,108 @@ describe("TeamSyncPanel push", () => {
   it("forgets the link of an earlier pull request when a new plan is loaded", async () => {
     fakePortal(pushRoutes({ "POST team-sync/push-plan": plan(), "POST team-sync/push": { pushed: true, pullRequest: { url: "https://github.test/pr/9" } } }));
     const { user } = renderApp(<TeamSyncPanel />);
-    await user.click(await screen.findByRole("button", { name: "Zum Repo schieben" }));
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
     await user.click(await screen.findByRole("button", { name: "Bestätigen und schieben" }));
-    await screen.findByText("Pull Request bereit: https://github.test/pr/9");
-    await user.click(screen.getByRole("button", { name: "Zum Repo schieben" }));
+    await screen.findByRole("link", { name: "https://github.test/pr/9" });
+    await user.click(screen.getByRole("button", { name: "Pull Request anlegen" }));
     await waitFor(() => expect(screen.queryByText(/Pull Request bereit/)).toBeNull());
+  });
+});
+
+describe("TeamSyncPanel layout", () => {
+  const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const plan = (): PushPlan => ({ diff: someDiff(), remoteSha: "sha-2", localHash: "hash-1", strategy: "pull-request", targetBranch: "secret-desk/team" });
+
+  it("puts the sync button before the token control and the details", async () => {
+    fakePortal(routes({ [STATUS]: status({ mode: "pull-push", pushStrategy: "pull-request" }) }));
+    renderApp(<TeamSyncPanel />);
+    const sync = await screen.findByRole("button", { name: "Jetzt synchronisieren" });
+    before(sync, screen.getByRole("button", { name: "Pull Request anlegen" }));
+    before(sync, await screen.findByTestId("team-token"));
+    before(sync, screen.getByText("Details"));
+  });
+
+  it("puts the apply buttons before the preview diff", async () => {
+    fakePortal(routes({ "POST team-sync/check": check() }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    await user.click(await screen.findByRole("button", { name: "Jetzt synchronisieren" }));
+    const merge = await screen.findByRole("button", { name: "Neues hinzufügen (Vorhandenes bleibt)" });
+    const diffText = screen.getByText(/\+ s-new/);
+    before(merge, diffText);
+    before(screen.getByRole("button", { name: "Lokal behalten" }), diffText);
+    expect(diffText.closest("div.overflow-y-auto")).not.toBeNull();
+  });
+
+  it("puts the confirm button before the push plan diff", async () => {
+    fakePortal(routes({ [STATUS]: status({ mode: "pull-push", pushStrategy: "pull-request" }), "POST team-sync/push-plan": plan() }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
+    const confirm = await screen.findByRole("button", { name: "Bestätigen und schieben" });
+    before(confirm, screen.getByText(/\+ s-new/));
+  });
+
+  it("shows errors and the pull request link above the token section", async () => {
+    fakePortal(routes({ [STATUS]: status({ lastError: "401 from GitHub" }) }));
+    renderApp(<TeamSyncPanel />);
+    const error = await screen.findByText("401 from GitHub");
+    before(error, await screen.findByTestId("team-token"));
+  });
+});
+
+describe("TeamSyncPanel token status", () => {
+  const manage = async () => (await screen.findByText("Token verwalten")).closest("details")!;
+
+  it("says there is no token yet and opens the token details", async () => {
+    fakePortal(routes());
+    renderApp(<TeamSyncPanel />);
+    expect(await screen.findByText("Noch kein Team-Token")).toBeInTheDocument();
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
+  it("shows a valid covering token and keeps the details closed", async () => {
+    fakePortal(routes({ "GET team-sync/token": tokenInfo({ active: activeToken() }) }));
+    renderApp(<TeamSyncPanel />);
+    expect(await screen.findByText(/Team-Token gültig bis/)).toBeInTheDocument();
+    expect((await manage()).open).toBe(false);
+  });
+
+  it("flags an expired token and opens the details", async () => {
+    fakePortal(routes({ "GET team-sync/token": tokenInfo({ active: activeToken({ valid: false }) }) }));
+    renderApp(<TeamSyncPanel />);
+    expect(await screen.findByText("Team-Token abgelaufen")).toBeInTheDocument();
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
+  it("flags a token that does not cover the mode and opens the details", async () => {
+    fakePortal(routes({ [STATUS]: status({ mode: "pull-push", pushStrategy: "pull-request" }), "GET team-sync/token": tokenInfo({ active: activeToken({ mode: "pull" }) }) }));
+    renderApp(<TeamSyncPanel />);
+    expect(await screen.findByText("Das Team-Token deckt diesen Modus nicht ab")).toBeInTheDocument();
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
+  it("opens the details while a run is active", async () => {
+    fakePortal(routes({ "GET team-sync/token": tokenInfo({ active: activeToken(), run: runState({ status: "running" }) }) }));
+    renderApp(<TeamSyncPanel />);
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
+  it("opens the details when a revocation is pending", async () => {
+    fakePortal(routes({ "GET team-sync/token": tokenInfo({ active: activeToken(), pendingRevocation: { tokenName: "old", repo: "acme/team", since: "2026-01-01", url: "https://github.test/x" } }) }));
+    renderApp(<TeamSyncPanel />);
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
+  it("shows no status line and keeps the details closed while the token state is unknown", async () => {
+    fakePortal(routes({ "GET team-sync/token": () => new Promise(() => {}) }));
+    renderApp(<TeamSyncPanel />);
+    expect((await manage()).open).toBe(false);
+    expect(screen.queryByText(/Team-Token/)).toBeNull();
+  });
+
+  it("shows no token section without repository or mode", async () => {
+    fakePortal(routes({ [STATUS]: status({ repo: null, mode: null }) }));
+    renderApp(<TeamSyncPanel />);
+    await screen.findByText("noch nie");
+    expect(screen.queryByText("Token verwalten")).toBeNull();
   });
 });

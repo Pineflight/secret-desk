@@ -85,8 +85,26 @@ export function SyncToGitHubDialog({ repo, onClose, onDone }: { repo?: string | 
   const toggle = (key: string, on: boolean): void => setSelected((s) => { const n = new Set(s); if (on) n.add(key); else n.delete(key); return n; });
   const summary = outcomes ? summarize(outcomes) : null;
 
+  const footer =
+    plan && !outcomes ? (
+      <div className="flex w-full flex-col gap-3">
+        {prod ? (
+          <Notice tone="warn" title={t("compare.sync.productionTitle")}>
+            <Checkbox checked={production} onChange={setProduction} disabled={busy}>{t("compare.sync.productionConfirm")}</Checkbox>
+          </Notice>
+        ) : null}
+        {progress ? <p className="text-sm" role="status">{t("compare.sync.progress", { done: progress.done, total: progress.total })}</p> : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button onClick={onClose} disabled={busy}>{t("compare.cancel")}</Button>
+          <Button variant="primary" loading={busy} disabled={count === 0 || (prod && !production)} onClick={() => void run()}>{t("compare.sync.confirm", { count })}</Button>
+        </div>
+      </div>
+    ) : outcomes && summary ? (
+      <Button variant="primary" onClick={onClose}>{t("compare.close")}</Button>
+    ) : undefined;
+
   return (
-    <Dialog title={t("compare.sync.title")} description={t("compare.sync.text")} onClose={busy ? () => undefined : onClose} wide>
+    <Dialog title={t("compare.sync.title")} description={t("compare.sync.text")} onClose={busy ? () => undefined : onClose} wide footer={footer}>
       <div className="space-y-4">
         {error ? <ErrorState error={error} onRetry={load} /> : null}
         {!plan && !error ? <ListSkeleton rows={4} /> : null}
@@ -94,7 +112,7 @@ export function SyncToGitHubDialog({ repo, onClose, onDone }: { repo?: string | 
           <>
             <p className="text-sm" aria-live="polite">{t("compare.sync.counts", { set: plan.counts.set, write: plan.counts.write, skip: plan.counts.skip, unchanged: plan.counts.unchanged })}</p>
             {writable(plan).length === 0 ? <Notice tone="success">{t("compare.sync.nothing")}</Notice> : null}
-            <div className="max-h-[26rem] space-y-4 overflow-y-auto">
+            <div className="max-h-[50vh] space-y-4 overflow-y-auto">
               {groups.map((g) => (
                 <section key={g.repo} aria-label={g.repo}>
                   <p className="sd-group-head text-sm font-semibold">{g.repo} <span className="text-xs font-normal text-muted">{g.lines.length}</span></p>
@@ -110,16 +128,6 @@ export function SyncToGitHubDialog({ repo, onClose, onDone }: { repo?: string | 
                 </section>
               ))}
             </div>
-            {prod ? (
-              <Notice tone="warn" title={t("compare.sync.productionTitle")}>
-                <Checkbox checked={production} onChange={setProduction} disabled={busy}>{t("compare.sync.productionConfirm")}</Checkbox>
-              </Notice>
-            ) : null}
-            {progress ? <p className="text-sm" role="status">{t("compare.sync.progress", { done: progress.done, total: progress.total })}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button onClick={onClose} disabled={busy}>{t("compare.cancel")}</Button>
-              <Button variant="primary" loading={busy} disabled={count === 0 || (prod && !production)} onClick={() => void run()}>{t("compare.sync.confirm", { count })}</Button>
-            </div>
           </>
         ) : null}
         {outcomes && summary ? (
@@ -131,7 +139,6 @@ export function SyncToGitHubDialog({ repo, onClose, onDone }: { repo?: string | 
                 {summary.failed.map((o) => <li key={o.key}><span className="font-medium">{o.name}</span> · {o.placeLabel}: {o.error}</li>)}
               </ul>
             ) : null}
-            <div className="flex justify-end"><Button variant="primary" onClick={onClose}>{t("compare.close")}</Button></div>
           </>
         ) : null}
       </div>

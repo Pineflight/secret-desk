@@ -39,6 +39,7 @@ export default {
   "secretDetail.targets": "Targets in GitHub",
   "secretDetail.noTargets": "No targets. This entry is only used locally.",
   "secretDetail.history": "Review history",
+  "secretDetail.historyOlder": "Show {count} older reviews",
   "secretDetail.noReviewTitle": "No review yet",
   "secretDetail.noReviewText": "As soon as a value has been reviewed, the evidence appears here.",
   "secretDetail.confirmedBy": "Confirmed by {by} on {date}",

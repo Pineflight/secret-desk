@@ -88,6 +88,41 @@ describe("Dev page: list", () => {
 });
 
 describe("Dev page: template card", () => {
+  it("orders a card: path, required inputs, optional inputs, then overwrite and button in one row, then the closed key list", async () => {
+    dev({ "GET dev-templates": [template({ entries: [entry("A_KEY", "default", { value: "x" }), entry("OPT_IN", "prompt", { optional: true }), entry("SECRET_IN", "prompt")] })] });
+    renderApp(<DevPage />);
+    const c = within(await screen.findByText(t("dev.templateAndFile", { id: "acme-dev", file: ".env.local" })).then((el) => el.closest("section") as HTMLElement));
+    const follows = (a: HTMLElement, b: HTMLElement) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const path = c.getByLabelText(new RegExp(t("dev.filePath")));
+    const required = c.getByLabelText(t("dev.promptRequired", { key: "SECRET_IN" }));
+    const optional = c.getByLabelText(t("dev.promptOptional", { key: "OPT_IN" }));
+    const overwrite = c.getByRole("checkbox", { name: t("dev.overwrite") });
+    const button = c.getByRole("button", { name: t("dev.createFile") });
+    const summary = c.getByText(t("dev.keysSummary", { count: 3, input: 1 }));
+    const details = summary.closest("details")!;
+    expect(follows(path, required) && follows(required, optional) && follows(optional, overwrite) && follows(overwrite, button) && follows(button, summary)).toBe(true);
+    expect(button.parentElement!.contains(overwrite)).toBe(true);
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details).getByText("A_KEY")).toBeInTheDocument();
+    expect(within(details).getByRole("list")).toHaveClass("max-h-[50vh]");
+  });
+
+  it("says in the key list summary that no input is needed when every key is filled automatically", async () => {
+    dev({ "GET dev-templates": [template({ entries: [entry("A_KEY", "default", { value: "x" }), entry("OPT_IN", "prompt", { optional: true })] })] });
+    renderApp(<DevPage />);
+    expect(await screen.findByText(t("dev.keysSummaryNone", { count: 2 }))).toBeInTheDocument();
+  });
+
+  it("shows the result of a written file above the form", async () => {
+    dev({ "GET dev-templates": [template()], "POST env-export": written() });
+    const { user } = renderApp(<DevPage />);
+    const c = within(await screen.findByText(t("dev.templateAndFile", { id: "acme-dev", file: ".env.local" })).then((el) => el.closest("section") as HTMLElement));
+    await user.type(c.getByLabelText(new RegExp(t("dev.filePath"))), "/tmp/x.env");
+    await user.click(c.getByRole("button", { name: t("dev.createFile") }));
+    const done = await c.findByText(t("dev.written"));
+    expect(Boolean(done.compareDocumentPosition(c.getByRole("button", { name: t("dev.createFile") })) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
   it("writes the file to the linked folder, asking only for prompts and reporting the result", async () => {
     const portal = dev({
       "GET dev-templates": [template({ entries: [entry("A_KEY", "default", { value: "x" }), entry("SECRET_IN", "prompt"), entry("OPT_IN", "prompt", { optional: true })] })],
@@ -122,7 +157,7 @@ describe("Dev page: template card", () => {
     await waitFor(() => expect(path).toHaveValue("C:\\work\\acme\\.env.local"));
     await user.clear(path);
     await user.type(path, " /tmp/custom.env ");
-    expect(c.getByText(t("dev.filePathHintTpl"))).toBeInTheDocument();
+    expect(c.getByPlaceholderText(t("dev.filePathHintTpl"))).toBeInTheDocument();
     await user.click(c.getByRole("button", { name: t("dev.createFile") }));
     expect(await c.findByText(t("dev.written"))).toBeInTheDocument();
     expect(portal.callsTo("POST", "env-export")[0]!.body).toEqual({ repo: "acme-app", stage: "dev", template: "acme-dev", path: "/tmp/custom.env", overwrite: false });
@@ -262,6 +297,7 @@ describe("Dev page: .env export card", () => {
     await screen.findByText(t("dev.noTemplates"));
     const exportCard = screen.getByText(t("dev.exportTitle"), { selector: "p" }).closest("section") as HTMLElement;
     expect(within(exportCard).queryByRole("button", { name: t("dev.exportButton") })).toBeNull();
+    expect(within(exportCard).getByPlaceholderText(t("dev.exportRepoPlaceholder"))).toBeInTheDocument();
     await user.type(within(exportCard).getByLabelText(t("dev.repository")), " acme-app ");
     expect(within(exportCard).getByRole("button", { name: t("dev.exportButton") })).toBeInTheDocument();
     await user.clear(within(exportCard).getByLabelText(t("dev.repository")));
