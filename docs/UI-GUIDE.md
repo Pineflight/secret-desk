@@ -32,7 +32,7 @@ A secret opens its own page: description and parameters on the left, facts and t
 
 ![Variables](images/variables.png)
 
-Phone width: [entries at 375 px](images/entries-375.png), [overview at 375 px](images/overview-375.png).
+Phone width: [entries at 375 px](images/entries-375.png) (the filters are collapsed behind one *Filters* button next to the search), [overview at 375 px](images/overview-375.png).
 
 ## Compare
 
@@ -42,7 +42,7 @@ Main action: **Write everything to GitHub** in the page header, next to **Copy a
 
 ![Compare, live](images/compare-live.png)
 
-Phone width: [compare at 375 px](images/compare-375.png).
+Phone width: [compare at 375 px](images/compare-375.png) (the toolbar stacks into one column).
 
 ## Repositories
 
@@ -76,7 +76,7 @@ Main action: **Generate file** on each repository card. A card starts with the f
 
 ![Dev environment](images/dev-env.png)
 
-Phone width: [dev environment at 375 px](images/dev-env-375.png).
+Phone width: [dev environment at 375 px](images/dev-env-375.png) (one repository card open at a time, like an accordion).
 
 ## Integrations
 
@@ -98,9 +98,11 @@ With every card open:
 
 What you do here: share the configuration without values, either through a private GitHub repository or as a file.
 
-Main action: **Sync now** in the header row of the *Team sync with GitHub* card, plus **Create pull request** or **Push to repo** in push mode. Without a setup the card offers **Set up**. Confirm buttons of a check or a push are above the difference. The team token is one status line with *Manage token*. *File exchange* holds the download and the import. Details: [TEAM.md](TEAM.md).
+Main action: **Sync now** in the header row of the *Team sync with GitHub* card (on the right of the row from a wide window up), plus **Create pull request** or **Push to repo** in push mode. The last sync is shown as date and time in your language. Without a setup the card offers **Set up**. Confirm buttons of a check or a push are above the difference. The team token is one status line with *Manage token*. *File exchange* holds the download and the import. Details: [TEAM.md](TEAM.md).
 
 ![Team](images/team.png)
+
+After **Create pull request** the push plan has its confirm button above the difference: [push plan](images/team-push.png).
 
 ## Settings
 
