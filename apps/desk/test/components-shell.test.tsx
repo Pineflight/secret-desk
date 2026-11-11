@@ -152,6 +152,17 @@ describe("Shell navigation and account", () => {
     rerender(shell());
     expect(screen.getByRole("link", { name: /Neuer Eintrag/ })).toHaveAttribute("href", "/entries?new=1");
   });
+
+  it("keeps every active filter in the new-entry link on the entries page", async () => {
+    navigation.set("/entries?q=alpha&tag=ops&repo=acme%2Fapp&kind=secret&stage=dev&status=soon");
+    const portal = fakePortal(routes());
+    renderApp(shell());
+    await settled(portal);
+    const href = screen.getByRole("link", { name: /Neuer Eintrag/ }).getAttribute("href")!;
+    const url = new URL(href, "http://x");
+    expect(url.pathname).toBe("/entries");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "alpha", tag: "ops", repo: "acme/app", kind: "secret", stage: "dev", status: "soon", new: "1" });
+  });
 });
 
 describe("Shell session, setup and inventory", () => {
@@ -417,6 +428,7 @@ describe("Shell command palette", () => {
     await settled(portal);
     expect(screen.getAllByRole("button", { name: "Suche öffnen" })).toHaveLength(1);
     expect(screen.queryByText("Strg K")).toBeNull();
+    expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Suchen");
     await user.click(screen.getByRole("button", { name: "Suche öffnen" }));
     expect(await screen.findByRole("dialog", { name: "palette-stub" })).toHaveTextContent(/^shortcut:close-palette$/);
   });

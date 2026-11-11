@@ -352,6 +352,33 @@ describe("TeamSyncPanel token status", () => {
     await waitFor(async () => expect((await manage()).open).toBe(true));
   });
 
+  it("updates the status line after the embedded control cancelled a run", async () => {
+    let token = tokenInfo({ active: activeToken(), run: runState({ status: "running" }) });
+    fakePortal(routes({ "GET team-sync/token": () => token, "POST team-sync/token/cancel": () => { token = tokenInfo({ active: activeToken({ valid: false }) }); return {}; } }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    await user.click(await screen.findByRole("button", { name: "Abbrechen" }));
+    await waitFor(() => expect(screen.getAllByText("Team-Token abgelaufen").length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Team-Token gültig bis/)).toBeNull();
+    expect((await manage()).open).toBe(true);
+  });
+
+  it("drops the valid line after the control finished a revocation", async () => {
+    let token = tokenInfo({ active: activeToken(), pendingRevocation: { tokenName: "old", repo: "acme/team", since: "2026-01-01", url: "https://github.test/x" } });
+    fakePortal(routes({ "GET team-sync/token": () => token, "POST team-sync/token/revocation-done": () => { token = tokenInfo(); return {}; } }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    await user.click(await screen.findByRole("button", { name: "Habe ich gelöscht" }));
+    expect(await screen.findByText("Noch kein Team-Token")).toBeInTheDocument();
+  });
+
+  it("opens the details when a run starts after the panel loaded with a valid token", async () => {
+    let token = tokenInfo({ active: activeToken({ mode: "pull" }) });
+    fakePortal(routes({ "GET team-sync/token": () => token, "POST team-sync/token": () => { token = tokenInfo({ active: activeToken({ mode: "pull" }), run: runState({ status: "waiting-human", phase: "signin" }) }); return {}; } }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    expect((await manage()).open).toBe(false);
+    await user.click(await screen.findByRole("button", { name: "Neues Team-Token erstellen" }));
+    await waitFor(async () => expect((await manage()).open).toBe(true));
+  });
+
   it("shows no status line and keeps the details closed while the token state is unknown", async () => {
     fakePortal(routes({ "GET team-sync/token": () => new Promise(() => {}) }));
     renderApp(<TeamSyncPanel />);

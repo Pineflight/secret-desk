@@ -178,6 +178,8 @@ export function VariableForm({ sources, initial = null, footerHost, onClose, onC
   const [src, setSrc] = useState<SourceDraft>(EMPTY_SOURCE);
   const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
+  // The optional details open by themselves when the failing field is in there.
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(initial?.description));
   const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const create = useMutation(async (body: unknown) => api<VariableView>("POST", "variables", body));
@@ -187,7 +189,10 @@ export function VariableForm({ sources, initial = null, footerHost, onClose, onC
     if (error) return setLocalError(error);
     if (places.length === 0) return setLocalError(t("variables.needTarget"));
     const metaError = validateMeta(meta);
-    if (metaError) return setLocalError(metaError);
+    if (metaError) {
+      setDetailsOpen(true);
+      return setLocalError(metaError);
+    }
     const res = await create.run({
       id: f.id.trim(),
       name: f.name.trim(),
@@ -206,7 +211,6 @@ export function VariableForm({ sources, initial = null, footerHost, onClose, onC
   };
   return (
     <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
-      {localError ? <Notice tone="danger">{localError}</Notice> : null}
       <SecretGuard error={create.error} ack={ack} setAck={setAck} />
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField label={t("variables.fieldId")} hint={t("variables.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
@@ -218,13 +222,13 @@ export function VariableForm({ sources, initial = null, footerHost, onClose, onC
       </div>
       <PlacesEditor rows={rows} onChange={setRows} stage={stageId} />
       <SourceSection mode="create" sources={sources} value={src} onChange={setSrc} repo={rows.map((r) => r.repo.trim()).find(Boolean) ?? ""} stage={stageId} onUseValue={(val) => set("value", val)} />
-      <Disclosure summary={t("meta.optionalDetails")} defaultOpen={Boolean(initial?.description)}>
+      <Disclosure summary={t("meta.optionalDetails")} open={detailsOpen} onToggle={setDetailsOpen}>
         <div className="space-y-4">
           <TextField label={t("variables.fieldProduct")} value={f.product} onChange={(e) => set("product", e.target.value)} />
           <MetaFields value={meta} onChange={setMeta} />
         </div>
       </Disclosure>
-      <FormFooter host={footerHost}>
+      <FormFooter host={footerHost} error={localError}>
         <Button onClick={onClose}>{t("variables.cancel")}</Button>
         <Button type="submit" form={formId} variant="primary" loading={create.pending}>{t("variables.create")}</Button>
       </FormFooter>

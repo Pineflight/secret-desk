@@ -51,6 +51,52 @@ describe("Setup page: choice", () => {
   });
 });
 
+describe("Setup page: choice keyboard", () => {
+  const radio = (key: string) => screen.getByRole("radio", { name: t(`setup.choice.${key}`) });
+
+  it("keeps only the checked radio in the Tab order", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    expect(radio("github")).toHaveAttribute("tabindex", "0");
+    expect(radio("upload")).toHaveAttribute("tabindex", "-1");
+    expect(radio("empty")).toHaveAttribute("tabindex", "-1");
+    await user.click(radio("upload"));
+    expect(radio("github")).toHaveAttribute("tabindex", "-1");
+    expect(radio("upload")).toHaveAttribute("tabindex", "0");
+  });
+
+  it("moves and selects with the arrow keys, wrapping at both ends", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    radio("github").focus();
+    await user.keyboard("{ArrowRight}");
+    expect(radio("upload")).toHaveFocus();
+    expect(radio("upload")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowDown}");
+    expect(radio("empty")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(radio("github")).toHaveFocus();
+    expect(radio("github")).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{ArrowLeft}");
+    expect(radio("empty")).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(radio("upload")).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(radio("github")).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(radio("empty")).toHaveFocus();
+    expect(radio("empty")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("ignores other keys", async () => {
+    fakePortal({});
+    const { user } = renderApp(<SetupPage />);
+    radio("github").focus();
+    await user.keyboard("a");
+    expect(radio("github")).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 describe("Setup page: start empty", () => {
   it("dismisses the setup and offers to continue", async () => {
     const portal = fakePortal({ "POST team-sync/dismiss-setup": {}, "GET stages": [] });

@@ -116,6 +116,25 @@ describe("ProviderTile and CategorySection", () => {
     expect(screen.getByRole("list")).toHaveClass("lg:grid-cols-3");
   });
 
+  it("keeps each provider card at its own height", () => {
+    renderApp(<ProviderGrid><li>one</li></ProviderGrid>);
+    expect(screen.getByRole("list")).toHaveClass("items-start");
+  });
+
+  it("starts the first category section flush even after a search field", () => {
+    renderApp(<CategorySection category="code"><li>one</li></CategorySection>);
+    expect(screen.getByRole("heading", { level: 3 }).closest("section")).toHaveClass("first-of-type:mt-0");
+  });
+
+  it("uses singular and plural for the attached counts", () => {
+    const { rerender } = renderApp(<CardDetails card={card({ secrets: 1, variables: 0 })} signIn={null} />);
+    expect(screen.getByText("1 Secret, 0 Variablen")).toBeInTheDocument();
+    rerender(<CardDetails card={card({ secrets: 0, variables: 1 })} signIn={null} />);
+    expect(screen.getByText("0 Secrets, 1 Variable")).toBeInTheDocument();
+    rerender(<CardDetails card={card({ secrets: 2, variables: 2 })} signIn={null} />);
+    expect(screen.getByText("2 Secrets, 2 Variablen")).toBeInTheDocument();
+  });
+
   it("lays the provider cards out in one responsive grid", () => {
     renderApp(<ProviderGrid><li>one</li></ProviderGrid>);
     expect(screen.getByRole("list")).toHaveClass("grid-cols-1", "lg:grid-cols-2", "2xl:grid-cols-3");
@@ -125,7 +144,7 @@ describe("ProviderTile and CategorySection", () => {
 describe("CardDetails", () => {
   it("counts entries and keys, and gives the earliest expiry with its level", () => {
     const { rerender } = renderApp(<CardDetails card={card({ keys: [key({ daysLeft: 3, level: "critical", expires: "2099-01-01" })], secrets: 2, variables: 1 })} signIn={null} />);
-    expect(screen.getByText("2 Secrets, 1 Variablen")).toBeInTheDocument();
+    expect(screen.getByText("2 Secrets, 1 Variable")).toBeInTheDocument();
     expect(screen.getByText(/1 Schlüssel verbunden/)).toBeInTheDocument();
     expect(screen.getByText(/Läuft sehr bald ab/)).toHaveClass("text-danger");
     rerender(<CardDetails card={card({ keys: [key({ daysLeft: 10, level: "soon" })] })} signIn={null} />);

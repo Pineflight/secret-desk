@@ -64,11 +64,12 @@ export default function OverviewPage() {
       ) : null}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {/* Each tile counts what its link lists: the status filter takes one value, and the overview counts secrets only (hence kind=secret for "missing"). */}
         {o ? (
           <>
             <StatLink href="/entries?status=expired"><Stat label={t("home.statExpired")} value={o.byStatus.expired} tone={o.byStatus.expired > 0 ? "danger" : undefined} /></StatLink>
-            <StatLink href="/entries?status=soon"><Stat label={t("home.statSoon")} value={o.byStatus.soon + o.byStatus.due} tone={o.byStatus.soon + o.byStatus.due > 0 ? "warn" : undefined} /></StatLink>
-            <StatLink href="/entries?status=missing"><Stat label={t("home.statMissing")} value={o.byStatus.missing} tone={o.byStatus.missing > 0 ? "danger" : undefined} /></StatLink>
+            <StatLink href="/entries?status=soon"><Stat label={t("home.statSoon")} value={o.byStatus.soon} tone={o.byStatus.soon > 0 ? "warn" : undefined} /></StatLink>
+            <StatLink href="/entries?kind=secret&status=missing"><Stat label={t("home.statMissing")} value={o.byStatus.missing} tone={o.byStatus.missing > 0 ? "danger" : undefined} /></StatLink>
             <StatLink href="/reviews"><Stat label={t("home.statReviews")} value={o.pendingReviews} tone={o.pendingReviews > 0 ? "info" : undefined} /></StatLink>
           </>
         ) : (

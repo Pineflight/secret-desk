@@ -286,7 +286,8 @@ export default function EntriesPage() {
     <>
       <PageHeader
         title={t("entries.title")}
-        subtitle={<span title={t("entries.subtitleHint")}>{t("entries.subtitle")}{loaded ? <> · <span className="tabular font-medium text-ink" data-testid="entries-counts">{t("entries.counts", { secrets: shown.secret, variables: shown.variable })}</span></> : <span className="sr-only" data-testid="entries-counts" />}</span>}
+        description={t("entries.subtitleHint")}
+        subtitle={<span>{t("entries.subtitle")}{loaded ? <> · <span className="tabular font-medium text-ink" data-testid="entries-counts">{t("entries.counts", { secrets: shown.secret, variables: shown.variable })}</span></> : <span className="sr-only" data-testid="entries-counts" />}</span>}
         actions={
           <>
             {running ? (

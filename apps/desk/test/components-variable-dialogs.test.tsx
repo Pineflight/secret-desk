@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { VariableDrift } from "@secret-desk/core";
 import type { StageView, VariableView } from "@secret-desk/runtime";
@@ -446,6 +446,37 @@ describe("VariableForm", () => {
     expect(container).not.toContainElement(submit);
     await fill(user);
     await user.click(submit);
+    await waitFor(() => expect(portal.callsTo("POST", "variables")).toHaveLength(1));
+    host.remove();
+  });
+
+  it("shows a form error in the footer host and opens the details for an invalid link", async () => {
+    fakePortal(base());
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    await fill(user, "");
+    await user.click(screen.getByRole("button", { name: "Anlegen" }));
+    expect(await within(host).findByRole("alert")).toBeInTheDocument();
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    await user.type(screen.getByRole("combobox", { name: "Repository, Ziel 1" }), "web");
+    await user.type(screen.getByLabelText("Link"), "ftp://example.test");
+    const details = container.querySelector("details.sd-disclosure")!;
+    expect(details).not.toHaveAttribute("open");
+    await user.click(screen.getByRole("button", { name: "Anlegen" }));
+    expect(await within(host).findByRole("alert")).toHaveTextContent("Der Link muss mit http:// oder https:// beginnen.");
+    expect(details).toHaveAttribute("open");
+    host.remove();
+  });
+
+  it("submits once through the form when Enter submits it and the buttons live in the footer host", async () => {
+    const portal = fakePortal(base({ "POST variables": variable() }));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    await fill(user);
+    // jsdom has no implicit submission through a button outside the form; the browser's Enter ends in this submit event.
+    fireEvent.submit(container.querySelector("form")!);
     await waitFor(() => expect(portal.callsTo("POST", "variables")).toHaveLength(1));
     host.remove();
   });

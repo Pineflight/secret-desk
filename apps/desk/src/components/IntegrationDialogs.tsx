@@ -48,7 +48,7 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
     // A view about one of several connections is titled with that connection, not the vendor (Grafana: stack vs. account token).
     const heading = dialogHeading(card, sub);
     return (
-      <Dialog title={heading.titleKey ? t(heading.titleKey, { name: heading.title, key: heading.nameKey ? t(heading.nameKey) : "" }) : heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl" footer={sub?.kind === "key" ? <div ref={setFooterHost} className="contents" /> : undefined}>
+      <Dialog title={heading.titleKey ? t(heading.titleKey, { name: heading.title, key: heading.nameKey ? t(heading.nameKey) : "" }) : heading.title} description={heading.purposeKey ? t(heading.purposeKey) : purposeOf(card)} onClose={onClose} size="xl" footer={sub?.kind === "key" && conns.some((c) => c.id === sub.id) ? <div ref={setFooterHost} className="contents" /> : undefined}>
         <button type="button" onClick={() => (sub ? setSub(null) : setVendor(null))} className="mb-4 inline-flex items-center gap-1 text-sm text-primary">{sub ? t("connections.back") : t("providers.back")}</button>
         <VendorDetail footerHost={footerHost} card={card} conns={conns} facades={facades} signedIn={signedIn} sub={sub} setSub={setSub} onChanged={() => onChanged(card.id, null)} onSignedIn={() => onChanged(card.id, initial.renewal ? "renewal" : "reconnect")} onDone={onClose} />
       </Dialog>
@@ -59,7 +59,7 @@ export function IntegrationPicker({ initial, cards, conns, facades, categories, 
   const groups = groupByCategory(shown, categories);
   return (
     <Dialog title={t("providers.pickTitle")} description={t("providers.pickDesc")} onClose={onClose} size="xl">
-      <input type="search" autoComplete="off" placeholder={t("providers.search")} aria-label={t("providers.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-5 w-full`} />
+      <input type="search" autoComplete="off" placeholder={t("providers.search")} aria-label={t("providers.search")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} className={`${inputClass} mb-4 w-full`} />
       {groups.map((g) => (
         <CategorySection key={g.category} category={g.category}>
           {g.cards.map((c) => (

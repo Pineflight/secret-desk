@@ -35,6 +35,8 @@ export function SecretForm({ initial = null, footerHost, onClose, onCreated }: {
   const [rows, setRows] = useState<PlaceRow[]>([initial ? prefillRow(defs, initial) : emptyPlaceRow()]);
   const [meta, setMeta] = useState<MetaValues>({ description: initial?.description ?? "", owner: "", link: "", tags: [] });
   const [localError, setLocalError] = useState<string | null>(null);
+  // The optional details open by themselves when the failing field is in there.
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(initial?.description));
   const stageId = f.stage || defaultStageId(defs, "test");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
   const [paramDraft, setParamDraft] = useState<Draft>({});
@@ -55,10 +57,16 @@ export function SecretForm({ initial = null, footerHost, onClose, onCreated }: {
     const { places, error } = rowsToPlaces(rows, { stage: stageId, environment: environmentOf(defs, stageId) });
     if (error) return setLocalError(error);
     const metaError = validateMeta(meta);
-    if (metaError) return setLocalError(metaError);
+    if (metaError) {
+      setDetailsOpen(true);
+      return setLocalError(metaError);
+    }
     if (kindOf(defs, stageId) !== "dev" && places.length === 0) return setLocalError(t("secrets.needTarget"));
     const ttl = f.ttlDays.trim() ? Number(f.ttlDays) : undefined;
-    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) return setLocalError(t("secrets.ttlInvalid"));
+    if (ttl !== undefined && (!Number.isInteger(ttl) || ttl <= 0)) {
+      setDetailsOpen(true);
+      return setLocalError(t("secrets.ttlInvalid"));
+    }
     if (!canSave(specs, paramDraft, pv.view?.defaults ?? {})) return setLocalError(missing.length > 0 ? t("params.create.missing", { keys: missingText }) : t("params.problem.wrong_type", { label: t("params.title") }));
     const params = toParams(specs, paramDraft).params;
     const res = await create.run({
@@ -91,7 +99,6 @@ export function SecretForm({ initial = null, footerHost, onClose, onCreated }: {
 
   return (
     <form id={formId} onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-4">
-      {localError || create.error ? <Notice tone="danger">{localError ?? create.error?.message}</Notice> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField label={t("secrets.fieldId")} hint={t("secrets.fieldIdHint")} required value={f.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" data-autofocus />
         <TextField label={t("secrets.fieldName")} hint={t("secrets.fieldNameHint")} required value={f.name} onChange={(e) => set("name", e.target.value.toUpperCase())} autoComplete="off" />
@@ -118,7 +125,7 @@ export function SecretForm({ initial = null, footerHost, onClose, onCreated }: {
         </section>
       ) : null}
       {kindOf(defs, stageId) === "dev" ? <p className="text-xs text-muted">{t("secrets.devNoTarget")}</p> : null}
-      <Disclosure summary={t("meta.optionalDetails")} defaultOpen={Boolean(initial?.description)}>
+      <Disclosure summary={t("meta.optionalDetails")} open={detailsOpen} onToggle={setDetailsOpen}>
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField label={t("secrets.fieldTitle")} value={f.title} onChange={(e) => set("title", e.target.value)} />
@@ -135,7 +142,7 @@ export function SecretForm({ initial = null, footerHost, onClose, onCreated }: {
           <MetaFields value={meta} onChange={setMeta} />
         </div>
       </Disclosure>
-      <FormFooter host={footerHost}>
+      <FormFooter host={footerHost} error={localError ?? create.error?.message}>
         <Button onClick={onClose}>{t("secrets.cancel")}</Button>
         <Button type="submit" form={formId} variant="primary" loading={create.pending} disabled={!manualProvider && issues.length > 0}>{t("secrets.create")}</Button>
       </FormFooter>

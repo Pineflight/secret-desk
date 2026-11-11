@@ -28,7 +28,7 @@ export function TeamSyncPanel() {
   const planM = useMutation(async () => api<PushPlan>("POST", "team-sync/push-plan"));
   const pushM = useMutation(async () => api<{ pushed: boolean; pullRequest?: { url: string } }>("POST", "team-sync/push", { confirm: true, expectLocalHash: plan?.localHash, expectRemoteSha: plan?.remoteSha }));
   const s = status.data;
-  // The token details need the token state to decide whether they start open; the control inside has its own query and polls while a run goes.
+  // The status line and the details need the token state; the control inside reports every change through `onChanged`, which reloads this query.
   const [polling, setPolling] = useState(false);
   const tokenInfo = useQuery<TeamTokenInfo>("team-token-info-panel", () => api<TeamTokenInfo>("GET", "team-sync/token"), { refreshMs: polling ? 1500 : 0 });
   const tokenView = teamTokenView(tokenInfo.data);
@@ -36,6 +36,12 @@ export function TeamSyncPanel() {
   useEffect(() => {
     if (tokenRunning !== polling) setPolling(tokenRunning);
   }, [tokenRunning, polling]);
+  // The details open as soon as there is something to do there; the person can still close them.
+  const [manageOpen, setManageOpen] = useState(false);
+  const wantOpen = s?.repo && s.mode ? tokenDetailsOpen(tokenInfo.data, tokenLine(tokenInfo.data, s.repo, s.mode, s.pushStrategy ?? "pull-request")) : false;
+  useEffect(() => {
+    if (wantOpen) setManageOpen(true);
+  }, [wantOpen]);
 
   const sync = async () => {
     setCheck(null);
@@ -157,8 +163,8 @@ export function TeamSyncPanel() {
               {line === "valid" ? `✓ ${t("teamSync.token.valid", { date: formatDate(tokenInfo.data?.active?.expires) })}` : t(`teamSync.token.${line}`)}
             </p>
           ) : null}
-          <Disclosure summary={t("teamSync.token.manage")} defaultOpen={tokenDetailsOpen(tokenInfo.data, line)}>
-            <TeamTokenControl heading repo={s.repo} {...(s.branch ? { branch: s.branch } : {})} mode={s.mode} strategy={strategy} onCreated={() => { status.reload(); tokenInfo.reload(); }} />
+          <Disclosure summary={t("teamSync.token.manage")} open={manageOpen} onToggle={setManageOpen}>
+            <TeamTokenControl heading repo={s.repo} {...(s.branch ? { branch: s.branch } : {})} mode={s.mode} strategy={strategy} onCreated={() => status.reload()} onChanged={() => tokenInfo.reload()} />
           </Disclosure>
         </div>
       ) : null}

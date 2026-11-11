@@ -130,7 +130,16 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const counts = { reviews: overview.data?.pendingReviews ?? 0, approvals: overview.data?.pendingApprovals ?? 0 };
   const alerts = counts.reviews + counts.approvals;
-  const newHref = path === "/entries" && params.get("kind") ? `/entries?kind=${params.get("kind")}&new=1` : "/entries?new=1";
+  // On the list the new-entry link keeps every active filter, so the dialog opens over the same list and the stored query survives.
+  const newParams = new URLSearchParams();
+  if (path === "/entries") {
+    for (const k of ["q", "tag", "repo", "kind", "stage", "status"]) {
+      const v = params.get(k);
+      if (v) newParams.set(k, v);
+    }
+  }
+  newParams.set("new", "1");
+  const newHref = `/entries?${newParams}`;
 
   return (
     <div className="min-h-screen lg:pl-[248px]">
@@ -196,7 +205,7 @@ export function Shell({ children }: { children: ReactNode }) {
           }}
         >
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("common.searchPlaceholder")} aria-label={t("common.search")} autoComplete="off" className={`w-full rounded-xl border border-line bg-card py-2 pl-9 text-sm placeholder:text-muted ${touch ? "pr-3" : "pr-20"}`} />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t(touch ? "common.searchPlaceholderShort" : "common.searchPlaceholder")} aria-label={t("common.search")} autoComplete="off" className={`w-full rounded-xl border border-line bg-card py-2 pl-9 text-sm placeholder:text-muted ${touch ? "pr-3" : "pr-20"}`} />
           {!touch ? (
             <button type="button" onClick={() => setPaletteOpen(true)} title={t("palette.hint.shortcut", { key: shortcutLabel(platform, locale) })} aria-label={t("palette.open")} aria-keyshortcuts={platform === "mac" ? "Meta+K" : "Control+K"} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-page px-1.5 py-0.5 text-[11px] font-medium text-muted-text ring-1 ring-inset ring-line hover:text-ink">
               <kbd className="font-sans">{shortcutLabel(platform, locale)}</kbd>

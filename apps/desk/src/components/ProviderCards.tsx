@@ -137,7 +137,7 @@ export function CategorySection({ category, children }: { category: string; chil
   const t = useT();
   const id = useId();
   return (
-    <section aria-labelledby={id} className="mt-6 first:mt-0">
+    <section aria-labelledby={id} className="mt-6 first:mt-0 first-of-type:mt-0">
       <h3 id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t(`category.${category}`)}</h3>
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</ul>
     </section>
@@ -146,7 +146,7 @@ export function CategorySection({ category, children }: { category: string; chil
 
 /** The provider cards of the page: one responsive grid for all categories (each card names its own category). */
 export function ProviderGrid({ children }: { children: ReactNode }) {
-  return <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">{children}</ul>;
+  return <ul className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">{children}</ul>;
 }
 
 const SIGN_IN_TEXT: Record<SignInStatus, string> = {
@@ -186,7 +186,7 @@ export function CardDetails({ card, signIn, hostPhases, results }: { card: Provi
   const resultLabel = (r: ActivityResult): string => t(r.ok ? "activity.lastOk" : "activity.lastFail", { time: clockTime(r.at) });
   return (
     <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-      <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: card.secrets, variables: card.variables }) : t("providers.countsNone")}</span>
+      <span>{card.secrets + card.variables > 0 ? t("providers.counts", { secrets: t("providers.countSecrets", { count: card.secrets }), variables: t("providers.countVariables", { count: card.variables }) }) : t("providers.countsNone")}</span>
       {managed > 0 && keys === 0 ? <span>{t("providers.card.browserSecrets", { count: managed })}</span> : <span>{keys > 0 ? t("providers.card.keysConnected", { count: keys }) : t("providers.card.noKeys")}</span>}
       {expiry ? <span className={bad ? "font-medium text-danger" : expiry.level === "soon" ? "font-medium text-warn-text" : ""}>{expiry.text}</span> : null}
       {lines.length > 0 ? lines.map((l) => {

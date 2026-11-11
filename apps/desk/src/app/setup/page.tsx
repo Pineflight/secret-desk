@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
 import { TeamConfigPicker } from "@/components/TeamConfigPicker";
 import { Button, Card, Notice, PageHeader } from "@/components/ui";
@@ -74,17 +74,29 @@ export default function SetupPage() {
     { id: "upload", label: t("setup.choice.upload") },
     { id: "empty", label: t("setup.choice.empty") },
   ];
+  // Radio group keys: arrows move and select (wrapping), Home and End jump to the ends; only the checked radio is in the Tab order.
+  const onChoiceKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = choices.findIndex((c) => c.id === choice);
+    const target = e.key === "ArrowRight" || e.key === "ArrowDown" ? (at + 1) % choices.length : e.key === "ArrowLeft" || e.key === "ArrowUp" ? (at + choices.length - 1) % choices.length : e.key === "Home" ? 0 : e.key === "End" ? choices.length - 1 : -1;
+    if (target < 0) return;
+    e.preventDefault();
+    const next = choices[target]!.id;
+    setChoice(next);
+    e.currentTarget.querySelector<HTMLElement>(`[data-choice="${next}"]`)?.focus();
+  };
   return (
     <>
       <PageHeader title={t("setup.title")} subtitle={t("setup.subtitle")} />
       <div className="mx-auto max-w-[880px] space-y-4">
-        <div role="radiogroup" aria-label={t("setup.choice.label")} className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-card p-1">
+        <div role="radiogroup" aria-label={t("setup.choice.label")} className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-card p-1" onKeyDown={onChoiceKey}>
           {choices.map((c) => (
             <button
               key={c.id}
               type="button"
               role="radio"
               aria-checked={choice === c.id}
+              tabIndex={choice === c.id ? 0 : -1}
+              data-choice={c.id}
               onClick={() => setChoice(c.id)}
               className={`min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${choice === c.id ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}
             >

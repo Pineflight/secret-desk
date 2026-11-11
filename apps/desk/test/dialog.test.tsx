@@ -101,6 +101,19 @@ describe("Dialog", () => {
     expect(screen.getByRole("button", { name: "Dialog schließen" })).toHaveFocus();
   });
 
+  it("cycles from the last footer button to the first element and back with Shift+Tab", async () => {
+    const { user } = renderApp(<Dialog title="A" onClose={() => {}} footer={<><button>cancel</button><button>save</button></>}><input aria-label="field" /></Dialog>);
+    const close = screen.getByRole("button", { name: "Dialog schließen" });
+    const save = screen.getByRole("button", { name: "save" });
+    save.focus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(save).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "cancel" })).toHaveFocus();
+  });
+
   it("renders no footer bar without a footer", () => {
     renderApp(<Dialog title="A" onClose={() => {}}>x</Dialog>);
     expect(document.querySelector(".border-t.border-line")).toBeNull();

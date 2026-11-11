@@ -29,6 +29,8 @@ interface Props {
   strategy: PushStrategy;
   /** Called once when a new team token is ready, so the page can check the modes again. */
   onCreated?: () => void;
+  /** Called after every start, cancel, answer and revocation, and whenever the followed run changes status, so a caller that shows the token state reloads it. */
+  onChanged?: () => void;
   /** Show the "Team token" heading (a page that has no step title around the control). */
   heading?: boolean;
 }
@@ -41,7 +43,7 @@ const SIGN_IN_FRESH_MS = 3_600_000;
  * does the work; GitHub's sign-in and "Confirm access" are done by the person in the browser window. Shows the run like the
  * provider sign-in does. The token itself is never shown.
  */
-export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, heading = false }: Props) {
+export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, onChanged, heading = false }: Props) {
   const { t, locale } = useI18n();
   const toast = useToast();
   const [following, setFollowing] = useState(false);
@@ -62,17 +64,29 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, head
     if (status === "done" && (previous.current === "running" || previous.current === "waiting-human")) onCreated?.();
     previous.current = status;
   }, [status, onCreated]);
+  // Tell the caller about every change of the run, so its own copy of the token state does not go stale.
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
+  const seenStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (seenStatus.current !== undefined && seenStatus.current !== status) changed.current?.();
+    seenStatus.current = status;
+  }, [status]);
+  const reload = () => {
+    info.reload();
+    changed.current?.();
+  };
 
   const start = useMutation(async () => {
     setSignedIn(null);
     const run = await api("POST", "team-sync/token", { repo, mode, strategy, ...(branch ? { branch } : {}) });
     setFollowing(true);
-    info.reload();
+    reload();
     return run;
   });
   const cancel = useMutation(async () => {
     await api("POST", "team-sync/token/cancel");
-    info.reload();
+    reload();
   });
   const check = useMutation(async () => {
     const r = await api<TeamTokenSessionCheck>("POST", "team-sync/token/check");
@@ -84,12 +98,12 @@ export function TeamTokenControl({ repo, branch, mode, strategy, onCreated, head
   });
   const answer = useMutation(async (route: string, body?: Record<string, unknown>) => {
     const r = await api("POST", `team-sync/token/${route}`, body);
-    info.reload();
+    reload();
     return r;
   });
   const revoked = useMutation(async () => {
     await api("POST", "team-sync/token/revocation-done");
-    info.reload();
+    reload();
   });
 
   if (!data) return info.error ? <Notice tone="warn">{info.error.message}</Notice> : null;

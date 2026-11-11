@@ -522,12 +522,31 @@ describe("Entries page: list actions", () => {
   });
 });
 
+describe("Entries page: heading", () => {
+  it("keeps the long subtitle sentence reachable as the description of the heading", async () => {
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    await ready();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleDescription(t("entries.subtitleHint"));
+  });
+});
+
 describe("Entries page: new entries and normalizing", () => {
   it("hides the page-level new button below sm because the topbar offers the same action", async () => {
     entries(SECRETS, VARIABLES);
     renderApp(<EntriesPage />);
     await ready();
     expect(screen.getByRole("button", { name: t("entries.new") })).toHaveClass("hidden", "sm:inline-flex");
+  });
+
+  it("opens the dialog from the topbar link target and keeps every active filter in the URL", async () => {
+    navigation.set("/entries?q=alpha&tag=ops&repo=acme/app&kind=secret&stage=dev&status=soon&new=1");
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    const target = navigation.router.replace.mock.calls.at(-1)![0] as string;
+    const kept = new URL(target, "http://x").searchParams;
+    expect(Object.fromEntries(kept)).toEqual({ q: "alpha", tag: "ops", repo: "acme/app", kind: "secret", stage: "dev", status: "soon" });
   });
 
   it("opens the new-entry dialog from the button and closes it", async () => {
@@ -723,6 +742,18 @@ describe("Entries page: closing dialogs", () => {
     await user.click(more);
     expect(more).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).toBeNull();
+  });
+
+  it("keeps the list search, the filters, the more-filters toggle and reset in one toolbar row", async () => {
+    navigation.set("/entries?status=expired");
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    const more = await screen.findByRole("button", { name: new RegExp(t("entries.moreFilters")) });
+    const row = more.parentElement!;
+    expect(row).toContainElement(screen.getByLabelText(t("entries.status")));
+    expect(row).toContainElement(screen.getByRole("searchbox", { name: t("common.pageSearch") }));
+    expect(row).toContainElement(screen.getByRole("button", { name: t("entries.reset") }));
+    expect(screen.getByRole("searchbox", { name: t("common.pageSearch") }).closest("div.min-w-\\[12rem\\]")).not.toBeNull();
   });
 
   it("starts closed without secondary filters and offers no reset until a filter is set", async () => {

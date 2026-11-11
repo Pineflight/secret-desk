@@ -1,12 +1,12 @@
 "use client";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { CompareCell, CompareRepo, CompareResult, RepoNote } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
 import { Icon } from "@/components/Icons";
 import { LIST_CELL_CLASS, LIST_ROW_CLASS, ListTable } from "@/components/ListTable";
-import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, SelectField, TextField } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Disclosure, EmptyState, ErrorState, ListSkeleton, Notice, PageHeader, SectionLabel, SelectField, TextField } from "@/components/ui";
 import { api, enc } from "@/lib/api";
 import {
   COMPARE_FILTERS_DEFAULT,
@@ -76,6 +76,8 @@ function ParityBadge({ row, t, label }: { row: ViewRow; t: T; label: (id: string
 
 export default function ComparePage() {
   const t = useT();
+  const hintBase = useId();
+  const hintId = (key: string) => `${hintBase}-hint-${key}`;
   const toast = useToast();
   const defs = useStageDefs();
   const [filters, setFilters] = usePersistedState<CompareFilters>("compare.filters", COMPARE_FILTERS_DEFAULT);
@@ -178,19 +180,14 @@ export default function ComparePage() {
       <Card className="mb-4 space-y-3 !p-3">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
-            <span title={t("compare.liveHint")}>
-              <Checkbox checked={live} onChange={setLive}><span className="font-medium">{t("compare.live")}</span></Checkbox>
-            </span>
+            <Checkbox checked={live} onChange={setLive} describedBy={hintId("live")}><span className="font-medium">{t("compare.live")}</span></Checkbox>
             {live ? (
-              <>
-                <span title={t("compare.allReposHint")}><Checkbox checked={allRepos} onChange={setAllRepos}>{t("compare.allRepos")}</Checkbox></span>
-                <span title={t("compare.workflowsHint")}><Checkbox checked={workflows} onChange={setWorkflows}>{t("compare.workflows")}</Checkbox></span>
-              </>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="compare-live-options">
+                <Checkbox checked={allRepos} onChange={setAllRepos} describedBy={hintId("allRepos")}>{t("compare.allRepos")}</Checkbox>
+                <Checkbox checked={workflows} onChange={setWorkflows} describedBy={hintId("workflows")}>{t("compare.workflows")}</Checkbox>
+                <Button variant="secondary" className="min-h-10" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button>
+              </div>
             ) : null}
-            <span role="status" title={live ? t("compare.liveNotice") : t("compare.offlineNotice")} className={`text-xs ${live ? "font-medium text-ink" : "text-muted"}`}>
-              {live ? (result.loading ? t("compare.liveLoading") : t("compare.statusLive")) : t("compare.statusOffline")}
-            </span>
-            {live ? <Button variant="secondary" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button> : null}
           </div>
           <div className="w-44">
             <SelectField label={t("compare.filterRepo")} value={filters.repo} onChange={(e) => set("repo", e.target.value)}>
@@ -205,12 +202,18 @@ export default function ComparePage() {
               <option value="variable">{t("compare.kindVariable")}</option>
             </SelectField>
           </div>
-          <div className="w-48">
+          <div className="min-w-[10rem] flex-1 sm:max-w-xs">
             <TextField label={t("compare.search")} value={filters.q} onChange={(e) => set("q", e.target.value)} autoComplete="off" />
           </div>
         </div>
+        {/* The one status element: what the table shows (inventory only or live) and how to read "missing" and "only in GitHub". */}
+        <p role="status" aria-live="polite" className={`-mt-1 text-xs ${live ? "text-ink" : "text-muted-text"}`}>
+          <span className="font-medium">{live ? (result.loading ? t("compare.liveLoading") : t("compare.statusLive")) : t("compare.statusOffline")}</span>
+          {" "}
+          {live ? t("compare.liveNotice") : t("compare.offlineNotice")}
+        </p>
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("compare.stagesLabel")} title={t("compare.stagesHint")}>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("compare.stagesLabel")} aria-describedby={hintId("stages")}>
           <SectionLabel>{t("compare.stagesLabel")}</SectionLabel>
           {orderedStages.map((s) => {
             const on = compared.includes(s.id);
@@ -230,20 +233,39 @@ export default function ComparePage() {
         <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
           <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
           <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
-          <span title={t("compare.normalizeHint")}><Checkbox checked={normalize} onChange={setNormalize}>{t("compare.normalize")}</Checkbox></span>
+          <Checkbox checked={normalize} onChange={setNormalize} describedBy={hintId("normalize")}>{t("compare.normalize")}</Checkbox>
           {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
-          {all.some((r) => r.levelMismatch) ? <span title={t("compare.showLevelMismatchHint")}><Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)}>{t("compare.showLevelMismatch")}</Checkbox></span> : null}
+          {all.some((r) => r.levelMismatch) ? <Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)} describedBy={hintId("levelMismatch")}>{t("compare.showLevelMismatch")}</Checkbox> : null}
           {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
         </div>
         </div>
+        <Disclosure summary={t("compare.optionsHelp")}>
+          <dl className="space-y-1.5 text-xs text-muted-text">
+            {[
+              { key: "live", label: t("compare.live"), text: t("compare.liveHint"), show: true },
+              { key: "allRepos", label: t("compare.allRepos"), text: t("compare.allReposHint"), show: live },
+              { key: "workflows", label: t("compare.workflows"), text: t("compare.workflowsHint"), show: live },
+              { key: "stages", label: t("compare.stagesLabel"), text: t("compare.stagesHint"), show: true },
+              { key: "normalize", label: t("compare.normalize"), text: t("compare.normalizeHint"), show: true },
+              { key: "levelMismatch", label: t("compare.showLevelMismatch"), text: t("compare.showLevelMismatchHint"), show: all.some((r) => r.levelMismatch) },
+            ].filter((o) => o.show).map((o) => (
+              <div key={o.key}>
+                <dt className="inline font-medium text-ink">{o.label}: </dt>
+                <dd id={hintId(o.key)} className="inline">{o.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </Disclosure>
       </Card>
 
       {data && data.errors.length > 0 ? (
-        <div className="mb-4">
-          <Notice tone="warn" title={t("compare.errorsTitle")}>
-            <p>{t("compare.errorsText")}</p>
-            <ul className="mt-1 list-disc pl-5 text-xs">{data.errors.slice(0, 6).map((e, i) => <li key={i}><span className="font-medium">{e.target}</span>: {e.message}</li>)}</ul>
-          </Notice>
+        <div className="mb-4 rounded-xl border border-warn bg-warn-light px-3 text-sm text-warn-text" data-testid="compare-errors">
+          <Disclosure summary={<span className="flex items-center gap-2 font-medium"><Icon name="alert" className="h-4 w-4 shrink-0" />{t("compare.errorsTitle", { count: data.errors.length })}</span>}>
+            <div className="pb-3">
+              <p>{t("compare.errorsText")}</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">{data.errors.map((e, i) => <li key={i}><span className="font-medium">{e.target}</span>: {e.message}</li>)}</ul>
+            </div>
+          </Disclosure>
         </div>
       ) : null}
 

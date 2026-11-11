@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StageView } from "@secret-desk/runtime";
 import { SecretForm } from "@/components/SecretForm";
@@ -384,5 +384,52 @@ describe("SecretForm layout", () => {
     await waitFor(() => expect(portal.callsTo("POST", "secrets")).toHaveLength(1));
     host.remove();
   });
-});
 
+  it("shows a form error in the footer host next to the buttons", async () => {
+    fakePortal(routes());
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    await fillBasics(user, "");
+    await user.click(screen.getByRole("button", { name: "Anlegen" }));
+    const alert = await within(host).findByRole("alert");
+    expect(alert).toHaveTextContent("braucht der Eintrag mindestens ein Ziel");
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    expect(host).toContainElement(screen.getByRole("button", { name: "Anlegen" }));
+    host.remove();
+  });
+
+  it("opens the optional details when the link or the lifetime in there is invalid", async () => {
+    fakePortal(routes());
+    const { user, container } = renderApp(form());
+    const details = container.querySelector("details.sd-disclosure")!;
+    await fillBasics(user);
+    expect(details).not.toHaveAttribute("open");
+    await user.type(screen.getByLabelText("Link"), "ftp://example.test");
+    await user.click(screen.getByRole("button", { name: "Anlegen" }));
+    await screen.findByText("Der Link muss mit http:// oder https:// beginnen.");
+    expect(details).toHaveAttribute("open");
+    await user.clear(screen.getByLabelText("Link"));
+    await user.click(container.querySelector("summary")!);
+    expect(details).not.toHaveAttribute("open");
+    await user.type(screen.getByLabelText("Gültigkeit in Tagen (optional)"), "0");
+    await user.click(screen.getByRole("button", { name: "Anlegen" }));
+    await screen.findByText("Die Gültigkeit in Tagen muss eine ganze Zahl über 0 sein.");
+    expect(details).toHaveAttribute("open");
+  });
+
+  it("submits once through the form when Enter submits it and the buttons live in the footer host", async () => {
+    const portal = fakePortal(routes());
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { user, container } = renderApp(form({ footerHost: host }));
+    await user.type(screen.getByLabelText(/^Kennung/), "api-key");
+    await user.type(screen.getByLabelText(/^Name im Ziel/), "api_key");
+    await user.type(screen.getByLabelText(/^Dienst/), "acme");
+    await user.type(screen.getByRole("combobox", { name: "Repository, Ziel 1" }), "web");
+    // jsdom has no implicit submission through a button outside the form; the browser's Enter ends in this submit event.
+    fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => expect(portal.callsTo("POST", "secrets")).toHaveLength(1));
+    host.remove();
+  });
+});
