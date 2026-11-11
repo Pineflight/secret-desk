@@ -210,6 +210,30 @@ describe("evidence SVG", () => {
     expect(renderEvidenceSvg({ ...base, checks: [{ id: "a", label: "a", status: "fail" }] } as never)).toContain(">fehlgeschlagen<");
   });
 
+  it("renders the fixed texts in English on request and keeps German as the default", () => {
+    const full = {
+      ...base,
+      externalId: "ext-1",
+      expiresAt: "2026-06-01T00:00:00Z",
+      targets: ["web"],
+      checks: [{ id: "b", label: "Name present", status: "warn", expected: "e", actual: "a", detail: "d" }],
+      confirmation: { by: "alice", at: "2026-03-01T10:20:30Z", ticks: [], decision: "confirmed" },
+    } as never;
+    const en = renderEvidenceSvg(full, "en");
+    for (const text of ["Evidence sheet", "Evidence ", ">with notes<", ">Secret<", ">Provider<", ">Name at the provider<", ">Identifier<", ">Expires<", ">Targets<", ">Fingerprint<", ">Created<", "Automatic checks", "expected: e   found: a   d", "Confirmed by alice on 2026-03-01 10:20"]) expect(en).toContain(text);
+    for (const text of ["Pruefbeleg", "Anbieter", "Kennung", "Laeuft ab", "Ziele", "Fingerabdruck", "Erstellt", "Automatische", "erwartet", "gefunden", "Bestaetigt", "mit Hinweisen"]) expect(en).not.toContain(text);
+    expect(renderEvidenceSvg(base, "en")).toContain("never / not known");
+    expect(renderEvidenceSvg(base, "en")).toContain(">none<");
+    expect(renderEvidenceSvg({ ...base, checks: [{ id: "a", label: "a", status: "pass" }] } as never, "en")).toContain(">passed<");
+    expect(renderEvidenceSvg({ ...base, checks: [{ id: "a", label: "a", status: "fail" }], confirmation: { by: "me", at: "2026-03-01T10:20:30Z", ticks: [], decision: "rejected" } } as never, "en")).toMatch(/>failed<[\s\S]*Rejected by me on/);
+    // Data stays data: fingerprint, name, dates; and no value text can appear because none is ever passed in.
+    expect(en).toContain("ab:cd");
+    expect(en).toContain("S_ONE (s1)");
+    expect(en).toContain("2026-06-01");
+    expect(renderEvidenceSvg(full)).toBe(renderEvidenceSvg(full, "de"));
+    expect(renderEvidenceSvg(full)).toContain("Pruefbeleg");
+  });
+
   it("shows who confirmed or rejected, and escapes the name", () => {
     const confirmed = renderEvidenceSvg({ ...base, confirmation: { by: "<reviewer>", at: "2026-03-01T10:20:30Z", ticks: [], decision: "confirmed" } } as never);
     expect(confirmed).toContain("Bestaetigt von &lt;reviewer&gt; am 2026-03-01 10:20");

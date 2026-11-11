@@ -121,7 +121,20 @@ describe("flow via the API", () => {
     const jsonNeedsCsrf = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
     expect((await route(jsonNeedsCsrf, deps)).status).toBe(401);
     expect(svg.headers.get("content-security-policy")).toContain("default-src 'none'");
-    expect(await svg.text()).toContain("<svg");
+    const german = await svg.text();
+    expect(german).toContain("<svg");
+    expect(german).toContain("Pruefbeleg");
+    // The sheet follows the language: ?lang=en (an <img> cannot send headers) or the language header; anything else stays German.
+    const imgEnglish = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}/svg?lang=en`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    const english = await (await route(imgEnglish, deps)).text();
+    const byHeader = await (await route(ui(deps, "GET", `evidence/hmac-acme-app/${evidence[0]!.id}/svg`, undefined, { "x-secret-desk-lang": "en" }), deps)).text();
+    expect(english).toContain("Evidence sheet");
+    expect(english).toContain(">passed<");
+    expect(english).not.toContain("Pruefbeleg");
+    expect(byHeader).toBe(english);
+    const unknownLang = new Request(`${base}/api/ui/evidence/hmac-acme-app/${evidence[0]!.id}/svg?lang=fr`, { headers: { host: HOST, cookie: `sd_session=${deps.session.cookie}` } });
+    expect(await (await route(unknownLang, deps)).text()).toBe(german);
+    for (const sheet of [german, english]) expect(sheet).not.toContain(written[0]!);
   });
   it("connection tokens are set but never returned", async () => {
     const { deps } = await setup();

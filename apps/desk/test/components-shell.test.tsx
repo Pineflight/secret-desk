@@ -314,6 +314,22 @@ describe("Shell remembered filters", () => {
     await waitFor(() => expect(navigation.router.replace).toHaveBeenCalledWith("/entries?q=abc&tag=core"));
   });
 
+  it("keeps a comma separated status list as one opaque value through remember, restore and the new-entry link", async () => {
+    navigation.set("/entries?status=soon,due");
+    const portal = fakePortal(routes());
+    const { rerender } = renderApp(shell());
+    await settled(portal);
+    expect(window.sessionStorage.getItem(saved)).toBe("status=soon%2Cdue");
+    const href = screen.getByRole("link", { name: /Neuer Eintrag/ }).getAttribute("href")!;
+    expect(new URL(href, "http://x").searchParams.get("status")).toBe("soon,due");
+    navigation.set("/repos");
+    rerender(shell());
+    navigation.set("/entries");
+    rerender(shell());
+    await waitFor(() => expect(navigation.router.replace).toHaveBeenCalledWith("/entries?status=soon%2Cdue"));
+    expect(new URLSearchParams(window.sessionStorage.getItem(saved)!).get("status")).toBe("soon,due");
+  });
+
   it.each([
     ["?new=1", "/entries?q=abc&new=1"],
     ["?neu=1", "/entries?q=abc&new=1"],
@@ -366,7 +382,8 @@ describe("Shell remembered filters", () => {
 
 describe("Shell command palette", () => {
   const platform = (value: string) => vi.spyOn(window.navigator, "platform", "get").mockReturnValue(value);
-  const coarse = (matches: boolean) => vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
+  // `(pointer: coarse)` answers `matches`, the width query (`min-width: 640px`) answers `wide`.
+  const coarse = (matches: boolean, wide = true) => vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("pointer") ? matches : wide, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 
   it("opens from the search field button and closes again", async () => {
     platform("Linux x86_64");
@@ -428,9 +445,20 @@ describe("Shell command palette", () => {
     await settled(portal);
     expect(screen.getAllByRole("button", { name: "Suche öffnen" })).toHaveLength(1);
     expect(screen.queryByText("Strg K")).toBeNull();
-    expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Suchen");
+    // A wide touch screen (tablet) keeps the long placeholder: it follows the width, not the input device.
+    expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Suchen nach Name, Repository oder Produkt");
     await user.click(screen.getByRole("button", { name: "Suche öffnen" }));
     expect(await screen.findByRole("dialog", { name: "palette-stub" })).toHaveTextContent(/^shortcut:close-palette$/);
+  });
+
+  it("shortens the placeholder below 640px, also with a mouse", async () => {
+    platform("Linux x86_64");
+    coarse(false, false);
+    const portal = fakePortal(routes());
+    renderApp(shell());
+    await settled(portal);
+    expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Suchen");
+    expect(screen.getByRole("button", { name: "Suche öffnen" })).toHaveTextContent("Strg K");
   });
 
   it("falls back to the touch points of the device when the browser cannot match media", async () => {

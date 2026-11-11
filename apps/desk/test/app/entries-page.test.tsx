@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import EntriesPage from "@/app/entries/page";
 import { translate as t } from "@/lib/i18n";
 import { navigation } from "../helpers/navigation";
@@ -219,6 +219,39 @@ describe("Entries page: filters", () => {
     entries(SECRETS, VARIABLES);
     renderApp(<EntriesPage />);
     expect(await screen.findByText(t("entries.narrowed", { filters: t("entries.status"), kind: t("entries.kindVariables") }))).toBeInTheDocument();
+  });
+
+  it("offers the combined soon-or-due option only while the URL carries that combination", async () => {
+    navigation.set("/entries?status=soon,due");
+    entries([secret("alpha-key", { status: "soon", daysLeft: 3 }), secret("beta-key", { status: "due", daysLeft: 0 }), secret("gamma-key", { status: "ok" })], []);
+    const { unmount } = renderApp(<EntriesPage />);
+    const select = screen.getByLabelText(t("entries.status"));
+    await waitFor(() => expect(select).toHaveTextContent(t("entries.statusSoonOrDue")));
+    expect(await screen.findByText("alpha-key")).toBeInTheDocument();
+    expect(screen.getByText("beta-key")).toBeInTheDocument();
+    expect(screen.queryByText("gamma-key")).toBeNull();
+    unmount();
+    navigation.set("/entries?status=soon");
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    expect(screen.getByLabelText(t("entries.status"))).not.toHaveTextContent(t("entries.statusSoonOrDue"));
+  });
+
+  it("lists no rows when the status list holds no valid status", async () => {
+    navigation.set("/entries?status=foo,bar");
+    entries([secret("alpha-key", { status: "ok" })], VARIABLES);
+    renderApp(<EntriesPage />);
+    await waitFor(() => expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument());
+    expect(screen.queryByText("alpha-key")).toBeNull();
+    expect(screen.queryAllByRole("row").filter((r) => r.querySelector("td"))).toHaveLength(0);
+  });
+
+  it("clears the combined status with the reset control", async () => {
+    navigation.set("/entries?status=soon,due");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await user.click(await screen.findByRole("button", { name: t("entries.reset") }));
+    expect(navigation.router.replace).toHaveBeenLastCalledWith("/entries");
   });
 
   it("keeps a status that is not one of the known options selectable", async () => {
@@ -749,7 +782,7 @@ describe("Entries page: closing dialogs", () => {
     entries(SECRETS, VARIABLES);
     renderApp(<EntriesPage />);
     const more = await screen.findByRole("button", { name: new RegExp(t("entries.moreFilters")) });
-    const row = more.parentElement!;
+    const row = more.closest("div.items-end")!;
     expect(row).toContainElement(screen.getByLabelText(t("entries.status")));
     expect(row).toContainElement(screen.getByRole("searchbox", { name: t("common.pageSearch") }));
     expect(row).toContainElement(screen.getByRole("button", { name: t("entries.reset") }));
@@ -784,5 +817,53 @@ describe("Entries page: closing dialogs", () => {
     expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).toBeNull();
     expect(screen.getByLabelText(t("meta.sort"))).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: t("meta.sortExpires") })).toBeNull();
+  });
+});
+
+describe("Entries page: phone width", () => {
+  const phone = () => vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  const toggle = () => screen.getByRole("button", { name: new RegExp(`^${t("entries.filters")}`) });
+
+  it("shows only search and a filters toggle until the toggle is used", async () => {
+    phone();
+    navigation.set("/entries");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await ready();
+    expect(screen.getByRole("searchbox", { name: t("common.pageSearch") })).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(toggle()).toHaveAttribute("aria-controls", "entries-filters");
+    expect(screen.queryByRole("group", { name: t("entries.kind") })).toBeNull();
+    expect(screen.queryByLabelText(t("entries.status"))).toBeNull();
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: t("entries.kind") })).toBeInTheDocument();
+    expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument();
+    expect(document.getElementById("entries-filters")).toContainElement(screen.getByLabelText(t("entries.stage")));
+    await user.click(toggle());
+    expect(screen.queryByLabelText(t("entries.status"))).toBeNull();
+  });
+
+  it("opens by itself with a count pill while filters are active and hides the secondary row with the area", async () => {
+    phone();
+    navigation.set("/entries?kind=secret&status=expired");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await screen.findByText(/ALPHA_KEY|BETA_KEY/);
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-expanded", "true"));
+    expect(within(toggle()).getByText("2")).toBeInTheDocument();
+    expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) }));
+    expect(screen.getByLabelText(t("meta.sort"))).toBeInTheDocument();
+    await user.click(toggle());
+    expect(screen.queryByLabelText(t("meta.sort"))).toBeNull();
+  });
+
+  it("keeps the full toolbar and no toggle from sm up", async () => {
+    entries(SECRETS, VARIABLES);
+    renderApp(<EntriesPage />);
+    await ready();
+    expect(screen.queryByRole("button", { name: new RegExp(`^${t("entries.filters")}`) })).toBeNull();
+    expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument();
   });
 });

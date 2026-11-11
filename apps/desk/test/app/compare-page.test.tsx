@@ -32,12 +32,14 @@ describe("Compare page: states", () => {
     expect(screen.getAllByText(t("compare.offlineNotice"), { exact: false })).toHaveLength(1);
   });
 
-  it("keeps the option hints reachable: one closed disclosure and aria-describedby on each option", async () => {
+  it("keeps the option hints reachable: a closed help toggle and aria-describedby on each option", async () => {
     compare(result({ rows: [consistent] }));
     const { user } = renderApp(<ComparePage />);
     await ready();
-    const disclosure = screen.getByText(t("compare.optionsHelp")).closest("details")!;
-    expect(disclosure).not.toHaveAttribute("open");
+    const toggle = screen.getByRole("button", { name: t("compare.optionsHelp") });
+    const help = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(help).toHaveAttribute("hidden");
     expect(document.querySelector("[title]:has(input[type=checkbox])")).toBeNull();
     const described = (name: string) => document.getElementById(screen.getByRole("checkbox", { name: new RegExp(name) }).getAttribute("aria-describedby")!);
     expect(described(t("compare.live"))).toHaveTextContent(t("compare.liveHint"));
@@ -48,6 +50,66 @@ describe("Compare page: states", () => {
     await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
     expect(described(t("compare.allRepos"))).toHaveTextContent(t("compare.allReposHint"));
     expect(described(t("compare.workflows"))).toHaveTextContent(t("compare.workflowsHint"));
+    expect(help).toHaveAttribute("hidden");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(help).not.toHaveAttribute("hidden");
+    expect(help).toBeVisible();
+    expect(within(help).getByText(t("compare.liveHint"))).toBeInTheDocument();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(help).toHaveAttribute("hidden");
+  });
+
+  it("keeps the toolbar card to three rows in live mode with one status element and the help toggle beside it", async () => {
+    compare(liveResult({ rows: [gap] }));
+    const { user } = renderApp(<ComparePage />);
+    await ready2("B_KEY");
+    await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
+    const status = (await screen.findByText(t("compare.statusLive"))).closest("[role=status]")!;
+    const card = status.closest(".mb-4")!;
+    expect(card.querySelectorAll("[role=status]")).toHaveLength(1);
+    const rows = [...card.children].filter((el) => !el.hasAttribute("hidden"));
+    expect(rows).toHaveLength(3);
+    const [one, two, three] = rows as HTMLElement[];
+    // Row 1: live toggle, reload, repository, kind, name search.
+    for (const el of [screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }), screen.getByRole("button", { name: t("compare.refresh") }), screen.getByLabelText(t("compare.filterRepo")), screen.getByLabelText(t("compare.kind")), screen.getByLabelText(t("compare.search"))]) expect(one).toContainElement(el);
+    // Row 2: stage chips and every option, the live sub-options among them.
+    expect(two).toContainElement(screen.getByRole("group", { name: t("compare.stagesLabel") }));
+    for (const name of ["compare.allRepos", "compare.workflows", "compare.onlyDeviations", "compare.gapsFirst", "compare.normalize"]) expect(two).toContainElement(screen.getByRole("checkbox", { name: new RegExp(t(name)) }));
+    expect(one).not.toContainElement(screen.getByRole("checkbox", { name: new RegExp(t("compare.allRepos")) }));
+    // Row 3: status sentence and the help toggle.
+    expect(three).toContainElement(status);
+    expect(three).toContainElement(screen.getByRole("button", { name: t("compare.optionsHelp") }));
+  });
+
+  it("offers the live sub-options only in live mode", async () => {
+    compare(liveResult());
+    const { user } = renderApp(<ComparePage />);
+    await ready();
+    expect(screen.queryByRole("checkbox", { name: new RegExp(t("compare.allRepos")) })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("compare.refresh") })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
+    expect(await screen.findByRole("checkbox", { name: new RegExp(t("compare.allRepos")) })).toBeInTheDocument();
+  });
+
+  it("orders toolbar, warning, summary, first table and then the secondary blocks", async () => {
+    compare(
+      liveResult({
+        errors: [{ target: "web/env:staging", message: "no access" }],
+        repos: [repoInfo("web", { notes: [{ code: "contents-forbidden", message: "needs Contents: Read" }] }), repoInfo("empty-a", { inInventory: false, found: { secrets: 0, variables: 0 } })],
+      }),
+    );
+    renderApp(<ComparePage />);
+    await ready();
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const toolbar = screen.getByText(t("compare.statusOffline")).closest("[role=status]")!.closest(".mb-4")!;
+    const warning = screen.getByTestId("compare-errors");
+    const summary = screen.getByRole("region", { name: t("compare.sumTitle") });
+    const table = document.querySelector("table")!;
+    const empty = screen.getByText(t("compare.emptyReposTitle"), { exact: false }).closest("details")!;
+    const notes = screen.getByText(t("compare.notesTitle"), { exact: false }).closest("details")!;
+    expect([before(toolbar, warning), before(warning, summary), before(summary, table), before(table, empty), before(empty, notes)]).toEqual([true, true, true, true, true]);
   });
 
   it("keeps the write-to-GitHub action in the page header, disabled until the data is there", async () => {
@@ -153,15 +215,15 @@ describe("Compare page: live reading", () => {
     expect(summary.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("groups the live options and the reload button in one container", async () => {
+  it("groups the two live options in one container, apart from the reload button", async () => {
     compare(liveResult());
     const { user } = renderApp(<ComparePage />);
     await ready();
     expect(screen.queryByTestId("compare-live-options")).toBeNull();
     await user.click(screen.getByRole("checkbox", { name: new RegExp(t("compare.live")) }));
     const group = await screen.findByTestId("compare-live-options");
-    expect(group).toContainElement(screen.getByRole("button", { name: t("compare.refresh") }));
     expect(group.querySelectorAll("input[type=checkbox]")).toHaveLength(2);
+    expect(group).not.toContainElement(screen.getByRole("button", { name: t("compare.refresh") }));
   });
 
   it("does not repeat the short status in the explanatory sentence (live and offline, de and en)", async () => {

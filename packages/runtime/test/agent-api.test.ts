@@ -164,7 +164,38 @@ describe("issue, review, confirm", () => {
     expect(rt.issuances.list()).toHaveLength(0);
     const evidence = await listEvidence(rt, "hmac-acme-app");
     expect(evidence[0]!.confirmation?.decision).toBe("confirmed");
-    expect(await evidenceSvg(rt, "hmac-acme-app", evidence[0]!.id)).toContain("<svg");
+    const german = await evidenceSvg(rt, "hmac-acme-app", evidence[0]!.id);
+    expect(german).toContain("<svg");
+    expect(german).toContain("Pruefbeleg");
+    expect(await evidenceSvg(rt, "hmac-acme-app", evidence[0]!.id, "de")).toBe(german);
+    // English: fixed texts and the stored check texts are translated; fingerprint and names stay data; never a value.
+    const english = await evidenceSvg(rt, "hmac-acme-app", evidence[0]!.id, "en");
+    expect(english).toContain("Evidence sheet");
+    expect(english).toContain(evidence[0]!.fingerprint);
+    expect(english).not.toContain("Pruefbeleg");
+    expect(english).not.toContain("Automatische Pruefungen");
+    expect(english).not.toContain(written[0]!);
+    expect(german).not.toContain(written[0]!);
+  });
+  it("English evidence sheet translates label and detail but leaves expected and actual untouched", async () => {
+    const { rt } = await setup();
+    const report = {
+      id: "r-data-1", secretId: "hmac-acme-app", secretName: "ARTIFACT_HMAC_SECRET", createdAt: "2026-01-01T00:00:00.000Z", kind: "manual", provider: "manual", stage: "dev",
+      label: "x", targets: [], checklist: [], fingerprint: "abcdef123456", attachments: [],
+      checks: [
+        { id: "c1", label: "Fehlt: alpha", status: "fail", expected: "Fehlt: beta", actual: "Fehlt: gamma", detail: "Fehlt: delta" },
+        { id: "c2", label: "Fehlt: eps", status: "pass" },
+      ],
+    } as unknown as Parameters<typeof rt.evidence.save>[0];
+    await rt.evidence.save(report);
+    const english = await evidenceSvg(rt, "hmac-acme-app", "r-data-1", "en");
+    expect(english).toContain("Missing: alpha");
+    expect(english).toContain("Missing: delta");
+    expect(english).toContain("Fehlt: beta");
+    expect(english).toContain("Fehlt: gamma");
+    expect(english).not.toContain("Missing: beta");
+    expect(english).not.toContain("Missing: gamma");
+    expect(await evidenceSvg(rt, "hmac-acme-app", "r-data-1", "de")).toContain("Fehlt: alpha");
   });
   it("human can reject: nothing is written", async () => {
     const { rt, calls } = await setup();

@@ -4,6 +4,8 @@ export default {
   "entries.subtitleHint": "Variables keep their target value, and GitHub is compared against it.",
   "entries.moreFilters": "More filters",
   "entries.reset": "Reset",
+  "entries.statusSoonOrDue": "Soon or due",
+  "entries.filters": "Filters",
   "entries.counts": "{secrets} secrets, {variables} variables",
   "entries.kind": "Kind",
   "entries.kindAll": "All",

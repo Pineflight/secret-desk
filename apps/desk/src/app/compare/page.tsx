@@ -78,6 +78,8 @@ export default function ComparePage() {
   const t = useT();
   const hintBase = useId();
   const hintId = (key: string) => `${hintBase}-hint-${key}`;
+  const helpId = `${hintBase}-help`;
+  const [helpOpen, setHelpOpen] = useState(false);
   const toast = useToast();
   const defs = useStageDefs();
   const [filters, setFilters] = usePersistedState<CompareFilters>("compare.filters", COMPARE_FILTERS_DEFAULT);
@@ -178,16 +180,11 @@ export default function ComparePage() {
       />
 
       <Card className="mb-4 space-y-3 !p-3">
+        {/* Row 1: scope (live, reload, repository, kind, name). Row 2: stages and every option. Row 3: status sentence and the options help toggle. */}
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-          <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
+          <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1">
             <Checkbox checked={live} onChange={setLive} describedBy={hintId("live")}><span className="font-medium">{t("compare.live")}</span></Checkbox>
-            {live ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="compare-live-options">
-                <Checkbox checked={allRepos} onChange={setAllRepos} describedBy={hintId("allRepos")}>{t("compare.allRepos")}</Checkbox>
-                <Checkbox checked={workflows} onChange={setWorkflows} describedBy={hintId("workflows")}>{t("compare.workflows")}</Checkbox>
-                <Button variant="secondary" className="min-h-10" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button>
-              </div>
-            ) : null}
+            {live ? <Button variant="secondary" className="min-h-10" loading={result.loading} onClick={result.reload}><Icon name="refresh" />{t("compare.refresh")}</Button> : null}
           </div>
           <div className="w-44">
             <SelectField label={t("compare.filterRepo")} value={filters.repo} onChange={(e) => set("repo", e.target.value)}>
@@ -202,44 +199,55 @@ export default function ComparePage() {
               <option value="variable">{t("compare.kindVariable")}</option>
             </SelectField>
           </div>
-          <div className="min-w-[10rem] flex-1 sm:max-w-xs">
+          <div className="min-w-[10rem] flex-1">
             <TextField label={t("compare.search")} value={filters.q} onChange={(e) => set("q", e.target.value)} autoComplete="off" />
           </div>
         </div>
-        {/* The one status element: what the table shows (inventory only or live) and how to read "missing" and "only in GitHub". */}
-        <p role="status" aria-live="polite" className={`-mt-1 text-xs ${live ? "text-ink" : "text-muted-text"}`}>
-          <span className="font-medium">{live ? (result.loading ? t("compare.liveLoading") : t("compare.statusLive")) : t("compare.statusOffline")}</span>
-          {" "}
-          {live ? t("compare.liveNotice") : t("compare.offlineNotice")}
-        </p>
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("compare.stagesLabel")} aria-describedby={hintId("stages")}>
-          <SectionLabel>{t("compare.stagesLabel")}</SectionLabel>
-          {orderedStages.map((s) => {
-            const on = compared.includes(s.id);
-            return (
-              <button
-                key={s.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleStage(s.id)}
-                className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary-light text-primary" : "border-line bg-card text-muted-text hover:bg-page"}`}
-              >
-                {on ? <Icon name="check" className="h-3 w-3" /> : null}{s.label}
-              </button>
-            );
-          })}
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("compare.stagesLabel")} aria-describedby={hintId("stages")}>
+            <SectionLabel>{t("compare.stagesLabel")}</SectionLabel>
+            {orderedStages.map((s) => {
+              const on = compared.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleStage(s.id)}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary-light text-primary" : "border-line bg-card text-muted-text hover:bg-page"}`}
+                >
+                  {on ? <Icon name="check" className="h-3 w-3" /> : null}{s.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
+            {live ? (
+              <div className="contents" data-testid="compare-live-options">
+                <Checkbox checked={allRepos} onChange={setAllRepos} describedBy={hintId("allRepos")}>{t("compare.allRepos")}</Checkbox>
+                <Checkbox checked={workflows} onChange={setWorkflows} describedBy={hintId("workflows")}>{t("compare.workflows")}</Checkbox>
+              </div>
+            ) : null}
+            <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
+            <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
+            <Checkbox checked={normalize} onChange={setNormalize} describedBy={hintId("normalize")}>{t("compare.normalize")}</Checkbox>
+            {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
+            {all.some((r) => r.levelMismatch) ? <Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)} describedBy={hintId("levelMismatch")}>{t("compare.showLevelMismatch")}</Checkbox> : null}
+            {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
+          </div>
         </div>
-        <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
-          <Checkbox checked={filters.onlyDeviations} onChange={(v) => set("onlyDeviations", v)}>{t("compare.onlyDeviations")}</Checkbox>
-          <Checkbox checked={gapsFirst} onChange={setGapsFirst}>{t("compare.gapsFirst")}</Checkbox>
-          <Checkbox checked={normalize} onChange={setNormalize} describedBy={hintId("normalize")}>{t("compare.normalize")}</Checkbox>
-          {effectiveWorkflows || (data?.rows ?? []).some((r) => r.needs) ? <Checkbox checked={filters.onlyNeeded === true} onChange={(v) => set("onlyNeeded", v)}>{t("compare.onlyNeeded")}</Checkbox> : null}
-          {all.some((r) => r.levelMismatch) ? <Checkbox checked={filters.showLevelMismatch === true} onChange={(v) => set("showLevelMismatch", v)} describedBy={hintId("levelMismatch")}>{t("compare.showLevelMismatch")}</Checkbox> : null}
-          {hiddenNow.length > 0 ? <Checkbox checked={showHidden} onChange={setShowHidden}>{t("compare.showHidden")} <span className="text-xs text-muted">({t("compare.showHiddenCount", { count: hiddenNow.length })})</span></Checkbox> : null}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          {/* The one status element: what the table shows (inventory only or live) and how to read "missing" and "only in GitHub". */}
+          <p role="status" aria-live="polite" className={`min-w-0 flex-1 text-xs ${live ? "text-ink" : "text-muted-text"}`}>
+            <span className="font-medium">{live ? (result.loading ? t("compare.liveLoading") : t("compare.statusLive")) : t("compare.statusOffline")}</span>
+            {" "}
+            {live ? t("compare.liveNotice") : t("compare.offlineNotice")}
+          </p>
+          <Button variant="ghost" aria-expanded={helpOpen} aria-controls={helpId} onClick={() => setHelpOpen((o) => !o)}>
+            <Icon name="chevron" className={`h-4 w-4 shrink-0 text-muted ${helpOpen ? "rotate-90" : ""}`} />{t("compare.optionsHelp")}
+          </Button>
         </div>
-        </div>
-        <Disclosure summary={t("compare.optionsHelp")}>
+        <div id={helpId} hidden={!helpOpen}>
           <dl className="space-y-1.5 text-xs text-muted-text">
             {[
               { key: "live", label: t("compare.live"), text: t("compare.liveHint"), show: true },
@@ -255,7 +263,7 @@ export default function ComparePage() {
               </div>
             ))}
           </dl>
-        </Disclosure>
+        </div>
       </Card>
 
       {data && data.errors.length > 0 ? (
@@ -321,51 +329,6 @@ export default function ComparePage() {
             </Notice>
           ))}
         </div>
-      ) : null}
-
-      {data && data.live && allRepos ? (
-        <details className="mb-4 rounded-2xl border border-line bg-card p-4">
-          <summary className="cursor-pointer text-sm font-medium">{t("compare.emptyReposTitle")} <span className="font-normal text-muted">({emptyRepos.length})</span></summary>
-          <p className="mt-2 text-xs text-muted">{t("compare.emptyReposHint")}</p>
-          {emptyRepos.length === 0 ? <p className="mt-2 text-sm text-muted-text">{t("compare.emptyReposNone")}</p> : (
-            <div className="mt-2 overflow-x-auto">
-              <table className="w-full min-w-[28rem] text-left text-sm">
-                <thead className="text-xs text-muted">
-                  <tr>
-                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColName")}</th>
-                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColVisibility")}</th>
-                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColPush")}</th>
-                    <th scope="col" className="py-2 font-medium">{t("compare.repoColFound")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {emptyRepos.map((r) => (
-                    <tr key={r.name}>
-                      <th scope="row" className="py-2 pr-3 text-left font-medium">{r.name}</th>
-                      <td className="py-2 pr-3">{r.private === null ? "–" : r.private ? t("compare.repoPrivate") : t("compare.repoPublic")}</td>
-                      <td className="tabular py-2 pr-3">{r.pushedAt ? r.pushedAt.slice(0, 10) : "–"}</td>
-                      <td className="tabular py-2 text-xs text-muted-text">{t("compare.repoFound", { secrets: r.found.secrets, variables: r.found.variables, needed: r.needed })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </details>
-      ) : null}
-
-      {repoNotes.length > 0 ? (
-        <details className="mb-4 rounded-2xl border border-line bg-card p-4">
-          <summary className="cursor-pointer text-sm font-medium">{t("compare.notesTitle")} <span className="font-normal text-muted">({repoNotes.length})</span></summary>
-          <ul className="mt-2 space-y-2 text-xs">
-            {repoNotes.map((r) => (
-              <li key={r.name}>
-                <span className="font-medium">{r.name}</span>
-                <ul className="list-disc pl-5 text-muted-text">{r.notes.map((n, i) => <li key={i} title={n.message}>{noteText(t, n)}</li>)}</ul>
-              </li>
-            ))}
-          </ul>
-        </details>
       ) : null}
 
       {result.error ? <ErrorState error={result.error} onRetry={result.reload} /> : null}
@@ -444,6 +407,52 @@ export default function ComparePage() {
       })}
 
       {paged.hidden > 0 ? <div className="mb-6 flex justify-center"><Button onClick={() => setPages((n) => n + 1)}>{t("common.showMore", { count: paged.next })}</Button></div> : null}
+
+      {/* Secondary, so they sit below the tables. */}
+      {data && data.live && allRepos ? (
+        <details className="mt-4 rounded-2xl border border-line bg-card p-4">
+          <summary className="cursor-pointer text-sm font-medium">{t("compare.emptyReposTitle")} <span className="font-normal text-muted">({emptyRepos.length})</span></summary>
+          <p className="mt-2 text-xs text-muted">{t("compare.emptyReposHint")}</p>
+          {emptyRepos.length === 0 ? <p className="mt-2 text-sm text-muted-text">{t("compare.emptyReposNone")}</p> : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[28rem] text-left text-sm">
+                <thead className="text-xs text-muted">
+                  <tr>
+                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColName")}</th>
+                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColVisibility")}</th>
+                    <th scope="col" className="py-2 pr-3 font-medium">{t("compare.repoColPush")}</th>
+                    <th scope="col" className="py-2 font-medium">{t("compare.repoColFound")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {emptyRepos.map((r) => (
+                    <tr key={r.name}>
+                      <th scope="row" className="py-2 pr-3 text-left font-medium">{r.name}</th>
+                      <td className="py-2 pr-3">{r.private === null ? "–" : r.private ? t("compare.repoPrivate") : t("compare.repoPublic")}</td>
+                      <td className="tabular py-2 pr-3">{r.pushedAt ? r.pushedAt.slice(0, 10) : "–"}</td>
+                      <td className="tabular py-2 text-xs text-muted-text">{t("compare.repoFound", { secrets: r.found.secrets, variables: r.found.variables, needed: r.needed })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </details>
+      ) : null}
+
+      {repoNotes.length > 0 ? (
+        <details className="mt-4 rounded-2xl border border-line bg-card p-4">
+          <summary className="cursor-pointer text-sm font-medium">{t("compare.notesTitle")} <span className="font-normal text-muted">({repoNotes.length})</span></summary>
+          <ul className="mt-2 space-y-2 text-xs">
+            {repoNotes.map((r) => (
+              <li key={r.name}>
+                <span className="font-medium">{r.name}</span>
+                <ul className="list-disc pl-5 text-muted-text">{r.notes.map((n, i) => <li key={i} title={n.message}>{noteText(t, n)}</li>)}</ul>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {renaming?.renamedTo ? <RenameRepoDialog from={renaming.name} to={renaming.renamedTo} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); result.reload(); }} /> : null}
       {adoptAll ? <AdoptAllDialog candidates={candidates} stages={orderedStages} environmentOf={(id) => data?.stages.find((x) => x.id === id)?.environment ?? null} onClose={() => setAdoptAll(false)} onDone={() => { setAdoptAll(false); result.reload(); }} t={t} /> : null}

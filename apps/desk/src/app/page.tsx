@@ -16,6 +16,7 @@ const IntegrationsOverview = dynamic(() => import("@/components/IntegrationsOver
 import { RenewalNotice } from "@/components/RenewalWarnings";
 import { useRenewalWarnings } from "@/lib/use-renewal-warnings";
 import { useT } from "@/lib/i18n";
+import { SOON_OR_DUE, entriesHref } from "@/lib/entries-list";
 import { useStageDefs } from "@/lib/use-stages";
 import { labelOf } from "@/lib/stages";
 
@@ -33,6 +34,7 @@ export default function OverviewPage() {
   const [tab, setTab] = useState<StageTab>("all");
   const renewals = useRenewalWarnings();
   const o = q.data;
+  const soonOrDue = o ? o.byStatus.soon + o.byStatus.due : 0;
 
   const tabs: { id: StageTab; label: string; count?: number }[] = [
     { id: "all", label: t("home.tabAll"), ...(o ? { count: o.total } : {}) },
@@ -64,11 +66,11 @@ export default function OverviewPage() {
       ) : null}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {/* Each tile counts what its link lists: the status filter takes one value, and the overview counts secrets only (hence kind=secret for "missing"). */}
+        {/* Each tile counts what its link lists: the status filter takes a comma separated list, and the overview counts secrets only (hence kind=secret for "missing"). */}
         {o ? (
           <>
             <StatLink href="/entries?status=expired"><Stat label={t("home.statExpired")} value={o.byStatus.expired} tone={o.byStatus.expired > 0 ? "danger" : undefined} /></StatLink>
-            <StatLink href="/entries?status=soon"><Stat label={t("home.statSoon")} value={o.byStatus.soon} tone={o.byStatus.soon > 0 ? "warn" : undefined} /></StatLink>
+            <StatLink href={entriesHref({ status: SOON_OR_DUE })}><Stat label={t("home.statSoon")} value={soonOrDue} tone={soonOrDue > 0 ? "warn" : undefined} /></StatLink>
             <StatLink href="/entries?kind=secret&status=missing"><Stat label={t("home.statMissing")} value={o.byStatus.missing} tone={o.byStatus.missing > 0 ? "danger" : undefined} /></StatLink>
             <StatLink href="/reviews"><Stat label={t("home.statReviews")} value={o.pendingReviews} tone={o.pendingReviews > 0 ? "info" : undefined} /></StatLink>
           </>

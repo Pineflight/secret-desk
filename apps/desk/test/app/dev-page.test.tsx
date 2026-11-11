@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import DevPage from "@/app/dev/page";
 import { translate as t } from "@/lib/i18n";
 import { invalidateRepoList } from "@/lib/repo-list";
@@ -186,6 +186,55 @@ describe("Dev page: template card", () => {
     await user.type(c.getByLabelText(new RegExp(t("dev.filePath"))), "/etc/x");
     await user.click(c.getByRole("button", { name: t("dev.createFile") }));
     expect(await c.findByText("folder not allowed")).toBeInTheDocument();
+  });
+});
+
+describe("Dev page: template cards on a phone", () => {
+  const phone = () => vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  const two = () => dev({ "GET dev-templates": [template(), template({ id: "acme-stg", repo: "acme-web", stage: "staging", file: ".env.staging" })] });
+  const toggleOf = (id: string, file: string) => screen.getByText(t("dev.templateAndFile", { id, file })).closest("button") as HTMLElement;
+
+  it("opens the first card, closes the others and toggles by the header", async () => {
+    phone();
+    two();
+    const { user } = renderApp(<DevPage />);
+    expect(await screen.findByRole("button", { name: /acme-app/, expanded: true })).toBeInTheDocument();
+    const second = toggleOf("acme-stg", ".env.staging");
+    expect(second).toHaveAttribute("aria-expanded", "false");
+    expect(second).toHaveTextContent("acme-web");
+    const body = document.getElementById(second.getAttribute("aria-controls")!)!;
+    expect(body).toHaveAttribute("hidden");
+    expect(within(card("acme-dev")).getByRole("button", { name: t("dev.createFile") })).toBeVisible();
+    expect(within(card("acme-stg", ".env.staging")).queryByRole("button", { name: t("dev.createFile") })).toBeNull();
+    await user.click(second);
+    expect(second).toHaveAttribute("aria-expanded", "true");
+    expect(body).not.toHaveAttribute("hidden");
+    expect(within(card("acme-stg", ".env.staging")).getByRole("button", { name: t("dev.createFile") })).toBeVisible();
+    await user.click(second);
+    expect(body).toHaveAttribute("hidden");
+  });
+
+  it("keeps typed input while a card is closed", async () => {
+    phone();
+    two();
+    const { user } = renderApp(<DevPage />);
+    const toggle = await screen.findByRole("button", { name: /acme-app/ });
+    const path = within(card("acme-dev")).getByLabelText(new RegExp(t("dev.filePath")));
+    await user.type(path, "/tmp/x");
+    await user.click(toggle);
+    await user.click(toggle);
+    expect(path).toHaveValue("/tmp/x");
+  });
+
+  it("has no toggle from sm up and shows every card open", async () => {
+    two();
+    renderApp(<DevPage />);
+    await screen.findByText(t("dev.templateAndFile", { id: "acme-stg", file: ".env.staging" }));
+    expect(screen.getByText(t("dev.templateAndFile", { id: "acme-stg", file: ".env.staging" })).closest("button")).toBeNull();
+    for (const [id, file] of [["acme-dev", ".env.local"], ["acme-stg", ".env.staging"]] as const) {
+      expect(within(card(id, file)).getByRole("button", { name: t("dev.createFile") })).toBeVisible();
+    }
+    expect(document.querySelectorAll("section > div[hidden]")).toHaveLength(0);
   });
 });
 

@@ -26,13 +26,47 @@ export const SECRET_STATUSES = ["ok", "soon", "due", "expired", "missing", "no-d
 /** Comparison states of variables, in display order ("ok" is the shared word for "in-sync"). */
 export const VARIABLE_STATUSES = DRIFT_FILTERS;
 
-/** Kinds a status filter value is meaningful for. "ok" and "missing" exist for both; "ok" means "in-sync" for a variable. */
-export function statusKinds(status: string): EntryKind[] {
-  if (!status) return [...KINDS];
+/** The one combination the overview links to; the status select offers it only while the URL carries it. */
+export const SOON_OR_DUE = "soon,due";
+
+/** Statuses of one kind: secret expiry states, or variable comparison states ("ok" counts for both). */
+function kindsOfStatus(status: string): EntryKind[] {
   const out: EntryKind[] = [];
   if ((SECRET_STATUSES as readonly string[]).includes(status)) out.push("secret");
   if (status === "ok" || (VARIABLE_STATUSES as readonly string[]).includes(status)) out.push("variable");
   return out;
+}
+
+/** Parsed ?status=: no filter, a list of statuses, or an input from which no valid status remains (matches nothing). */
+export type StatusFilter = { mode: "none" } | { mode: "list"; statuses: string[] } | { mode: "invalid" };
+
+/**
+ * Value of ?status=: one status or a comma separated list ("soon,due"). A single value is taken as it is (an unknown one
+ * matches nothing); in a list unknown tokens and duplicates are dropped, and a list without any valid token is "invalid",
+ * which matches nothing as well. Empty means no filter.
+ */
+export function parseStatusList(value: string | null | undefined): StatusFilter {
+  if (!value) return { mode: "none" };
+  if (!value.includes(",")) return { mode: "list", statuses: [value] };
+  const tokens = value.split(",").map((t) => t.trim());
+  const statuses = tokens.filter((t, i) => kindsOfStatus(t).length > 0 && tokens.indexOf(t) === i);
+  return statuses.length ? { mode: "list", statuses } : { mode: "invalid" };
+}
+
+/** Does the value carry exactly the given combination (any order)? */
+export function isStatusCombination(value: string, combination: string): boolean {
+  const have = parseStatusList(value);
+  const want = parseStatusList(combination);
+  if (have.mode !== "list" || want.mode !== "list") return false;
+  return have.statuses.length === want.statuses.length && want.statuses.every((w) => have.statuses.includes(w));
+}
+
+/** Kinds a status filter value is meaningful for. "ok" and "missing" exist for both; "ok" means "in-sync" for a variable. */
+export function statusKinds(status: string): EntryKind[] {
+  const f = parseStatusList(status);
+  if (f.mode === "none") return [...KINDS];
+  if (f.mode === "invalid") return [];
+  return KINDS.filter((k) => f.statuses.some((s) => kindsOfStatus(s).includes(k)));
 }
 
 export interface EntryFilters {
@@ -71,7 +105,8 @@ export function effectiveFilters(f: EntryFilters): EntryFilters {
 }
 
 export function secretMatches(s: SecretView, f: EntryFilters): boolean {
-  if (f.status && s.status !== f.status) return false;
+  const list = parseStatusList(f.status);
+  if (list.mode === "invalid" || (list.mode === "list" && !list.statuses.includes(s.status))) return false;
   if (f.provider && (f.provider === "auto" ? !s.automatic : s.automatic)) return false;
   if (f.params === "missing" && !needsParams(s)) return false;
   return true;
@@ -81,14 +116,17 @@ type Drifts = Readonly<Record<string, readonly { state: string }[] | undefined>>
 
 /** Comparison state of a variable for the status filter ("ok" = "in-sync"). */
 export function variableMatches(v: VariableView, f: EntryFilters, drifts: Drifts): boolean {
-  if (!f.status) return true;
+  const list = parseStatusList(f.status);
+  if (list.mode === "none") return true;
+  if (list.mode === "invalid") return false;
   const sum = summarizeDrift(drifts[v.id]);
-  return f.status === "ok" ? sum === "in-sync" : sum === f.status;
+  return list.statuses.some((s) => (s === "ok" ? sum === "in-sync" : sum === s));
 }
 
 /** Does the status filter depend on comparison results that are still missing for some variables? Only these states need a comparison. */
 export function needsComparison(status: string): boolean {
-  return status !== "" && status !== "not-compared" && statusKinds(status).includes("variable");
+  const list = parseStatusList(status);
+  return list.mode === "list" && list.statuses.some((s) => s !== "not-compared" && kindsOfStatus(s).includes("variable"));
 }
 
 export function counts(rows: readonly { entryKind: EntryKind }[]): Record<EntryKind, number> {

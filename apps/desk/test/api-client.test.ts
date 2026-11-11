@@ -155,7 +155,8 @@ describe("toApiError and urls", () => {
 
   it("builds portal and evidence urls with encoded segments", () => {
     expect(apiPath("///a/b")).toBe("/api/ui/a/b");
-    expect(evidenceSvgUrl("s 1", "r/2")).toBe("/api/ui/evidence/s%201/r%2F2/svg");
+    expect(evidenceSvgUrl("s 1", "r/2", "de")).toBe("/api/ui/evidence/s%201/r%2F2/svg?lang=de");
+    expect(evidenceSvgUrl("s 1", "r/2", "en")).toBe("/api/ui/evidence/s%201/r%2F2/svg?lang=en");
     expect(attachmentUrl("s", "r", "a b.png")).toBe("/api/ui/evidence/s/r/attachments/a%20b.png");
   });
 });

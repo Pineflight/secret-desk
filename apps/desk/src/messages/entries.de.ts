@@ -4,6 +4,8 @@ export default {
   "entries.subtitleHint": "Variablen behalten ihren Sollwert, GitHub wird dagegen abgeglichen.",
   "entries.moreFilters": "Weitere Filter",
   "entries.reset": "Zurücksetzen",
+  "entries.statusSoonOrDue": "Bald oder fällig",
+  "entries.filters": "Filter",
   "entries.counts": "{secrets} Secrets, {variables} Variablen",
   "entries.kind": "Art",
   "entries.kindAll": "Alle",

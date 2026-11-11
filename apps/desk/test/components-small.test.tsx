@@ -235,15 +235,24 @@ describe("Evidence", () => {
   it("renders a plain evidence image through the svg url", () => {
     renderApp(<EvidenceImage secretId="s 1" reportId="r1" createdAt="2026-03-01T10:00:00Z" className="extra" />);
     const img = screen.getByRole("img");
-    expect(img).toHaveAttribute("src", "/api/ui/evidence/s%201/r1/svg");
+    expect(img).toHaveAttribute("src", "/api/ui/evidence/s%201/r1/svg?lang=de");
     expect(img).toHaveClass("extra");
+  });
+
+  it("asks for the English evidence sheet when the interface is English", async () => {
+    window.localStorage.setItem("sd-locale", "en");
+    const { user } = renderApp(<EvidenceImage secretId="s" reportId="r" createdAt="2026-03-01T10:00:00Z" zoomable />);
+    expect(screen.getAllByRole("img")[0]).toHaveAttribute("src", "/api/ui/evidence/s/r/svg?lang=en");
+    await user.click(screen.getByRole("button", { name: /enlarge/i }));
+    expect(screen.getByRole("dialog").querySelector("img")).toHaveAttribute("src", "/api/ui/evidence/s/r/svg?lang=en");
+    window.localStorage.setItem("sd-locale", "de");
   });
 
   it("enlarges a zoomable evidence image in a dialog and closes it", async () => {
     const { user } = renderApp(<EvidenceImage secretId="s" reportId="r" createdAt="2026-03-01T10:00:00Z" zoomable />);
     await user.click(screen.getByRole("button", { name: /vergrößern/ }));
     const dialog = screen.getByRole("dialog");
-    expect(dialog.querySelector("img")).toHaveAttribute("src", "/api/ui/evidence/s/r/svg");
+    expect(dialog.querySelector("img")).toHaveAttribute("src", "/api/ui/evidence/s/r/svg?lang=de");
     await user.click(screen.getByRole("button", { name: "Dialog schließen" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });

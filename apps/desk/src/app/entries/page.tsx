@@ -23,7 +23,7 @@ import { splitPlaceChips } from "@/lib/place-chips";
 import { allRepos, groupItems, repoNames, sortItems, type SortKey } from "@/lib/browse";
 import { api, enc, type ApiError } from "@/lib/api";
 import { daysLabel, formatDate, placeText } from "@/lib/format";
-import { useQuery } from "@/lib/hooks";
+import { useMediaQuery, useQuery } from "@/lib/hooks";
 import { summaryInfo } from "@/lib/status";
 import { useToast } from "@/lib/toast";
 import { useI18n, useT } from "@/lib/i18n";
@@ -38,7 +38,7 @@ import { labelOf, stageOrder } from "@/lib/stages";
 import { countDrift, progressText, shortValue, summarizeDrift } from "@/lib/variable-list";
 import { describeFrom } from "@/lib/variable-source";
 import {
-  SECRET_STATUSES, VARIABLE_STATUSES, activeKinds, counts, effectiveFilters, initialNewKind, narrowingFilters, needsComparison, parseKind, secretMatches, variableMatches,
+  SECRET_STATUSES, SOON_OR_DUE, VARIABLE_STATUSES, activeKinds, counts, effectiveFilters, initialNewKind, isStatusCombination, narrowingFilters, needsComparison, parseKind, secretMatches, variableMatches,
   type EntryFilters, type EntryKind, type EntryRow, type FilterName, type KindFilter, type SecretRow, type VariableRow,
 } from "@/lib/entries-list";
 
@@ -253,7 +253,8 @@ export default function EntriesPage() {
       out.push(...SECRET_STATUSES.filter((s) => s !== "ok" && s !== "missing").map((s) => ({ id: s, label: `${secretLabel(s)} · ${t("entries.onlySecrets")}` })));
       out.push(...VARIABLE_STATUSES.filter((s) => s !== "missing" && s !== "in-sync").map((s) => ({ id: s, label: `${variableLabel(s)} · ${t("entries.onlyVariables")}` })));
     }
-    if (status && !out.some((o) => o.id === status)) out.push({ id: status, label: status });
+    // The combination only exists while the URL carries it (link from the overview); picking another status leaves it.
+    if (status && !out.some((o) => o.id === status)) out.push({ id: status, label: isStatusCombination(status, SOON_OR_DUE) ? t("entries.statusSoonOrDue") : status });
     return out;
   }, [kind, status, t]);
 
@@ -263,6 +264,14 @@ export default function EntriesPage() {
   useEffect(() => {
     if (moreActive > 0) setMoreOpen(true);
   }, [moreActive]);
+  // Below sm only search and a filters toggle stay in row 1; everything else sits in a collapsible area that opens by itself while a filter is active.
+  const wide = useMediaQuery("(min-width: 640px)", true);
+  const filterCount = Number(kind !== "") + Number(Boolean(browse.repo)) + Number(Boolean(stage)) + Number(Boolean(status)) + moreActive;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  useEffect(() => {
+    if (filterCount > 0) setFiltersOpen(true);
+  }, [filterCount]);
+  const filtersShown = wide || filtersOpen;
   const resetVisible = Boolean(anyFilter) || kind !== "" || provider !== "" || paramsFilter !== "" || moreActive > 0;
   const resetFilters = () => {
     setQ("");
@@ -316,6 +325,13 @@ export default function EntriesPage() {
       <Card className="mb-4 space-y-3 !p-3">
         <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
           <PageSearch value={q} onChange={setQ} count={loaded ? rows.length : null} total={loaded ? (secrets.data!.length + variables.data!.length) : null} />
+          {!wide ? (
+            <Button variant="secondary" className="shrink-0" aria-expanded={filtersOpen} aria-controls="entries-filters" onClick={() => setFiltersOpen((o) => !o)}>
+              <Icon name="chevron" className={`h-3.5 w-3.5 ${filtersOpen ? "-rotate-90" : "rotate-90"}`} />{t("entries.filters")}{filterCount > 0 ? <Pill>{filterCount}</Pill> : null}
+            </Button>
+          ) : null}
+          {filtersShown ? (
+          <div id="entries-filters" className="contents">
           <SegmentSwitch label={t("entries.kind")} value={kind} options={kindOptions} onChange={(v) => setParam("kind", v)} />
           <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
           <div className="w-28">
@@ -334,8 +350,10 @@ export default function EntriesPage() {
             <Icon name="chevron" className={`h-3.5 w-3.5 ${moreOpen ? "-rotate-90" : "rotate-90"}`} />{t("entries.moreFilters")}{moreActive > 0 ? <Pill>{moreActive}</Pill> : null}
           </Button>
           {resetVisible ? <Button variant="secondary" onClick={resetFilters}><Icon name="x" />{t("entries.reset")}</Button> : null}
+          </div>
+          ) : null}
         </div>
-        {moreOpen ? (
+        {moreOpen && filtersShown ? (
           <div id="entries-more-filters" className="flex flex-wrap items-end gap-3 border-t border-line pt-3">
             {showSecretFilters ? (
               <>
