@@ -102,6 +102,36 @@ describe("WorkerSecretsClient", () => {
     }
   });
 
+  it("never copies upstream message text into the error; keeps status and numeric codes", async () => {
+    const MARKER = "upstream-marker-text-8812";
+    const answer = (status: number, body: string) =>
+      new WorkerSecretsClient({ auth: async () => new SecretValue(TOKEN), fetch: (async () => new Response(body, { status, statusText: MARKER })) as unknown as typeof globalThis.fetch });
+    const withMarker = JSON.stringify({ success: false, errors: [{ code: 10000, message: MARKER }, { code: "x", message: MARKER }, { message: MARKER }] });
+    const expected: [number, RegExp][] = [
+      [401, /Authentifizierung/],
+      [403, /Keine Berechtigung/],
+      [404, /Worker nicht gefunden/],
+      [429, /Rate Limit/],
+      [503, /Serverfehler/],
+      [400, /abgelehnt/],
+    ];
+    for (const [status, text] of expected) {
+      const e = (await answer(status, withMarker).putSecret(place, "NAME", new SecretValue(VALUE)).catch((x: unknown) => x)) as WorkerSecretsError;
+      expect(e.status).toBe(status);
+      expect(e.message).toMatch(text);
+      expect(e.message).toContain(`-> ${status}:`);
+      expect(e.message).toContain("Cloudflare-Code 10000");
+      expect(e.message).not.toContain(MARKER);
+      expect(e.message).not.toContain(VALUE);
+      expect(e.message).not.toContain(TOKEN);
+    }
+    for (const body of ["not json", JSON.stringify({ success: false })]) {
+      const e = (await answer(500, body).listSecretNames(place).catch((x: unknown) => x)) as WorkerSecretsError;
+      expect(e.message).not.toContain("Cloudflare-Code");
+      expect(e.message).not.toContain(MARKER);
+    }
+  });
+
   it("encodes the path pieces", async () => {
     const cf = fakeCloudflare();
     await cf.client.listSecretNames({ accountId: ACCOUNT, script: "a b" }).catch(() => undefined);

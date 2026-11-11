@@ -113,7 +113,7 @@ export function TeamSyncPanel() {
         {s.lastError ? <Notice tone="warn" title={t("teamSync.error")}>{s.lastError}</Notice> : null}
         {checkM.error ? <Notice tone="danger">{checkM.error.message}</Notice> : null}
         {planM.error ? <Notice tone="danger">{planM.error.message}</Notice> : null}
-        {s.pendingPullUrl && !pushUrl ? <p className="text-sm">{t("teamSync.push.pending")} <a href={s.pendingPullUrl} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">{s.pendingPullUrl}</a></p> : null}
+        {s.pendingPullUrl && s.pendingPullUrl !== pushUrl ? <p className="text-sm">{t("teamSync.push.pending")} <a href={s.pendingPullUrl} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">{s.pendingPullUrl}</a></p> : null}
         {pushUrl ? <Notice tone="success">{t("teamSync.push.donePr")} <a href={pushUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">{pushUrl}</a></Notice> : null}
       </div>
       {check ? (

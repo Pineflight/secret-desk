@@ -1,4 +1,4 @@
-import { NotConnectedError, type Check, type ConnectionStore, type DiscoverContext, type DiscoveredOption, type IssueContext, type ParamSpec, type Provider, type RevokeContext, type VerifyContext } from "@secret-desk/core";
+import { NotConnectedError, ParamsInvalidError, type Check, type ConnectionStore, type DiscoverContext, type DiscoveredOption, type IssueContext, type ParamSpec, type Provider, type RevokeContext, type VerifyContext, ttlDaysProblems } from "@secret-desk/core";
 import { asList, str, unknownKind } from "./discover.js";
 import { check, isRecord, probe, step } from "./checks.js";
 import { callJson, expiryFrom, ProviderError, revokeIdempotent, seg } from "./http.js";
@@ -19,7 +19,9 @@ const MAX_PAGES = 20;
  * The key dialog of the Console has an expiry. The recipe fills the date from the entry's `ttlDays` (default 30, the dialog's
  * default). This horizon is only the fallback when a run reports no date, so the expiry date is always filled.
  */
-export const ANTHROPIC_DEFAULT_ROTATION_DAYS = 90;
+export const ANTHROPIC_DEFAULT_ROTATION_DAYS = 30;
+/** The expiry options the Console key dialog offers; the recipe can only pick one of these. */
+export const ANTHROPIC_ALLOWED_TTL_DAYS: readonly number[] = [1, 7, 30];
 /** Every organization has a default workspace. The Admin API list does not name it (not verified), so discovery adds it. */
 export const ANTHROPIC_DEFAULT_WORKSPACE = "Default";
 /** The recipe whose browser provider gets the Admin API extras. */
@@ -142,6 +144,7 @@ export function withAnthropicAdmin<T extends Provider>(base: T): T {
     ...base,
     connection: "anthropic",
     params,
+    ttlDaysOptions: ANTHROPIC_ALLOWED_TTL_DAYS,
     discover: discoverAnthropic,
     verify: verifyKey,
     reviewChecklist: (secret) => [
@@ -151,8 +154,11 @@ export function withAnthropicAdmin<T extends Provider>(base: T): T {
       "Das Ablaufdatum im Dialog der Console entspricht dem Datum im Eintrag",
     ],
     async issue(ctx: IssueContext) {
+      // Last line of defence: the renewal request already rejects this before a run starts (provider.ttlDaysOptions).
+      const bad = ttlDaysProblems(extended, ctx.secret);
+      if (bad.length > 0) throw new ParamsInvalidError(bad);
       const issued = await base.issue!(ctx);
-      return { ...issued, expiresAt: issued.expiresAt ?? expiryFrom(ctx.now, ctx.secret.ttlDays ?? ANTHROPIC_DEFAULT_ROTATION_DAYS) ?? null };
+      return { ...issued, expiresAt: issued.expiresAt ?? expiryFrom(ctx.now, ctx.secret.ttlDays ?? ANTHROPIC_DEFAULT_ROTATION_DAYS)! };
     },
     async revoke(ctx: RevokeContext) {
       if (await adminConnected(ctx)) return revokeViaAdmin(ctx);

@@ -180,6 +180,8 @@ describe("error mapping", () => {
     expect(problemsFromError(null)).toEqual([]);
     expect(problemsFromError({ code: "other" })).toEqual([]);
     expect(problemsFromError({ code: "params_invalid", problems: "x" })).toEqual([]);
+    const ttl = { key: "ttlDays", code: "not_in_options", message: "ttlDays wird vom Anbieter nicht angeboten; erlaubt sind 1, 7, 30 Tage", label: "Ablauf (Tage)", labelEn: "Expiry (days)" };
+    expect(problemsFromError({ code: "params_invalid", problems: [ttl] })).toEqual([ttl]);
     expect(problemsFromError({ code: "params_invalid", problems: [{ key: "a", code: "missing" }, { key: 1 }, null, "x"] })).toEqual([{ key: "a", code: "missing" }]);
     expect(findingsFromError(null)).toEqual([]);
     expect(findingsFromError({ code: "other" })).toEqual([]);

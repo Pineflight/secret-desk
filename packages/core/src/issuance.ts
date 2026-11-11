@@ -1,4 +1,4 @@
-import { ParamsInvalidError, effectiveParams, integrationDefaultsOf } from "./params.js";
+import { ParamsInvalidError, effectiveParams, integrationDefaultsOf, ttlDaysProblems } from "./params.js";
 import { assertPreflight, entryParamsState, preflightEntry } from "./preflight.js";
 import { randomUUID } from "node:crypto";
 import type { ConnectionStore } from "./connections.js";
@@ -144,7 +144,8 @@ export async function prepareIssuance(
     }
     // Erst pruefen, dann ausstellen: fehlende Parameter melden sich mit Klartext, bevor ein Netzaufruf passiert.
     const state = entryParamsState(deps.inventory, provider, secret);
-    if (state.problems.length > 0) throw new ParamsInvalidError(state.problems);
+    const problems = [...state.problems, ...ttlDaysProblems(provider, secret)];
+    if (problems.length > 0) throw new ParamsInvalidError(problems);
     params = state.effective;
     const pre = await preflightEntry(secret, deps, { rethrowNotConnected: true });
     assertPreflight(pre);

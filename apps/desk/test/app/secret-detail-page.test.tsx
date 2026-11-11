@@ -6,6 +6,7 @@ import { translate as t } from "@/lib/i18n";
 import { navigation } from "../helpers/navigation";
 import { fakePortal, type FakeHandler } from "../helpers/portal";
 import { renderApp } from "../helpers/render";
+import { runState } from "../helpers/run";
 
 beforeEach(() => navigation.setParams({ id: "s1" }));
 
@@ -459,6 +460,86 @@ describe("Secret detail: browser run", () => {
     renderApp(<SecretDetailPage />);
     expect(await screen.findByText(title, { exact: false })).toBeInTheDocument();
     expect(screen.getByText("what happened")).toBeInTheDocument();
+  });
+
+  describe("signed out at the provider", () => {
+    const BACKEND = "backend text that must not show";
+    const failure = { code: "needs-sign-in", message: BACKEND, messageEn: `${BACKEND} en` };
+    const signedOut = (over: Record<string, unknown> = {}) => run({ status: "failed", text: BACKEND, failure, signInRecipeId: "peecho", host: "live.peecho.test", ...over });
+    const automationInfo = (recipes: unknown[] = [{ id: "peecho", label: "Peecho", hosts: [{ value: "live", host: "live.peecho.test" }, { value: "test", host: "test.peecho.test" }] }]) => ({ enabled: true, recipes });
+    const routes = (over: Record<string, FakeHandler> = {}) => ({
+      "GET secrets/s1": secret({ automatic: true, browser: true, browserHost: "live.peecho.test" }),
+      "GET automation/runs/s1": signedOut(),
+      "GET automation": automationInfo(),
+      "GET recipes/peecho/sign-in/state": { status: 404, body: { error: "none" } },
+      ...over,
+    });
+
+    it("shows the localised notice and the sign-in action, never the backend text", async () => {
+      page(routes());
+      renderApp(<SecretDetailPage />);
+      expect(await screen.findByText(t("secretDetail.browserNeedsSignInText", { provider: "Peecho" }))).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: t("secretDetail.browserSignIn") })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: t("secretDetail.browserRestart") })).toBeNull();
+      expect(document.body.textContent).not.toContain(BACKEND);
+      expect(screen.queryByText(t("secretDetail.browserFailed"), { exact: false })).toBeNull();
+    });
+
+    it("looks as before for other failures", async () => {
+      page(routes({ "GET automation/runs/s1": signedOut({ failure: { ...failure, code: "other" } }) }));
+      renderApp(<SecretDetailPage />);
+      expect(await screen.findByText(t("secretDetail.browserFailed"), { exact: false })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: t("secretDetail.browserSignIn") })).toBeNull();
+    });
+
+    it("looks as before when the code is set but no recipe is named", async () => {
+      page(routes({ "GET automation/runs/s1": signedOut({ signInRecipeId: undefined }) }));
+      renderApp(<SecretDetailPage />);
+      expect(await screen.findByText(t("secretDetail.browserFailed"), { exact: false })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: t("secretDetail.browserSignIn") })).toBeNull();
+    });
+
+    it("signs in through the recipe dialog, then starts the same request again", async () => {
+      const portal = page(
+        routes({
+          "POST recipes/peecho/sign-in": () => runState({ status: "done" }),
+          "POST renewal-requests": { status: "awaiting-review", issuance: { id: "iss-9" }, message: "" },
+        }),
+      );
+      const { user } = renderApp(<SecretDetailPage />);
+      await user.click(await screen.findByRole("button", { name: t("secretDetail.browserSignIn") }));
+      const dialog = within(await screen.findByRole("dialog"));
+      await user.type(dialog.getByLabelText("E-Mail bei Peecho"), "me@example.test");
+      await user.type(dialog.getByLabelText("Passwort bei Peecho"), "password-for-tests");
+      await user.click(dialog.getByRole("button", { name: t("recipeSignIn.start") }));
+      await waitFor(() => expect(portal.callsTo("POST", "recipes/peecho/sign-in")).toHaveLength(1));
+      expect(portal.callsTo("POST", "recipes/peecho/sign-in")[0]!.body).toMatchObject({ host: "live" });
+      await user.click(await dialog.findByRole("button", { name: t("facade.done") }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByText(t("secretDetail.browserSignedIn"))).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: t("secretDetail.browserRestart") }));
+      await waitFor(() => expect(navigation.router.push).toHaveBeenCalledWith("/reviews/iss-9"));
+      expect(portal.callsTo("POST", "renewal-requests")[0]!.body).toEqual({ secretId: "s1" });
+      expect(document.body.textContent).not.toContain(BACKEND);
+    });
+
+    it("lets the dialog choose the portal when the entry has no host, and closes it", async () => {
+      page(routes({ "GET secrets/s1": secret({ automatic: true, browser: true }), "GET automation/runs/s1": signedOut({ host: null }) }));
+      const { user } = renderApp(<SecretDetailPage />);
+      await user.click(await screen.findByRole("button", { name: t("secretDetail.browserSignIn") }));
+      const dialog = within(await screen.findByRole("dialog"));
+      expect(dialog.getByText("Portal")).toBeInTheDocument();
+      await user.click(dialog.getByRole("button", { name: t("common.closeDialog") }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("falls back to the recipe id when the recipe is not listed", async () => {
+      page(routes({ "GET automation": automationInfo([]) }));
+      const { user } = renderApp(<SecretDetailPage />);
+      expect(await screen.findByText(t("secretDetail.browserNeedsSignInText", { provider: "peecho" }))).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: t("secretDetail.browserSignIn") }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
   });
 
   it("starts a browser run: starting state first, then the review", async () => {

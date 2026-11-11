@@ -71,4 +71,10 @@ export default {
   "secretDetail.browserToReview": "Go to review",
   "secretDetail.browserReloadHint": "You can reload the page: the run continues and its state shows up here again.",
   "secretDetail.browserCreated": "A token named {name} may already exist at the provider. Please delete it there by hand.",
+  "secretDetail.browserNeedsSignInTitle": "Not signed in",
+  "secretDetail.browserNeedsSignInText": "Not signed in at {provider}. Sign in from the portal, then start again.",
+  "secretDetail.browserSignIn": "Sign in",
+  "secretDetail.browserSignInTitle": "Sign in at {provider}",
+  "secretDetail.browserSignedIn": "Signed in. Start the run again now.",
+  "secretDetail.browserRestart": "Start again",
 } satisfies Record<string, string>;

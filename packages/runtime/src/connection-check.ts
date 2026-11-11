@@ -16,7 +16,7 @@ import {
   type GitHubPlace,
   writeConnectionLabel,
 } from "@secret-desk/core";
-import { ANTHROPIC_KEY_KIND_PROBLEM, isAnthropicAdminKey, isAnthropicApiKey, safeText } from "@secret-desk/providers";
+import { ANTHROPIC_KEY_KIND_PROBLEM, GRAFANA_COM_ROOT, isAnthropicAdminKey, isAnthropicApiKey, safeText } from "@secret-desk/providers";
 import { stripeKeyCarriesAccount } from "@secret-desk/core";
 export { stripeKeyCarriesAccount };
 import type { Runtime } from "./runtime.js";
@@ -319,7 +319,7 @@ async function checkAnthropic(rt: Runtime, token: string): Promise<ConnectionChe
 async function checkGrafanaCloud(rt: Runtime, token: string): Promise<ConnectionCheckItem[]> {
   const out: ConnectionCheckItem[] = [];
   if (!token.startsWith("glc_")) out.push(item("prefix", "Tokenart", "fail", "Das ist kein Grafana-Cloud-Access-Policy-Token (es beginnt mit glc_). Stack-Tokens (glsa_) gehoeren zur Verbindung Grafana."));
-  const r = await get(rt, token, "https://grafana.com/api/v1/accesspolicies?region=us");
+  const r = await get(rt, token, `${GRAFANA_COM_ROOT}/v1/accesspolicies?region=us`);
   if (r.status === 200) out.push(item("token", "Token gueltig", "pass", "Zugriffsrichtlinien lassen sich lesen."));
   else if (r.status === 401) out.push(item("token", "Token gueltig", "fail", "Grafana Cloud lehnt den Token ab (HTTP 401). Er ist ungueltig, abgelaufen oder widerrufen. Neu verbinden."));
   else if (r.status === 403) out.push(item("token", "Token gueltig", "info", "Der Token ist gueltig, darf aber keine Zugriffsrichtlinien lesen (HTTP 403)."));

@@ -27,6 +27,7 @@ import {
   InventoryError,
   IssuanceError,
   NotConnectedError,
+  ParamsInvalidError,
   RotationError,
   expandHome,
   parseCdpEndpoint,
@@ -87,6 +88,12 @@ export interface AutomationRunState {
   timeoutAt?: string | null;
   /** Why the run failed: a code, plus the text in both interface languages. Never contains a value. */
   failure?: { code: string; message: string; messageEn: string };
+  /**
+   * Issuance runs only: set when the run ended because the browser is signed out at the provider and the run could not ask for the
+   * sign-in (`failure.code` is then `needs-sign-in`). The recipe whose guided sign-in the portal starts (`POST recipes/:id/sign-in`,
+   * a recipe with several portals also takes `host`). Never a credential.
+   */
+  signInRecipeId?: string;
   /** The outcome of a finished connect run. */
   result?: unknown;
   /** Runs that sign in and confirm through the portal: the question the human has to answer (null when none). */
@@ -218,6 +225,8 @@ export function viewerUrlFrom(configured: string | undefined, env: NodeJS.Proces
 
 const PROFILE_DEFAULT = "~/.secret-desk/browser-profile";
 const MAX_TEXT = 400;
+/** Text of the `needs-sign-in` failure; the portal localizes by `failure.code`. */
+const NEEDS_SIGN_IN_TEXT = "Not signed in: sign in through the portal, then run again.";
 
 const path = (p: string, base: string): string => {
   const e = expandHome(p);
@@ -238,7 +247,7 @@ async function statusComment(file: string): Promise<string> {
 const isBrowser = (p: Provider | undefined): p is BrowserProvider => p !== undefined && typeof (p as Partial<BrowserProvider>).attachScreenshots === "function";
 
 /** Fehler, die ihre eigene Behandlung im Router haben, bleiben unveraendert. */
-const passThrough = (e: unknown): boolean => e instanceof NotConnectedError || e instanceof IssuanceError || e instanceof RotationError || e instanceof InventoryError || e instanceof GitHubError;
+const passThrough = (e: unknown): boolean => e instanceof ParamsInvalidError || e instanceof NotConnectedError || e instanceof IssuanceError || e instanceof RotationError || e instanceof InventoryError || e instanceof GitHubError;
 
 /**
  * Verwaltet die Browser-Anbieter und den Zustand der Laeufe. Pro Prozess laeuft hoechstens ein Lauf (es gibt ein Browserprofil
@@ -319,7 +328,8 @@ export class AutomationManager {
         }),
         runOptions: (secretId) => {
           const signal = this.#controllers.get(secretId)?.signal;
-          return { loginTimeoutMinutes: this.loginTimeoutMinutes, ...(signal ? { signal } : {}) };
+          // A remote browser has no window the person sits at: a signed-out run then ends with "needs sign-in" (see run()).
+          return { loginTimeoutMinutes: this.loginTimeoutMinutes, ...(signal ? { signal } : {}), ...(this.#cdpEndpoint ? { signInOutsideWindow: true } : {}) };
         },
         evidence: this.opts.evidence,
       });
@@ -508,7 +518,13 @@ export class AutomationManager {
       const createdName = err instanceof RecipeRunError ? err.createdName : undefined;
       const aborted = controller.signal.aborted || (err instanceof RecipeRunError && err.kind === "abort");
       const message = ((err as Error).message || "Der Lauf ist fehlgeschlagen.").slice(0, MAX_TEXT * 2);
-      this.#finish(secretId, { status: aborted ? "cancelled" : "failed", text: aborted && !createdName ? "Abgebrochen." : message, ...(createdName ? { createdName } : {}) });
+      const needsSignIn = !aborted && err instanceof RecipeRunError && err.kind === "signin";
+      this.#finish(secretId, {
+        status: aborted ? "cancelled" : "failed",
+        text: aborted && !createdName ? "Abgebrochen." : message,
+        ...(createdName ? { createdName } : {}),
+        ...(needsSignIn ? { signInRecipeId: provider.automation.recipeId, failure: { code: "needs-sign-in", message: NEEDS_SIGN_IN_TEXT, messageEn: NEEDS_SIGN_IN_TEXT } } : {}),
+      });
       if (passThrough(err)) throw err;
       throw new AutomationError(message, err instanceof RecipeRunError ? err.kind : "run", createdName);
     } finally {

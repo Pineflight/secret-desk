@@ -230,6 +230,18 @@ describe("TeamSyncPanel push", () => {
     expect(screen.getAllByRole("link", { name: "https://github.test/pr/9" })).toHaveLength(1);
   });
 
+  it("keeps the older open pull request visible when the fresh one is a different pull request", async () => {
+    fakePortal(pushRoutes({ [STATUS]: status({ mode: "pull-push", pushStrategy: "pull-request", pendingPullUrl: "https://github.test/pr/1" }), "POST team-sync/push-plan": plan(), "POST team-sync/push": { pushed: true, pullRequest: { url: "https://github.test/pr/9" } } }));
+    const { user } = renderApp(<TeamSyncPanel />);
+    expect(await screen.findByText(/Offener Pull Request:/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Pull Request anlegen" }));
+    await user.click(await screen.findByRole("button", { name: "Bestätigen und Pull Request anlegen" }));
+    await screen.findByText(/Pull Request bereit:/);
+    expect(screen.getByText(/Offener Pull Request:/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "https://github.test/pr/1" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "https://github.test/pr/9" })).toBeInTheDocument();
+  });
+
   it("describes a direct push and a push without a pull request", async () => {
     fakePortal(pushRoutes({ [STATUS]: status({ mode: "pull-push", pushStrategy: "direct" }), "POST team-sync/push-plan": plan({ strategy: "direct", targetBranch: "main" }), "POST team-sync/push": { pushed: true } }));
     const { user } = renderApp(<TeamSyncPanel />);

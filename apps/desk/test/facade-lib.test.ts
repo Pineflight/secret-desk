@@ -121,6 +121,7 @@ const facade = (over: Partial<FacadeInfo> = {}): FacadeInfo => ({
   label: "OpenAI",
   recipeId: "openai-admin-key",
   connectionId: "openai",
+  issuesKeysByApi: true,
   available: true,
   reason: null,
   recipeStatus: null,

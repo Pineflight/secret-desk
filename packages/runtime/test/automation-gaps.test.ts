@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeDriver, PlaywrightDriver, type BrowserProvider } from "@secret-desk/automation";
-import { IssuanceError, InventoryError, ProviderRegistry } from "@secret-desk/core";
+import { IssuanceError, InventoryError, ParamsInvalidError, ProviderRegistry } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutomationError, AutomationManager, viewerUrlFrom } from "../src/automation.js";
 import { createRuntime, type RuntimeOptions } from "../src/runtime.js";
@@ -154,6 +154,8 @@ describe("tracked runs", () => {
     await expect(rt.automation.run("sec-b", fakeProvider(), async () => Promise.reject(new IssuanceError("provider said no")))).rejects.toBeInstanceOf(IssuanceError);
     await expect(rt.automation.run("sec-c", fakeProvider(), async () => Promise.reject(new InventoryError("bad entry")))).rejects.toBeInstanceOf(InventoryError);
     expect(rt.automation.state("sec-c")).toMatchObject({ status: "failed", text: "bad entry" });
+    const invalid = new ParamsInvalidError([{ key: "ttlDays", code: "not_in_options", message: "x", label: "x", labelEn: "x" }]);
+    await expect(rt.automation.run("sec-d", fakeProvider(), async () => Promise.reject(invalid))).rejects.toBe(invalid);
   });
 
   it("attach: a failing receipt upload counts zero", async () => {

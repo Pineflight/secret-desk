@@ -89,9 +89,9 @@ export function LiveCheckPanel() {
   return (
     <Card className="mb-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-base font-semibold">{t("liveCheck.title")}</h2>
+        <h2 className="text-base font-semibold max-sm:text-sm">{t("liveCheck.title")}</h2>
         {status ? <Badge info={status} /> : null}
-        <p className="min-w-0 flex-1 text-sm text-muted">
+        <p className={`min-w-0 flex-1 text-sm text-muted ${open ? "" : "max-sm:hidden"}`}>
           {last ? t("liveCheck.lastRun", { when: formatDateTime(last.finishedAt), how: t(last.trigger === "schedule" ? "liveCheck.byTimer" : "liveCheck.byHand") }) : null}
         </p>
         <Button variant="ghost" aria-expanded={open} aria-controls={detailsId} onClick={() => setChosen(!open)}>

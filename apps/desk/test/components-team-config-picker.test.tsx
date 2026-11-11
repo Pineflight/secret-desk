@@ -52,6 +52,17 @@ describe("TeamConfigPicker repository step", () => {
     expect(await screen.findByLabelText("Zweig")).toBeInTheDocument();
   });
 
+  it("keeps the confirm button after the list, sticky below sm, and drops the push date from the rows there", async () => {
+    fakePortal(routes());
+    renderApp(picker().ui);
+    const group = await screen.findByRole("radiogroup", { name: "Repository" });
+    await within(group).findByRole("radio", { name: /acme\/team/ });
+    const use = screen.getByRole("button", { name: "Dieses Repository verwenden" });
+    expect(group.compareDocumentPosition(use) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(use).toHaveClass("max-sm:sticky", "max-sm:bottom-3", "max-sm:w-full");
+    expect(within(group).getAllByText(/letzter Push/)[0]).toHaveClass("max-sm:hidden");
+  });
+
   it("asks to choose when nothing is preselected and keeps the confirm button disabled", async () => {
     fakePortal(routes());
     const { ui } = picker();

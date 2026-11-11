@@ -20,6 +20,7 @@ export const facadeInfo = (over: Partial<FacadeInfo> = {}): FacadeInfo => ({
   label: "Stripe",
   recipeId: "stripe-recipe",
   connectionId: "stripe",
+  issuesKeysByApi: true,
   available: true,
   reason: null,
   recipeStatus: null,

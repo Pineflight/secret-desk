@@ -153,7 +153,11 @@ function entryDetail(e: TemplateEntry, t: (key: string, vars?: Record<string, st
   return t("dev.detailGenerated");
 }
 
-/** Below sm the cards form an accordion (header toggles the body); from sm up every card is open and has no toggle. */
+/**
+ * Below sm the cards form an accordion (header toggles the body); from sm up every card is open. A card with an error or a result
+ * stays open. The header is the same button in every case (focus survives a resize); when nothing collapses it carries no
+ * aria-expanded and does nothing.
+ */
 function TemplateCard({ t: tpl, defaultOpen = false }: { t: Template; defaultOpen?: boolean }) {
   const t = useT();
   const wide = useMediaQuery("(min-width: 640px)", true);
@@ -172,6 +176,9 @@ function TemplateCard({ t: tpl, defaultOpen = false }: { t: Template; defaultOpe
   const [values, setValues] = useState<Record<string, string>>({});
   const [result, setResult] = useState<DevEnvResult | null>(null);
   const run = useMutation(async (body: unknown) => api<DevEnvResult>("POST", "env-export", body));
+  const pinned = Boolean(run.error) || result !== null;
+  const collapsible = !wide && !pinned;
+  const expanded = !collapsible || open;
 
   const submit = async () => {
     const filled = Object.fromEntries(Object.entries(values).filter(([k, v]) => promptKeys.includes(k) && v !== ""));
@@ -196,19 +203,22 @@ function TemplateCard({ t: tpl, defaultOpen = false }: { t: Template; defaultOpe
       </div>
       <span className="flex shrink-0 items-center gap-2">
         <StageBadge stage={tpl.stage} />
-        {!wide ? <Icon name="chevron" className={`h-4 w-4 text-muted ${open ? "-rotate-90" : "rotate-90"}`} /> : null}
+        {collapsible ? <Icon name="chevron" className={`h-4 w-4 text-muted ${open ? "-rotate-90" : "rotate-90"}`} /> : null}
       </span>
     </>
   );
 
   return (
     <Card>
-      {wide ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">{header}</div>
-      ) : (
-        <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} className="flex min-h-10 w-full items-center justify-between gap-2 text-left">{header}</button>
-      )}
-      <div id={bodyId} hidden={!(wide || open)}>
+      <button
+        type="button"
+        {...(collapsible ? { "aria-expanded": open, "aria-controls": bodyId } : {})}
+        onClick={() => { if (collapsible) setOpen((o) => !o); }}
+        className={`flex w-full flex-wrap items-center justify-between gap-2 text-left ${collapsible ? "min-h-10" : "cursor-default"}`}
+      >
+        {header}
+      </button>
+      <div id={bodyId} hidden={!expanded}>
       {run.error ? <div className="mt-3"><Notice tone="danger">{run.error.message}</Notice></div> : null}
       {result?.status === "needs-input" ? <div className="mt-3"><Notice tone="warn" title={t("dev.missingInputs")}>{t("dev.missingList", { message: result.message, keys: result.keys.join(", ") })}</Notice></div> : null}
       {result?.status === "written" ? (

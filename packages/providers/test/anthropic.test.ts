@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionStore, SecretValue, type IssueContext, type Provider } from "@secret-desk/core";
-import { ANTHROPIC_DEFAULT_ROTATION_DAYS, isAnthropicAdminKey, isAnthropicApiKey, withAnthropicAdmin } from "../src/index.js";
+import { ParamsInvalidError } from "@secret-desk/core";
+import { ANTHROPIC_ALLOWED_TTL_DAYS, ANTHROPIC_DEFAULT_ROTATION_DAYS, isAnthropicAdminKey, isAnthropicApiKey, withAnthropicAdmin } from "../src/index.js";
 import { ProviderError } from "../src/http.js";
 import { ADMIN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, verifyCtx } from "./helpers.js";
 
@@ -38,10 +39,27 @@ describe("anthropic provider extras", () => {
     expect(ext.params!.filter((s) => s.key === "workspace")).toHaveLength(1);
   });
 
-  it("fills the expiry from ttlDays, else from the 90-day rotation horizon", async () => {
+  it("rejects a ttlDays the Console dialog does not offer before the browser provider runs", async () => {
+    const local = browserBase();
+    const guarded = withAnthropicAdmin(local);
+    expect(ANTHROPIC_ALLOWED_TTL_DAYS).toEqual([1, 7, 30]);
+    const err = (await guarded.issue!(issueCtx(mockFetch().fetch, {}, { ttlDays: 90 })).catch((e: unknown) => e)) as ParamsInvalidError;
+    expect(err).toBeInstanceOf(ParamsInvalidError);
+    expect(err.code).toBe("params_invalid");
+    expect(err.problems[0]).toMatchObject({ key: "ttlDays", code: "not_in_options" });
+    expect(err.message).toContain("1, 7, 30");
+    expect(withAnthropicAdmin(browserBase()).ttlDaysOptions).toEqual([1, 7, 30]);
+    expect(err.message).not.toContain(ISSUED);
+    expect(err.message).not.toContain(ADMIN_TOKEN);
+    expect(local.issued).toHaveLength(0);
+    for (const days of [1, 7, 30]) await guarded.issue!(issueCtx(mockFetch().fetch, {}, { ttlDays: days }));
+    expect(local.issued).toHaveLength(3);
+  });
+
+  it("fills the expiry from ttlDays, else from the 30-day default of the dialog", async () => {
     const none = await p.issue!(issueCtx(mockFetch().fetch, {}));
-    expect(ANTHROPIC_DEFAULT_ROTATION_DAYS).toBe(90);
-    expect(none.expiresAt).toBe("2027-01-30T10:00:00Z");
+    expect(ANTHROPIC_DEFAULT_ROTATION_DAYS).toBe(30);
+    expect(none.expiresAt).toBe("2026-12-01T10:00:00Z");
     expect(none.value.reveal()).toBe(ISSUED);
     const thirty = await p.issue!(issueCtx(mockFetch().fetch, {}, { ttlDays: 30 }));
     expect(thirty.expiresAt).toBe("2026-12-01T10:00:00Z");

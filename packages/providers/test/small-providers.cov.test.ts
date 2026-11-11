@@ -60,10 +60,10 @@ describe("anthropic admin: pagination and edge cases", () => {
     expect(bare.calls).toHaveLength(1);
   });
 
-  it("issues without an expiry when ttlDays is 0 and the base sets none", async () => {
+  it("rejects ttlDays 0 (not offered by the Console) instead of issuing without an expiry", async () => {
     const ctx = issueCtx(mockFetch().fetch, {});
     const noExpiry = withAnthropicAdmin({ ...base, issue: async () => ({ value: new SecretValue("v"), expiresAt: null }) });
-    expect((await noExpiry.issue!({ ...ctx, secret: { ...ctx.secret, ttlDays: 0 } as typeof ctx.secret })).expiresAt).toBeNull();
+    await expect(noExpiry.issue!({ ...ctx, secret: { ...ctx.secret, ttlDays: 0 } as typeof ctx.secret })).rejects.toMatchObject({ code: "params_invalid" });
   });
 
   it("keeps the expiry the base provider already set", async () => {

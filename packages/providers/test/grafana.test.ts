@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseUrl } from "../src/grafana.js";
+import { GRAFANA_COM_ROOT, baseUrl } from "../src/grafana.js";
 import { probeWithValue } from "../src/checks.js";
 import { callWithToken } from "../src/http.js";
 import { grafanaAccessPolicyProvider as policy, grafanaProvider as p } from "../src/grafana.js";
@@ -7,6 +7,12 @@ import { ProviderError } from "../src/http.js";
 import { CONN_TOKEN, ISSUED, LEAK, byId, connections, expectNoLeak, issueCtx, mockFetch, revokeCtx, routeFetch, secretEntry, verifyCtx } from "./helpers.js";
 
 const params = { baseUrl: "https://example.grafana.net/", serviceAccountId: 7 };
+
+describe("grafana.com host", () => {
+  it("is one constant, the same host for the policy API and the stack route", () => {
+    expect(GRAFANA_COM_ROOT).toBe("https://grafana.com/api");
+  });
+});
 
 describe("grafana-service-account-token", () => {
   it("creates a token with lifetime", async () => {
@@ -121,7 +127,7 @@ describe("grafana-access-policy-token", () => {
   it("creates a token with name and expiry (default 90 days) at the fixed Grafana host", async () => {
     const m = mockFetch({ body: { id: "tok-9", token: ISSUED } });
     const r = await policy.issue!(issueCtx(m.fetch, pp, conns));
-    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/tokens?region=eu", method: "POST" });
+    expect(m.calls[0]).toMatchObject({ url: "https://grafana.com/api/v1/tokens?region=eu", method: "POST" });
     expect(m.calls[0]!.headers).toMatchObject({ Authorization: `Bearer ${CONN_TOKEN}`, "Content-Type": "application/json" });
     expect(JSON.parse(m.calls[0]!.body!)).toEqual({ accessPolicyId: "pol-1", name: "test-secret-2026-11-01", displayName: "test-secret-2026-11-01", expiresAt: "2027-01-30T10:00:00Z" });
     expect(r.value.reveal()).toBe(ISSUED);
@@ -137,7 +143,7 @@ describe("grafana-access-policy-token", () => {
   it("revokes via DELETE with the region", async () => {
     const m = mockFetch({ status: 204 });
     await policy.revoke!(revokeCtx(m.fetch, pp, "tok-9", ["grafana-cloud"]));
-    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/tokens/tok-9?region=eu", method: "DELETE" });
+    expect(m.calls[0]).toMatchObject({ url: "https://grafana.com/api/v1/tokens/tok-9?region=eu", method: "DELETE" });
   });
   it("revoke is idempotent on 404 but not on 403", async () => {
     await expect(policy.revoke!(revokeCtx(mockFetch({ status: 404, body: "gone" }).fetch, pp, "t", ["grafana-cloud"]))).resolves.toBeUndefined();
@@ -146,7 +152,7 @@ describe("grafana-access-policy-token", () => {
   it("discovers access policies of the region", async () => {
     const m = mockFetch({ body: { items: [{ id: "pol-1", name: "ci", displayName: "CI shipper", scopes: ["logs:write", "metrics:write"] }, { name: "no-id" }] } });
     const opts = await policy.discover!("grafana.accessPolicy", { connections: connections("grafana-cloud"), fetch: m.fetch, params: { region: "eu" }, hint: { repos: [] } });
-    expect(m.calls[0]).toMatchObject({ url: "https://www.grafana.com/api/v1/accesspolicies?region=eu", method: "GET" });
+    expect(m.calls[0]).toMatchObject({ url: "https://grafana.com/api/v1/accesspolicies?region=eu", method: "GET" });
     expect(opts).toEqual([{ value: "pol-1", label: "CI shipper", detail: "logs:write, metrics:write" }]);
   });
   it("discovery needs the region and rejects other kinds", async () => {

@@ -229,6 +229,17 @@ export function paramsMessage(problems: readonly ParamProblem[]): string {
   return parts.join("; ");
 }
 
+/**
+ * Problem for an entry `ttlDays` the provider cannot honour (it declares `ttlDaysOptions`). Pure, no network call.
+ * Empty when the provider declares no options or the entry has no `ttlDays`.
+ */
+export function ttlDaysProblems(provider: { ttlDaysOptions?: readonly number[] } | undefined, entry: { ttlDays?: number | null | undefined }): ParamProblem[] {
+  const options = provider?.ttlDaysOptions;
+  const ttl = entry.ttlDays;
+  if (!options || ttl === undefined || ttl === null || options.includes(ttl)) return [];
+  return [{ key: "ttlDays", code: "not_in_options", message: `ttlDays wird vom Anbieter nicht angeboten; erlaubt sind ${options.join(", ")} Tage`, label: "Ablauf (Tage)", labelEn: "Expiry (days)" }];
+}
+
 /** Wirft ParamsInvalidError, wenn Befunde vorliegen. */
 export function assertEntryParams(provider: { params?: readonly ParamSpec[] }, entry: { params: Record<string, unknown> }, defaults?: Record<string, unknown>): void {
   const problems = validateEntryParams(provider, entry, defaults);

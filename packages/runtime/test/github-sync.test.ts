@@ -47,14 +47,33 @@ variables:
       - { repo: acme-app, scope: repository }
 `;
 
-async function setup(withVault: boolean) {
+const ACCOUNT = "0123456789abcdef0123456789abcdef";
+const WORKER_INVENTORY = `version: 1
+secrets:
+  - id: worker-secret
+    name: WORKER_SECRET
+    stage: shared
+    service: intern
+    provider: random-hex
+    expiry: none
+    places:
+      - { scope: cloudflare-worker, accountId: ${ACCOUNT}, script: acme-worker }
+`;
+
+async function setup(withVault: boolean, inventoryText: string = INVENTORY) {
   await sodium.ready;
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
   const written: { method: string; url: string; plain?: string }[] = [];
+  const cloudflare: { method: string; url: string; body: string | undefined }[] = [];
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url).replace("https://api.github.com", "");
     const method = init?.method ?? "GET";
+    if (u.startsWith("https://api.cloudflare.com")) {
+      cloudflare.push({ method, url: u, body: typeof init?.body === "string" ? init.body : undefined });
+      if (method === "GET") return new Response(JSON.stringify({ success: true, result: [{ name: "OTHER_NAME", type: "secret_text" }] }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, result: { name: "WORKER_SECRET", type: "secret_text" } }), { status: 200 });
+    }
     if (method === "GET" && u.endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: pub }), { status: 200 });
     if (method === "GET" && u.includes("/variables")) return new Response(JSON.stringify({ total_count: 0, variables: [] }), { status: 200 });
     if (method === "GET" && u.includes("/secrets")) return new Response(JSON.stringify({ total_count: 0, secrets: [] }), { status: 200 });
@@ -67,11 +86,11 @@ async function setup(withVault: boolean) {
     return new Response(null, { status: 201 });
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-ghsync-"));
-  await writeFile(join(dir, "inventory.yaml"), INVENTORY);
+  await writeFile(join(dir, "inventory.yaml"), inventoryText);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
   const vault = withVault ? new SecretVault({ file: join(dir, "vault.json"), keySource: { label: "test", key: async () => randomBytes(32) } }) : null;
   const rt = await createRuntime(join(dir, "c.yaml"), { vault, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
-  return { rt, vault, written };
+  return { rt, vault, written, cloudflare };
 }
 
 describe("secret value source", () => {
@@ -108,6 +127,30 @@ describe("planGitHubSync", () => {
     const plan = await planGitHubSync(rt, human);
     expect(plan.lines.find((l) => l.entryId === "stored-secret")).toMatchObject({ action: "write", reason: "missing" });
     expect(plan.lines.find((l) => l.entryId === "empty-secret")).toMatchObject({ action: "skip", reason: "no-value" });
+  });
+});
+
+describe("Worker places", () => {
+  const WORKER_VALUE = "made-up-worker-value-5521";
+  const CF_TOKEN = ["cf", "token", "made", "up"].join("-");
+
+  it("plan and run use the Cloudflare client for a cloudflare-worker place, without a value in any result", async () => {
+    const { rt, vault, cloudflare } = await setup(true, WORKER_INVENTORY);
+    await vault!.set(secretValueEntry("worker-secret"), WORKER_VALUE);
+    await vault!.set("cloudflare", CF_TOKEN);
+    const plan = await planGitHubSync(rt, human);
+    expect(plan.lines).toHaveLength(1);
+    expect(plan.lines[0]).toMatchObject({ entryId: "worker-secret", action: "write", reason: "missing" });
+    expect(cloudflare.some((c) => c.method === "GET" && c.url.includes(`/accounts/${ACCOUNT}/workers/scripts/acme-worker/secrets`))).toBe(true);
+    const result = await runGitHubSync(rt, human, { keys: [plan.lines[0]!.key], confirmProduction: true, sleep: async () => undefined });
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ outcome: "created" });
+    const put = cloudflare.find((c) => c.method === "PUT")!;
+    expect(put.url).toContain("/workers/scripts/acme-worker/secrets");
+    for (const text of [JSON.stringify(plan), JSON.stringify(result)]) {
+      expect(text).not.toContain(WORKER_VALUE);
+      expect(text).not.toContain(CF_TOKEN);
+    }
   });
 });
 

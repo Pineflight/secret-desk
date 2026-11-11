@@ -85,7 +85,7 @@ const specs: ParamSpec[] = [
 // ---------------------------------------------------------------------------
 
 /** The Cloud API host is fixed: the connection token never goes to a host taken from the inventory. */
-const GRAFANA_COM_ROOT = "https://grafana.com/api";
+export const GRAFANA_COM_ROOT = "https://grafana.com/api";
 const CLOUD_CONNECTION = "grafana-cloud";
 
 const isNotConnected = (err: unknown): boolean => err instanceof Error && err.name === "NotConnectedError";
@@ -331,7 +331,7 @@ export const grafanaProvider: Provider = {
 const POLICY_ID = "grafana-access-policy-token";
 const POLICY_CONNECTION = "grafana-cloud";
 /** The Cloud API host is fixed: the connection token never goes to a host taken from the inventory. */
-const GRAFANA_COM = "https://www.grafana.com/api/v1";
+const GRAFANA_COM = `${GRAFANA_COM_ROOT}/v1`;
 const POLICY_TTL_DEFAULT = 90;
 /** A service account token never expires without `secondsToLive`: the expiry is always set, 90 days by default. */
 const SERVICE_ACCOUNT_TOKEN_DEFAULT_TTL_DAYS = 90;

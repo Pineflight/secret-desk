@@ -212,17 +212,18 @@ export function TeamConfigPicker({ onChange }: Props) {
               {repos.data && !repos.data.problem && groups.usable.length === 0 && groups.unusable.length > 0 ? <p className="text-sm text-muted-text">{t("teamPicker.repo.noneUsable")}</p> : null}
               <div role="radiogroup" aria-label={t("teamSync.repo")} className="space-y-2">
                 {shown.map((r) => (
-                  <label key={r.fullName} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${repo === r.fullName ? "border-primary" : "border-line"}`}>
+                  <label key={r.fullName} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm max-sm:py-1.5 ${repo === r.fullName ? "border-primary" : "border-line"}`}>
                     <input type="radio" name="team-repo" checked={repo === r.fullName} onChange={() => setChoice((c) => withRepo(c, r.fullName))} />
                     <span className="min-w-0 flex-1 break-all font-mono">{r.fullName}</span>
                     <span className="flex shrink-0 items-center gap-2 text-xs text-muted-text">
-                      {r.pushedAt ? <span>{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
+                      {r.pushedAt ? <span className="max-sm:hidden">{t("teamPicker.repo.pushed", { date: r.pushedAt.slice(0, 10) })}</span> : null}
                       <span className="rounded-full border border-line px-2 py-0.5">{t("teamPicker.repo.private")}</span>
                     </span>
                   </label>
                 ))}
               </div>
-              <Button variant="primary" disabled={!repo} onClick={() => { setChoice((c) => confirmStep(c, "repo")); setChangingRepo(false); }}>{t("teamPicker.repo.use")}</Button>
+              {/* Below sm the button sticks to the bottom edge while the list is long, so it is in the first screen. */}
+              <Button variant="primary" className="max-sm:sticky max-sm:bottom-3 max-sm:z-10 max-sm:w-full max-sm:shadow-md" disabled={!repo} onClick={() => { setChoice((c) => confirmStep(c, "repo")); setChangingRepo(false); }}>{t("teamPicker.repo.use")}</Button>
               {groups.usable.length > REPO_ROWS && !showAll && search.trim() === "" ? (
                 <Button onClick={() => setShowAll(true)}>{t("teamPicker.repo.showMore", { count: groups.usable.length - REPO_ROWS })}</Button>
               ) : null}

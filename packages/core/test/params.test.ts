@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ParamsInvalidError, effectiveParams, mappedResource, markSuggestions, paramsMessage, validateEntryParams, type ParamSpec } from "../src/index.js";
+import { ParamsInvalidError, effectiveParams, mappedResource, markSuggestions, paramsMessage, ttlDaysProblems, validateEntryParams, type ParamSpec } from "../src/index.js";
 
 const spec = (extra: Partial<ParamSpec> & { key: string }): ParamSpec => ({ label: extra.key, labelEn: extra.key, type: "string", required: false, help: "", helpEn: "", ...extra });
 
@@ -127,5 +127,22 @@ describe("markSuggestions with a resource map", () => {
     const multi = { repos: ["acme-app", "acme-web"], resourceMap: [entry({ value: "d1" }), entry({ repo: "acme-web", value: "d2" })] as never };
     expect(mappedResource("resend.domain", multi)).toBeNull();
     expect(mappedResource("resend.domain", { repos: ["acme-app"], resourceMap: multi.resourceMap })?.value).toBe("d1");
+  });
+});
+
+describe("ttlDaysProblems", () => {
+  const provider = { ttlDaysOptions: [1, 7, 30] };
+  it("passes a missing ttlDays and the offered values", () => {
+    for (const ttl of [undefined, null, 1, 7, 30]) expect(ttlDaysProblems(provider, { ttlDays: ttl })).toEqual([]);
+  });
+  it("reports any other value as not_in_options on ttlDays, without echoing the entry", () => {
+    const problems = ttlDaysProblems(provider, { ttlDays: 90 });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({ key: "ttlDays", code: "not_in_options", labelEn: "Expiry (days)" });
+    expect(problems[0]!.message).toContain("1, 7, 30");
+  });
+  it("a provider without declared options accepts anything, and so does no provider", () => {
+    expect(ttlDaysProblems({}, { ttlDays: 90 })).toEqual([]);
+    expect(ttlDaysProblems(undefined, { ttlDays: 90 })).toEqual([]);
   });
 });

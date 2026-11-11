@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DevPage from "@/app/dev/page";
 import { translate as t } from "@/lib/i18n";
@@ -226,15 +226,56 @@ describe("Dev page: template cards on a phone", () => {
     expect(path).toHaveValue("/tmp/x");
   });
 
-  it("has no toggle from sm up and shows every card open", async () => {
+  it("from sm up every card is open and the header button does not collapse (no aria-expanded)", async () => {
     two();
-    renderApp(<DevPage />);
+    const { user } = renderApp(<DevPage />);
     await screen.findByText(t("dev.templateAndFile", { id: "acme-stg", file: ".env.staging" }));
-    expect(screen.getByText(t("dev.templateAndFile", { id: "acme-stg", file: ".env.staging" })).closest("button")).toBeNull();
+    const header = toggleOf("acme-stg", ".env.staging");
+    expect(header).not.toHaveAttribute("aria-expanded");
+    expect(header).not.toHaveAttribute("aria-controls");
     for (const [id, file] of [["acme-dev", ".env.local"], ["acme-stg", ".env.staging"]] as const) {
       expect(within(card(id, file)).getByRole("button", { name: t("dev.createFile") })).toBeVisible();
     }
     expect(document.querySelectorAll("section > div[hidden]")).toHaveLength(0);
+    await user.click(header);
+    expect(document.querySelectorAll("section > div[hidden]")).toHaveLength(0);
+  });
+
+  it("keeps a card with a result open and its header the same element when the viewport narrows", async () => {
+    const listeners: ((e: { matches: boolean }) => void)[] = [];
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: (_: string, l: (e: { matches: boolean }) => void) => { listeners.push(l); }, removeEventListener: vi.fn() })));
+    dev({ "GET dev-templates": [template(), template({ id: "acme-stg", repo: "acme-web", stage: "staging", file: ".env.staging" })], "POST env-export": written() });
+    const { user } = renderApp(<DevPage />);
+    await screen.findByText(t("dev.templateAndFile", { id: "acme-stg", file: ".env.staging" }));
+    const stg = within(card("acme-stg", ".env.staging"));
+    const header = toggleOf("acme-stg", ".env.staging");
+    header.focus();
+    await user.type(stg.getByLabelText(new RegExp(t("dev.filePath"))), "/tmp/x.env");
+    await user.click(stg.getByRole("button", { name: t("dev.createFile") }));
+    expect(await stg.findByText(t("dev.written"))).toBeInTheDocument();
+    act(() => listeners.forEach((l) => l({ matches: false })));
+    // Result keeps the card open: same element, no collapse state, body visible; the plain card (no result) collapses.
+    expect(toggleOf("acme-stg", ".env.staging")).toBe(header);
+    expect(header).not.toHaveAttribute("aria-expanded");
+    expect(stg.getByText(t("dev.written"))).toBeVisible();
+    // The first card (no result) still collapses: it keeps its state and toggle.
+    expect(toggleOf("acme-dev", ".env.local")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps a card with an error open on a phone", async () => {
+    phone();
+    dev({ "GET dev-templates": [template(), template({ id: "acme-stg", repo: "acme-web", stage: "staging", file: ".env.staging" })], "POST env-export": { status: 400, body: { error: "folder not allowed" } } });
+    const { user } = renderApp(<DevPage />);
+    const second = await waitFor(() => toggleOf("acme-stg", ".env.staging"));
+    await user.click(second);
+    const stg = within(card("acme-stg", ".env.staging"));
+    await user.type(stg.getByLabelText(new RegExp(t("dev.filePath"))), "/etc/x");
+    await user.click(stg.getByRole("button", { name: t("dev.createFile") }));
+    expect(await stg.findByText("folder not allowed")).toBeInTheDocument();
+    expect(toggleOf("acme-stg", ".env.staging")).toBe(second);
+    expect(second).not.toHaveAttribute("aria-expanded");
+    await user.click(second);
+    expect(stg.getByText("folder not allowed")).toBeVisible();
   });
 });
 

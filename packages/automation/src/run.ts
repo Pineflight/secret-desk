@@ -39,6 +39,12 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Abstand der Pruefungen beim Warten, Standard 250 ms. */
   pollMs?: number;
+  /**
+   * Nobody watches the browser window (a remote browser). A signed-out browser at a recipe with a guided sign-in (`login.form`)
+   * and no `signIn` hook then ends at once with the error kind `signin` instead of waiting for a window nobody sees; the portal
+   * offers its own sign-in. Without it the run waits for the human in the window (a local browser).
+   */
+  signInOutsideWindow?: boolean;
   /** Timing of `confirmAccess` steps (tests shorten it): how long GitHub Mobile may take, how long a code or password is checked, tries. */
   access?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
 }
@@ -69,7 +75,8 @@ export interface RunResult {
 }
 
 /** `unsupported`: the account or page does not offer what the recipe needs (a `fail` step marked `unsupported`), not a broken recipe. */
-export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture" | "params" | "unsupported";
+/** `signin`: the browser is signed out and this run cannot ask for the sign-in; the human signs in through the portal and starts again. */
+export type RunErrorKind = "abort" | "timeout" | "host" | "step" | "capture" | "params" | "unsupported" | "signin";
 
 export class RecipeRunError extends Error {
   readonly kind: RunErrorKind;
@@ -406,6 +413,8 @@ class Runner {
           throw new HookFailure(err);
         }
       }
+      // Nobody sees the window (remote browser) and the portal has a sign-in for this recipe: end promptly and typed.
+      if (login.form && this.options.signInOutsideWindow && !(await met())) this.fail("signin", `Not signed in at ${this.recipe.host}. Sign in through the portal first, then run again.`);
       // Still signed out (no portal sign-in, or it left the browser elsewhere): the human does it in the browser window.
       if (!(await met())) await this.#waitForHuman("login", login.message ?? "Bitte im Browserfenster anmelden (Passwort, 2FA, Bestaetigungen).", cond);
     }

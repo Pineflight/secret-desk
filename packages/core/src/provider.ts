@@ -117,6 +117,8 @@ export interface Provider {
   guide?: ProviderGuide;
   /** Parameter, die ein Eintrag dieses Anbieters unter `params` braucht (fehlt = keine). */
   params?: ParamSpec[];
+  /** The `ttlDays` values the provider can honour (fehlt = any). A renewal of an entry with another value is `params_invalid`. */
+  ttlDaysOptions?: readonly number[];
   /** Listet Ressourcen der verbundenen Integration (Konten, Projekte, Zonen ...). Nur lesend. Unbekannte Art: UnknownDiscoverKindError. */
   discover?(kind: string, ctx: DiscoverContext): Promise<DiscoveredOption[]>;
   /** Keys of `params` whose value is the inventory id of an entry that may receive a companion value from `issue`. */
