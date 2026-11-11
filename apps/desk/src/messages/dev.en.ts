@@ -70,5 +70,5 @@ export default {
   "dev.exportClose": "Close",
   "dev.keysSummary": "{count} keys · your input needed for {input}",
   "dev.keysSummaryNone": "{count} keys · no input needed",
-  "dev.exportRepoPlaceholder": "Type or pick a repository",
+  "dev.exportRepoPlaceholder": "Type or pick the repository to export .env for",
 } satisfies Record<string, string>;

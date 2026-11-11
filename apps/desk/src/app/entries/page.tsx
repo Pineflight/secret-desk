@@ -2,7 +2,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { VariableDrift } from "@secret-desk/core";
 import type { SecretView, VariableApplyResult, VariableView } from "@secret-desk/runtime";
 import { Dialog } from "@/components/Dialog";
@@ -266,11 +266,16 @@ export default function EntriesPage() {
   }, [moreActive]);
   // Below sm only search and a filters toggle stay in row 1; everything else sits in a collapsible area that opens by itself while a filter is active.
   const wide = useMediaQuery("(min-width: 640px)", true);
-  const filterCount = Number(kind !== "") + Number(Boolean(browse.repo)) + Number(Boolean(stage)) + Number(Boolean(status)) + moreActive;
+  // The area opens by itself for a tag or any dropdown filter (not for typing in the search, which would shift the layout per keystroke);
+  // the pill also counts the search text, so "Reset" in the closed area is never active without a visible sign.
+  const areaFilters = Number(kind !== "") + Number(Boolean(browse.repo)) + Number(Boolean(stage)) + Number(Boolean(status)) + Number(Boolean(tag)) + moreActive;
+  const filterCount = areaFilters + Number(q.trim() !== "");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
+  const moreFiltersId = useId();
   useEffect(() => {
-    if (filterCount > 0) setFiltersOpen(true);
-  }, [filterCount]);
+    if (areaFilters > 0) setFiltersOpen(true);
+  }, [areaFilters]);
   const filtersShown = wide || filtersOpen;
   const resetVisible = Boolean(anyFilter) || kind !== "" || provider !== "" || paramsFilter !== "" || moreActive > 0;
   const resetFilters = () => {
@@ -326,12 +331,11 @@ export default function EntriesPage() {
         <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
           <PageSearch value={q} onChange={setQ} count={loaded ? rows.length : null} total={loaded ? (secrets.data!.length + variables.data!.length) : null} />
           {!wide ? (
-            <Button variant="secondary" className="shrink-0" aria-expanded={filtersOpen} aria-controls="entries-filters" onClick={() => setFiltersOpen((o) => !o)}>
+            <Button variant="secondary" className="shrink-0" aria-expanded={filtersOpen} aria-controls={filtersId} onClick={() => setFiltersOpen((o) => !o)}>
               <Icon name="chevron" className={`h-3.5 w-3.5 ${filtersOpen ? "-rotate-90" : "rotate-90"}`} />{t("entries.filters")}{filterCount > 0 ? <Pill>{filterCount}</Pill> : null}
             </Button>
           ) : null}
-          {filtersShown ? (
-          <div id="entries-filters" className="contents">
+          <div id={filtersId} hidden={!filtersShown} className={filtersShown ? "contents" : undefined}>
           <SegmentSwitch label={t("entries.kind")} value={kind} options={kindOptions} onChange={(v) => setParam("kind", v)} />
           <RepoFilter value={browse} onChange={setBrowse} repos={repos} />
           <div className="w-28">
@@ -346,15 +350,13 @@ export default function EntriesPage() {
               {statusOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </SelectField>
           </div>
-          <Button variant="secondary" aria-expanded={moreOpen} aria-controls="entries-more-filters" onClick={() => setMoreOpen((o) => !o)}>
+          <Button variant="secondary" aria-expanded={moreOpen} aria-controls={moreFiltersId} onClick={() => setMoreOpen((o) => !o)}>
             <Icon name="chevron" className={`h-3.5 w-3.5 ${moreOpen ? "-rotate-90" : "rotate-90"}`} />{t("entries.moreFilters")}{moreActive > 0 ? <Pill>{moreActive}</Pill> : null}
           </Button>
           {resetVisible ? <Button variant="secondary" onClick={resetFilters}><Icon name="x" />{t("entries.reset")}</Button> : null}
           </div>
-          ) : null}
         </div>
-        {moreOpen && filtersShown ? (
-          <div id="entries-more-filters" className="flex flex-wrap items-end gap-3 border-t border-line pt-3">
+          <div id={moreFiltersId} hidden={!(moreOpen && filtersShown)} className={moreOpen && filtersShown ? "flex flex-wrap items-end gap-3 border-t border-line pt-3" : undefined}>
             {showSecretFilters ? (
               <>
                 <div className="w-44">
@@ -374,7 +376,6 @@ export default function EntriesPage() {
             ) : null}
             <BrowseControls value={browse} onChange={setBrowse} sorts={kind === "variable" ? ["name", "repo", "stage"] : ["name", "expires", "repo", "stage"]} />
           </div>
-        ) : null}
       </Card>
 
       <TagFilterChip tag={tag} label={t("secrets.filteredByTag")} removeLabel={t("secrets.removeFilter", { tag })} onClear={() => setTag("")} />

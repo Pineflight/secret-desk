@@ -25,6 +25,8 @@ export interface FacadeInfo {
   label: string;
   recipeId: string;
   connectionId: string;
+  /** Entry keys are issued through the provider's API; false: a browser recipe creates them. */
+  issuesKeysByApi: boolean;
   available: boolean;
   reason: string | null;
   recipeStatus: string | null;

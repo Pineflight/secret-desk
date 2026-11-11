@@ -25,9 +25,29 @@ describe("translateEn: spot checks", () => {
     ["Die Vorlage ws-dev verweist mit \"../x\" aus dem verknuepften Ordner hinaus.", "The template ws-dev points outside the linked folder with \"../x\"."],
     ["Schluesseldatei ~/x/vault.key", "Key file ~/x/vault.key"],
     ["Already English text", "Already English text"],
+    ["ttlDays wird vom Anbieter nicht angeboten; erlaubt sind 1, 7, 30 Tage", "ttlDays is not offered by the provider; allowed are 1, 7, 30 days"],
     ["", ""],
   ];
   for (const [de, en] of cases) it(JSON.stringify(de), () => expect(translateEn(de)).toBe(en));
+});
+
+describe("translateEn: Cloudflare Worker status texts", () => {
+  const statuses: [number, string, string][] = [
+    [401, "Authentifizierung fehlgeschlagen; der Token der Cloudflare-Verbindung ist ungueltig oder abgelaufen und braucht das Recht Workers Scripts Write", "Authentication failed; the token of the Cloudflare connection is invalid or expired and needs the permission Workers Scripts Write"],
+    [403, "Keine Berechtigung; der Token der Cloudflare-Verbindung braucht das Recht Workers Scripts Write", "No permission; the token of the Cloudflare connection needs the permission Workers Scripts Write"],
+    [404, "Worker nicht gefunden (Konto und Name pruefen)", "Worker not found (check account and name)"],
+    [429, "Zu viele Anfragen (Rate Limit); spaeter erneut versuchen", "Too many requests (rate limit); try again later"],
+    [500, "Cloudflare meldet einen Serverfehler; spaeter erneut versuchen", "Cloudflare reports a server error; try again later"],
+    [400, "Anfrage von Cloudflare abgelehnt", "Request rejected by Cloudflare"],
+  ];
+  for (const [status, de, en] of statuses) {
+    it(`status ${status}: translated fully with and without codes`, () => {
+      expect(translateEn(`Cloudflare PUT /accounts/a/workers -> ${status}: ${de}`)).toBe(`Cloudflare PUT /accounts/a/workers -> ${status}: ${en}`);
+      expect(translateEn(`Cloudflare PUT /accounts/a/workers -> ${status}: ${de} (Cloudflare-Code 10000)`)).toBe(`Cloudflare PUT /accounts/a/workers -> ${status}: ${en} (Cloudflare code 10000)`);
+      expect(translateEn(`Cloudflare PUT /accounts/a/workers -> ${status}: ${de} (Cloudflare-Code 10000, 10001)`)).toBe(`Cloudflare PUT /accounts/a/workers -> ${status}: ${en} (Cloudflare code 10000, 10001)`);
+      expect(translateEn(`${de} (Cloudflare-Code 7003)`)).toBe(`${en} (Cloudflare code 7003)`);
+    });
+  }
 });
 
 describe("translateDeep", () => {

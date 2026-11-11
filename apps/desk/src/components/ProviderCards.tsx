@@ -218,7 +218,8 @@ export interface CollapsedView {
 
 /**
  * The provider on the page. Collapsed it is logo, name, one short purpose line, one badge and at most one meta line; the header is
- * one button that opens the details. The controls inside the details are never part of that button.
+ * one button that opens the details. The controls inside the details are never part of that button. Below sm the collapsed card is
+ * one compact row (logo, name, badge, action on the right): category, purpose and meta line show once it is open.
  */
 export function ProviderPageCard({ card, view, open, onToggle, signIn, hostPhases, signInPrompts = [], onSignIn, setUp, busy = false, last, results, actions, children }: { card: ProviderCard; view: CollapsedView; open: boolean; onToggle: () => void; signIn: SignInStatus | null; hostPhases?: ReadonlyMap<string, CheckPhase>; signInPrompts?: readonly SignInPrompt[]; onSignIn?: (portal: string | null) => void; setUp?: () => void; busy?: boolean; last?: ActivityResult | undefined; results?: (line: string) => ActivityResult | undefined; actions?: ReactNode; children?: ReactNode }) {
   const t = useT();
@@ -228,19 +229,19 @@ export function ProviderPageCard({ card, view, open, onToggle, signIn, hostPhase
   const showActions = (onSignIn && signInPrompts.length > 0) || (setUp && view.badge === "none");
   return (
     <Card className="flex h-full w-full min-w-0 flex-col break-words">
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-        <h4 className="min-w-0 flex-1 basis-64">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 max-sm:flex-nowrap max-sm:items-center">
+        <h4 className="min-w-0 flex-1 basis-64 max-sm:basis-0">
           <button
             type="button"
             onClick={onToggle}
             aria-expanded={open}
             aria-controls={bodyId}
             aria-label={t(open ? "providers.card.hide" : "providers.card.show", { name: card.label })}
-            className="flex w-full items-start gap-3 rounded-xl text-left"
+            className="flex w-full items-start gap-3 rounded-xl text-left max-sm:items-center"
           >
             <ProviderLogo icon={card.icon} label={card.label} />
             <span className="min-w-0 flex-1">
-              <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted">{t(`category.${card.category}`)}</span>
+              <span className={`block text-[11px] font-semibold uppercase tracking-wide text-muted ${open ? "" : "max-sm:hidden"}`}>{t(`category.${card.category}`)}</span>
               <span className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">{card.label}</span>
                 <span className="inline-flex items-center gap-2">
@@ -248,15 +249,15 @@ export function ProviderPageCard({ card, view, open, onToggle, signIn, hostPhase
                   <CollapsedBadge kind={view.badge} />
                 </span>
               </span>
-              <span className="block text-xs text-muted">{purposeOf(card)}</span>
-              {metaText ? <span className={`mt-1 block text-xs ${view.meta?.problem ? "font-medium text-warn-text" : "text-muted"}`}>{metaText}</span> : null}
+              <span className={`block text-xs text-muted ${open ? "" : "max-sm:hidden"}`}>{purposeOf(card)}</span>
+              {metaText ? <span className={`mt-1 block text-xs ${open ? "" : "max-sm:hidden"} ${view.meta?.problem ? "font-medium text-warn-text" : "text-muted"}`}>{metaText}</span> : null}
             </span>
             <Icon name="chevron" className={`mt-1 h-4 w-4 shrink-0 text-muted-text transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         </h4>
-        {/* Beside the header button, not in it: a button inside the header button would be invalid. They wrap under the title on narrow cards. */}
+        {/* Beside the header button, not in it: a button inside the header button would be invalid. Below sm they stay on the title row, on the right. */}
         {showActions ? (
-          <div className="flex flex-wrap gap-2 max-sm:pl-[3.25rem]">
+          <div className="flex flex-wrap gap-2 max-sm:shrink-0 max-sm:flex-col">
             {setUp && view.badge === "none" ? <Button variant="primary" onClick={setUp} aria-label={t("providers.setUpLabel", { name: card.label })}>{t("providers.setUp")}</Button> : null}
             {onSignIn ? signInPrompts.map((p) => (
               <Button key={p.portal ?? "all"} onClick={() => onSignIn(p.portal)} aria-label={p.portal ? t("providers.signIn.buttonLabelAt", { name: card.label, portal: p.portal }) : t("providers.signIn.buttonLabel", { name: card.label })}>

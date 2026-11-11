@@ -71,4 +71,10 @@ export default {
   "secretDetail.browserToReview": "Zur Prüfung",
   "secretDetail.browserReloadHint": "Du kannst die Seite neu laden: der Lauf geht weiter und der Stand erscheint hier wieder.",
   "secretDetail.browserCreated": "Beim Anbieter kann schon ein Token namens {name} angelegt sein. Bitte dort von Hand löschen.",
+  "secretDetail.browserNeedsSignInTitle": "Nicht angemeldet",
+  "secretDetail.browserNeedsSignInText": "Nicht bei {provider} angemeldet. Melde dich über das Portal an und starte dann erneut.",
+  "secretDetail.browserSignIn": "Anmelden",
+  "secretDetail.browserSignInTitle": "Bei {provider} anmelden",
+  "secretDetail.browserSignedIn": "Angemeldet. Starte den Lauf jetzt erneut.",
+  "secretDetail.browserRestart": "Erneut starten",
 } satisfies Record<string, string>;

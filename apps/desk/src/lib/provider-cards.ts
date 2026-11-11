@@ -68,6 +68,8 @@ export interface FacadeRow {
   connected: boolean;
   reason: string | null;
   connectionId: string;
+  /** Entry keys are issued through the provider's API (no browser needed once connected). Absent = unknown, treated as false. */
+  issuesKeysByApi?: boolean;
 }
 export interface SecretRow {
   vendor: string | null;
@@ -161,7 +163,7 @@ export interface ProviderCard {
   prefixes: string[];
   /** Browser view of the card; null when the provider has no loaded recipe. */
   browser: BrowserWay | null;
-  /** An API connection exists, so keys are issued without any browser sign-in. Only for providers with a guided sign-in. */
+  /** An API connection exists and the provider issues entry keys through its API, so no browser sign-in is needed. Only for providers with a guided sign-in. */
   worksWithoutBrowser: boolean;
   /** The remote browser is known to be signed in at the provider (a fresh check, or a check in this page session said yes). */
   browserSignedIn: boolean;
@@ -253,7 +255,7 @@ export function buildCards(input: CardInput): ProviderCard[] {
       byHand,
       prefixes: [...v.connectionPrefixes],
       browser,
-      worksWithoutBrowser: state === "facade" && (keys.some((k) => k.connected) || facade?.connected === true),
+      worksWithoutBrowser: state === "facade" && facade!.issuesKeysByApi === true && (keys.some((k) => k.connected) || facade?.connected === true),
       browserSignedIn: browser?.readiness.state === "ready" || (input.signedIn?.has(v.id) ?? false),
       produces: producedRows((input.secrets ?? []).filter((s) => s.vendor === v.id), input.providers),
       secrets: (input.secrets ?? []).filter((s) => s.vendor === v.id).length,

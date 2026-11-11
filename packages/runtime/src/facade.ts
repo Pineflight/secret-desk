@@ -68,6 +68,11 @@ export interface FacadeDescriptor {
   recipeId: string;
   /** Connection that receives the key (see connection-guides.ts). For a provider with `inputs` this is the general connection that opens the flow. */
   connectionId: string;
+  /**
+   * The provider has an API that issues the keys of inventory entries once the integration key is stored, so entries work without
+   * the browser sign-in. false: entries are created by a browser recipe (Anthropic: the Admin API cannot create keys; RevenueCat: no key API).
+   */
+  issuesKeysByApi: boolean;
   /** Name of the key at the provider. `inputs` are the values the human chose for this run. */
   keyName(now: Date, inputs: Record<string, string>): string;
   /**
@@ -147,6 +152,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     label: "RevenueCat",
     recipeId: "revenuecat-secret-api-key",
     connectionId: "revenuecat",
+    issuesKeysByApi: false,
     // Date and time (UTC): a second key on the same day must not share a name, the key list is found by that name.
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     // v2 secret key, Project configuration: Read only, every other section stays "No access" (the recipe default).
@@ -165,6 +171,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     label: "OpenAI",
     recipeId: "openai-admin-key",
     connectionId: "openai",
+    issuesKeysByApi: true,
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     keyParams: {},
     promise: "facade.promise.openai",
@@ -180,6 +187,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     label: "Anthropic",
     recipeId: "anthropic-admin-key",
     connectionId: "anthropic",
+    issuesKeysByApi: false,
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     keyParams: {},
     project: null,
@@ -199,6 +207,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     label: "Grafana Cloud",
     recipeId: "grafana-cloud-access-policy",
     connectionId: "grafana-cloud",
+    issuesKeysByApi: true,
     keyName: (now) => `secret-desk-integration-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     keyParams: { expiry: "90 days" },
     keyExpiryDays: 90,
@@ -214,6 +223,7 @@ export const FACADES: readonly FacadeDescriptor[] = [
     label: "Stripe",
     recipeId: "stripe-restricted-key",
     connectionId: "stripe",
+    issuesKeysByApi: true,
     keyName: (now, inputs) => `secret-desk-${inputs["mode"] === "live" ? "live" : "test"}-${now.toISOString().slice(0, 10)}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`,
     // Only webhook endpoints: that is all the portal needs from Stripe.
     keyParams: { preset: "webhooks" },
@@ -285,6 +295,8 @@ export interface FacadeInfo {
   label: string;
   recipeId: string;
   connectionId: string;
+  /** Entry keys are issued through the provider's API (see the descriptor); false: a browser recipe creates them. */
+  issuesKeysByApi: boolean;
   /** false: automation is off or the recipe is missing; `reason` says why. */
   available: boolean;
   reason: string | null;
@@ -346,6 +358,7 @@ export async function listFacades(rt: Runtime, actor: Actor): Promise<FacadeInfo
       label: d.label,
       recipeId: d.recipeId,
       connectionId: d.connectionId,
+      issuesKeysByApi: d.issuesKeysByApi,
       available: reason === null,
       reason,
       recipeStatus: meta?.status ?? null,

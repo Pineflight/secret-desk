@@ -774,7 +774,9 @@ describe("Entries page: closing dialogs", () => {
     expect(screen.getByLabelText(new RegExp(t("entries.provider")))).toBeInTheDocument();
     await user.click(more);
     expect(more).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).toBeNull();
+    expect(screen.queryByLabelText(new RegExp(t("entries.provider")))).not.toBeVisible();
+    expect(more.getAttribute("aria-controls")).toBeTruthy();
+    expect(document.getElementById(more.getAttribute("aria-controls")!)).toHaveAttribute("hidden");
   });
 
   it("keeps the list search, the filters, the more-filters toggle and reset in one toolbar row", async () => {
@@ -822,7 +824,10 @@ describe("Entries page: closing dialogs", () => {
 
 describe("Entries page: phone width", () => {
   const phone = () => vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
-  const toggle = () => screen.getByRole("button", { name: new RegExp(`^${t("entries.filters")}`) });
+  // The tag chip's remove button also starts with "Filter", so pick the one that controls the area.
+  const toggle = () => screen.getAllByRole("button", { name: new RegExp(`^${t("entries.filters")}`) }).find((b) => b.hasAttribute("aria-expanded"))!;
+
+  const area = () => document.getElementById(toggle().getAttribute("aria-controls")!)!;
 
   it("shows only search and a filters toggle until the toggle is used", async () => {
     phone();
@@ -832,16 +837,43 @@ describe("Entries page: phone width", () => {
     await ready();
     expect(screen.getByRole("searchbox", { name: t("common.pageSearch") })).toBeInTheDocument();
     expect(toggle()).toHaveAttribute("aria-expanded", "false");
-    expect(toggle()).toHaveAttribute("aria-controls", "entries-filters");
-    expect(screen.queryByRole("group", { name: t("entries.kind") })).toBeNull();
-    expect(screen.queryByLabelText(t("entries.status"))).toBeNull();
+    // The controlled element exists while collapsed (hidden), with a generated id.
+    expect(area()).toHaveAttribute("hidden");
+    expect(area()).not.toHaveClass("contents");
+    expect(area()).toContainElement(screen.getByLabelText(t("entries.status")));
     await user.click(toggle());
     expect(toggle()).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("group", { name: t("entries.kind") })).toBeInTheDocument();
-    expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument();
-    expect(document.getElementById("entries-filters")).toContainElement(screen.getByLabelText(t("entries.stage")));
+    expect(area()).not.toHaveAttribute("hidden");
+    expect(area()).toHaveClass("contents");
+    expect(area()).toContainElement(screen.getByRole("group", { name: t("entries.kind") }));
+    expect(area()).toContainElement(screen.getByLabelText(t("entries.stage")));
     await user.click(toggle());
-    expect(screen.queryByLabelText(t("entries.status"))).toBeNull();
+    expect(area()).toHaveAttribute("hidden");
+  });
+
+  it("counts the search text in the pill without opening the area, and a tag filter opens it", async () => {
+    phone();
+    navigation.set("/entries");
+    entries(SECRETS, VARIABLES);
+    const { user } = renderApp(<EntriesPage />);
+    await ready();
+    expect(within(toggle()).queryByText("1")).toBeNull();
+    await user.type(screen.getByRole("searchbox", { name: t("common.pageSearch") }), "alpha");
+    expect(within(toggle()).getByText("1")).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(area()).toHaveAttribute("hidden");
+  });
+
+  it("opens the area by itself for a tag filter and counts it", async () => {
+    phone();
+    navigation.set("/entries?tag=pay");
+    entries(SECRETS, VARIABLES, { "GET secrets?tag=pay": SECRETS, "GET variables?tag=pay": VARIABLES });
+    renderApp(<EntriesPage />);
+    await screen.findByText(/ALPHA_KEY/);
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-expanded", "true"));
+    expect(within(toggle()).getByText("1")).toBeInTheDocument();
+    expect(area()).not.toHaveAttribute("hidden");
+    expect(within(area()).getByRole("button", { name: t("entries.reset") })).toBeInTheDocument();
   });
 
   it("opens by itself with a count pill while filters are active and hides the secondary row with the area", async () => {
@@ -852,11 +884,11 @@ describe("Entries page: phone width", () => {
     await screen.findByText(/ALPHA_KEY|BETA_KEY/);
     await waitFor(() => expect(toggle()).toHaveAttribute("aria-expanded", "true"));
     expect(within(toggle()).getByText("2")).toBeInTheDocument();
-    expect(screen.getByLabelText(t("entries.status"))).toBeInTheDocument();
+    expect(area()).not.toHaveAttribute("hidden");
     await user.click(screen.getByRole("button", { name: new RegExp(t("entries.moreFilters")) }));
     expect(screen.getByLabelText(t("meta.sort"))).toBeInTheDocument();
     await user.click(toggle());
-    expect(screen.queryByLabelText(t("meta.sort"))).toBeNull();
+    expect(screen.queryByLabelText(t("meta.sort"))).not.toBeVisible();
   });
 
   it("keeps the full toolbar and no toggle from sm up", async () => {

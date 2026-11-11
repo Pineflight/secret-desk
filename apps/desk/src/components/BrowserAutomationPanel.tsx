@@ -24,7 +24,7 @@ export interface AutomationInfo {
   /** How long sign-ins lasted per recipe host (only hosts with a measurement). */
   signInLifetimes?: { host: string; averageMinutes: number; samples: number; measuredAt: string }[];
   allowExternalRecipes: boolean;
-  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean; canCheckSignIn: boolean }[];
+  recipes: { id: string; providerId: string; label: string; host: string; status: string; sha256: string; allowHosts: string[]; bundled: boolean; canCheckSignIn: boolean; hosts?: { value: string; host: string }[]; signInMethods?: { id: string; label: string | null; labelEn: string | null }[]; signInPasswordless?: boolean }[];
   problems: { file: string; message: string }[];
 }
 /** Chrome status, profile folder, recipes and problems of the browser automation. For people who build integrations: shown under Settings, Developer. */

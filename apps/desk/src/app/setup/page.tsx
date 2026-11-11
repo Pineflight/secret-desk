@@ -69,10 +69,11 @@ export default function SetupPage() {
       </>
     );
   }
-  const choices: { id: Choice; label: string }[] = [
-    { id: "github", label: t("setup.choice.github") },
-    { id: "upload", label: t("setup.choice.upload") },
-    { id: "empty", label: t("setup.choice.empty") },
+  // Below sm the segments show the short label; the full label stays the accessible name (aria-label) at every width.
+  const choices: { id: Choice; label: string; short: string }[] = [
+    { id: "github", label: t("setup.choice.github"), short: t("setup.choice.githubShort") },
+    { id: "upload", label: t("setup.choice.upload"), short: t("setup.choice.uploadShort") },
+    { id: "empty", label: t("setup.choice.empty"), short: t("setup.choice.emptyShort") },
   ];
   // Radio group keys: arrows move and select (wrapping), Home and End jump to the ends; only the checked radio is in the Tab order.
   const onChoiceKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -95,12 +96,14 @@ export default function SetupPage() {
               type="button"
               role="radio"
               aria-checked={choice === c.id}
+              aria-label={c.label}
               tabIndex={choice === c.id ? 0 : -1}
               data-choice={c.id}
               onClick={() => setChoice(c.id)}
-              className={`min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${choice === c.id ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}
+              className={`min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors max-sm:px-1 ${choice === c.id ? "bg-primary text-white" : "text-muted-text hover:bg-page"}`}
             >
-              {c.label}
+              <span className="sm:hidden">{c.short}</span>
+              <span className="max-sm:hidden">{c.label}</span>
             </button>
           ))}
         </div>

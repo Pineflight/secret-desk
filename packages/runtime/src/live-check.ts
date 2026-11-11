@@ -1,5 +1,5 @@
 import { RecipeRunError, dryRunRecipe, recipeParamVars, type BrowserDriver, type HumanWait, type Recipe } from "@secret-desk/automation";
-import { NotConnectedError } from "@secret-desk/core";
+import { NotConnectedError, stageKind } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
 import { listConnections } from "./agent-api.js";
 import { checkConnection } from "./connection-check.js";
@@ -100,8 +100,11 @@ const clean = (text: string): string => safeText(stripUrls(text), []);
  */
 const unexpected = (what: string, err: unknown): string => clean(`${what} (${err instanceof Error ? err.name : typeof err}).`);
 
-/** What a recipe needs to run without a real entry: the fixed placeholder for names, the recipe's own defaults for its parameters. */
-function placeholderVars(recipe: Recipe, now: Date): Record<string, string> {
+/**
+ * What a recipe needs to run without a real entry: the fixed placeholder for names, the recipe's own defaults for its parameters.
+ * `own` are parameter values taken from an inventory entry (see `derivedParams`); they only fill what has no default.
+ */
+function placeholderVars(recipe: Recipe, now: Date, own: Record<string, string> = {}): Record<string, string> {
   // A required choice without a default takes its first option: a fixed list of the recipe itself, never account data.
   const chosen = Object.fromEntries(recipe.params.filter((p) => p.default === undefined && p.options).map((p) => [p.key, p.options![0]!]));
   return {
@@ -115,8 +118,38 @@ function placeholderVars(recipe: Recipe, now: Date): Record<string, string> {
     permissionsQuery: "",
     stage: "dev",
     secretId: LIVE_CHECK_PLACEHOLDER,
-    ...recipeParamVars(recipe, chosen),
+    ...recipeParamVars(recipe, { ...own, ...chosen }),
   };
+}
+
+/** Where the parameters of a dry run came from: the id of an inventory entry and the parameter NAMES taken from it (never values). */
+interface Derived {
+  entryId: string;
+  names: string[];
+  vars: Record<string, string>;
+}
+
+/**
+ * Parameters a recipe needs that have neither a default nor a fixed list of options (an account, an organization, a project id)
+ * are taken from an inventory entry of this recipe's provider. Entries outside the live stages come first, then by id, so the
+ * choice is the same every time. Only entries issued or verified at least once count (an entry never issued must not steer a scheduled run); the first entry whose parameters the recipe accepts wins. Null when no entry fits.
+ */
+function derivedParams(rt: Runtime, recipe: Recipe, now: Date): Derived | null {
+  const providers = new Set([`${recipe.id}-browser`, ...(recipe.provider ? [recipe.provider] : [])]);
+  const wanted = recipe.params.filter((p) => p.default === undefined && !p.options).map((p) => p.key);
+  const stages = rt.inventory.stages;
+  const entries = rt.inventory.data.secrets
+    .filter((e) => providers.has(e.provider) && (e.rotatedAt !== undefined || e.verifiedAt !== undefined))
+    .sort((a, b) => Number(stageKind(stages, a.stage) === "live") - Number(stageKind(stages, b.stage) === "live") || a.id.localeCompare(b.id));
+  for (const entry of entries) {
+    const own = Object.fromEntries(wanted.flatMap((k) => (typeof entry.params?.[k] === "string" || typeof entry.params?.[k] === "number" ? [[k, String(entry.params[k])]] : [])));
+    try {
+      return { entryId: entry.id, names: Object.keys(own), vars: placeholderVars(recipe, now, own) };
+    } catch {
+      // This entry does not give the recipe what it needs: the next one may.
+    }
+  }
+  return null;
 }
 
 const skipped = (id: string, detail: string): LiveCheckRecipe => ({ id, result: "skipped", detail: clean(detail) });
@@ -133,10 +166,15 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
   const { rt } = ctx;
   const id = recipe.id;
   let vars: Record<string, string>;
+  // Set when the parameters came from an inventory entry: named in the report, so a wrong entry can be found.
+  let source = "";
   try {
     vars = placeholderVars(recipe, rt.automation.now());
   } catch (err) {
-    return skipped(id, err instanceof RecipeRunError ? `Inputs cannot be derived: ${err.message}` : unexpected("Inputs cannot be derived", err));
+    const derived = err instanceof RecipeRunError && err.kind === "params" ? derivedParams(rt, recipe, rt.automation.now()) : null;
+    if (derived === null) return skipped(id, err instanceof RecipeRunError ? `Inputs cannot be derived: ${err.message}` : unexpected("Inputs cannot be derived", err));
+    vars = derived.vars;
+    source = ` Parameters (${derived.names.join(", ")}) taken from entry ${derived.entryId}.`;
   }
   // Steps that act on each item of a list (the repositories of a token) cannot run without real items: they are left out.
   const steps = recipe.steps.filter((s) => !("each" in s && s.each));
@@ -172,9 +210,9 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
       controller.abort();
       // A page that hangs ignores the signal; closing the browser ends the run in the background.
       await driver.close();
-      return { id, result: "failed", ...(seen.label !== undefined ? { step: clean(seen.label) } : {}), kind: "timeout", detail: `No answer within ${Math.round(ctx.timeoutMs / 1000)} seconds.` };
+      return { id, result: "failed", ...(seen.label !== undefined ? { step: clean(seen.label) } : {}), kind: "timeout", detail: `No answer within ${Math.round(ctx.timeoutMs / 1000)} seconds.${clean(source)}` };
     }
-    if ("done" in outcome) return { id, result: "ok", detail: `${outcome.done.executed} steps ran${left > 0 ? `, ${left} per-item step(s) left out` : ""}; stopped before creating anything.` };
+    if ("done" in outcome) return { id, result: "ok", detail: `${outcome.done.executed} steps ran${left > 0 ? `, ${left} per-item step(s) left out` : ""}; stopped before creating anything.${clean(source)}` };
     throw outcome.error;
   } catch (err) {
     const step = seen.label !== undefined ? { step: clean(seen.label) } : {};
@@ -184,7 +222,7 @@ async function checkRecipe(ctx: RecipeContext, recipe: Recipe): Promise<LiveChec
     if (ctx.cancel.aborted) return skipped(id, "The live check was cancelled.");
     if (err instanceof RecipeRunError) {
       if (err.kind === "params" || err.kind === "unsupported") return { ...skipped(id, err.message), kind: err.kind };
-      return { id, result: "failed", ...step, kind: err.kind, detail: clean(err.message) };
+      return { id, result: "failed", ...step, kind: err.kind, detail: clean(err.message + source) };
     }
     // Not a recipe error: the browser could not be started or reached (closing errors are ignored by the driver wrapper). A dead
     // browser is exactly what the check has to report.

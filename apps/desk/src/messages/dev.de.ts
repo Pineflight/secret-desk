@@ -70,5 +70,5 @@ export default {
   "dev.exportClose": "Schließen",
   "dev.keysSummary": "{count} Schlüssel · Eingabe von dir nötig bei {input}",
   "dev.keysSummaryNone": "{count} Schlüssel · keine Eingabe nötig",
-  "dev.exportRepoPlaceholder": "Repository eintippen oder auswählen",
+  "dev.exportRepoPlaceholder": "Repository für den .env-Export eintippen oder auswählen",
 } satisfies Record<string, string>;

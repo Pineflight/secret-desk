@@ -108,18 +108,27 @@ export class WorkerSecretsClient {
   }
 }
 
-/** Status and the error messages Cloudflare names; never the request body (it may hold a value) and never the token. */
+/** Fixed, status-based text for a failed Cloudflare call. */
+function statusText(status: number): string {
+  if (status === 401) return "Authentifizierung fehlgeschlagen; der Token der Cloudflare-Verbindung ist ungueltig oder abgelaufen und braucht das Recht Workers Scripts Write";
+  if (status === 403) return "Keine Berechtigung; der Token der Cloudflare-Verbindung braucht das Recht Workers Scripts Write";
+  if (status === 404) return "Worker nicht gefunden (Konto und Name pruefen)";
+  if (status === 429) return "Zu viele Anfragen (Rate Limit); spaeter erneut versuchen";
+  if (status >= 500) return "Cloudflare meldet einen Serverfehler; spaeter erneut versuchen";
+  return "Anfrage von Cloudflare abgelehnt";
+}
+
+/**
+ * Method, path, status, a fixed text per status class and the numeric Cloudflare error codes. Never the upstream message text
+ * (it is not ours to copy into results), never the request body (it may hold a value) and never the token.
+ */
 async function failureText(method: string, path: string, res: Response): Promise<string> {
-  let detail = res.statusText;
+  let codes: number[] = [];
   try {
-    const parsed = (await res.json()) as { errors?: { code?: unknown; message?: unknown }[] };
-    const messages = (parsed.errors ?? []).flatMap((e) => (typeof e.message === "string" ? [typeof e.code === "number" ? `${e.message} (${e.code})` : e.message] : []));
-    if (messages.length > 0) detail = messages.join("; ").slice(0, 300);
+    const parsed = (await res.json()) as { errors?: { code?: unknown }[] };
+    codes = (parsed.errors ?? []).flatMap((e) => (typeof e.code === "number" && Number.isInteger(e.code) ? [e.code] : [])).slice(0, 10);
   } catch {
     /* no JSON answer */
   }
-  const base = `Cloudflare ${method} ${path.split("?")[0]} -> ${res.status}: ${detail}`;
-  if (res.status === 401 || res.status === 403) return `${base}; Der Token der Cloudflare-Verbindung braucht das Recht Workers Scripts Write.`;
-  if (res.status === 404) return `${base}; Worker nicht gefunden (Konto und Name pruefen).`;
-  return base;
+  return `Cloudflare ${method} ${path.split("?")[0]} -> ${res.status}: ${statusText(res.status)}${codes.length > 0 ? ` (Cloudflare-Code ${codes.join(", ")})` : ""}`;
 }

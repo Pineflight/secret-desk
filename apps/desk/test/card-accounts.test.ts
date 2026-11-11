@@ -52,7 +52,8 @@ describe("a provider with a guided sign-in always offers Connect", () => {
   it("reports the fallback as connected when a key is connected", () => {
     const c = card("acme-ai", input({ facades: [], connections: [conn("acme-ai", "Acme AI", { vendor: "acme-ai" })] }));
     expect(c.signIn.facade?.connected).toBe(true);
-    expect(c.worksWithoutBrowser).toBe(true);
+    // The facade list did not say how entry keys are issued, so the card does not claim that no browser is needed.
+    expect(c.worksWithoutBrowser).toBe(false);
   });
 
   it("does not invent a facade for a vendor that has none", () => {

@@ -18,6 +18,7 @@ import {
   PromptsRequiredError,
   integrationDefaultsOf,
   preflightEntry,
+  ttlDaysProblems,
   validateEntryParams,
   type EntryPreflight,
   RotationError,
@@ -497,6 +498,9 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
 
   const secret = rt.inventory.getSecret(secretId);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${secretId}`);
+  // Reject a value the provider cannot honour before any plan, approval, run state or provider call.
+  const ttlProblems = ttlDaysProblems(rt.providers.get(secret.provider), secret);
+  if (ttlProblems.length > 0) throw new ParamsInvalidError(ttlProblems);
   if (options.dryRun) {
     const plan = planRotation(secretId, rt);
     // Agenten bekommen nur den Parameterstand; Namen von Konten, Projekten usw. liest nur ein Mensch.

@@ -1,11 +1,14 @@
 "use client";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VerificationReport } from "@secret-desk/core";
 import type { AutomationRunState, IssuanceRequestResult, SecretView } from "@secret-desk/runtime";
 import type { EntryPreflight } from "@secret-desk/core";
 import { Dialog } from "@/components/Dialog";
+import type { AutomationInfo } from "@/components/BrowserAutomationPanel";
+import { RecipeSignInFlow } from "@/components/RecipeSignIn";
+import { recipeSignInSubject } from "@/lib/facade";
 import { NameHint } from "@/components/NormalizeDialog";
 import { ParamsCard } from "@/components/ParamsCard";
 import { EditMetaDialog, ExternalLink, TagPills, metaFrom } from "@/components/Meta";
@@ -134,7 +137,7 @@ export default function SecretDetailPage() {
       {paramsBlocked ? (
         <div className="mb-6"><Notice tone="warn" title={t("params.card.title")}>{blockedText} <button type="button" className="font-medium underline" onClick={() => goToParams(blockedText)}>{t("params.card.goTo")}</button></Notice></div>
       ) : null}
-      {s.browser ? <BrowserRunPanel secretId={id} state={run.data} starting={starting} onChanged={run.reload} /> : null}
+      {s.browser ? <BrowserRunPanel secretId={id} state={run.data} starting={starting} browserHost={s.browserHost} onChanged={run.reload} onRestart={() => void startRenewal(false)} /> : null}
       {plan ? (
         <div className="mb-6">
           <Notice tone="info" title={t("secretDetail.dryRunTitle")}>
@@ -231,12 +234,14 @@ export default function SecretDetailPage() {
 }
 
 /** Fortschritt eines Browser-Laufs. Zeigt nie einen Wert: nur Status, Text, Host und Schritt. */
-function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: string; state: AutomationRunState | undefined; starting: boolean; onChanged: () => void }) {
+function BrowserRunPanel({ secretId, state, starting, browserHost, onChanged, onRestart }: { secretId: string; state: AutomationRunState | undefined; starting: boolean; browserHost: string | null; onChanged: () => void; onRestart: () => void }) {
   const t = useT();
   const cancel = useMutation(async () => api<AutomationRunState>("POST", `automation/runs/${enc(secretId)}/cancel`));
   const status = state?.status ?? "idle";
   const live = status === "running" || status === "waiting-human";
   if (!live && !starting && status === "idle") return null;
+  // The backend ends a signed-out remote run at once; the text is localised from the code, never taken from the failure message.
+  if (status === "failed" && state?.failure?.code === "needs-sign-in" && state.signInRecipeId) return <SignInNeeded recipeId={state.signInRecipeId} host={browserHost ?? state.host} starting={starting} onRestart={onRestart} />;
   const tone = status === "failed" ? "danger" : status === "cancelled" ? "warn" : status === "done" ? "success" : status === "waiting-human" ? "warn" : "info";
   const title =
     status === "waiting-human" ? t("secretDetail.browserWaiting")
@@ -262,6 +267,36 @@ function BrowserRunPanel({ secretId, state, starting, onChanged }: { secretId: s
           {cancel.error ? <p className="text-danger-text">{cancel.error.message}</p> : null}
         </div>
       </Notice>
+    </div>
+  );
+}
+
+/** A signed-out run: the guided sign-in of the recipe, then the same issuance request again. Shows no value and no backend text. */
+function SignInNeeded({ recipeId, host, starting, onRestart }: { recipeId: string; host: string | null; starting: boolean; onRestart: () => void }) {
+  const t = useT();
+  const auto = useQuery<AutomationInfo>("automation", () => api<AutomationInfo>("GET", "automation"));
+  const [open, setOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const onSignedIn = useCallback(() => setSignedIn(true), []);
+  const row = auto.data?.recipes.find((r) => r.id === recipeId);
+  const provider = row?.label ?? recipeId;
+  const portal = row?.hosts?.find((h) => h.host === host)?.value ?? null;
+  return (
+    <div className="mb-6" aria-live="polite">
+      <Notice tone="warn" title={`${t("secretDetail.browserTitle")}: ${t("secretDetail.browserNeedsSignInTitle")}`}>
+        <div className="space-y-2">
+          <p>{signedIn ? t("secretDetail.browserSignedIn") : t("secretDetail.browserNeedsSignInText", { provider })}</p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button variant={signedIn ? "secondary" : "primary"} disabled={!auto.data} onClick={() => setOpen(true)}>{t("secretDetail.browserSignIn")}</Button>
+            {signedIn ? <Button variant="primary" disabled={starting} onClick={onRestart}>{t("secretDetail.browserRestart")}</Button> : null}
+          </div>
+        </div>
+      </Notice>
+      {open && auto.data ? (
+        <Dialog title={t("secretDetail.browserSignInTitle", { provider })} onClose={() => setOpen(false)}>
+          <RecipeSignInFlow subject={recipeSignInSubject(row ?? { id: recipeId }, auto.data.enabled)} name={provider} portal={portal} onChanged={onSignedIn} onDone={() => setOpen(false)} />
+        </Dialog>
+      ) : null}
     </div>
   );
 }

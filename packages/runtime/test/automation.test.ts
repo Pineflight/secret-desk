@@ -59,7 +59,11 @@ interface Opts {
   mode?: "ok" | "login" | "fail";
   automation?: string;
   env?: Record<string, string>;
+  /** Adds a guided sign-in (`login.form`) to the sample recipe. */
+  form?: boolean;
 }
+
+const FORM_RECIPE = RECIPE.replace("  message: Bitte anmelden\n", "  message: Bitte anmelden\n  form:\n    start: https://example.test/login\n    steps:\n      - fill: { label: Email, value: \"{{login.username}}\" }\n      - fill: { label: Password, value: \"{{login.password}}\" }\n");
 
 async function setup(opts: Opts = {}) {
   await sodium.ready;
@@ -72,7 +76,7 @@ async function setup(opts: Opts = {}) {
   }) as unknown as typeof fetch;
   const dir = await mkdtemp(join(tmpdir(), "sd-auto-"));
   await mkdir(join(dir, "recipes"));
-  await writeFile(join(dir, "recipes", "sample.yaml"), RECIPE);
+  await writeFile(join(dir, "recipes", "sample.yaml"), opts.form ? FORM_RECIPE : RECIPE);
   await writeFile(join(dir, "recipes", "kaputt.yaml"), "id: kaputt\nlabel: Kaputt\n");
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(
@@ -250,6 +254,34 @@ describe("run", () => {
     expect(rt.automation.state("sample-a").status).toBe("done");
   });
 
+  it("remote browser with a guided sign-in: a signed-out run ends at once as needs-sign-in, no value, no query", async () => {
+    const { rt, drivers } = await setup({ mode: "login", form: true, env: { SECRET_DESK_BROWSER_CDP: "http://127.0.0.1:9" } });
+    const err = await requestIssuance(rt, human, "sample-a").then(
+      () => null,
+      (e: Error) => e,
+    );
+    expect(err).toBeInstanceOf(AutomationError);
+    expect((err as AutomationError).kind).toBe("signin");
+    const st = getAutomationRun(rt, human, "sample-a");
+    expect(st).toMatchObject({ status: "failed", signInRecipeId: "sample-token", failure: { code: "needs-sign-in" } });
+    expect(rt.automation.isBusy()).toBe(false);
+    expect(drivers[0]?.closed).toBe(true);
+    for (const text of [JSON.stringify(st), String(err?.message), JSON.stringify(await getAutomation(rt, human))]) {
+      expect(text).not.toContain("geheim");
+      expect(text).not.toContain(TOKEN);
+    }
+  });
+
+  it("local browser, or a recipe without a guided sign-in, keeps waiting for the human in the window", async () => {
+    for (const s of [await setup({ mode: "login", form: true }), await setup({ mode: "login", env: { SECRET_DESK_BROWSER_CDP: "http://127.0.0.1:9" } })]) {
+      const p = requestIssuance(s.rt, human, "sample-a");
+      await until(() => s.rt.automation.state("sample-a").status === "waiting-human");
+      expect(s.rt.automation.state("sample-a").signInRecipeId).toBeUndefined();
+      cancelAutomationRun(s.rt, human, "sample-a");
+      await expect(p).rejects.toThrow(AutomationError);
+    }
+  });
+
   it("rejects a second concurrent run", async () => {
     const { rt } = await setup({ mode: "login" });
     const first = requestIssuance(rt, human, "sample-a");
@@ -276,6 +308,31 @@ describe("run", () => {
     await until(() => rt.automation.state("sample-b").status === "waiting-human");
     cancelAutomationRun(rt, human, "sample-b");
     await expect(next).rejects.toThrow(AutomationError);
+  });
+
+  it("answers params_invalid for a ttlDays the provider does not offer before any run state, browser or approval exists", async () => {
+    const { rt, drivers } = await setup();
+    const provider = rt.providers.get("sample-token-browser")!;
+    provider.ttlDaysOptions = [1, 7, 30];
+    rt.inventory.patchSecret("sample-a", { ttlDays: 90 });
+    for (const dryRun of [false, true]) {
+      const err = (await requestIssuance(rt, human, "sample-a", { dryRun }).catch((e: unknown) => e)) as { code?: string; problems?: { key: string; code: string }[]; message: string };
+      expect(err.code).toBe("params_invalid");
+      expect(err.problems?.map((p) => [p.key, p.code])).toEqual([["ttlDays", "not_in_options"]]);
+      expect(err.message).not.toContain(TOKEN);
+    }
+    const agentErr = (await requestIssuance(rt, agent, "sample-a").catch((e: unknown) => e)) as { code?: string };
+    expect(agentErr.code).toBe("params_invalid");
+    expect(rt.automation.state("sample-a").status).toBe("idle");
+    expect(rt.approvals.list()).toHaveLength(0);
+    expect(drivers).toHaveLength(0);
+    for (const days of [30, 7, 1]) {
+      rt.inventory.patchSecret("sample-a", { ttlDays: days });
+      const plan = await requestIssuance(rt, human, "sample-a", { dryRun: true });
+      expect(plan.status).toBe("dry-run");
+    }
+    rt.inventory.patchSecret("sample-a", { ttlDays: null });
+    expect((await requestIssuance(rt, human, "sample-a", { dryRun: true })).status).toBe("dry-run");
   });
 
   it("fails after creation with the hint to delete the token at the provider", async () => {

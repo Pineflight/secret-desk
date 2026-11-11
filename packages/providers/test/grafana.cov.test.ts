@@ -7,7 +7,7 @@ import { byId, connections, issueCtx, mockFetch, revokeCtx, routeFetch, secretEn
 const MADE_UP = ["made", "up", "value", "0123456789"].join("-");
 const STACK = "https://acme.grafana.net";
 const PROXY = "https://grafana.com/api/instances/acme";
-const COM = "https://www.grafana.com/api/v1";
+const COM = "https://grafana.com/api/v1";
 const params = { baseUrl: STACK, serviceAccountId: 7 };
 const OWN_HOST = "https://grafana.internal.example";
 const cfg = { grafana: { allowedHosts: ["grafana.internal.example"] } } as unknown as ProviderConfig;

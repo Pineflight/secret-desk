@@ -369,3 +369,67 @@ describe("when, optional steps, attribute capture and pause", () => {
     expect(waits).toEqual([{ kind: "pause", reason: "Passwort bestaetigen", url: "https://example.test/start" }]);
   });
 });
+
+describe("runRecipe: signed out where nobody sees the window", () => {
+  const FORM = { form: { start: "https://example.test/login", steps: [{ fill: { label: "Email", value: "{{login.username}}" } }, { fill: { label: "Password", value: "{{login.password}}" } }] } };
+  const signedOut = (): FakeDriver => formDriver({ on: (_e, dd) => void (dd.url = "https://example.test/login?token=geheim") });
+  const withForm = () => sampleRecipe({ login: { expect: { url: "^https://example\\.test/tokens" }, message: "Bitte anmelden", ...FORM } });
+
+  it("ends at once with the kind signin when no hook is registered, naming no query and no value", async () => {
+    const waits: HumanWait[] = [];
+    const d = signedOut();
+    const err = (await runRecipe(withForm(), VARS, d, { onWaitingForHuman: (w) => void waits.push(w) }, { signInOutsideWindow: true, pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect(err.kind).toBe("signin");
+    expect(err.createdName).toBeUndefined();
+    expect(err.message).toContain("example.test");
+    expect(err.message).not.toContain("geheim");
+    expect(err.message).not.toContain(TOKEN);
+    expect(waits).toEqual([]);
+    expect(d.closed).toBe(true);
+  });
+
+  it("calls a registered sign-in hook and continues the run", async () => {
+    let signedIn = false;
+    const d = formDriver({
+      on: (e, dd) => {
+        if (e.action === "goto") dd.url = signedIn ? TOKENS_URL : "https://example.test/login?token=geheim";
+        if (e.action === "click") {
+          dd.visible.add("css #tok");
+          dd.texts.set("css #tok", TOKEN);
+        }
+      },
+    });
+    let called = 0;
+    const r = await runRecipe(
+      withForm(),
+      VARS,
+      d,
+      {
+        signIn: async (drv) => {
+          called++;
+          signedIn = true;
+          (drv as FakeDriver).url = "https://example.test/tokens";
+        },
+      },
+      { signInOutsideWindow: true, pollMs: 5 },
+    );
+    expect(called).toBe(1);
+    expect(r.value.reveal()).toBe(TOKEN);
+  });
+
+  it("a hook that leaves the browser signed out still ends with signin, not a wait", async () => {
+    const err = (await runRecipe(withForm(), VARS, signedOut(), { signIn: async () => undefined }, { signInOutsideWindow: true, pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err.kind).toBe("signin");
+  });
+
+  it("a recipe without a guided sign-in keeps waiting for the human in the window", async () => {
+    const err = (await runRecipe(sampleRecipe(), VARS, signedOut(), {}, { signInOutsideWindow: true, loginTimeoutMinutes: 0.0005, pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err.kind).toBe("timeout");
+  });
+
+  it("without the option (a local window) it still waits", async () => {
+    const err = (await runRecipe(withForm(), VARS, signedOut(), {}, { loginTimeoutMinutes: 0.0005, pollMs: 5 }).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err.kind).toBe("timeout");
+  });
+});

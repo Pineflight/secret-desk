@@ -261,11 +261,25 @@ describe("card status for browser-only providers", () => {
     expect(one("dataapi", base({ secrets: [managed("dataapi", "k1", null)] })).browser?.expiry).toBeNull();
   });
   it("an API connection wins over the browser state and the card says it works without the browser", () => {
-    const c = one("aico", base({ connections: [conn("aico", "aico", "primary", true, 30)], facades: [{ id: "aico", label: "AI Co", available: true, connected: true, reason: null, connectionId: "aico" }], signInChecks: [{ host: "platform.aico.test", signedIn: false, checkedAt: ago(1) }] }));
+    const c = one("aico", base({ connections: [conn("aico", "aico", "primary", true, 30)], facades: [{ id: "aico", label: "AI Co", available: true, connected: true, reason: null, connectionId: "aico", issuesKeysByApi: true }], signInChecks: [{ host: "platform.aico.test", signedIn: false, checkedAt: ago(1) }] }));
     expect(c.status).toBe("connected");
     expect(c.worksWithoutBrowser).toBe(true);
     expect(browserNote(c)).toEqual({ key: "providers.card.worksWithoutBrowser", age: null });
     expect(managedExpiry(c)).toMatchObject({ keyId: "aico" });
+  });
+  it("a facade that issues keys through its API and reports itself connected works without the browser even without a key row", () => {
+    const row: FacadeRow = { id: "aico", label: "AI Co", available: true, connected: true, reason: null, connectionId: "aico", issuesKeysByApi: true };
+    expect(one("aico", base({ facades: [row] })).worksWithoutBrowser).toBe(true);
+    expect(one("aico", base({ facades: [{ ...row, connected: false }] })).worksWithoutBrowser).toBe(false);
+  });
+  it("a connected facade whose entries come from a browser recipe still needs the browser sign-in", () => {
+    const conn1 = [conn("aico", "aico", "primary", true, 30)];
+    const checks = [{ host: "platform.aico.test", signedIn: true, checkedAt: ago(1) }];
+    for (const issuesKeysByApi of [false, undefined]) {
+      const c = one("aico", base({ connections: conn1, facades: [{ id: "aico", label: "AI Co", available: true, connected: true, reason: null, connectionId: "aico", ...(issuesKeysByApi === undefined ? {} : { issuesKeysByApi }) }], signInChecks: checks }));
+      expect(c.worksWithoutBrowser).toBe(false);
+      expect(browserNote(c)?.key).not.toBe("providers.card.worksWithoutBrowser");
+    }
   });
   it("a facade provider without a connection is judged by the browser like any other", () => {
     const f: FacadeRow = { id: "aico", label: "AI Co", available: true, connected: false, reason: null, connectionId: "aico" };

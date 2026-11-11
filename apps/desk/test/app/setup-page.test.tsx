@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import SetupPage from "@/app/setup/page";
 import { CHOICE_STORAGE_KEY } from "@/lib/setup-choice";
@@ -48,6 +48,20 @@ describe("Setup page: choice", () => {
     await user.click(screen.getByRole("radio", { name: t("setup.choice.empty") }));
     expect(screen.getByRole("button", { name: t("setup.empty.start") })).toBeInTheDocument();
     expect(screen.queryByLabelText(t("setup.upload.title"))).toBeNull();
+  });
+});
+
+describe("Setup page: compact choice row", () => {
+  it("shows short labels below sm and the full label as the accessible name, in DOM order github, upload, empty", () => {
+    fakePortal({});
+    renderApp(<SetupPage />);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual([t("setup.choice.github"), t("setup.choice.upload"), t("setup.choice.empty")]);
+    for (const [i, key] of (["github", "upload", "empty"] as const).entries()) {
+      expect(within(radios[i]!).getByText(t(`setup.choice.${key}Short`))).toHaveClass("sm:hidden");
+      expect(within(radios[i]!).getByText(t(`setup.choice.${key}`))).toHaveClass("max-sm:hidden");
+    }
+    expect(radios[0]!.parentElement).toHaveClass("grid-cols-3");
   });
 });
 

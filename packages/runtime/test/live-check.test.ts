@@ -178,6 +178,107 @@ describe("live check: recipes", () => {
     expect(report.ok).toBe(true);
   });
 
+  describe("parameters derived from the inventory", () => {
+    const entry = (id: string, stage: string, params: string, provider = "needs-param-browser", issued: "rotatedAt" | "verifiedAt" | null = "rotatedAt"): string =>
+      `  - id: ${id}\n    name: ${id.toUpperCase().replaceAll("-", "_")}\n    stage: ${stage}\n    service: example\n    provider: ${provider}\n    expiry: none\n${issued ? `    ${issued}: 2026-11-01\n` : ""}    ${params}\n    places: [{ repo: acme-app, scope: repository }]\n`;
+    const inventory = (...entries: string[]): string => `version: 1\nsecrets:\n${entries.join("")}`;
+    const signedIn = (visible: string[] = [GENERATE]): ReturnType<typeof newWorld> => newWorld({ signedIn: new Set(["f.example.com"]), visible });
+    const ACCOUNT = "acct_madeup_0004";
+    const OTHER = "acct_madeup_0005";
+
+    it("takes a required parameter without a default from an entry of the recipe's provider; names the entry and the parameter, never the value", async () => {
+      const world = signedIn();
+      const { rt, log, lines } = await setup({ recipes: ["needs-param"], world, inventory: inventory(entry("billing-key", "dev", `params: { account: ${ACCOUNT} }`)) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]).toMatchObject({ id: "needs-param", result: "ok" });
+      expect(report.recipes[0]!.detail).toContain("Parameters (account) taken from entry billing-key.");
+      expect(world.drivers[0]!.calls.filter((c) => c.startsWith("goto"))[0]).toContain(`/${ACCOUNT}/keys`);
+      expect(JSON.stringify(report) + lines.join("\n")).not.toContain(ACCOUNT);
+      leaks(report, lines);
+    });
+
+    it("prefers an entry outside the live stages, then the smallest id", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({
+        recipes: ["needs-param"],
+        world,
+        inventory: inventory(entry("a-prod", "production", `params: { account: ${ACCOUNT} }`), entry("z-staging", "staging", `params: { account: ${ACCOUNT} }`), entry("m-dev", "dev", `params: { account: ${OTHER} }`)),
+      });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry m-dev.");
+      expect(world.drivers[0]!.calls.filter((c) => c.startsWith("goto"))[0]).toContain(`/${OTHER}/keys`);
+    });
+
+    it("also matches entries that name the recipe's own provider id (an API provider with browser fallback)", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({ recipes: ["needs-param-provider"], world, inventory: inventory(entry("api-entry", "dev", `params: { account: ${ACCOUNT} }`, "acme-api")) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry api-entry.");
+    });
+
+    it("accepts a numeric parameter and passes over entries without any parameters or with an unusable value", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({ recipes: ["needs-param"], world, inventory: inventory(entry("a-none", "dev", "description: no params here"), entry("b-list", "dev", "params: { account: [x] }"), entry("c-number", "dev", "params: { account: 4242 }")) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry c-number.");
+      expect(world.drivers[0]!.calls.filter((c) => c.startsWith("goto"))[0]).toContain("/4242/keys");
+    });
+
+    it("uses a live entry when nothing else fits, and skips entries that give the recipe nothing", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({ recipes: ["needs-param"], world, inventory: inventory(entry("a-dev", "dev", "params: {}"), entry("b-prod", "production", `params: { account: ${ACCOUNT} }`)) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry b-prod.");
+    });
+
+    it("ignores an entry that was never issued or verified, even when it sorts first (an unissued entry cannot steer the run)", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({
+        recipes: ["needs-param"],
+        world,
+        inventory: inventory(entry("a-unissued", "dev", `params: { account: ${OTHER} }`, "needs-param-browser", null), entry("b-issued", "dev", `params: { account: ${ACCOUNT} }`), entry("c-verified", "dev", `params: { account: 4243 }`, "needs-param-browser", "verifiedAt")),
+      });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry b-issued.");
+      expect(world.drivers[0]!.calls.filter((c) => c.startsWith("goto"))[0]).toContain(`/${ACCOUNT}/keys`);
+    });
+
+    it("accepts an entry that was only verified", async () => {
+      const world = signedIn();
+      const { rt, log } = await setup({ recipes: ["needs-param"], world, inventory: inventory(entry("only-verified", "dev", `params: { account: ${ACCOUNT} }`, "needs-param-browser", "verifiedAt")) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]!.detail).toContain("entry only-verified.");
+    });
+
+    it("stays skipped when only unissued entries exist", async () => {
+      const { rt, log, world } = await setup({ recipes: ["needs-param"], inventory: inventory(entry("never", "dev", `params: { account: ${ACCOUNT} }`, "needs-param-browser", null)) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]).toMatchObject({ id: "needs-param", result: "skipped" });
+      expect(report.recipes[0]!.detail).toMatch(/account/);
+      expect(JSON.stringify(report)).not.toContain(ACCOUNT);
+      expect(world.drivers).toHaveLength(0);
+    });
+
+    it("stays skipped when no entry of the provider carries the parameter", async () => {
+      const { rt, log, world } = await setup({ recipes: ["needs-param"], inventory: inventory(entry("other", "dev", `params: { account: ${ACCOUNT} }`, "some-other-browser"), entry("empty", "dev", "params: {}")) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log });
+      expect(report.recipes[0]).toMatchObject({ id: "needs-param", result: "skipped" });
+      expect(report.recipes[0]!.detail).toMatch(/account/);
+      expect(JSON.stringify(report)).not.toContain(ACCOUNT);
+      expect(world.drivers).toHaveLength(0);
+    });
+
+    it("a derived parameter that is wrong turns into a failure that still names the entry", async () => {
+      // A page that never answers stands for "the account in this entry does not exist at the provider".
+      const world = newWorld({ hang: new Set(["f.example.com"]) });
+      const { rt, log } = await setup({ recipes: ["needs-param"], world, inventory: inventory(entry("billing-key", "dev", `params: { account: ${ACCOUNT} }`)) });
+      const report = await runLiveCheck(rt, { trigger: "manual", log, recipeTimeoutSeconds: 0.05 });
+      expect(report.recipes[0]).toMatchObject({ result: "failed", kind: "timeout" });
+      expect(report.recipes[0]!.detail).toContain("Parameters (account) taken from entry billing-key.");
+      expect(JSON.stringify(report)).not.toContain(ACCOUNT);
+    });
+  });
+
   it("skips a recipe whose inputs fail unexpectedly with the error name only", async () => {
     const { rt, log } = await setup({ recipes: ["ok-create"] });
     const real = rt.automation.now.bind(rt.automation);

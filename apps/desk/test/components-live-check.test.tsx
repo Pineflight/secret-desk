@@ -95,9 +95,12 @@ describe("LiveCheckPanel", () => {
     const { user } = renderApp(<LiveCheckPanel />);
     const toggle = await screen.findByRole("button", { name: "Details und Erklärung" });
     const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    // Below sm the last-run line only shows with the details, so the closed bar stays short.
+    expect(screen.getByText(/Letzter Lauf/)).toHaveClass("max-sm:hidden");
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(details).not.toHaveAttribute("hidden");
+    expect(screen.getByText(/Letzter Lauf/)).not.toHaveClass("max-sm:hidden");
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(details).toHaveAttribute("hidden");

@@ -57,6 +57,10 @@ ${createCapture}`,
   - goto: "https://f.example.com/{{account}}/keys"
   - click: { role: button, name: Generate, exact: true, createsToken: true }
 ${createCapture}`,
+  "needs-param-provider": `${header("needs-param-provider", "f.example.com", "provider: acme-api\nparams:\n  - key: account\n    label: Account\n")}${login("f.example.com")}steps:
+  - goto: "https://f.example.com/{{account}}/keys"
+  - click: { role: button, name: Generate, exact: true, createsToken: true }
+${createCapture}`,
   "list-only": `${header("list-only", "g.example.com")}${login("g.example.com")}steps:
   - click: { role: button, name: Generate, exact: true, createsToken: true }
     each: repos
@@ -149,6 +153,8 @@ export interface SetupOptions {
   dir?: string;
   world?: World;
   driver?: () => FakeDriver | Promise<FakeDriver>;
+  /** Replaces the empty inventory (full YAML text). */
+  inventory?: string;
 }
 
 export async function setup(opts: SetupOptions = {}) {
@@ -156,7 +162,7 @@ export async function setup(opts: SetupOptions = {}) {
   const recipesDir = join(dir, "bundled");
   await mkdir(recipesDir, { recursive: true });
   for (const id of opts.recipes ?? []) await writeFile(join(recipesDir, `${id}.yaml`), RECIPES[id] ?? "");
-  await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
+  await writeFile(join(dir, "inventory.yaml"), opts.inventory ?? "version: 1\nsecrets: []\n");
   await writeFile(
     join(dir, "secret-desk.config.yaml"),
     `inventory: ./inventory.yaml\nlinksFile: ${join(dir, "data", "repo-links.json")}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${opts.connections ?? ""}${opts.automation ?? ""}`,

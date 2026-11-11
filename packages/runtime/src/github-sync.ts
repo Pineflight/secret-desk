@@ -20,6 +20,7 @@ export function secretValueSource(rt: Runtime): SecretValueSource | undefined {
 
 const planDeps = (rt: Runtime, repo?: string) => ({
   github: rt.github,
+  workers: rt.workers,
   owner: rt.owner,
   inventory: rt.inventory.data,
   ignoreRepos: rt.config.compare.ignoreRepos,
@@ -52,7 +53,7 @@ export async function runGitHubSync(rt: Runtime, actor: Actor, request: GitHubSy
   const plan = await buildSyncPlan(planDeps(rt, request.repo));
   const values = secretValueSource(rt);
   return runSync(
-    { github: rt.github, owner: rt.owner, plan, inventory: rt.inventory.data, ...(values ? { values } : {}) },
+    { github: rt.github, workers: rt.workers, owner: rt.owner, plan, inventory: rt.inventory.data, ...(values ? { values } : {}) },
     { keys: request.keys, ...(request.confirmProduction !== undefined ? { confirmProduction: request.confirmProduction } : {}), ...(request.onProgress ? { onProgress: request.onProgress } : {}), ...(request.sleep ? { sleep: request.sleep } : {}), ...(request.batchSize ? { batchSize: request.batchSize } : {}) },
   );
 }

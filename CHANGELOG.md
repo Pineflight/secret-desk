@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Signed out during a remote-browser run:** when a token run uses a remote browser and the provider is signed out, the run no longer waits for a window nobody sees. It ends at once with the state *needs sign-in*; the secret page shows a notice with **Sign in** (the guided sign-in for that recipe) and, after it, **Start again**, which repeats the same request. A local browser window keeps waiting as before. Agents get neither the dialog nor a prompt. See [BROWSER-AUTOMATION.md](docs/BROWSER-AUTOMATION.md).
+- **Live check derives missing parameters:** a recipe that needs a real parameter (an account, an organization, a project) no longer shows up as *skipped*: the dry run takes the parameters from an inventory entry of that provider that was issued or verified before (non-live stage first, then by id). The report names the entry id and the parameter names, never values. An entry with wrong parameters now turns *skipped* into a real failure; see [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#reading-the-live-check).
+- **Anthropic API keys expire in 1, 7 or 30 days:** the console offers no other option, so an entry with another `ttlDays` is rejected as `params_invalid` (problem `ttlDays`) before any run, approval or browser starts, for people, agents and *show plan only*. The default without `ttlDays` is 30 days (was a 90-day fallback that the console never set). Providers can declare `ttlDaysOptions`.
+- **Phones:** integration cards are one compact row with the action on the right; the setup choice uses short labels and keeps the step button in view; the entries filter pill counts the search text and the tag.
 - **Team page:** the last sync is shown as date and time in the language of the portal (ISO value in the tooltip); with sync working through the GitHub integration and no team token the status line is neutral (*Uses your GitHub integration. A separate team token is optional.*) and *Manage token* stays closed; with the pull-request strategy heading, confirm button and notice say *Create pull request* / *Confirm and create pull request* / *Pull request created* (`direct` keeps the push wording); the pull request link is shown once; the two buttons sit on the right of the header row from a wide window up.
 - **Evidence sheet language:** the evidence image follows the interface language (`?lang=en` on `GET /api/ui/evidence/<secret>/<report>/svg`, German without it).
 - **Compare toolbar** is three rows (live toggle, selects and search; stage chips; checkboxes), so the table starts higher. **Phone layouts:** the entries filters collapse behind one *Filters* button, the dev environment cards work as an accordion.
@@ -51,6 +55,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Sync to GitHub with Cloudflare Worker places:** the runtime did not pass the Worker client to the sync plan and the sync run, so an inventory with a `cloudflare-worker` place failed with "no Worker client". Plan and write now go through it, under the same confirmation and production gate.
+- **Cloudflare Worker errors carry no upstream text:** a failed Worker call reports the HTTP status, a fixed text per status and Cloudflare's numeric error codes, not the message text Cloudflare sent.
+- **Provider cards:** *Works without browser sign-in* is shown only for integrations that issue keys through an API (new facade flag `issuesKeysByApi`); the Anthropic and RevenueCat cards no longer claim it.
+- Grafana Cloud calls use one host (`grafana.com`), the one the recipe allowlist names.
+- Team page: an earlier open pull request stays visible when a new one was just created; dev environment on a phone: a card with a result or an error stays open; filter toggles point at an element that exists while closed.
 - The entry page no longer says every recipe is unchecked against the real site: the bundled recipes have been run live, and each states what was verified in its `STATUS` line.
 - Anthropic API keys: the recipe waits for the view that shows the new key and reads it there, and keys starting with `sk-ant-usr` are accepted. Before, it read the form too early and left the page, which cancelled the creation.
 - Anthropic API keys: the expiry and workspace fields of the Console's key dialog are found again; it now uses comboboxes.

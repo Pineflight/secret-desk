@@ -272,19 +272,22 @@ describe("Cloudflare Worker secrets client", () => {
 
   describe("error text", () => {
     const failing = (status: number, body: unknown) => new WorkerSecretsClient({ auth, fetch: (async () => json(status, body as never)) as never });
-    it("names Cloudflare's messages, with the code when it is a number", async () => {
+    it("names the numeric Cloudflare codes, never the upstream message text", async () => {
       const client = failing(400, { errors: [{ code: 10007, message: "no such worker" }, { message: "second" }, { code: 1 }] });
-      await expect(client.listSecretNames(ACCOUNT)).rejects.toThrow("Cloudflare GET /accounts/acc/workers/scripts/portal/secrets -> 400: no such worker (10007); second");
+      const err = (await client.listSecretNames(ACCOUNT).catch((e: unknown) => e)) as Error;
+      expect(err.message).toBe("Cloudflare GET /accounts/acc/workers/scripts/portal/secrets -> 400: Anfrage von Cloudflare abgelehnt (Cloudflare-Code 10007, 1)");
+      expect(err.message).not.toContain("no such worker");
+      expect(err.message).not.toContain("second");
     });
-    it("falls back to the status text without messages or without JSON", async () => {
-      await expect(failing(500, { errors: [] }).listSecretNames(ACCOUNT)).rejects.toThrow(/-> 500: Status Text$/);
-      await expect(failing(500, { success: false }).listSecretNames(ACCOUNT)).rejects.toThrow(/-> 500: Status Text$/);
-      await expect(failing(502, "<html>").listSecretNames(ACCOUNT)).rejects.toThrow(/-> 502: Status Text$/);
+    it("uses the fixed status text without codes or without JSON", async () => {
+      await expect(failing(500, { errors: [] }).listSecretNames(ACCOUNT)).rejects.toThrow(/-> 500: Cloudflare meldet einen Serverfehler; spaeter erneut versuchen$/);
+      await expect(failing(500, { success: false }).listSecretNames(ACCOUNT)).rejects.toThrow(/-> 500: Cloudflare meldet einen Serverfehler/);
+      await expect(failing(502, "<html>").listSecretNames(ACCOUNT)).rejects.toThrow(/-> 502: Cloudflare meldet einen Serverfehler/);
     });
     it("adds a hint for 401, 403 and 404", async () => {
       await expect(failing(403, {}).listSecretNames(ACCOUNT)).rejects.toThrow("braucht das Recht Workers Scripts Write");
       await expect(failing(401, {}).listSecretNames(ACCOUNT)).rejects.toThrow("braucht das Recht Workers Scripts Write");
-      await expect(failing(404, {}).listSecretNames(ACCOUNT)).rejects.toThrow("Worker nicht gefunden (Konto und Name pruefen).");
+      await expect(failing(404, {}).listSecretNames(ACCOUNT)).rejects.toThrow("Worker nicht gefunden (Konto und Name pruefen)");
     });
     it("is a WorkerSecretsError with the status", async () => {
       await expect(failing(404, {}).check(ACCOUNT)).rejects.toBeInstanceOf(WorkerSecretsError);

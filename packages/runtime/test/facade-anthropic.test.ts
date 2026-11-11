@@ -138,6 +138,7 @@ describe("facade: anthropic", () => {
     ]);
     expect(f.methods.map((m) => m.id)).toEqual(["email", "google"]);
     expect((await listFacades(rt, human)).filter((x) => x.id !== "anthropic").every((x) => x.passwordless === false)).toBe(true);
+    expect((await listFacades(rt, human)).map((x) => [x.id, x.issuesKeysByApi])).toEqual([["revenuecat", false], ["openai", true], ["anthropic", false], ["grafana", true], ["stripe", true]]);
   });
 
   it("creates the admin key in the signed-in browser, stores it as the anthropic connection and tests it with x-api-key", async () => {

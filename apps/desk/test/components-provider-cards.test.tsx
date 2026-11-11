@@ -262,6 +262,23 @@ describe("ProviderPageCard", () => {
     expect(screen.getByRole("button", { name: /Details von GitHub/ }).querySelector(".text-warn-text")).toBeNull();
   });
 
+  it("below sm a collapsed card is one row: name, badge, then the action on the right; category, purpose and meta show when open", () => {
+    const meta: CollapsedMeta = { kind: "expiry", problem: false, key: "providers.meta.testFailed", vars: {} };
+    const setUp = vi.fn();
+    const { rerender } = renderApp(<ProviderPageCard card={c} view={view({ badge: "none", meta })} open={false} onToggle={() => {}} signIn={null} setUp={setUp} />);
+    const toggle = screen.getByRole("button", { name: /Details von GitHub/ });
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const category = screen.getByText("Code und CI");
+    expect(category).toHaveClass("max-sm:hidden");
+    expect(toggle.parentElement!.parentElement).toHaveClass("max-sm:flex-nowrap");
+    const action = toggle.parentElement!.nextElementSibling as HTMLElement;
+    expect(action).toHaveClass("max-sm:shrink-0");
+    expect(follows(toggle, action)).toBe(true);
+    expect(toggle.querySelectorAll(".max-sm\\:hidden")).toHaveLength(3);
+    rerender(<ProviderPageCard card={c} view={view({ badge: "none", meta })} open onToggle={() => {}} signIn={null} setUp={setUp} />);
+    expect(screen.getByRole("button", { name: /Details von GitHub/ }).querySelectorAll(".max-sm\\:hidden")).toHaveLength(0);
+  });
+
   it("formats the date and days of a meta line", () => {
     const meta: CollapsedMeta = { kind: "expiry", problem: false, key: "providers.meta.expiresSoon", vars: {}, date: "2099-03-04", days: 10 };
     renderApp(<ProviderPageCard card={c} view={view({ meta })} open={false} onToggle={() => {}} signIn={null} />);
