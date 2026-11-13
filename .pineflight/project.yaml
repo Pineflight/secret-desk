@@ -1,0 +1,35 @@
+# Project manifest for secret-desk.
+# The schema is maintained outside this repository (project.schema.json, schemaVersion 1).
+
+schemaVersion: 1
+
+project:
+  id: secret-desk
+  name: secret-desk
+  repository: Pineflight/secret-desk
+  type: application
+  description: >-
+    Local-first portal for tokens and secrets: see expiry, issue or renew
+    tokens at providers and write them directly to the GitHub secret store.
+    Values are never stored.
+
+legal:
+  profile:
+    - base
+
+commands:
+  install: pnpm install --frozen-lockfile
+  build: pnpm run build
+  typecheck: pnpm run typecheck
+  test: pnpm run test
+  verify: pnpm run verify
+
+delivery:
+  units:
+    # Container image and release archives, published by the release workflow
+    # on every run on main. There is no hosted deployment in this repository.
+    - id: image
+      kind: package
+      provider: ghcr
+      owner: repository
+      workflow: .github/workflows/release.yml
