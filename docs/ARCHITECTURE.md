@@ -88,6 +88,10 @@ Three interfaces separate what `packages/core` does from where the bytes live, s
 
 `vault-core.ts`, `evidence.ts`, `inventory-backend.ts` and `inventory-errors.ts` import no Node built-ins and do not use `process`, `Buffer` or `require`; `portable-modules.test.ts` fails if that changes. Everything that needs the file system or the operating system stays in `vault.ts`, `vault-file-store.ts`, `evidence-file-store.ts`, `inventory-file-backend.ts` and `platform.ts`.
 
+### Host capabilities
+
+`ConnectionStoreCore` (`connections-core.ts`, portable, covered by `portable-modules.test.ts`) holds the token lookup: session value, vault, then the configured source. What the hosting process lets a configuration reach is an explicit `ConnectionHost` (`label`, optional `env(name)` and `readReference(ref)`). Without `env`, an `env` source is not available; without `readReference`, an `op` source is not available. Both cases throw a `NotConnectedError` that tells the user to enter a token under Connections, and `status()` reports the same reason without throwing. Session and vault values are looked up first and work either way. `ConnectionStore` (`connections.ts`) is the Node facade of the local edition: it keeps the options `env` and `exec`, builds `nodeConnectionHost(env, exec)` (process environment and `op read <ref>`) from them, and accepts `host` to override it; `host: null` means no host at all. Omitting `host` on `ConnectionStore` grants the process environment and `op`: that default is for the local edition only. A runtime that shares one process between several users uses `ConnectionStoreCore` or `host: null` so a configuration cannot read the host's environment or run its tools.
+
 ## Packages
 
 | Package | Role |
