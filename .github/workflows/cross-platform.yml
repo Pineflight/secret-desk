@@ -1,7 +1,7 @@
+# Checks install, build, typecheck and tests on Linux, macOS and Windows.
+# Manual only (workflow_dispatch). Runs on GitHub-hosted runners.
 name: Cross-Platform
 
-# Prueft Installation, Build, Typpruefung und Tests auf Linux, macOS und Windows.
-# Nur von Hand (workflow_dispatch). Laeuft auf GitHub-gehosteten Runnern.
 on:
   workflow_dispatch:
 
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    name: ${{ matrix.os }}
+    name: Verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -22,15 +22,22 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Die pnpm-Version kommt aus "packageManager" in package.json.
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # The pnpm version comes from "packageManager" in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
-      - run: pnpm run typecheck
-      - run: pnpm run test
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Run typecheck
+        run: pnpm run typecheck
+      - name: Run tests
+        run: pnpm run test

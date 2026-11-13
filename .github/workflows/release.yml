@@ -1,5 +1,3 @@
-name: Release
-
 # On every run on main: verify, build the portal image natively per platform (amd64 and arm64), put a multi-arch manifest
 # on ghcr.io and create a GitHub release. Tag and image version: <package.json version>-<run number>.
 #
@@ -8,6 +6,8 @@ name: Release
 # republished on every merge, each merge would cut off a sign-in a human is typing in the browser window. Even unchanged
 # content with new annotations is a new digest, so the sidecar's :latest stays completely untouched while its content is the
 # same. The sidecar tag <version>-<run number> names the release in which the sidecar last changed.
+
+name: Release
 
 on:
   push:
@@ -22,20 +22,31 @@ concurrency:
 
 jobs:
   verify:
+    name: Verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run verify
+        run: pnpm run verify
+      - name: Check third-party licences
+        run: node scripts/licenses.mjs --check
+      - name: Scan for committed values
+        run: bash scripts/scan-values.sh
 
   version:
+    name: Version
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -46,17 +57,19 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       browser_changed: ${{ steps.browser.outputs.changed }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # The release tags and the history are needed to compare with the previous release.
           fetch-depth: 0
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - name: Log in to registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Version bestimmen
+      - name: Determine version
         id: version
         run: |
           base=$(node -p "require('./package.json').version")
@@ -86,6 +99,7 @@ jobs:
           fi
 
   build:
+    name: Build Image (${{ matrix.arch }})
     needs: version
     strategy:
       fail-fast: true
@@ -103,16 +117,20 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      - name: Extract image metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
@@ -130,7 +148,8 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - name: Build and push image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -144,7 +163,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      - name: Extract browser sidecar metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         if: needs.version.outputs.browser_changed == 'true'
         id: meta_browser
         with:
@@ -163,7 +183,8 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - name: Build and push browser sidecar
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         if: needs.version.outputs.browser_changed == 'true'
         with:
           context: docker/browser
@@ -177,6 +198,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=browser-${{ matrix.arch }}
 
   manifest:
+    name: Publish Manifest and Release
     needs: [version, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -186,19 +208,22 @@ jobs:
     env:
       TAG: ${{ needs.version.outputs.tag }}
       BROWSER_CHANGED: ${{ needs.version.outputs.browser_changed }}
-      # Annotationen am Index (docker buildx imagetools create unterstuetzt dort den Praefix "index:").
+      # Annotations on the index (docker buildx imagetools create supports the "index:" prefix there).
       DOCKER_METADATA_ANNOTATIONS_LEVELS: index
     steps:
-      # Image-Referenzen muessen kleingeschrieben sein, der Repository-Name (Pineflight/...) nicht.
-      - name: Image-Name in Kleinbuchstaben
+      # Image references must be lowercase, the repository name (with its owner) is not.
+      - name: Set lowercase image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      - name: Extract image metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
@@ -217,7 +242,8 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
-      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      - name: Extract browser sidecar metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         if: needs.version.outputs.browser_changed == 'true'
         id: meta_browser
         with:
@@ -237,8 +263,8 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ needs.version.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
-      # Zwei metadata-action-Schritte: DOCKER_METADATA_OUTPUT_JSON gehoert dem letzten, deshalb je Schritt die eigene Ausgabe.
-      - name: Multi-Arch-Manifest anlegen
+      # Two metadata-action steps: DOCKER_METADATA_OUTPUT_JSON belongs to the last one, so each step uses its own output.
+      - name: Create multi-arch manifest
         env:
           METADATA: ${{ steps.meta.outputs.json }}
         run: |
@@ -246,7 +272,7 @@ jobs:
           while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$METADATA")
           while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$METADATA")
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${TAG}-amd64" "${IMAGE}:${TAG}-arm64"
-      - name: Multi-Arch-Manifest des Browser-Sidecars anlegen
+      - name: Create multi-arch manifest of the browser sidecar
         if: needs.version.outputs.browser_changed == 'true'
         env:
           METADATA: ${{ steps.meta_browser.outputs.json }}
@@ -255,7 +281,7 @@ jobs:
           while IFS= read -r tag; do args+=(--tag "$tag"); done < <(jq -r '.tags[]' <<<"$METADATA")
           while IFS= read -r annotation; do args+=(--annotation "$annotation"); done < <(jq -r '(.annotations // [])[]' <<<"$METADATA")
           docker buildx imagetools create "${args[@]}" "${IMAGE}-browser:${TAG}-amd64" "${IMAGE}-browser:${TAG}-arm64"
-      - name: Plattformen im Manifest pruefen
+      - name: Verify platforms in manifest
         run: |
           refs=("${IMAGE}:${TAG}" "${IMAGE}:latest")
           if [ "$BROWSER_CHANGED" = "true" ]; then refs+=("${IMAGE}-browser:${TAG}" "${IMAGE}-browser:latest"); fi
@@ -263,10 +289,10 @@ jobs:
             manifest=$(docker buildx imagetools inspect "$ref")
             echo "$manifest"
             for platform in linux/amd64 linux/arm64; do
-              echo "$manifest" | grep -q "Platform: *${platform}$" || { echo "Plattform fehlt in ${ref}: ${platform}" >&2; exit 1; }
+              echo "$manifest" | grep -q "Platform: *${platform}$" || { echo "Platform missing in ${ref}: ${platform}" >&2; exit 1; }
             done
           done
-      - name: GitHub-Release anlegen
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
