@@ -1,4 +1,5 @@
 import { hostListOf, type Recipe } from "@secret-desk/automation";
+import { authorizeSystem } from "./agent-api.js";
 import { checkRecipeSessionScheduled } from "./facade.js";
 import type { Runtime } from "./runtime.js";
 
@@ -83,6 +84,12 @@ export class SignInScheduler {
       for (const { host, recipe } of dueSignInChecks(this.#rt, automation.now(), this.#attempts, this.#retry)) {
         if (automation.isBusy()) return { skipped: checked.length === 0 ? "busy" : null, checked };
         this.#attempts.set(host, automation.now().getTime());
+        // A check opens the browser, so it is `automation.run` for the system actor `sign-in-scheduler`. A refused host is skipped
+        // and tried again after the retry time like a failed one; the other hosts and the timer go on.
+        if (!(await authorizeSystem(this.#rt, "sign-in-scheduler", "automation.run", { connectionId: recipe.id }))) {
+          this.#log(`secret-desk: scheduled sign-in check ${host}: not allowed by the authorisation hook`);
+          continue;
+        }
         const r = await checkRecipeSessionScheduled(this.#rt, recipe, { host, ...(this.#timeoutSeconds === undefined ? {} : { timeoutSeconds: this.#timeoutSeconds }) });
         const result = r.failure ? "failed" : r.signedIn ? "signed-in" : "signed-out";
         checked.push({ host, result });
