@@ -13,3 +13,5 @@ export * from "./evidence.js";
 export * from "./vault-core.js";
 export * from "./connections-core.js";
 export * from "./variable-sources.js";
+// The GitHub client: the caller injects the sealer (`seal`) and the App JWT signer (`sign`); there are no defaults.
+export * from "./github-core.js";

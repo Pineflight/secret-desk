@@ -12,14 +12,15 @@ import * as evidence from "../src/evidence.js";
 import * as vaultCore from "../src/vault-core.js";
 import * as connectionsCore from "../src/connections-core.js";
 import * as variableSources from "../src/variable-sources.js";
+import * as githubCore from "../src/github-core.js";
 
 // These modules run in runtimes without Node built-ins. This test is a tripwire, not a proof: it catches the common
 // ways Node APIs sneak in (imports, process, Buffer, require, Node types) but cannot see everything (for example
 // indirect access through a variable). Real portability is only proven by running the code in such a runtime.
-const MODULE_ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "connections-core.ts"];
+const MODULE_ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "connections-core.ts", "github-core.ts"];
 // The portable entry point is a root too: it may not reach anything the modules above do not already reach.
 const ROOTS = [...MODULE_ROOTS, "portable.ts"];
-const EXPECTED_CLOSURE = ["connections-core.ts", "evidence.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "reserved-names.ts", "secret.ts", "stages.ts", "types.ts", "variable-sources.ts", "vault-core.ts"];
+const EXPECTED_CLOSURE = ["base64.ts", "connections-core.ts", "evidence.ts", "git-names.ts", "github-core.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "place-key.ts", "reserved-names.ts", "secret.ts", "stages.ts", "types.ts", "variable-sources.ts", "vault-core.ts"];
 // npm packages that are pure JavaScript (no Node built-ins, no native or WASM code). Anything else, notably
 // `libsodium-wrappers`, fails the guard.
 const PURE_PACKAGES = ["yaml", "zod"];
@@ -94,17 +95,28 @@ describe("portable modules stay free of Node APIs", () => {
     const portable: Record<string, unknown> = { ...portableEntry };
     const modules: Record<string, Record<string, unknown>> = {
       secret, stages, types, "inventory-store": inventoryStore, "inventory-errors": inventoryErrors, "inventory-backend": inventoryBackend,
-      evidence, "vault-core": vaultCore, "connections-core": connectionsCore, "variable-sources": variableSources,
+      evidence, "vault-core": vaultCore, "connections-core": connectionsCore, "variable-sources": variableSources, "github-core": githubCore,
     };
     for (const [mod, ns] of Object.entries(modules)) {
       for (const [key, value] of Object.entries(ns)) expect(portable[key], `${mod}.${key}`).toBe(value);
     }
-    for (const key of ["SecretValue", "Vault", "MemoryVaultStore", "MemoryEvidenceStore", "InventoryStoreCore", "MemoryInventoryBackend", "ConnectionStoreCore", "InventoryError", "InventorySchema", "DEFAULT_STAGES"]) {
+    for (const key of ["SecretValue", "Vault", "MemoryVaultStore", "MemoryEvidenceStore", "InventoryStoreCore", "MemoryInventoryBackend", "ConnectionStoreCore", "InventoryError", "InventorySchema", "DEFAULT_STAGES", "GitHubClient", "githubAppProvider", "GitHubError", "patProvider"]) {
       expect(portable, key).toHaveProperty(key);
     }
+    // The portable client is the one from github-core; the Node facade is a subclass that adds the default sealer.
+    expect(portable.GitHubClient).toBe(githubCore.GitHubClient);
+    expect(portable).not.toHaveProperty("sealForGitHub");
     expect(portable).not.toHaveProperty("SecretVault");
     expect(portable).not.toHaveProperty("InventoryStore");
     expect(portable).not.toHaveProperty("ConnectionStore");
+  });
+
+  it("the GitHub client reaches neither the zod schemas nor the status module", async () => {
+    const reached = [...(await closureOf(["github-core.ts"])).keys()].sort();
+    expect(reached).toEqual(["base64.ts", "git-names.ts", "github-core.ts", "place-key.ts", "secret.ts"]);
+    const source = await sourceOf("github-core.ts");
+    expect(source).not.toMatch(/\bimport\s*\(/);
+    expect(valueImports(source)).toEqual(["base64.ts", "git-names.ts", "place-key.ts", "secret.ts"]);
   });
 
   it("the package declares the portable subpath and the build produces its files", async () => {
