@@ -173,6 +173,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Alter und neuer Name sind gleich.", "Old and new name are the same."],
   // core/connections.ts, vault.ts
   ["Im Portal unter Verbindungen ein Token fuer diese Sitzung eingeben.", "Enter a token for this session under Connections in the portal."],
+  ["Diese Quelle ist in dieser Umgebung nicht verfuegbar. Im Portal unter Verbindungen ein Token eingeben.", "This source is not available in this environment. Enter a token under Connections in the portal."],
   ["Nicht konfiguriert", "Not configured"],
   ["Token fuer diese Sitzung eingeben", "Enter a token for this session"],
   ["leer", "empty"],
