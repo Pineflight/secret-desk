@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // These modules run in runtimes without Node built-ins. This test is a tripwire, not a proof: it catches the common
 // ways Node APIs sneak in (imports, process, Buffer, require, Node types) but cannot see everything (for example
 // indirect access through a variable). Real portability is only proven by running the code in such a runtime.
-const ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts"];
+const ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts"];
 const NODE_BUILTINS = ["assert", "buffer", "child_process", "crypto", "events", "fs", "http", "https", "net", "os", "path", "stream", "tls", "url", "util", "zlib"];
 
 async function sourceOf(name: string): Promise<string> {
@@ -38,7 +38,7 @@ async function closureOf(roots: string[]): Promise<Map<string, string>> {
 describe("portable modules stay free of Node APIs", () => {
   it("follows relative value imports and checks every file it reaches", async () => {
     const files = await closureOf(ROOTS);
-    expect([...files.keys()].sort()).toEqual(["evidence.ts", "inventory-backend.ts", "inventory-errors.ts", "reserved-names.ts", "secret.ts", "vault-core.ts"]);
+    expect([...files.keys()].sort()).toEqual(["evidence.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "reserved-names.ts", "secret.ts", "stages.ts", "types.ts", "variable-sources.ts", "vault-core.ts"]);
     for (const [name, source] of files) {
       const where = `in ${name}`;
       expect(source, where).not.toMatch(/from\s+["']node:/);
