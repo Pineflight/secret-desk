@@ -24,6 +24,7 @@ import {
   type BundleDiff,
   type TeamSyncConfig,
 } from "@secret-desk/core";
+import { authorizeSystem } from "./agent-api.js";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
 import { teamRights, teamRightsLabels, type TeamRights } from "./team-token-rights.js";
@@ -494,16 +495,22 @@ export function startupSyncLine(applied: readonly string[], diff: BundleDiff | n
 /**
  * Beim Start des Portals: Headless-Einrichtung aus der Umgebung (nur wenn noch nichts eingerichtet und das Inventar leer ist,
  * dann wird der Stand einmal uebernommen) und die Abfrage des Repositories bei pullOnStart. Fehler brechen den Start nie ab.
+ * With an authorisation hook, the two steps that change something ask it first as the system actor `team-sync-startup`: writing
+ * the configuration (`team.sync.configure`) and applying the new entries (`team.sync.apply`, mode `merge`). A refusal skips
+ * that step and the rest of the start-up sync. The read-only check of the repository (pullOnStart) is not asked, like the
+ * check a human starts in the portal.
  */
 export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   try {
     const fromEnv = teamSyncFromEnv(env);
     if (fromEnv && !rt.config.teamSync) {
+      if (!(await authorizeSystem(rt, "team-sync-startup", "team.sync.configure"))) return;
       await setupTeamSync(rt, fromEnv);
       if (inventoryEmpty(rt) && (await teamTokenSource(rt, scopeOf(requireConfig(rt)))) !== "none") {
         const check = await checkTeamSync(rt);
         // Unattended: only entries that are new are applied. Changed or removed entries stay pending for the portal preview.
         if (check.remoteSha && (check.state === "remote-new" || check.state === "remote-changed")) {
+          if (!(await authorizeSystem(rt, "team-sync-startup", "team.sync.apply", { mode: "merge" }))) return;
           const r = await applyTeamSync(rt, { expectSha: check.remoteSha, resolution: "merge", onlyAdded: true });
           console.info(startupSyncLine(r.added, check.diff));
         }
