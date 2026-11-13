@@ -1,3 +1,4 @@
+import { placeKey, type LiveSnapshot } from "./place-key.js";
 import { isWorkerPlace, type Inventory, type Place, type SecretEntry } from "./types.js";
 
 export type StatusLevel = "ok" | "unknown" | "soon" | "no-date" | "due" | "missing" | "expired";
@@ -5,20 +6,8 @@ export type StatusLevel = "ok" | "unknown" | "soon" | "no-date" | "due" | "missi
 /** Reihenfolge = Dringlichkeit, grosser Wert = dringender. */
 const URGENCY: Record<StatusLevel, number> = { ok: 0, unknown: 1, soon: 2, "no-date": 3, due: 4, missing: 5, expired: 6 };
 
-export interface LiveSecret {
-  name: string;
-  updatedAt: string;
-}
-
-/** Was im GitHub-Secret-Speicher tatsaechlich liegt, je Ziel (nur Namen und Zeitstempel). */
-export type LiveSnapshot = Map<string, LiveSecret>;
-
-export function placeKey(owner: string, place: Place, fallbackName: string): string {
-  const name = place.name ?? fallbackName;
-  if (isWorkerPlace(place)) return `cloudflare-worker/${place.accountId}/${place.script}/${name}`;
-  const where = place.scope === "environment" ? `env:${place.environment}` : place.scope === "organization" ? "org" : "repo";
-  return `${owner}/${place.repo}/${where}/${name}`;
-}
+// Moved to place-key.ts (no zod) so the portable GitHub client does not reach types.ts; re-exported, so imports stay.
+export { placeKey, type LiveSecret, type LiveSnapshot } from "./place-key.js";
 
 export interface StatusResult {
   id: string;
