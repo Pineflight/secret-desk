@@ -1,6 +1,6 @@
 import { createSign, createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { GitHubClient, githubAppProvider, patProvider, type AppJwtSigner, type SecretSealer } from "../src/github.js";
+import { GitHubClient, GitHubError, githubAppProvider, patProvider, type AppJwtSigner, type SecretSealer } from "../src/github.js";
 import { SecretValue } from "../src/secret.js";
 
 const libsodiumModule = vi.hoisted(() => ({ loaded: false }));
@@ -29,11 +29,11 @@ function sealerSetup(seal: SecretSealer) {
 
 describe("injected secret sealer", () => {
   it("is called with the public key from the API and the plaintext, its output is sent as returned, and libsodium is never loaded", async () => {
-    const seal = vi.fn<SecretSealer>(async () => "made-up-sealed-output");
+    const seal = vi.fn<SecretSealer>(async () => "bWFkZS11cC1zZWFsZWQtb3V0cHV0");
     const { gh, calls } = sealerSetup(seal);
     expect(await gh.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT))).toBe("created");
     expect(seal).toHaveBeenCalledExactlyOnceWith("made-up-public-key", PLAINTEXT);
-    expect(JSON.parse(calls[1]!.body!)).toEqual({ encrypted_value: "made-up-sealed-output", key_id: "key-1" });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ encrypted_value: "bWFkZS11cC1zZWFsZWQtb3V0cHV0", key_id: "key-1" });
     expect(calls[1]!.body).not.toContain(PLAINTEXT);
     expect(libsodiumModule.loaded).toBe(false);
   });
@@ -48,6 +48,40 @@ describe("injected secret sealer", () => {
     expect((err as Error).message).not.toContain(PLAINTEXT);
     expect(calls.map((c) => c.method)).toEqual(["GET"]);
     expect(libsodiumModule.loaded).toBe(false);
+  });
+
+  it("rejects the plaintext itself and its Base64 even when both pass the alphabet check", async () => {
+    const plain = "madeupvalue";
+    const plainBase64 = Buffer.from(plain, "utf8").toString("base64");
+    for (const shape of [plain, plainBase64]) {
+      const { gh, calls } = sealerSetup(async () => shape);
+      const err = await gh.putSecret(target, "X_NAME", new SecretValue(plain)).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GitHubError);
+      expect((err as Error).message).not.toContain(plain);
+      expect((err as Error).message).not.toContain(plainBase64);
+      expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    }
+  });
+
+  it("the public seal method uses the injected sealer and never loads libsodium", async () => {
+    const { gh } = sealerSetup(async () => "c2VhbGVkLWJ5LWNsaWVudA==");
+    expect(await gh.seal("made-up-public-key", PLAINTEXT)).toBe("c2VhbGVkLWJ5LWNsaWVudA==");
+    expect(libsodiumModule.loaded).toBe(false);
+  });
+
+  it("rejects a sealer result of the wrong shape before anything is sent, without echoing value or output", async () => {
+    const plainBase64 = Buffer.from(PLAINTEXT, "utf8").toString("base64");
+    const shapes: unknown[] = ["", 42, null, "not base64 !!", "abc=def", "abc===", PLAINTEXT, plainBase64];
+    for (const shape of shapes) {
+      const { gh, calls } = sealerSetup((async () => shape) as unknown as SecretSealer);
+      const err = await gh.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT)).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GitHubError);
+      const message = (err as Error).message;
+      expect(message).toBe("GitHub: Der Verschluesseler hat kein gueltiges Ergebnis geliefert: nichts wurde gesendet");
+      expect(message).not.toContain(PLAINTEXT);
+      expect(message).not.toContain(plainBase64);
+      expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    }
   });
 });
 
@@ -96,7 +130,11 @@ describe("injected App JWT signer", () => {
     const sign: AppJwtSigner = async () => "made-up-signature";
     const both = () => githubAppProvider({ appId: "1", owner: "acme", privateKey: new SecretValue(privateKey), sign });
     const neither = () => githubAppProvider({ appId: "1", owner: "acme" });
-    for (const make of [both, neither]) {
+    const nullKey = () => githubAppProvider({ appId: "1", owner: "acme", privateKey: null as never });
+    const nullSign = () => githubAppProvider({ appId: "1", owner: "acme", sign: null as never });
+    const bothNull = () => githubAppProvider({ appId: "1", owner: "acme", privateKey: null as never, sign: null as never });
+    const notAFunction = () => githubAppProvider({ appId: "1", owner: "acme", sign: "not-a-function" as never });
+    for (const make of [both, neither, nullKey, nullSign, bothNull, notAFunction]) {
       const err = (() => {
         try {
           make();

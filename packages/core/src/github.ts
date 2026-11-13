@@ -235,6 +235,18 @@ export class GitHubClient {
     return { keyId: body.key_id, key: body.key };
   }
 
+  /**
+   * Seals a value with the sealer of this client (the injected one, otherwise libsodium) and checks the result before it can
+   * be sent: a non-empty Base64 string that is neither the plaintext nor the Base64 of the plaintext.
+   */
+  async seal(publicKeyBase64: string, plaintext: string): Promise<string> {
+    const sealed: unknown = await this.#seal(publicKeyBase64, plaintext);
+    if (typeof sealed !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(sealed) || sealed === plaintext || sealed === Buffer.from(plaintext, "utf8").toString("base64")) {
+      throw new GitHubError(0, "GitHub: Der Verschluesseler hat kein gueltiges Ergebnis geliefert: nichts wurde gesendet");
+    }
+    return sealed;
+  }
+
   /** Schreibt einen bereits verschluesselten Wert (Browser-Flow: der Server sieht nie Klartext). */
   async putEncrypted(target: GitHubTarget, name: string, encryptedValue: string, keyId: string): Promise<"created" | "updated"> {
     const body: Record<string, unknown> = { encrypted_value: encryptedValue, key_id: keyId };
@@ -246,7 +258,7 @@ export class GitHubClient {
   /** Verschluesselt im Speicher und schreibt. Der Klartext verlaesst diese Funktion nicht. */
   async putSecret(target: GitHubTarget, name: string, value: SecretValue): Promise<"created" | "updated"> {
     const { keyId, key } = await this.publicKey(target);
-    const encrypted = await this.#seal(key, value.reveal());
+    const encrypted = await this.seal(key, value.reveal());
     return this.putEncrypted(target, name, encrypted, keyId);
   }
 
@@ -549,10 +561,12 @@ export interface GitHubAppOptions {
 
 /** Erzeugt bei Bedarf ein Installations-Token (eine Stunde gueltig) und cached es bis kurz vor Ablauf. */
 export function githubAppProvider(options: GitHubAppOptions): TokenProvider {
-  if ((options.privateKey === undefined) === (options.sign === undefined)) {
+  // Untyped callers may pass null: treat it like "not given".
+  const privateKey = options.privateKey ?? undefined;
+  const sign = options.sign ?? undefined;
+  if ((privateKey === undefined) === (sign === undefined) || (sign !== undefined && typeof sign !== "function")) {
     throw new GitHubError(0, "GitHub App: genau eines von privateKey und sign muss angegeben werden");
   }
-  const { privateKey, sign } = options;
   const f = options.fetch ?? fetch;
   const base = options.baseUrl ?? "https://api.github.com";
   const now = options.now ?? (() => new Date());
@@ -562,7 +576,7 @@ export function githubAppProvider(options: GitHubAppOptions): TokenProvider {
     const t = Math.floor(now().getTime() / 1000);
     const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
     const data = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iat: t - 60, exp: t + 540, iss: options.appId })}`;
-    const signature = sign ? await sign(data) : createSign("RSA-SHA256").update(data).sign((privateKey as SecretValue).reveal()).toString("base64url");
+    const signature = privateKey ? createSign("RSA-SHA256").update(data).sign(privateKey.reveal()).toString("base64url") : await sign!(data);
     return `${data}.${signature}`;
   };
 
