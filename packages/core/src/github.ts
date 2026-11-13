@@ -1,6 +1,5 @@
 import { assertSafeContentPath, assertSafeRepoSegment, assertValidBranchName } from "./git-names.js";
 import { createSign } from "node:crypto";
-import sodium from "libsodium-wrappers";
 import { SecretValue } from "./secret.js";
 import { placeKey, type LiveSnapshot } from "./status.js";
 import type { GitHubPlace } from "./types.js";
@@ -53,12 +52,17 @@ export function placeToTarget(owner: string, place: GitHubPlace): GitHubTarget {
   return { owner, repo: place.repo, scope: place.scope, ...(place.environment ? { environment: place.environment } : {}) };
 }
 
-/** Verschluesselt einen Wert so, wie GitHub es verlangt (libsodium sealed box, base64). */
+/**
+ * Seals a value for the GitHub secret store. Returns the Base64 (original variant) of an anonymous sealed box
+ * (X25519, XSalsa20-Poly1305, nonce = BLAKE2b-192 of the ephemeral public key and the recipient public key) that the
+ * GitHub secret store accepts. `publicKeyBase64` is the key from the `public-key` endpoint.
+ */
+export type SecretSealer = (publicKeyBase64: string, plaintext: string) => Promise<string>;
+
+/** Verschluesselt einen Wert so, wie GitHub es verlangt (libsodium sealed box, base64). libsodium wird erst hier geladen. */
 export async function sealForGitHub(publicKeyBase64: string, plaintext: string): Promise<string> {
-  await sodium.ready;
-  const key = sodium.from_base64(publicKeyBase64, sodium.base64_variants.ORIGINAL);
-  const sealed = sodium.crypto_box_seal(sodium.from_string(plaintext), key);
-  return sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
+  const { sealWithLibsodium } = await import("./github-seal-libsodium.js");
+  return sealWithLibsodium(publicKeyBase64, plaintext);
 }
 
 function secretsPath(t: GitHubTarget): string {
@@ -84,6 +88,8 @@ export interface GitHubClientOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Laengste Wartezeit, die fuer eine Wiederholung akzeptiert wird (Standard 10 s). */
   maxRetryWaitMs?: number;
+  /** Seals values for the secret store. Default: libsodium (loaded lazily, only when no sealer is given). */
+  seal?: SecretSealer;
 }
 
 export interface RemoteVariable {
@@ -124,8 +130,10 @@ export class GitHubClient {
   readonly #base: string;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #maxRetryWaitMs: number;
+  readonly #seal: SecretSealer;
 
   constructor(options: GitHubClientOptions) {
+    this.#seal = options.seal ?? sealForGitHub;
     this.#sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.#maxRetryWaitMs = options.maxRetryWaitMs ?? 10_000;
     this.#auth = options.auth;
@@ -238,7 +246,7 @@ export class GitHubClient {
   /** Verschluesselt im Speicher und schreibt. Der Klartext verlaesst diese Funktion nicht. */
   async putSecret(target: GitHubTarget, name: string, value: SecretValue): Promise<"created" | "updated"> {
     const { keyId, key } = await this.publicKey(target);
-    const encrypted = await sealForGitHub(key, value.reveal());
+    const encrypted = await this.#seal(key, value.reveal());
     return this.putEncrypted(target, name, encrypted, keyId);
   }
 
@@ -515,9 +523,18 @@ export function patProvider(value: SecretValue): TokenProvider {
   return async () => value;
 }
 
+/**
+ * Signs the GitHub App JWT. Receives the ASCII signing input `base64url(header).base64url(payload)` and returns the
+ * base64url RS256 signature (RSASSA-PKCS1-v1_5 with SHA-256).
+ */
+export type AppJwtSigner = (signingInput: string) => Promise<string>;
+
 export interface GitHubAppOptions {
   appId: string;
-  privateKey: SecretValue;
+  /** The App's private key (PEM), held in this process. Give exactly one of `privateKey` and `sign`. */
+  privateKey?: SecretValue;
+  /** Signs the JWT elsewhere, so the private key never enters this module. Give exactly one of `privateKey` and `sign`. */
+  sign?: AppJwtSigner;
   /** Owner (Organisation oder Nutzer), auf dem die App installiert ist. */
   owner: string;
   /** Token auf diese Repositories beschraenken (Namen ohne Owner). */
@@ -532,16 +549,20 @@ export interface GitHubAppOptions {
 
 /** Erzeugt bei Bedarf ein Installations-Token (eine Stunde gueltig) und cached es bis kurz vor Ablauf. */
 export function githubAppProvider(options: GitHubAppOptions): TokenProvider {
+  if ((options.privateKey === undefined) === (options.sign === undefined)) {
+    throw new GitHubError(0, "GitHub App: genau eines von privateKey und sign muss angegeben werden");
+  }
+  const { privateKey, sign } = options;
   const f = options.fetch ?? fetch;
   const base = options.baseUrl ?? "https://api.github.com";
   const now = options.now ?? (() => new Date());
   let cached: { token: SecretValue; expiresAt: number } | null = null;
 
-  const jwt = (): string => {
+  const jwt = async (): Promise<string> => {
     const t = Math.floor(now().getTime() / 1000);
     const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
     const data = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iat: t - 60, exp: t + 540, iss: options.appId })}`;
-    const signature = createSign("RSA-SHA256").update(data).sign(options.privateKey.reveal()).toString("base64url");
+    const signature = sign ? await sign(data) : createSign("RSA-SHA256").update(data).sign((privateKey as SecretValue).reveal()).toString("base64url");
     return `${data}.${signature}`;
   };
 
@@ -563,7 +584,7 @@ export function githubAppProvider(options: GitHubAppOptions): TokenProvider {
 
   return async () => {
     if (cached && cached.expiresAt - now().getTime() > 60_000) return cached.token;
-    const app = jwt();
+    const app = await jwt();
     const installations = (await (await call("GET", "/app/installations?per_page=100", app)).json()) as { id: number; account?: { login?: string } }[];
     const inst = installations.find((i) => i.account?.login?.toLowerCase() === options.owner.toLowerCase());
     if (!inst) throw new GitHubError(404, `GitHub App ist auf ${options.owner} nicht installiert`);

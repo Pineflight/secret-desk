@@ -94,6 +94,15 @@ What a backend must guarantee: `read()` and `stamp()` never throw and agree (a c
 
 `ConnectionStoreCore` (`connections-core.ts`, portable, covered by `portable-modules.test.ts`) holds the token lookup: session value, vault, then the configured source. What the hosting process lets a configuration reach is an explicit `ConnectionHost` (`label`, optional `env(name)` and `readReference(ref)`). Without `env`, an `env` source is not available; without `readReference`, an `op` source is not available. Both cases throw a `NotConnectedError` that tells the user to enter a token under Connections, and `status()` reports the same reason without throwing. Session and vault values are looked up first and work either way. `ConnectionStore` (`connections.ts`) is the Node facade of the local edition: it keeps the options `env` and `exec`, builds `nodeConnectionHost(env, exec)` (process environment and `op read <ref>`) from them, and accepts `host` to override it; `host: null` means no host at all. Omitting `host` on `ConnectionStore` grants the process environment and `op`: that default is for the local edition only. A runtime that shares one process between several users uses `ConnectionStoreCore` or `host: null` so a configuration cannot read the host's environment or run its tools.
 
+### Injectable cryptography
+
+Two cryptographic operations of the GitHub client can be supplied by the host, so the client also runs where the default implementations are not available or not wanted:
+
+- **Sealing a value** for the GitHub secret store: `GitHubClientOptions.seal` takes a `SecretSealer` (`(publicKeyBase64, plaintext) => Promise<string>`) that returns the Base64 (original variant) of an anonymous sealed box (X25519, XSalsa20-Poly1305, nonce = BLAKE2b-192 of the ephemeral and the recipient public key). Without it the client uses libsodium (`github-seal-libsodium.ts`), which `github.ts` loads lazily on first use; a client with an injected sealer never loads it. This matters in runtimes that cannot compile WebAssembly at run time.
+- **Signing the GitHub App JWT:** `GitHubAppOptions.sign` takes an `AppJwtSigner` (`(signingInput) => Promise<string>`) that receives `base64url(header).base64url(payload)` and returns the base64url RS256 signature. Exactly one of `privateKey` and `sign` must be given; with `sign` the private key never enters the process of the provider.
+
+The local edition passes neither: it seals with libsodium and signs with the private key held in the process. Both paths produce the same bytes as before (tests: `github-injection.test.ts`).
+
 ## Packages
 
 | Package | Role |
