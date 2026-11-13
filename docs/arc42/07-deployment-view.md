@@ -58,9 +58,9 @@ Full file list and modes: [CONFIGURATION.md](../CONFIGURATION.md#files-secret-de
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| [`ci.yml`](../../.github/workflows/ci.yml) | pull request, push to `main`, manual | `verify` job on `ubuntu-latest`: install with frozen lockfile, `pnpm run verify` (value scan, build, typecheck, tests), licence check, value scan. On pull requests a `docker-build` job builds the image for `linux/amd64` without publishing. |
+| [`ci.yml`](../../.github/workflows/ci.yml) | pull request (not draft), manual, weekly | `verify` job on `ubuntu-latest`: install with frozen lockfile, `pnpm run verify` (value scan, build, typecheck, tests), licence check, value scan. A `docker-build` job builds the image for `linux/amd64` without publishing, only when image inputs changed (or on manual and weekly runs). The `CI Gate` job aggregates the results. Pushes to `main` are verified by `release.yml`. |
 | [`cross-platform.yml`](../../.github/workflows/cross-platform.yml) | **manual only** | Install, build, typecheck, test on a matrix of `ubuntu-latest`, `macos-latest`, `windows-latest`. |
-| [`release.yml`](../../.github/workflows/release.yml) | push to `main` | Verify, build the portal image per platform (amd64, arm64), publish a multi-arch manifest to ghcr.io, create a GitHub release tagged `<package.json version>-<run number>`. The browser sidecar is built only if `docker/browser` changed. |
+| [`release.yml`](../../.github/workflows/release.yml) | push to `main` | Verify (`pnpm run verify`, licence check, value scan), build the portal image per platform (amd64, arm64), publish a multi-arch manifest to ghcr.io, create a GitHub release tagged `<package.json version>-<run number>`. The browser sidecar is built only if `docker/browser` changed. |
 
 Third-party actions are pinned by commit SHA. Releases are created automatically on each merge to `main`
 ([chapter 11](11-risks-and-technical-debt.md), R-07, for the consequence).
