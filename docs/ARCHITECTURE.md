@@ -78,6 +78,15 @@ organization secrets need a repository selection that is not modeled yet.
 
 The **Compare** page (`/compare`), `GET compare` and the MCP tool `desk_compare_stages` show which secrets and variables exist on which stage and where something is missing. It is read-only and never returns a value. The pure logic is `compareMatrix` in `packages/core/src/compare.ts` (inventory plus optionally pre-read GitHub names, testable without network); the network part is `compareStages` in `packages/runtime/src/compare.ts`; workflow parsing is `packages/core/src/workflow-needs.ts`. Cell states, parity, orphans, workflow needs, ignored and renamed repositories are described in [COMPARE.md](COMPARE.md).
 
+## Storage seams in core
+
+Two interfaces separate what `packages/core` does from where the bytes live, so the core can run in a runtime without a file system:
+
+- **Vault:** `Vault` (`vault-core.ts`) encrypts with AES-256-GCM through Web Crypto and talks to a `VaultStore` (`read`, `write`) and a `KeySource`. `FileVaultStore` (`vault-file-store.ts`) is the JSON file of the local edition, `MemoryVaultStore` the in-memory one. `SecretVault` (`vault.ts`) is a `Vault` with the file store and the operating system key sources as defaults; its constructor also accepts `store`. The stored format did not change: an entry written before the split is read by `Vault` and the other way round (tests: `vault-core.test.ts`).
+- **Evidence:** `EvidenceStore` (`evidence.ts`) is the interface for reports and attachments, `MemoryEvidenceStore` the in-memory implementation, `FileEvidenceStore` (`evidence-file-store.ts`) the folder-based one. One contract test runs the same cases against both.
+
+`vault-core.ts` and `evidence.ts` import no Node built-ins and do not use `process`, `Buffer` or `require`; `portable-modules.test.ts` fails if that changes. Everything that needs the file system or the operating system stays in `vault.ts`, `vault-file-store.ts`, `evidence-file-store.ts` and `platform.ts`.
+
 ## Packages
 
 | Package | Role |

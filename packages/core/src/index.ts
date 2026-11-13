@@ -5,6 +5,8 @@ export * from "./inventory.js";
 export * from "./status.js";
 export * from "./verification.js";
 export * from "./evidence.js";
+export * from "./evidence-file-store.js";
+export * from "./vault-file-store.js";
 export * from "./guards.js";
 export * from "./variables.js";
 export * from "./git-names.js";

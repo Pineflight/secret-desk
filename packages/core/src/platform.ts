@@ -1,6 +1,7 @@
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { isReservedWindowsName } from "./reserved-names.js";
 
 /**
  * Plattform-Helfer. Alles hier nimmt `platform` als Parameter, damit sich Windows-Verhalten auf jedem System
@@ -47,13 +48,8 @@ export function isUncPath(p: string, platform: Platform = process.platform): boo
   return platform === "win32" && /^[\\/]{2}/.test(p);
 }
 
-const RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
-
-/** Windows-reservierte Geraetenamen (CON, NUL, COM1 ...), auch mit Endung (`nul.txt`) und nachgestellten Punkten/Leerzeichen. */
-export function isReservedWindowsName(name: string): boolean {
-  const base = name.replace(/[. ]+$/, "").split(".")[0]!.trimEnd();
-  return RESERVED.test(base);
-}
+// The portable implementation lives in reserved-names.ts (also used by the evidence id rule); re-exported here unchanged.
+export { isReservedWindowsName };
 
 /** Fehlermeldung, wenn der Pfad auf Windows nicht verwendbar ist (UNC, reservierter Name, verbotenes Zeichen), sonst null. */
 export function localPathProblem(p: string, platform: Platform = process.platform): string | null {

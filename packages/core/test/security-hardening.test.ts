@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConnectionStore } from "../src/connections.js";
-import { EvidenceStore } from "../src/evidence.js";
+import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { buildEnvFile, formatEnvValue } from "../src/env-export.js";
 import { InventoryError, InventoryStore, PATCHABLE_SECRET_KEYS } from "../src/inventory.js";
 import { SECRET_PATCH_KEYS, SecretAgentCreateSchema, SecretAgentPatchSchema, SecretHumanPatchSchema, VariablePatchSchema, parseInput } from "../src/patch.js";
@@ -122,7 +122,7 @@ describe("N5/N6: private file permissions", () => {
     await inv.save();
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(await readFile(path, "utf8")).toContain("cf-deploy-acme-app");
-    const ev = new EvidenceStore(join(dir, "ev"));
+    const ev = new FileEvidenceStore(join(dir, "ev"));
     await ev.save({ id: "r1", secretId: "s1", secretName: "S", createdAt: "x", kind: "manual", provider: "manual", stage: "dev", label: "l", expiresAt: null, targets: [], checks: [], checklist: [], fingerprint: "f", attachments: [] } as never);
     expect((await stat(join(dir, "ev", "s1", "r1.json"))).mode & 0o777).toBe(0o600);
   });

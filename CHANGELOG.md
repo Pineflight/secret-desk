@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Storage seams in `@secret-desk/core`:** the vault encryption moved into `vault-core.ts` (Web Crypto, no Node built-ins) behind the new `VaultStore` interface, with `FileVaultStore` and `MemoryVaultStore`; `SecretVault` is now a `Vault` that keeps its constructor and additionally accepts `store`. `EvidenceStore` is now an interface (with `MemoryEvidenceStore`); the folder-based implementation is `FileEvidenceStore`, so `new EvidenceStore(dir)` becomes `new FileEvidenceStore(dir)`. `KeySource.key()` returns `Promise<Uint8Array>`. No change in behaviour or in the stored vault format; tests prove both directions against `node:crypto`. See [ARCHITECTURE.md](docs/ARCHITECTURE.md#storage-seams-in-core).
 - **Demo with team sync:** `pnpm demo --team` (or `SECRET_DESK_DEMO_TEAM=1`) starts the demo with team sync set up (simulated repository `acme/team-config`, read and push, pull-request strategy, `examples/demo/secret-desk.team.config.yaml`). *Sync now* shows a small difference, *Add new entries* takes it over, *Create pull request* answers with a made-up pull request URL. The demo works on a temporary copy of `examples/demo`. New screenshots `docs/images/team.png` (after *Sync now*) and `docs/images/team-push.png` (push plan).
 - **Combined status filter:** `/entries?status=soon,due` lists entries that are *Expiring soon* or *Due*; the *Due soon* tile on the Overview links to it and now counts both.
 

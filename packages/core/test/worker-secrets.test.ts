@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionStore } from "../src/connections.js";
-import { EvidenceStore } from "../src/evidence.js";
+import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { buildSyncPlan, runSync, syncLineKey, type SecretValueSource } from "../src/github-sync.js";
 import { InventoryStore } from "../src/inventory.js";
@@ -235,7 +235,7 @@ function issuanceSetup() {
   return mkdtemp(join(tmpdir(), "sd-ev-")).then((dir) => {
     const inventory = InventoryStore.fromText(YAML);
     const github = new GitHubClient({ auth: patProvider(new SecretValue("t")), fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
-    const deps = { inventory, github, workers: cf.client, providers: new ProviderRegistry().register(provider), connections: new ConnectionStore(), owner: "acme", now: () => new Date("2026-11-04T10:00:00Z"), evidence: new EvidenceStore(dir) };
+    const deps = { inventory, github, workers: cf.client, providers: new ProviderRegistry().register(provider), connections: new ConnectionStore(), owner: "acme", now: () => new Date("2026-11-04T10:00:00Z"), evidence: new FileEvidenceStore(dir) };
     return { cf, deps, inventory };
   });
 }
