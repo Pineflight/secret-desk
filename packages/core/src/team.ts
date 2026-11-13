@@ -2,6 +2,12 @@ import { parse, stringify } from "yaml";
 import { InventoryStore } from "./inventory.js";
 import { InventorySchema, type Inventory } from "./types.js";
 
+/**
+ * Local-only secret fields: the export removes them and a replace import keeps the local values.
+ * One list for both directions, so the two cannot diverge.
+ */
+export const KEEP_LOCAL = ["externalId", "rotatedAt", "verifiedAt", "verifiedBy"] as const;
+
 export class TeamBundleError extends Error {
   constructor(message: string) {
     super(message);
@@ -15,7 +21,11 @@ export class TeamBundleError extends Error {
  * verbindet seine eigenen Konten und erzeugt seine persoenliche Dev-Umgebung.
  */
 export function exportTeamBundle(inventory: Inventory): string {
-  const secrets = inventory.secrets.map(({ externalId: _externalId, rotatedAt: _rotatedAt, ...rest }) => rest);
+  const secrets = inventory.secrets.map((secret) => {
+    const rest: Record<string, unknown> = { ...secret };
+    for (const key of KEEP_LOCAL) delete rest[key];
+    return rest;
+  });
   const doc = { ...inventory, secrets };
   const header = [
     "# secret-desk Team-Konfiguration",
@@ -61,8 +71,6 @@ export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: 
   applyBundle(probe, bundle, mode); // wirft bei einem Konflikt, bevor der echte Speicher angefasst wird
   return applyBundle(store, bundle, mode);
 }
-
-const KEEP_LOCAL = ["externalId", "rotatedAt", "verifiedAt", "verifiedBy"] as const;
 
 function applyBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "replace"): MergeResult {
   if (mode === "replace") {

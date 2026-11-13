@@ -7,7 +7,8 @@ import { buildEnvFile, formatEnvValue, PromptsRequiredError, writeEnvFile } from
 import { InventoryStore } from "../src/inventory.js";
 import { ProviderRegistry } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
-import { exportTeamBundle, mergeTeamBundle, parseTeamBundle } from "../src/team.js";
+import { exportTeamBundle, KEEP_LOCAL, mergeTeamBundle, parseTeamBundle } from "../src/team.js";
+import { assertTeamFileClean } from "../src/team-sync.js";
 import { INVENTORY_YAML } from "./fixtures.js";
 
 describe("buildEnvFile", () => {
@@ -112,6 +113,29 @@ describe("H7: team import atomic", () => {
     expect(() => mergeTeamBundle(target, bundle)).toThrow();
     expect(target.toString()).toBe(before);
     expect(target.getSecret("neu-secret")).toBeUndefined();
+  });
+  it("the export strips all four local-only fields, driven by KEEP_LOCAL", () => {
+    const inv = InventoryStore.fromText(INVENTORY_YAML);
+    inv.patchSecret("cf-deploy-acme-app", { rotatedAt: "2026-10-01", verifiedAt: "2026-10-02", verifiedBy: "Test Person" });
+    const text = exportTeamBundle(inv.data);
+    for (const key of KEEP_LOCAL) expect(text, key).not.toContain(`${key}:`);
+    expect(text).not.toContain("Test Person");
+    expect(text).not.toContain("old-token-id");
+    expect(parseTeamBundle(text).secrets).toHaveLength(3);
+    expect([...KEEP_LOCAL]).toEqual(["externalId", "rotatedAt", "verifiedAt", "verifiedBy"]);
+  });
+  it("replace import takes a local field that the file itself carries (an older or hand-made file)", () => {
+    const target = InventoryStore.fromText(INVENTORY_YAML);
+    const bundle = parseTeamBundle(exportTeamBundle(target.data));
+    const secret = bundle.secrets.find((s) => s.id === "cf-deploy-acme-app")!;
+    secret.externalId = "from-file-id";
+    mergeTeamBundle(target, bundle, "replace");
+    expect(target.getSecret("cf-deploy-acme-app")!.externalId).toBe("from-file-id");
+  });
+  it("assertTeamFileClean refuses every local-only field", () => {
+    for (const key of KEEP_LOCAL) {
+      expect(() => assertTeamFileClean(`version: 1\nsecrets:\n  - { id: a, ${key}: x }\n`)).toThrow(`Team-Datei enthaelt ${key}`);
+    }
   });
   it("replace keeps externalId, rotatedAt, verifiedAt, verifiedBy of the same ids", () => {
     const target = InventoryStore.fromText(INVENTORY_YAML);

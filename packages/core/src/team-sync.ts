@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { writePrivateFile } from "./platform.js";
 import { parse, parseDocument } from "yaml";
 import { ConfigSchema, type TeamSyncConfig } from "./config.js";
-import { exportTeamBundle, TeamBundleError } from "./team.js";
+import { exportTeamBundle, KEEP_LOCAL, TeamBundleError } from "./team.js";
 import type { Inventory } from "./types.js";
 
 export class TeamSyncError extends Error {
@@ -65,7 +65,7 @@ export function diffBundles(base: Inventory, next: Inventory): BundleDiff {
 export function assertTeamFileClean(text: string, forbidden: readonly string[] = []): void {
   const doc = parse(text, { schema: "core" }) as { secrets?: Record<string, unknown>[] } | null;
   for (const s of doc?.secrets ?? []) {
-    for (const key of ["externalId", "rotatedAt"]) if (key in s) throw new TeamBundleError(`Team-Datei enthaelt ${key}: wird nicht hochgeladen.`);
+    for (const key of KEEP_LOCAL) if (key in s) throw new TeamBundleError(`Team-Datei enthaelt ${key}: wird nicht hochgeladen.`);
   }
   for (const f of forbidden) if (f.length >= 8 && text.includes(f)) throw new TeamBundleError("Team-Datei enthaelt einen Zugangs-Token: wird nicht hochgeladen.");
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(text)) throw new TeamBundleError("Team-Datei enthaelt einen privaten Schluessel: wird nicht hochgeladen.");
