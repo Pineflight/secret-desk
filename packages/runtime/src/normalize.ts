@@ -1,5 +1,5 @@
 import { InventoryError, applyNormalization, planNormalization, type NormalizationPlan, type NormalizationResult } from "@secret-desk/core";
-import { PolicyError, type Actor } from "./agent-api.js";
+import { PolicyError, authorize, type Actor } from "./agent-api.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -21,6 +21,7 @@ export async function applyNormalizationChanges(rt: Runtime, actor: Actor, body:
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_CHANGES || ids.some((x) => typeof x !== "string" || x === "")) {
     throw new InventoryError(`Feld changeIds: eine Liste mit 1 bis ${MAX_CHANGES} Aenderungs-Ids.`);
   }
+  await authorize(rt, { actor, action: "inventory.edit" });
   const result = await applyNormalization(rt.inventory, rt.config, ids as string[]);
   return { ...result, plan: getNormalizationPlan(rt) };
 }

@@ -819,13 +819,24 @@ components:
         id: { type: string }
         action: { type: string, enum: [issue, apply-variable] }
         targetId: { type: string }
-        requestedBy: { type: string }
+        requestedBy: { type: string, description: "Name of whoever asked; kept for compatibility, see requestedByRef." }
+        requestedByRef: { $ref: "#/components/schemas/ActorRef" }
         reason: { type: [string, "null"] }
         createdAt: { type: string, format: date-time }
         state: { type: string, enum: [pending, approved, denied, failed, stale] }
         snapshotHash: { type: string }
         snapshot: { type: object }
         result: { type: string }
+        decidedBy: { $ref: "#/components/schemas/ActorRef", description: "Who approved or denied the request. Absent while it is pending." }
+        decidedAt: { type: string, format: date-time }
+    ActorRef:
+      type: object
+      description: "Who did something: names and kinds only, never a value. principalId is an opaque reference supplied by whatever authenticates the request; it is absent unless a deployment sets one."
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [human, agent] }
+        principalId: { type: string }
     Check:
       type: object
       properties:
@@ -866,6 +877,9 @@ components:
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
         overall: { type: string, enum: [pass, warn, fail] }
+        preparedBy: { $ref: "#/components/schemas/ActorRef", description: "Who prepared this review, that is who caused it to run." }
+        requestedBy: { $ref: "#/components/schemas/ActorRef", description: "Who asked for it, when the review came from an approval (for example the agent)." }
+        approvalId: { type: string, description: "The approval request this review belongs to, when there is one." }
         report: { $ref: "#/components/schemas/VerificationReport" }
     CompareResult:
       type: object

@@ -42,7 +42,7 @@ describe("exportEnvContent: template sources without a value", () => {
     await writeFile(join(dir, "inventory.yaml"), INVENTORY);
     await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
     const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "x" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
-    const r = exportEnvContent(rt, { kind: "human", name: "alice" }, { repo: "acme-app", stage: "dev", include: "all", now: new Date("2026-11-05T10:00:00Z") });
+    const r = await exportEnvContent(rt, { kind: "human", name: "alice" }, { repo: "acme-app", stage: "dev", include: "all", now: new Date("2026-11-05T10:00:00Z") });
     const reason = (name: string) => r.missing.find((m) => m.name === name)?.reason;
     expect(reason("NONE_KEY")).toBe("variable v-empty has no target value");
     expect(reason("MAYBE_KEY")).toBe("optional, needs a value from a human");

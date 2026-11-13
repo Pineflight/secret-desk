@@ -5,6 +5,7 @@ import { connectionGuide } from "./connection-guides.js";
 import { translateDeep } from "./i18n-en.js";
 import { neededRights } from "./team-sync.js";
 import {
+  type ActorRef,
   EnvEntrySchema,
   EnvExportError,
   errorMatchesPlace,
@@ -93,6 +94,11 @@ export interface Actor {
   /** "human" (Portal/CLI) oder "agent" (MCP). */
   kind: "human" | "agent";
   name: string;
+  /**
+   * Opaque, stable reference supplied by whatever authenticates the request (when anything does). This repository never
+   * interprets it: it is stored next to the name and handed to the authorisation hook. Nothing sets it by default.
+   */
+  principalId?: string;
 }
 
 export class PolicyError extends Error {
@@ -104,6 +110,118 @@ export class PolicyError extends Error {
 
 export const requireHuman = (actor: Actor, what: string): void => {
   if (actor.kind !== "human") throw new PolicyError(`${what} darf nur ein Mensch.`);
+};
+
+/** The reference to an actor that is recorded with an issuance or an approval (names and the opaque principal id, never a value). */
+export const actorRef = (actor: Actor): ActorRef => ({ name: actor.name, kind: actor.kind, ...(actor.principalId ? { principalId: actor.principalId } : {}) });
+
+/** Sensitive actions the authorisation hook is consulted for. */
+export type AuthorizedAction =
+  | "issuance.prepare"
+  | "issuance.confirm"
+  | "issuance.reject"
+  | "issuance.manual-value"
+  | "approval.resolve"
+  | "inventory.edit"
+  | "variable.apply"
+  | "integration.connect"
+  | "integration.disconnect"
+  | "evidence.attach"
+  | "automation.run"
+  | "github.sync"
+  | "team.sync.apply"
+  | "team.sync.push"
+  | "team.sync.configure"
+  | "team.import"
+  | "settings.edit"
+  | "repo.link"
+  | "connection.check"
+  | "env.export";
+
+export interface AuthorizationRequest {
+  actor: Actor;
+  action: AuthorizedAction;
+  /** What the action concerns: ids and actor references only, never values. */
+  subject?: {
+    secretId?: string;
+    variableId?: string;
+    approvalId?: string;
+    /** Id of a connection (for example `github`); an identifier, never a token. */
+    connectionId?: string;
+    /** Id of a repository (inventory name), for repository links and env export. */
+    repo?: string;
+    /** Who prepared the issuance this action is about, that is who caused it to run (for `issuance.confirm` and `issuance.reject`). */
+    preparedBy?: ActorRef;
+    /** Name of whoever asked for the approval this action belongs to (for `approval.resolve` and for what an approval causes). */
+    requestedBy?: string;
+    /** The same as a reference: kind and, when there is one, the opaque principal id of whoever asked. */
+    requestedByRef?: ActorRef;
+    stage?: string;
+    /** How the action is done when that matters (for example `merge` or `replace` for a team import). */
+    mode?: string;
+  };
+}
+
+/** What the runtime reports when the hook faulted (see `RuntimeOptions.onAuthorizeFault`). Never a message, never a value. */
+export interface AuthorizeFault {
+  action: AuthorizedAction;
+  reason: "threw" | "returned-value" | "timeout" | "not-a-function";
+  /** Class name of the foreign error, only for `threw`. */
+  errorName?: string;
+}
+
+/**
+ * Called before a sensitive action, after the built-in policy checks (`requireHuman`, stage policy) have passed: it can only
+ * refuse what the built-in rules allow, never allow what they refuse. Throw (preferably a `PolicyError`) to refuse; returning
+ * `undefined` (or a promise of it) means allowed, any other return value is a refusal. May be async; it must settle within
+ * `RuntimeOptions.authorizeTimeoutMs`. This repository ships no rules; a hook comes from the process that embeds the runtime.
+ */
+export type Authorize = (request: AuthorizationRequest) => void | Promise<void>;
+
+/**
+ * Consults the configured hook (if any). A refusal that is a `PolicyError` is passed on unchanged; anything else the hook throws
+ * becomes a generic refusal so no hook internals reach a response. The hook gets a copy of the request.
+ */
+export async function authorize(rt: Runtime, request: AuthorizationRequest): Promise<void> {
+  const hook = rt.authorize;
+  if (hook === undefined) return;
+  // Fails closed: every fault is one generic refusal, reported (class name only) to the optional callback.
+  const refuse = (reason: AuthorizeFault["reason"], error?: unknown): never => {
+    try {
+      rt.onAuthorizeFault?.({ action: request.action, reason, ...(reason === "threw" ? { errorName: error instanceof Error ? error.constructor.name : typeof error } : {}) });
+    } catch {
+      // A faulty callback must not change the outcome.
+    }
+    throw new PolicyError("Die Berechtigungspruefung hat die Aktion nicht zugelassen.");
+  };
+  if (typeof hook !== "function") return refuse("not-a-function");
+  const timedOut = Symbol("timeout");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof timedOut>((resolve) => {
+    timer = setTimeout(() => resolve(timedOut), rt.authorizeTimeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS);
+    // Under Node a timer is an object with `unref`: a hung hook must not keep the process alive. Other runtimes return a number.
+    if (typeof timer === "object" && timer !== null && "unref" in timer) (timer as { unref(): void }).unref();
+  });
+  let result: unknown;
+  try {
+    result = await Promise.race([Promise.resolve().then(() => hook(structuredClone(request))), timeout]);
+  } catch (err) {
+    if (err instanceof PolicyError) throw err;
+    return refuse("threw", err);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (result === timedOut) return refuse("timeout");
+  if (result !== undefined) return refuse("returned-value");
+}
+
+/** How long a hook may take before the action is refused. */
+export const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
+
+/** Reads `id` and `stage` of a not yet validated entry for the hook subject. Only strings are taken, nothing else. */
+const entrySubject = (entry: unknown, idKey: "secretId" | "variableId"): NonNullable<AuthorizationRequest["subject"]> => {
+  const e = (typeof entry === "object" && entry !== null ? entry : {}) as { id?: unknown; stage?: unknown };
+  return { ...(typeof e.id === "string" ? { [idKey]: e.id } : {}), ...(typeof e.stage === "string" ? { stage: e.stage } : {}) };
 };
 
 const agentMayRunNow = (rt: Runtime, actor: Actor, stage: Stage, hasPlaces: boolean): boolean =>
@@ -346,6 +464,7 @@ export async function addSecret(rt: Runtime, actor: Actor, entry: unknown): Prom
     const problems = validateEntryParams(provider, { params: typeof wanted.params === "object" && wanted.params !== null && !Array.isArray(wanted.params) ? (wanted.params as Record<string, unknown>) : {} }, integrationDefaultsOf(rt.inventory, provider));
     if (problems.length > 0) throw new ParamsInvalidError(problems);
   }
+  await authorize(rt, { actor, action: "inventory.edit", subject: entrySubject(entry, "secretId") });
   const created = rt.inventory.addSecret(entry as z.input<typeof SecretSchema>);
   await rt.inventory.save();
   return view(rt, created, new Date());
@@ -364,15 +483,17 @@ export function preflightSecret(rt: Runtime, id: string) {
  */
 export async function updateSecretMeta(rt: Runtime, actor: Actor, id: string, patch: unknown): Promise<SecretView> {
   const parsed = actor.kind === "agent" ? parseInput(SecretAgentPatchSchema, patch) : parseInput(SecretHumanPatchSchema, patch);
+  await authorize(rt, { actor, action: "inventory.edit", subject: { secretId: id } });
   const updated = rt.inventory.patchSecret(id, parsed as Parameters<Runtime["inventory"]["patchSecret"]>[1]);
   await rt.inventory.save();
   return view(rt, updated, new Date());
 }
 
-export async function addManualProvider(rt: Runtime, _actor: Actor, def: z.input<typeof ProviderDefSchema>) {
+export async function addManualProvider(rt: Runtime, actor: Actor, def: z.input<typeof ProviderDefSchema>) {
   // Ein neuer Anbieter darf keinen bestehenden ersetzen (auch keinen eingebauten): sonst waere ein automatischer ploetzlich ein manueller.
   const wanted = (def as { id?: unknown }).id;
   if (typeof wanted === "string" && rt.providers.get(wanted)) throw new InventoryError(`Anbieter existiert schon: ${wanted}`);
+  await authorize(rt, { actor, action: "inventory.edit" });
   const created = rt.inventory.addProvider(def);
   await rt.inventory.save();
   rt.providers.register({ id: created.id, label: created.label, kind: "manual", guide: { url: created.url, steps: created.steps } });
@@ -395,6 +516,7 @@ export async function addEnvTemplate(rt: Runtime, actor: Actor, template: z.inpu
     const t = parseInput(EnvTemplateSchema, template);
     assertAgentTemplate(rt, t.stage, t.file, t.entries);
   }
+  await authorize(rt, { actor, action: "inventory.edit" });
   const created = rt.inventory.addEnvTemplate(template);
   await rt.inventory.save();
   return created;
@@ -406,6 +528,7 @@ export async function addEnvEntry(rt: Runtime, actor: Actor, templateId: string,
     if (!t) throw new InventoryError(`Vorlage nicht gefunden: ${templateId}`);
     assertAgentTemplate(rt, t.stage, t.file, [parseInput(EnvEntrySchema, entry)]);
   }
+  await authorize(rt, { actor, action: "inventory.edit" });
   const updated = rt.inventory.addEnvEntry(templateId, entry);
   await rt.inventory.save();
   return updated;
@@ -427,10 +550,16 @@ export interface IssuanceView {
   createdAt: string;
   expiresAt: string;
   overall: OverallStatus;
+  /** Who prepared it: name, kind and an opaque principal id when there is one. Never a value. */
+  preparedBy?: ActorRef;
+  /** Who asked for it, when that is someone else than the preparer (for example the agent whose request a human approved). */
+  requestedBy?: ActorRef;
+  /** The approval request it was prepared for, when there was one. */
+  approvalId?: string;
   report: VerificationReport;
 }
 
-function issuanceView(p: { id: string; secretId: string; createdAt: string; expiresAt: string; report: VerificationReport }): IssuanceView {
+function issuanceView(p: { id: string; secretId: string; createdAt: string; expiresAt: string; preparedBy?: ActorRef; requestedBy?: ActorRef; approvalId?: string; report: VerificationReport }): IssuanceView {
   return {
     id: p.id,
     secretId: p.secretId,
@@ -441,25 +570,38 @@ function issuanceView(p: { id: string; secretId: string; createdAt: string; expi
     createdAt: p.createdAt,
     expiresAt: p.expiresAt,
     overall: overallStatus(p.report.checks),
+    ...(p.preparedBy ? { preparedBy: { ...p.preparedBy } } : {}),
+    ...(p.requestedBy ? { requestedBy: { ...p.requestedBy } } : {}),
+    ...(p.approvalId ? { approvalId: p.approvalId } : {}),
     report: p.report,
   };
 }
+
+/** The hook subject of an action on a pending review: who prepared it, who asked and which approval it belongs to. Ids and references only. */
+const issuanceSubject = (p: PendingIssuance): NonNullable<AuthorizationRequest["subject"]> => ({
+  secretId: p.secretId,
+  stage: p.report.stage,
+  ...(p.preparedBy ? { preparedBy: p.preparedBy } : {}),
+  ...(p.requestedBy ? { requestedBy: p.requestedBy.name, requestedByRef: p.requestedBy } : {}),
+  ...(p.approvalId ? { approvalId: p.approvalId } : {}),
+});
 
 /**
  * prepareIssuance; bei einem Browser-Anbieter als verfolgter Lauf (Zustand, Abbruch, nur einer gleichzeitig)
  * und mit den Belegen des Browsers als Anlagen am Bericht.
  */
-async function prepareTracked(rt: Runtime, secretId: string): Promise<PendingIssuance> {
+async function prepareTracked(rt: Runtime, actor: Actor, secretId: string, via?: { requestedBy: ActorRef; approvalId: string }): Promise<PendingIssuance> {
   const secret = rt.inventory.getSecret(secretId);
   /* v8 ignore start -- every caller names an entry that exists; prepareIssuance reports a missing one */
   const provider = secret ? rt.providers.get(secret.provider) : undefined;
   /* v8 ignore stop */
-  if (!rt.automation.isBrowserProvider(provider)) return prepareIssuance(secretId, issuanceDeps(rt));
+  const options = { preparedBy: actorRef(actor), ...(via ?? {}) };
+  if (!rt.automation.isBrowserProvider(provider)) return prepareIssuance(secretId, issuanceDeps(rt), options);
   return rt.automation.run(
     secretId,
     provider,
     async () => {
-      const pending = await prepareIssuance(secretId, issuanceDeps(rt));
+      const pending = await prepareIssuance(secretId, issuanceDeps(rt), options);
       await rt.automation.attach(provider, secretId, pending.report.id);
       return pending;
     },
@@ -506,10 +648,13 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
     // Agenten bekommen nur den Parameterstand; Namen von Konten, Projekten usw. liest nur ein Mensch.
     return actor.kind === "human" ? { status: "dry-run", plan, preflight: await preflightEntry(secret, issuanceDeps(rt)) } : { status: "dry-run", plan };
   }
+  await authorize(rt, { actor, action: "issuance.prepare", subject: { secretId, stage: secret.stage } });
   // Ein Browser-Lauf oeffnet ein Fenster am Rechner des Menschen: Agenten brauchen dafuer in jeder Stage eine Freigabe.
-  const browser = actor.kind === "agent" && rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
+  const isBrowser = rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
+  const browser = actor.kind === "agent" && isBrowser;
+  if (actor.kind === "human" && isBrowser) await authorize(rt, { actor, action: "automation.run", subject: { secretId, stage: secret.stage } });
   if (browser || !agentMayRunNow(rt, actor, secret.stage, secret.places.length > 0)) {
-    const approval = rt.approvals.create({ action: "issue", targetId: secretId, requestedBy: actor.name, reason: options.reason ?? null, snapshot: secretApprovalSnapshot(secret) });
+    const approval = rt.approvals.create({ action: "issue", targetId: secretId, requestedBy: actor.name, requestedByRef: actorRef(actor), reason: options.reason ?? null, snapshot: secretApprovalSnapshot(secret) });
     return {
       status: "pending-approval",
       approvalId: approval.id,
@@ -519,7 +664,7 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
   }
   // Aufraeumen abgelaufener Pruefungen passiert beim Start einer neuen Ausstellung (und im Takt des Portals), nie beim Lesen.
   await rt.issuances.sweep(issuanceDeps(rt));
-  const pending = await prepareTracked(rt, secretId);
+  const pending = await prepareTracked(rt, actor, secretId);
   rt.issuances.add(pending);
   return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben." };
 }
@@ -527,7 +672,9 @@ export async function requestIssuance(rt: Runtime, actor: Actor, secretId: strin
 /** Der Mensch gibt den Wert selbst ein (zum Beispiel ein Stripe-Key). Er wird geprueft und wartet auf Bestaetigung. */
 export async function submitManualValue(rt: Runtime, actor: Actor, secretId: string, value: string): Promise<IssuanceView> {
   requireHuman(actor, "Werte eingeben");
-  const pending = await prepareIssuance(secretId, issuanceDeps(rt), { manualValue: new SecretValue(value.trim()) });
+  const stage = rt.inventory.getSecret(secretId)?.stage;
+  await authorize(rt, { actor, action: "issuance.manual-value", subject: { secretId, ...(stage ? { stage } : {}) } });
+  const pending = await prepareIssuance(secretId, issuanceDeps(rt), { manualValue: new SecretValue(value.trim()), preparedBy: actorRef(actor) });
   rt.issuances.add(pending);
   return issuanceView(pending);
 }
@@ -550,14 +697,21 @@ export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, inp
   await rt.issuances.sweep(issuanceDeps(rt));
   const pending = rt.issuances.get(id);
   if (!pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+  // Claimed before the first await: while the hook (or the commit) is pending, no second confirm or reject can start on this review.
+  if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
-    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
+    await authorize(rt, { actor, action: "issuance.confirm", subject: issuanceSubject(pending) });
+    // The hook may have taken a while: only go on with the very same item.
+    if (rt.issuances.get(id) !== pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
     if (result.ok) rt.issuances.delete(id);
     return result;
   } catch (err) {
     // Der neue Wert ist beim Anbieter schon widerrufen: die Pruefung ist nicht mehr zu retten.
     if (err instanceof StaleIssuanceError) rt.issuances.delete(id);
     throw err;
+  } finally {
+    rt.issuances.release(id);
   }
 }
 
@@ -565,8 +719,15 @@ export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note
   requireHuman(actor, "Ablehnen");
   const pending = rt.issuances.get(id);
   if (!pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
-  rt.issuances.delete(id);
-  return discardIssuance(pending, issuanceDeps(rt), { by: actor.name, why: "rejected", ...(note ? { note } : {}) });
+  if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
+  try {
+    await authorize(rt, { actor, action: "issuance.reject", subject: issuanceSubject(pending) });
+    if (rt.issuances.get(id) !== pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+    rt.issuances.delete(id);
+    return await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}) });
+  } finally {
+    rt.issuances.release(id);
+  }
 }
 
 // ------------------------------------------------------------------------------------- Belege, Anlagen
@@ -591,6 +752,7 @@ export async function evidenceSvg(rt: Runtime, secretId: string, reportId: strin
 
 export async function attachEvidence(rt: Runtime, actor: Actor, secretId: string, reportId: string, bytes: Uint8Array, mime: string, note?: string) {
   requireHuman(actor, "Anlagen hinzufuegen");
+  await authorize(rt, { actor, action: "evidence.attach", subject: { secretId } });
   return rt.evidence.attach(secretId, reportId, bytes, mime, note);
 }
 
@@ -658,6 +820,7 @@ export async function inspectVariableLive(rt: Runtime, id: string): Promise<{ va
 export async function addVariable(rt: Runtime, actor: Actor, entry: z.input<typeof VariableSchema>, options: { acknowledgedPublic?: boolean } = {}): Promise<VariableView> {
   if (actor.kind === "agent") parseInput(VariableAgentCreateSchema, entry);
   if (entry.value !== null && entry.value !== undefined) assertPublicValue(entry.name, entry.value, actor.kind === "human" && Boolean(options.acknowledgedPublic));
+  await authorize(rt, { actor, action: "inventory.edit", subject: entrySubject(entry, "variableId") });
   const created = rt.inventory.addVariable(entry);
   await rt.inventory.save();
   return variableView(created);
@@ -667,6 +830,7 @@ export async function updateVariable(rt: Runtime, actor: Actor, id: string, patc
   const current = rt.inventory.getVariable(id);
   if (!current) throw new InventoryError(`Variable nicht gefunden: ${id}`);
   if (typeof patch.value === "string") assertPublicValue(current.name, patch.value, actor.kind === "human" && Boolean(options.acknowledgedPublic));
+  await authorize(rt, { actor, action: "inventory.edit", subject: { variableId: id, stage: current.stage } });
   const updated = rt.inventory.patchVariable(id, patch);
   await rt.inventory.save();
   return variableView(updated);
@@ -674,6 +838,7 @@ export async function updateVariable(rt: Runtime, actor: Actor, id: string, patc
 
 export async function removeVariable(rt: Runtime, actor: Actor, id: string): Promise<void> {
   requireHuman(actor, "Variablen entfernen");
+  await authorize(rt, { actor, action: "inventory.edit", subject: { variableId: id } });
   rt.inventory.removeVariable(id);
   await rt.inventory.save();
 }
@@ -686,8 +851,9 @@ export type VariableApplyResult =
 export async function requestApplyVariable(rt: Runtime, actor: Actor, id: string, options: { reason?: string; acknowledgedPublic?: boolean } = {}): Promise<VariableApplyResult> {
   const v = rt.inventory.getVariable(id);
   if (!v) throw new InventoryError(`Variable nicht gefunden: ${id}`);
+  await authorize(rt, { actor, action: "variable.apply", subject: { variableId: id, stage: v.stage } });
   if (!agentMayRunNow(rt, actor, v.stage, v.places.length > 0)) {
-    const approval = rt.approvals.create({ action: "apply-variable", targetId: id, requestedBy: actor.name, reason: options.reason ?? null, snapshot: variableApprovalSnapshot(v) });
+    const approval = rt.approvals.create({ action: "apply-variable", targetId: id, requestedBy: actor.name, requestedByRef: actorRef(actor), reason: options.reason ?? null, snapshot: variableApprovalSnapshot(v) });
     return { status: "pending-approval", approvalId: approval.id, message: `Stage ${v.stage} braucht eine Freigabe im Portal (Reiter Freigaben).` };
   }
   const outcomes = await applyVariable(rt.github, rt.owner, v, { acknowledgedPublic: actor.kind === "human" && Boolean(options.acknowledgedPublic) });
@@ -696,6 +862,7 @@ export async function requestApplyVariable(rt: Runtime, actor: Actor, id: string
 
 export async function adoptVariableFromGitHub(rt: Runtime, actor: Actor, id: string): Promise<VariableView> {
   requireHuman(actor, "Werte uebernehmen");
+  await authorize(rt, { actor, action: "inventory.edit", subject: { variableId: id } });
   const v = await adoptVariable(rt.github, rt.owner, rt.inventory, id);
   await rt.inventory.save();
   return variableView(v);
@@ -719,27 +886,45 @@ export async function resolveApproval(rt: Runtime, actor: Actor, id: string, dec
   const approval = rt.approvals.get(id);
   if (!approval) throw new PolicyError(`Anfrage nicht gefunden: ${id}`);
   if (approval.state !== "pending") throw new PolicyError(`Anfrage ist schon erledigt: ${approval.state}`);
+  const target0 = approval.action === "issue" ? { secretId: approval.targetId } : { variableId: approval.targetId };
+  const origin = { approvalId: id, requestedBy: approval.requestedBy, requestedByRef: approval.requestedByRef };
+  await authorize(rt, { actor, action: "approval.resolve", subject: { ...target0, ...origin } });
+  // An approval carries out what was asked for, on behalf of the approving actor: the hook is asked for that too, before anything
+  // starts. A refusal leaves the request open, nothing is consumed.
+  if (decision === "approve") {
+    if (approval.action === "issue") {
+      const secret = rt.inventory.getSecret(approval.targetId);
+      if (secret) {
+        await authorize(rt, { actor, action: "issuance.prepare", subject: { ...target0, stage: secret.stage, ...origin } });
+        if (rt.automation.isBrowserProvider(rt.providers.get(secret.provider))) await authorize(rt, { actor, action: "automation.run", subject: { ...target0, stage: secret.stage, ...origin } });
+      }
+    } else {
+      const variable = rt.inventory.getVariable(approval.targetId);
+      if (variable) await authorize(rt, { actor, action: "variable.apply", subject: { ...target0, stage: variable.stage, ...origin } });
+    }
+  }
   // Atomar von "offen" auf "in Bearbeitung": ein zweites (auch paralleles) approve/deny wirft sofort, ohne Arbeit.
   if (!rt.approvals.begin(id)) throw new PolicyError("Anfrage wird gerade bearbeitet oder ist schon erledigt.");
-  if (decision === "deny") return rt.approvals.resolve(id, "denied");
+  const decidedBy = actorRef(actor);
+  if (decision === "deny") return rt.approvals.resolve(id, "denied", undefined, decidedBy);
   try {
     // Die Freigabe gilt fuer den Inhalt von damals. Hat sich der Eintrag (Ziele, Sollwert, Stage, Anbieter, Parameter) geaendert, verfaellt sie.
     const target = approval.action === "issue" ? rt.inventory.getSecret(approval.targetId) : rt.inventory.getVariable(approval.targetId);
     const nowHash = !target ? null : approval.action === "issue" ? secretApprovalSnapshot(target as SecretEntry).hash : variableApprovalSnapshot(target as VariableEntry).hash;
-    if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.");
+    if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.", decidedBy);
     if (approval.action === "issue") {
-      const pending = await prepareTracked(rt, approval.targetId);
+      const pending = await prepareTracked(rt, actor, approval.targetId, { requestedBy: approval.requestedByRef, approvalId: id });
       rt.issuances.add(pending);
-      return rt.approvals.resolve(id, "approved", `Pruefung ${pending.id} wartet auf Bestaetigung`);
+      return rt.approvals.resolve(id, "approved", `Pruefung ${pending.id} wartet auf Bestaetigung`, decidedBy);
     }
     // The hash above matched, so the target exists (and is the variable this approval was made for).
     const outcomes = await applyVariable(rt.github, rt.owner, target as VariableEntry, { acknowledgedPublic: false });
     const failed = outcomes.some((o) => o.outcome === "failed");
-    return rt.approvals.resolve(id, failed ? "failed" : "approved", failed ? "Ziele fehlgeschlagen" : "gesetzt");
+    return rt.approvals.resolve(id, failed ? "failed" : "approved", failed ? "Ziele fehlgeschlagen" : "gesetzt", decidedBy);
   } catch (err) {
     const message = (err as Error).message ?? "Fehler";
     // Der Zustand ist nur noch "in Bearbeitung": resolve kann nicht an einem fremden Zustand scheitern.
-    return rt.approvals.resolve(id, "failed", message.slice(0, 200));
+    return rt.approvals.resolve(id, "failed", message.slice(0, 200), decidedBy);
   }
 }
 
@@ -801,6 +986,8 @@ export async function exportEnv(
   if (actor.kind === "agent" && !agentMayWriteEnvFile(target)) throw new PolicyError("Agenten duerfen nur Dateien namens .env oder .env.* schreiben (nicht .envrc, .npmrc, Makefile, *.sh).");
   // Ohne envRoots gilt fuer Menschen keine Einschraenkung; mit envRoots kommt der verknuepfte Ordner hinzu.
   const roots = configured.length > 0 && folder ? [...configured, folder] : configured;
+  // Values are about to be generated, fetched and written to a file: the hook is asked after every built-in check, before the first of those.
+  await authorize(rt, { actor, action: "env.export", subject: { repo: template.repo, stage: template.stage } });
   try {
     const envDeps = { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers };
     const readTemplateFile = async (other: EnvTemplate): Promise<string | null> => {

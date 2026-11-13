@@ -306,6 +306,9 @@ An `IssuanceView`:
   "createdAt": "2026-10-28T08:37:25.377Z",
   "expiresAt": "2026-10-28T08:52:25.377Z",
   "overall": "pass",
+  "preparedBy": { "name": "alice", "kind": "human" },
+  "requestedBy": { "name": "claude", "kind": "agent" },
+  "approvalId": "...",
   "report": {
     "id": "...", "label": "...", "targets": ["acme-app/repo"],
     "checks": [{ "id": "shape", "label": "...", "status": "pass" }],
@@ -316,7 +319,7 @@ An `IssuanceView`:
 }
 ```
 
-`overall` is `pass`, `warn` or `fail`. The `fingerprint` is the first 12 hex characters of a SHA-256 of the value: it allows later comparison but does not reveal the value.
+`overall` is `pass`, `warn` or `fail`. The `fingerprint` is the first 12 hex characters of a SHA-256 of the value: it allows later comparison but does not reveal the value. `preparedBy` names who prepared the review, that is who caused it to run (`name`, `kind`, and a `principalId` only when the deployment supplies one). `requestedBy` and `approvalId` appear when the review came from an approval: who asked (for example the agent) and which approval it belongs to. None of them is a value. Agents can read these names and ids.
 
 ### GET reviews, GET reviews/:id
 
@@ -333,13 +336,16 @@ The review reports of a secret (newest history, with confirmation and attachment
 ```json
 {
   "id": "...", "action": "issue", "targetId": "acme-api-key-acme-app-staging", "requestedBy": "claude",
+  "requestedByRef": { "name": "claude", "kind": "agent" },
   "reason": "Key expires next week", "createdAt": "2026-10-28T08:40:00.000Z",
   "state": "pending", "snapshotHash": "...", "snapshot": { },
-  "result": "optional short text after execution"
+  "result": "optional short text after execution",
+  "decidedBy": { "name": "alice", "kind": "human" },
+  "decidedAt": "2026-10-28T08:45:00.000Z"
 }
 ```
 
-`action` is `issue` or `apply-variable`; `state` is `pending`, `approved`, `denied`, `failed` or `stale`.
+`action` is `issue` or `apply-variable`; `state` is `pending`, `approved`, `denied`, `failed` or `stale`. `requestedBy` is the name (kept for compatibility), `requestedByRef` the same as a reference with `kind` and, when there is one, a `principalId`. `decidedBy` and `decidedAt` appear once a human has approved or denied the request (`decidedBy` has the same shape as `preparedBy` above; names only, never a value).
 
 ### GET providers, POST providers
 

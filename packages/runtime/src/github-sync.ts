@@ -1,5 +1,5 @@
 import { buildSyncPlan, runSync, type SecretValueSource, type SyncPlan, type SyncResult } from "@secret-desk/core";
-import { requireHuman, type Actor } from "./agent-api.js";
+import { authorize, requireHuman, type Actor } from "./agent-api.js";
 import type { Runtime } from "./runtime.js";
 
 /** Vault entry that holds the stored value of an inventory secret. Never listed as a connection (`connections.ids` skips `#value`). */
@@ -50,6 +50,7 @@ export interface GitHubSyncRequest {
  */
 export async function runGitHubSync(rt: Runtime, actor: Actor, request: GitHubSyncRequest): Promise<SyncResult> {
   requireHuman(actor, "Alles nach GitHub schreiben");
+  await authorize(rt, { actor, action: "github.sync" });
   const plan = await buildSyncPlan(planDeps(rt, request.repo));
   const values = secretValueSource(rt);
   return runSync(

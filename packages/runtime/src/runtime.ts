@@ -25,6 +25,7 @@ import {
 import { createDefaultRegistry } from "@secret-desk/providers";
 import { FileEvidenceStore, type EvidenceStore, type IssuanceDeps } from "@secret-desk/core";
 import type { BrowserDriver } from "@secret-desk/automation";
+import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
 import { IssuanceQueue } from "./issuances.js";
@@ -45,6 +46,12 @@ export interface Runtime {
   automation: AutomationManager;
   owner: string;
   fetch: FetchLike;
+  /** Optional authorisation hook, consulted after the built-in policy checks (see `Authorize`). Absent in the local edition. */
+  authorize?: Authorize;
+  /** How long the hook may take before the action is refused (default 10000 ms). */
+  authorizeTimeoutMs?: number;
+  /** Called with a class name and a reason (never a message or a value) when the hook faulted and the action was refused. */
+  onAuthorizeFault?: (fault: AuthorizeFault) => void;
   /** Nur Arbeitsspeicher: Ergebnis der letzten Abfrage des Team-Repositories. */
   teamSyncMemo: { lastCheck: unknown | null; lastError: string | null };
 }
@@ -69,6 +76,19 @@ export interface RuntimeOptions {
   bundledRecipes?: string | null;
   /** Tests only: shortens the waits of a "Confirm access" step (GitHub Mobile, code check, tries). */
   automationAccess?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
+  /**
+   * Optional hook called before sensitive actions, after the built-in policy checks have passed (it can refuse, never allow
+   * what the built-in rules refuse). Without it nothing changes. This repository ships no rules for it.
+   */
+  authorize?: Authorize;
+  /** Time limit for the hook in milliseconds; when it does not settle in time the action is refused (default 10000). */
+  authorizeTimeoutMs?: number;
+  /**
+   * Told when the hook faulted (threw something that is not a `PolicyError`, returned anything but `undefined`, did not
+   * settle in time, or is not a function). Carries the action, a reason and at most the class name of the foreign error:
+   * never its message and never a value. A throwing callback changes nothing.
+   */
+  onAuthorizeFault?: (fault: AuthorizeFault) => void;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -77,6 +97,11 @@ export const GITHUB_APP_KEY_CONNECTION = "github-app-key";
 
 /** Baut alles zusammen, was CLI, Portal und MCP-Server brauchen. Liest Konfiguration und Inventar, keine Werte. */
 export async function createRuntime(configPath: string, options: RuntimeOptions = {}): Promise<Runtime> {
+  // A timeout of 0 or NaN would silently become 1 ms in setTimeout and refuse everything: reject it where the runtime is built.
+  const timeoutMs: unknown = options.authorizeTimeoutMs;
+  if (timeoutMs !== undefined && !(typeof timeoutMs === "number" && Number.isInteger(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2147483647)) {
+    throw new Error("Konfiguration ungueltig: authorizeTimeoutMs: eine ganze Zahl von 1 bis 2147483647");
+  }
   const path = resolve(configPath);
   const config = await loadConfig(path);
   const inventory = await InventoryStore.open(resolve(dirname(path), config.inventory));
@@ -169,6 +194,9 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     automation,
     owner: config.github.owner,
     fetch: f,
+    ...(options.authorize !== undefined ? { authorize: options.authorize } : {}),
+    ...(options.authorizeTimeoutMs !== undefined ? { authorizeTimeoutMs: options.authorizeTimeoutMs } : {}),
+    ...(options.onAuthorizeFault ? { onAuthorizeFault: options.onAuthorizeFault } : {}),
     teamSyncMemo,
   };
 }

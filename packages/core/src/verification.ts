@@ -19,8 +19,20 @@ export interface ChecklistItem {
   text: string;
 }
 
+/**
+ * Who did something: a display name, the kind of caller and, when whatever authenticates the request supplies one, an opaque
+ * principal id. This package never interprets the principal id; it only stores it next to the name. Never carries a value.
+ */
+export interface ActorRef {
+  name: string;
+  kind: "human" | "agent";
+  principalId?: string;
+}
+
 export interface Confirmation {
   by: string;
+  /** Opaque principal id of the deciding actor, only present when the request carried one. */
+  principalId?: string;
   at: string;
   note?: string;
   ticks: string[];

@@ -37,7 +37,7 @@ export async function envExportContent(args: string[], io: Io): Promise<number> 
   if (include !== "variables" && include !== "all") throw new Error("--include: variables or all");
   const rt = await createRuntime(values.config);
   const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
-  const r = exportEnvContent(rt, { kind: "human", name: "cli" }, { repo: values.repo, stage, format: format as EnvExportFormat, include: include as EnvExportInclude });
+  const r = await exportEnvContent(rt, { kind: "human", name: "cli" }, { repo: values.repo, stage, format: format as EnvExportFormat, include: include as EnvExportInclude });
   const target = resolve(values.out ?? r.filename);
   const problem = localPathProblem(target);
   if (problem) throw new Error(translateEn(problem));
