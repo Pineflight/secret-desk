@@ -42,3 +42,65 @@ export interface InventoryBackend extends InventorySource {
    */
   watch?(hint: () => void): () => void;
 }
+
+/**
+ * The inventory text in memory: one document and a counter as revision. Models a hosted store with one row and optimistic
+ * versioning: `withWriteLock` runs one writer at a time and `write` checks the expected revision. Another writer is
+ * simulated with `replaceExternally`.
+ */
+export class MemoryInventoryBackend implements InventoryBackend {
+  readonly label: string;
+  #text: string | null;
+  #counter = 0;
+  #queue: Promise<unknown> = Promise.resolve();
+  readonly #hints = new Set<() => void>();
+
+  /** Without `initial` nothing is stored yet (the first write expects `null`). */
+  constructor(initial?: string, label = "memory://inventory") {
+    this.label = label;
+    this.#text = initial ?? null;
+    if (initial !== undefined) this.#counter = 1;
+  }
+
+  /** The stored text, or null if nothing is stored (for tests and hosts). */
+  get text(): string | null {
+    return this.#text;
+  }
+
+  stamp(): string | null {
+    return this.#text === null ? null : String(this.#counter);
+  }
+
+  read(): InventorySnapshot | null {
+    return this.#text === null ? null : { text: this.#text, revision: String(this.#counter) };
+  }
+
+  /** Another writer replaces the stored text: the revision changes and the registered hints are called. */
+  replaceExternally(text: string): void {
+    this.#text = text;
+    this.#counter += 1;
+    for (const hint of [...this.#hints]) hint();
+  }
+
+  watch(hint: () => void): () => void {
+    this.#hints.add(hint);
+    return () => {
+      this.#hints.delete(hint);
+    };
+  }
+
+  withWriteLock<T>(fn: (tx: InventoryTransaction) => Promise<T>): Promise<T> {
+    const run = this.#queue.then(() => fn({
+      read: () => this.read(),
+      write: async (text, expected) => {
+        const current = this.read();
+        if ((current === null ? null : current.revision) !== expected) return { written: false };
+        this.#text = text;
+        this.#counter += 1;
+        return { written: true, revision: String(this.#counter), stamp: this.stamp() };
+      },
+    }));
+    this.#queue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+}

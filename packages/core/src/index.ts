@@ -2,6 +2,7 @@ export * from "./secret.js";
 export * from "./stages.js";
 export * from "./types.js";
 export * from "./inventory.js";
+export * from "./inventory-store.js";
 export * from "./inventory-errors.js";
 export * from "./inventory-backend.js";
 export * from "./inventory-file-backend.js";

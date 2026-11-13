@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { InventoryStore } from "../src/inventory.js";
+import { InventoryStore, InventoryStoreCore } from "../src/inventory.js";
 import { InventoryConflictError, InventoryError } from "../src/inventory-errors.js";
-import type { InventoryBackend, InventoryRevision, InventorySnapshot, InventoryTransaction } from "../src/inventory-backend.js";
+import { MemoryInventoryBackend, type InventoryBackend, type InventoryRevision, type InventorySnapshot, type InventoryTransaction } from "../src/inventory-backend.js";
 import { INVENTORY_YAML } from "./fixtures.js";
 
 afterEach(() => vi.useRealTimers());
@@ -158,5 +158,132 @@ describe("InventoryStore on an explicit backend", () => {
     await vi.waitFor(() => expect(calls).toBe(1));
     stop();
     expect(backend.stopped).toBe(1);
+  });
+
+  it.each([
+    ["a number (browsers, workers)", 7],
+    ["null", null],
+    ["an object without unref", {}],
+  ])("watch works when the timer is %s: it does not call unref", (_name, timer) => {
+    const spy = vi.spyOn(globalThis, "setTimeout").mockReturnValue(timer as never);
+    try {
+      const backend = new WatchableBackend(INVENTORY_YAML);
+      const stop = InventoryStore.withBackend(backend).watch({ debounceMs: 5 });
+      expect(() => backend.hint!()).not.toThrow();
+      expect(spy).toHaveBeenCalledTimes(1);
+      stop();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("watch calls unref on a timer that has one, so a pending reload does not keep Node alive", () => {
+    const unref = vi.fn();
+    const spy = vi.spyOn(globalThis, "setTimeout").mockReturnValue({ unref } as never);
+    try {
+      const backend = new WatchableBackend(INVENTORY_YAML);
+      const stop = InventoryStore.withBackend(backend).watch({ debounceMs: 5 });
+      backend.hint!();
+      expect(unref).toHaveBeenCalledTimes(1);
+      stop();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("InventoryStoreCore without the Node facade", () => {
+  it("fromText is a pure memory store: it reads, changes and has no path; save does nothing", async () => {
+    const store = InventoryStoreCore.fromText(INVENTORY_YAML);
+    expect(store.path).toBeNull();
+    store.patchSecret("lead-token-dev", { notes: "mine" });
+    expect(store.getSecret("lead-token-dev")!.notes).toBe("mine");
+    await store.save();
+    expect(store.getSecret("lead-token-dev")!.notes).toBe("mine");
+  });
+
+  it("withBackend works on the memory backend: read, rebase on an external change, save", async () => {
+    const backend = new MemoryInventoryBackend(INVENTORY_YAML);
+    const store = InventoryStoreCore.withBackend(backend);
+    expect(store.path).toBe("memory://inventory");
+    store.patchSecret("lead-token-dev", { notes: "mine" });
+    backend.replaceExternally(INVENTORY_YAML.replace("old-token-id", "new-token-id"));
+    await store.save();
+    expect(backend.text).toContain("notes: mine");
+    expect(backend.text).toContain("new-token-id");
+  });
+
+  it("withBackend starts unwritten with initial text and refuses an empty backend without it", async () => {
+    const backend = new MemoryInventoryBackend();
+    expect(() => InventoryStoreCore.withBackend(backend)).toThrow(new InventoryError("Inventory cannot be read from memory://inventory"));
+    await InventoryStoreCore.withBackend(backend, INVENTORY_YAML).save();
+    expect(backend.text).toContain("lead-token-dev");
+  });
+
+  it("the Node facade builds the subclass and keeps the core API", () => {
+    expect(InventoryStore.withBackend(new MemoryInventoryBackend(INVENTORY_YAML))).toBeInstanceOf(InventoryStore);
+    expect(InventoryStore.fromText(INVENTORY_YAML)).toBeInstanceOf(InventoryStoreCore);
+  });
+});
+
+describe("MemoryInventoryBackend", () => {
+  it("starts empty without initial text: no stamp, nothing to read, a default label", () => {
+    const backend = new MemoryInventoryBackend();
+    expect(backend.label).toBe("memory://inventory");
+    expect(backend.stamp()).toBeNull();
+    expect(backend.read()).toBeNull();
+    expect(backend.text).toBeNull();
+  });
+
+  it("starts with initial text at revision 1 and a custom label", () => {
+    const backend = new MemoryInventoryBackend("a: 1\n", "memory://custom");
+    expect(backend.label).toBe("memory://custom");
+    expect(backend.stamp()).toBe("1");
+    expect(backend.read()).toEqual({ text: "a: 1\n", revision: "1" });
+    expect(backend.text).toBe("a: 1\n");
+  });
+
+  it("writes only when the expected revision is the stored one", async () => {
+    const empty = new MemoryInventoryBackend();
+    const results = await empty.withWriteLock(async (tx) => [
+      await tx.write("a: 1\n", "5"),
+      await tx.write("a: 1\n", null),
+      await tx.write("a: 2\n", null),
+      await tx.write("a: 3\n", "1"),
+      await tx.write("a: 4\n", "1"),
+    ]);
+    expect(results).toEqual([{ written: false }, { written: true, revision: "1", stamp: "1" }, { written: false }, { written: true, revision: "2", stamp: "2" }, { written: false }]);
+    expect(empty.text).toBe("a: 3\n");
+  });
+
+  it("an external replacement changes the revision and calls the registered hints until they stop", () => {
+    const backend = new MemoryInventoryBackend("a: 1\n");
+    let hints = 0;
+    const stop = backend.watch(() => { hints += 1; });
+    backend.replaceExternally("a: 2\n");
+    expect(hints).toBe(1);
+    expect(backend.read()).toEqual({ text: "a: 2\n", revision: "2" });
+    stop();
+    backend.replaceExternally("a: 3\n");
+    expect(hints).toBe(1);
+    expect(backend.stamp()).toBe("3");
+  });
+
+  it("runs writers one after the other and keeps going after a failed writer", async () => {
+    const backend = new MemoryInventoryBackend("a: 1\n");
+    const order: string[] = [];
+    const first = backend.withWriteLock(async () => {
+      order.push("first start");
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("first end");
+      throw new Error("boom");
+    });
+    const second = backend.withWriteLock(async () => {
+      order.push("second");
+      return 42;
+    });
+    await expect(first).rejects.toThrow("boom");
+    expect(await second).toBe(42);
+    expect(order).toEqual(["first start", "first end", "second"]);
   });
 });
