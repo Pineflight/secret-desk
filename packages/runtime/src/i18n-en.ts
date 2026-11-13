@@ -181,6 +181,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Der macOS-Schluesselbund ist nicht erreichbar oder wurde verweigert.", "The macOS keychain is unreachable or access was denied."],
   ["secret-tool (libsecret) ist nicht verfuegbar.", "secret-tool (libsecret) is not available."],
   ["Der Tresor-Eintrag laesst sich nicht entschluesseln (anderer Schluessel oder beschaedigt).", "The vault entry cannot be decrypted (different key or corrupted)."],
+  ["Der Tresor-Schluessel muss genau 32 Byte lang sein.", "The vault key must be exactly 32 bytes long."],
   ["Umgebungsvariable SECRET_DESK_VAULT_KEY", "Environment variable SECRET_DESK_VAULT_KEY"],
   ["macOS-Schluesselbund", "macOS keychain"],
   ["Schluesselbund (secret-tool)", "Keychain (secret-tool)"],

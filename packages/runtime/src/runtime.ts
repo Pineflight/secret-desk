@@ -23,7 +23,7 @@ import {
   type TokenProvider,
 } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
-import { EvidenceStore, type IssuanceDeps } from "@secret-desk/core";
+import { FileEvidenceStore, type EvidenceStore, type IssuanceDeps } from "@secret-desk/core";
 import type { BrowserDriver } from "@secret-desk/automation";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
@@ -129,7 +129,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers.register(manual);
   }
 
-  const evidence = new EvidenceStore(resolve(dirname(path), config.evidenceDir));
+  const evidence = new FileEvidenceStore(resolve(dirname(path), config.evidenceDir));
   const dataDir = dirname(resolve(expandHome(config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json"))));
   const automation = new AutomationManager({
     config,

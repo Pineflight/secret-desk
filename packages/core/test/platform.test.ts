@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeEnvFile } from "../src/env-export.js";
-import { EvidenceError, EvidenceStore } from "../src/evidence.js";
+import { EvidenceError } from "../src/evidence.js";
+import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import {
   ensurePrivateDir,
   expandHome,
@@ -119,7 +120,7 @@ describe("realpathLoose and writeEnvFile", () => {
 
 describe("Evidence: Windows-safe names", () => {
   it("rejects reserved names and trailing dot", async () => {
-    const store = new EvidenceStore(await tmp());
+    const store = new FileEvidenceStore(await tmp());
     for (const id of ["nul", "CON", "aux.txt", "report."]) await expect(store.get(id, "r1")).rejects.toBeInstanceOf(EvidenceError);
     await expect(store.get("ok-id", "r1")).resolves.toBeNull();
   });

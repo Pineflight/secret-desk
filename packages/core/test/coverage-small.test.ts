@@ -6,7 +6,7 @@ import {
   ConfigSchema,
   ConnectionStore,
   EvidenceError,
-  EvidenceStore,
+  FileEvidenceStore,
   GitHubError,
   InventoryError,
   ProviderRegistry,
@@ -70,12 +70,12 @@ describe("evidence store", () => {
   const PNG = new Uint8Array([1, 2, 3]);
 
   it("lists nothing for a secret without reports", async () => {
-    expect(await new EvidenceStore(await tmp("ev")).list("unknown-secret")).toEqual([]);
+    expect(await new FileEvidenceStore(await tmp("ev")).list("unknown-secret")).toEqual([]);
   });
 
   it("lists the reports of a secret, newest first, and ignores other files", async () => {
     const dir = await tmp("ev");
-    const store = new EvidenceStore(dir);
+    const store = new FileEvidenceStore(dir);
     await store.save(report({ id: "old", createdAt: "2026-01-01T00:00:00Z" }));
     await store.save(report({ id: "new", createdAt: "2026-02-01T00:00:00Z" }));
     await writeFile(join(dir, "api-key", "notes.txt"), "not a report");
@@ -84,25 +84,25 @@ describe("evidence store", () => {
 
   it("get returns null for a report that does not exist", async () => {
     const dir = await tmp("ev");
-    const store = new EvidenceStore(dir);
+    const store = new FileEvidenceStore(dir);
     await store.save(report());
     expect(await store.get("api-key", "missing")).toBeNull();
   });
 
   it("get passes on errors other than a missing file", async () => {
     const dir = await tmp("ev");
-    const store = new EvidenceStore(dir);
+    const store = new FileEvidenceStore(dir);
     await mkdir(join(dir, "api-key", "rep-1.json"), { recursive: true });
     await expect(store.get("api-key", "rep-1")).rejects.toThrow(/EISDIR/);
   });
 
   it("attach: refuses a report that does not exist", async () => {
-    const store = new EvidenceStore(await tmp("ev"));
+    const store = new FileEvidenceStore(await tmp("ev"));
     await expect(store.attach("api-key", "nope", PNG, "image/png")).rejects.toThrow(new EvidenceError("Bericht nicht gefunden"));
   });
 
   it("attach: stores the image with or without a note and numbers the files", async () => {
-    const store = new EvidenceStore(await tmp("ev"));
+    const store = new FileEvidenceStore(await tmp("ev"));
     await store.save(report());
     const first = await store.attach("api-key", "rep-1", PNG, "image/png", "Screenshot", new Date("2026-03-02T00:00:00Z"));
     const second = await store.attach("api-key", "rep-1", PNG, "image/jpeg");
@@ -113,7 +113,7 @@ describe("evidence store", () => {
   });
 
   it("readAttachment returns bytes and mime, or null when the report or the file is unknown", async () => {
-    const store = new EvidenceStore(await tmp("ev"));
+    const store = new FileEvidenceStore(await tmp("ev"));
     await store.save(report());
     await store.attach("api-key", "rep-1", PNG, "image/png");
     const r = await store.readAttachment("api-key", "rep-1", "anlage-1.png");

@@ -1,10 +1,27 @@
-import { readFile, readdir, rename } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { ensurePrivateDir, isReservedWindowsName, writePrivateFile } from "./platform.js";
+import { isReservedWindowsName } from "./reserved-names.js";
 import type { Attachment, VerificationReport } from "./verification.js";
 
-const ALLOWED_MIME: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
-const MAX_BYTES = 5 * 1024 * 1024;
+/**
+ * Evidence contract: verification reports and their attachments (screenshots). Only metadata and images the user adds.
+ * This module must not import Node built-ins, so it can run in any standards runtime. A guard test enforces that.
+ * `FileEvidenceStore` (evidence-file-store.ts) is the folder-based implementation, `MemoryEvidenceStore` the in-memory one.
+ */
+export interface EvidenceStore {
+  save(report: VerificationReport): Promise<void>;
+  get(secretId: string, reportId: string): Promise<VerificationReport | null>;
+  list(secretId: string): Promise<VerificationReport[]>;
+  /** Haengt ein Bild an einen Bericht. Nur PNG, JPEG, WebP bis 5 MB, damit nichts Ausfuehrbares abgelegt wird. */
+  attach(secretId: string, reportId: string, bytes: Uint8Array, mime: string, note?: string, now?: Date): Promise<Attachment>;
+  readAttachment(secretId: string, reportId: string, file: string): Promise<{ bytes: Uint8Array; mime: string } | null>;
+}
+
+// A Map has no inherited keys ("constructor", "__proto__" ...) and is not exported, so importers cannot extend it.
+const ALLOWED_MIME: ReadonlyMap<string, string> = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/webp", "webp"],
+]);
+export const MAX_BYTES = 5 * 1024 * 1024;
 
 export class EvidenceError extends Error {
   constructor(message: string) {
@@ -15,73 +32,76 @@ export class EvidenceError extends Error {
 
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function safe(part: string, what: string): string {
-  // Auch auf Windows gueltig: keine reservierten Geraetenamen (con, nul.txt ...), kein Punkt am Ende.
+/** One id rule for every store: no path tricks, no trailing dot, no reserved Windows device names (so data moves between systems). */
+export function safeId(part: string, what: string): string {
   if (!SAFE.test(part) || part.includes("..") || part.endsWith(".") || isReservedWindowsName(part)) throw new EvidenceError(`Ungueltige ${what}`);
   return part;
 }
 
-/**
- * Pruefberichte und Anlagen (Screenshots) auf der Platte. Nur Metadaten und Bilder, die der Nutzer selbst
- * hinzufuegt. Der Ordner gehoert nicht ins Git (steht in .gitignore).
- */
-export class EvidenceStore {
-  readonly dir: string;
+/** Validates an attachment image and returns its file extension. */
+export function checkImage(bytes: Uint8Array, mime: string): string {
+  const ext = ALLOWED_MIME.get(mime);
+  if (typeof ext !== "string") throw new EvidenceError("Nur PNG, JPEG oder WebP erlaubt");
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_BYTES) throw new EvidenceError("Bild leer oder groesser als 5 MB");
+  return ext;
+}
 
-  constructor(dir: string) {
-    this.dir = resolve(dir);
+interface StoredReport {
+  report: VerificationReport;
+  /** Attachment bytes by file name, kept next to the report so both belong together. */
+  blobs: Map<string, Uint8Array>;
+}
+
+/** In-memory evidence store (tests, reference implementation). Same errors, naming and ordering as the file store. */
+export class MemoryEvidenceStore implements EvidenceStore {
+  readonly #entries = new Map<string, StoredReport>();
+
+  static #key(secretId: string, reportId: string): string {
+    return `${safeId(secretId, "secretId")}/${safeId(reportId, "reportId")}`;
   }
 
   async save(report: VerificationReport): Promise<void> {
-    const folder = join(this.dir, safe(report.secretId, "secretId"));
-    await ensurePrivateDir(folder);
-    const file = join(folder, `${safe(report.id, "reportId")}.json`);
-    const tmp = `${file}.tmp-${process.pid}`;
-    await writePrivateFile(tmp, JSON.stringify(report, null, 2));
-    await rename(tmp, file);
+    const key = MemoryEvidenceStore.#key(report.secretId, report.id);
+    this.#entries.set(key, { report: structuredClone(report), blobs: this.#entries.get(key)?.blobs ?? new Map() });
   }
 
   async get(secretId: string, reportId: string): Promise<VerificationReport | null> {
-    try {
-      return JSON.parse(await readFile(join(this.dir, safe(secretId, "secretId"), `${safe(reportId, "reportId")}.json`), "utf8")) as VerificationReport;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw err;
-    }
+    const found = this.#entries.get(MemoryEvidenceStore.#key(secretId, reportId));
+    return found ? structuredClone(found.report) : null;
   }
 
   async list(secretId: string): Promise<VerificationReport[]> {
-    let files: string[];
+    let prefix: string;
     try {
-      files = await readdir(join(this.dir, safe(secretId, "secretId")));
+      prefix = `${safeId(secretId, "secretId")}/`;
     } catch {
-      return [];
+      return []; // same as the file store, which treats an unreadable folder as no reports
     }
-    const reports = await Promise.all(files.filter((f) => f.endsWith(".json")).map((f) => this.get(secretId, f.slice(0, -5))));
-    return reports.filter((r): r is VerificationReport => r !== null).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...this.#entries.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, stored]) => structuredClone(stored.report))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Haengt ein Bild an einen Bericht. Nur PNG, JPEG, WebP bis 5 MB, damit nichts Ausfuehrbares abgelegt wird. */
   async attach(secretId: string, reportId: string, bytes: Uint8Array, mime: string, note?: string, now = new Date()): Promise<Attachment> {
-    const ext = ALLOWED_MIME[mime];
-    if (!ext) throw new EvidenceError("Nur PNG, JPEG oder WebP erlaubt");
-    if (bytes.byteLength === 0 || bytes.byteLength > MAX_BYTES) throw new EvidenceError("Bild leer oder groesser als 5 MB");
-    const report = await this.get(secretId, reportId);
-    if (!report) throw new EvidenceError("Bericht nicht gefunden");
-    const folder = join(this.dir, safe(secretId, "secretId"), safe(reportId, "reportId"));
-    await ensurePrivateDir(folder);
-    const file = `anlage-${report.attachments.length + 1}.${ext}`;
-    await writePrivateFile(join(folder, file), bytes);
+    const ext = checkImage(bytes, mime);
+    const stored = this.#entries.get(MemoryEvidenceStore.#key(secretId, reportId));
+    if (!stored) throw new EvidenceError("Bericht nicht gefunden");
+    const file = `anlage-${stored.report.attachments.length + 1}.${ext}`;
     const attachment: Attachment = { file, mime, addedAt: now.toISOString(), ...(note ? { note } : {}) };
-    report.attachments.push(attachment);
-    await this.save(report);
-    return attachment;
+    stored.report.attachments.push(attachment);
+    stored.blobs.set(file, new Uint8Array(bytes));
+    return { ...attachment };
   }
 
-  async readAttachment(secretId: string, reportId: string, file: string): Promise<{ bytes: Buffer; mime: string } | null> {
-    const report = await this.get(secretId, reportId);
-    const att = report?.attachments.find((a) => a.file === file);
+  /** Null when the report or the attachment is unknown, or when only the metadata exists (a report saved with an attachment entry but no image). */
+  async readAttachment(secretId: string, reportId: string, file: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    const stored = this.#entries.get(MemoryEvidenceStore.#key(secretId, reportId));
+    if (!stored) return null;
+    const att = stored.report.attachments.find((a) => a.file === file);
     if (!att) return null;
-    return { bytes: await readFile(join(this.dir, safe(secretId, "secretId"), safe(reportId, "reportId"), safe(file, "Datei"))), mime: att.mime };
+    safeId(file, "Datei");
+    const bytes = stored.blobs.get(file);
+    return bytes ? { bytes: new Uint8Array(bytes), mime: att.mime } : null;
   }
 }

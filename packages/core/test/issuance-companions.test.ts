@@ -4,7 +4,7 @@ import { join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionStore } from "../src/connections.js";
-import { EvidenceStore } from "../src/evidence.js";
+import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
 import { commitIssuance, discardIssuance, prepareIssuance, StaleIssuanceError } from "../src/issuance.js";
@@ -82,7 +82,7 @@ async function setup(issue: (externalId: string | undefined) => IssuedSecret, ya
     connections: new ConnectionStore(),
     owner: "acme",
     now: () => new Date("2026-11-01T10:00:00Z"),
-    evidence: new EvidenceStore(await mkdtemp(join(tmpdir(), "sd-ev-"))),
+    evidence: new FileEvidenceStore(await mkdtemp(join(tmpdir(), "sd-ev-"))),
   };
   return { deps, inventory, revoke, issueFn, puts, varPuts, vars };
 }

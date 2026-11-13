@@ -1,29 +1,24 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { copyFile, readFile, rename, stat } from "node:fs/promises";
+import { readFile, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensurePrivateDir, writePrivateFile, type Platform } from "./platform.js";
-import { SecretValue } from "./secret.js";
+import { Vault, VaultUnavailableError, type KeySource, type VaultStore } from "./vault-core.js";
+import { FileVaultStore } from "./vault-file-store.js";
+
+export * from "./vault-core.js";
+
+/** A key source of this module: the portable `KeySource`, with the key typed as a Node `Buffer`. */
+export type NodeKeySource = KeySource & { key(): Promise<Buffer> };
 
 /**
  * Lokaler Tresor fuer Zugangs-Tokens der Integrationen (GitHub, Cloudflare ...), damit man sie nicht bei jedem Start
  * neu eingeben muss. Verschluesselt (AES-256-GCM), nicht gehasht: ein Hash laesst sich nicht mehr als Token verwenden.
  * Der Schluessel liegt NIE neben den Daten, sondern im Schluesselbund des Betriebssystems (macOS Keychain, Linux
  * secret-tool, Windows DPAPI) oder in der Umgebungsvariable SECRET_DESK_VAULT_KEY. Verwaltete Secrets (die Werte in GitHub) kommen hier nie hinein.
+ * The portable part (encryption, storage contract) lives in vault-core.ts; this module holds the OS key sources and the file-backed default.
  */
-export interface KeySource {
-  readonly label: string;
-  /** 32 Byte Schluessel. Legt ihn an, falls es noch keinen gibt. */
-  key(): Promise<Buffer>;
-}
-
-export class VaultUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "VaultUnavailableError";
-  }
-}
 
 export type VaultExec = (file: string, args: string[], input?: string) => Promise<string>;
 
@@ -47,7 +42,7 @@ function parseKey(text: string): Buffer | null {
   return buf.length === 32 ? buf : null;
 }
 
-export function envKeySource(env: NodeJS.ProcessEnv = process.env): KeySource {
+export function envKeySource(env: NodeJS.ProcessEnv = process.env): NodeKeySource {
   return {
     label: "Umgebungsvariable SECRET_DESK_VAULT_KEY",
     async key() {
@@ -67,7 +62,7 @@ const MAC_ITEM_NOT_FOUND = 44;
  * (gesperrter Schluesselbund, verweigerter Zugriff) wirft und ueberschreibt nichts: ein neuer Schluessel wuerde alle Tresor-Eintraege unlesbar machen.
  * Der neue Schluessel geht ueber `security -i` (Befehle ueber stdin), nie als Argument, das in der Prozessliste stuende.
  */
-export function macKeychainKeySource(exec: VaultExec = defaultExec): KeySource {
+export function macKeychainKeySource(exec: VaultExec = defaultExec): NodeKeySource {
   return {
     label: "macOS-Schluesselbund",
     async key() {
@@ -90,7 +85,7 @@ export function macKeychainKeySource(exec: VaultExec = defaultExec): KeySource {
   };
 }
 
-export function secretToolKeySource(exec: VaultExec = defaultExec): KeySource {
+export function secretToolKeySource(exec: VaultExec = defaultExec): NodeKeySource {
   const unavailable = (why: string): VaultUnavailableError => new VaultUnavailableError(`${why} Es wird kein Schluessel im Klartext gespeichert. ${KEY_HELP}`);
   return {
     label: "Schluesselbund (secret-tool)",
@@ -121,7 +116,7 @@ const PS_HEAD = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Se
  * Nur dasselbe Windows-Benutzerkonto auf demselben Rechner kann ihn wieder oeffnen. Die Daten gehen ueber stdin an PowerShell,
  * nie ueber Argumente (die in der Prozessliste stuenden).
  */
-export function windowsDpapiKeySource(options: { keyFile: string; exec?: VaultExec; powershell?: string }): KeySource {
+export function windowsDpapiKeySource(options: { keyFile: string; exec?: VaultExec; powershell?: string }): NodeKeySource {
   const exec = options.exec ?? defaultExec;
   const ps = options.powershell ?? "powershell.exe";
   const run = (script: string): Promise<string> => exec(ps, PS_ARGS, `${PS_HEAD}\n${script}\n`);
@@ -168,10 +163,10 @@ export function windowsDpapiKeySource(options: { keyFile: string; exec?: VaultEx
  * Schluesseldatei (nur wenn ausdruecklich konfiguriert, vault.keyFile): Base64 eines 32-Byte-Schluessels. Liegt Schluessel
  * neben Daten auf demselben Datentraeger, schuetzt nur das Dateisystem. POSIX: Modus muss 600 sein, sonst wird sie abgelehnt.
  */
-export function fileKeySource(file: string, platform: Platform = process.platform): KeySource {
+export function fileKeySource(file: string, platform: Platform = process.platform): NodeKeySource {
   return {
     label: `Schluesseldatei ${file}`,
-    async key() {
+    async key(): Promise<Buffer> {
       let text: string | null = null;
       try {
         if (platform !== "win32") {
@@ -193,7 +188,7 @@ export function fileKeySource(file: string, platform: Platform = process.platfor
       try {
         await writePrivateFile(file, `${fresh.toString("base64")}\n`, platform, "wx");
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "EEXIST") return this.key();
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return this.key() as Promise<Buffer>; // this very method, typed through the portable interface
         throw err;
       }
       return fresh;
@@ -212,7 +207,7 @@ export interface KeySourceOptions {
  * Reihenfolge: Umgebungsvariable, ausdruecklich konfigurierte Schluesseldatei (nicht Windows), dann der Schluesselbund des
  * Systems (macOS Keychain, Linux secret-tool, Windows DPAPI). Ohne verfuegbaren Speicher gibt es einen Fehler mit den Optionen.
  */
-export function defaultKeySource(env: NodeJS.ProcessEnv = process.env, platform: Platform = process.platform, exec?: VaultExec, options: KeySourceOptions = {}): KeySource {
+export function defaultKeySource(env: NodeJS.ProcessEnv = process.env, platform: Platform = process.platform, exec?: VaultExec, options: KeySourceOptions = {}): NodeKeySource {
   if (env["SECRET_DESK_VAULT_KEY"]) return envKeySource(env);
   if (platform === "win32") return windowsDpapiKeySource({ keyFile: options.keyFile ?? `${options.vaultFile ?? DEFAULT_VAULT_FILE}.key`, ...(exec ? { exec } : {}) });
   if (options.keyFile) return fileKeySource(options.keyFile, platform);
@@ -221,139 +216,15 @@ export function defaultKeySource(env: NodeJS.ProcessEnv = process.env, platform:
   return envKeySource(env);
 }
 
-interface Entry {
-  iv: string;
-  tag: string;
-  ct: string;
-  savedAt: string;
-  /** Die ersten 12 Hex-Zeichen von SHA-256 des Tokens: erkennt den Token wieder, verraet ihn nicht. */
-  fingerprint: string;
-  /** Tag, bis zu dem der Token gilt, null = laeuft nie ab, fehlt = nicht angegeben. */
-  expires?: string | null;
-}
-
-interface Doc {
-  version: 1;
-  entries: Record<string, Entry>;
-}
-
-export interface VaultInfo {
-  id: string;
-  savedAt: string;
-  fingerprint: string;
-  expires?: string | null;
-}
-
 export const DEFAULT_VAULT_FILE = join(homedir(), ".secret-desk", "vault.json");
 
-export class SecretVault {
-  readonly #file: string;
-  readonly #keys: KeySource;
-  #key: Buffer | null = null;
-
-  constructor(options: { file?: string; keySource?: KeySource; keyFile?: string } = {}) {
-    this.#file = options.file ?? DEFAULT_VAULT_FILE;
-    this.#keys = options.keySource ?? defaultKeySource(process.env, process.platform, undefined, { vaultFile: this.#file, ...(options.keyFile ? { keyFile: options.keyFile } : {}) });
-  }
-
-  get label(): string {
-    return this.#keys.label;
-  }
-
-  #backup: string | undefined;
-  #chain: Promise<unknown> = Promise.resolve();
-
-  /** Schreibende Zugriffe nacheinander: lesen-aendern-schreiben darf sich im selben Prozess nicht ueberlappen. */
-  #locked<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.#chain.then(fn, fn);
-    this.#chain = run.catch(() => undefined);
-    return run;
-  }
-
-  /** Nur eine fehlende Datei ist ein leerer Tresor. Alles andere wirft; eine kaputte Datei wird vorher als `.corrupt-<zeit>` gesichert. */
-  async #read(): Promise<Doc> {
-    let text: string;
-    try {
-      text = await readFile(this.#file, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, entries: {} };
-      throw new VaultUnavailableError(`Die Tresordatei ${this.#file} ist nicht lesbar. Sie wird nicht ueberschrieben.`);
-    }
-    let parsed: Doc | null = null;
-    try {
-      const doc = JSON.parse(text) as Doc;
-      if (doc && doc.version === 1 && typeof doc.entries === "object" && doc.entries !== null && !Array.isArray(doc.entries)) parsed = doc;
-    } catch {
-      /* unten behandelt */
-    }
-    if (parsed) return parsed;
-    // Kopie, nicht Verschieben: die Originaldatei bleibt, jeder weitere Zugriff scheitert weiter, bis ein Mensch entscheidet.
-    this.#backup ??= `${this.#file}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    await copyFile(this.#file, this.#backup).catch(() => undefined);
-    throw new VaultUnavailableError(`Die Tresordatei ${this.#file} ist beschaedigt oder hat ein unbekanntes Format. Eine Kopie liegt als ${this.#backup}; nichts wurde ueberschrieben.`);
-  }
-
-  async #write(doc: Doc): Promise<void> {
-    await ensurePrivateDir(dirname(this.#file));
-    const tmp = `${this.#file}.${process.pid}.tmp`;
-    await writePrivateFile(tmp, JSON.stringify(doc, null, 2));
-    await rename(tmp, this.#file);
-  }
-
-  async #masterKey(): Promise<Buffer> {
-    this.#key ??= await this.#keys.key();
-    return this.#key;
-  }
-
-  /** Metadaten ohne Wert, ohne den Schluessel zu holen. */
-  async list(): Promise<VaultInfo[]> {
-    const doc = await this.#read();
-    return Object.entries(doc.entries).map(([id, e]) => ({ id, savedAt: e.savedAt, fingerprint: e.fingerprint, ...(e.expires !== undefined ? { expires: e.expires } : {}) }));
-  }
-
-  async has(id: string): Promise<boolean> {
-    return id in (await this.#read()).entries;
-  }
-
-  async info(id: string): Promise<VaultInfo | null> {
-    return (await this.list()).find((i) => i.id === id) ?? null;
-  }
-
-  async set(id: string, value: SecretValue | string, expires?: string | null, now: Date = new Date()): Promise<void> {
-    const key = await this.#masterKey();
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", key, iv);
-    cipher.setAAD(Buffer.from(id));
-    const plain = typeof value === "string" ? value : value.reveal();
-    const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-    const entry: Entry = { iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), ct: ct.toString("base64"), savedAt: now.toISOString(), fingerprint: createHash("sha256").update(plain).digest("hex").slice(0, 12), ...(expires !== undefined ? { expires } : {}) };
-    await this.#locked(async () => {
-      const doc = await this.#read();
-      doc.entries[id] = entry;
-      await this.#write(doc);
-    });
-  }
-
-  async get(id: string): Promise<SecretValue | null> {
-    const e = (await this.#read()).entries[id];
-    if (!e) return null;
-    const key = await this.#masterKey();
-    try {
-      const d = createDecipheriv("aes-256-gcm", key, Buffer.from(e.iv, "base64"));
-      d.setAAD(Buffer.from(id));
-      d.setAuthTag(Buffer.from(e.tag, "base64"));
-      return new SecretValue(Buffer.concat([d.update(Buffer.from(e.ct, "base64")), d.final()]).toString("utf8"));
-    } catch {
-      throw new VaultUnavailableError("Der Tresor-Eintrag laesst sich nicht entschluesseln (anderer Schluessel oder beschaedigt).");
-    }
-  }
-
-  async delete(id: string): Promise<void> {
-    await this.#locked(async () => {
-      const doc = await this.#read();
-      if (!(id in doc.entries)) return;
-      delete doc.entries[id];
-      await this.#write(doc);
+/** The vault of the local edition: a JSON file (or any `VaultStore`) plus the OS key source. */
+export class SecretVault extends Vault {
+  constructor(options: { file?: string; keySource?: KeySource; keyFile?: string; store?: VaultStore } = {}) {
+    const file = options.file ?? DEFAULT_VAULT_FILE;
+    super({
+      store: options.store ?? new FileVaultStore(file),
+      keySource: options.keySource ?? defaultKeySource(process.env, process.platform, undefined, { vaultFile: file, ...(options.keyFile ? { keyFile: options.keyFile } : {}) }),
     });
   }
 }

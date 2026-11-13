@@ -4,7 +4,7 @@ import { join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionStore } from "../src/connections.js";
-import { EvidenceStore } from "../src/evidence.js";
+import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
 import { commitIssuance, discardIssuance, prepareIssuance, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
@@ -38,7 +38,7 @@ async function setup(options: { failVerify?: boolean } = {}) {
     reviewChecklist: () => ["Rechte exakt Workers Scripts Write", "Nur Konto acme"],
   };
   const inventory = InventoryStore.fromText(INVENTORY_YAML);
-  const evidence = new EvidenceStore(await mkdtemp(join(tmpdir(), "sd-ev-")));
+  const evidence = new FileEvidenceStore(await mkdtemp(join(tmpdir(), "sd-ev-")));
   const deps = {
     inventory,
     github: new GitHubClient({ auth: patProvider(new SecretValue("t")), fetch: fetchMock as unknown as typeof fetch }),
