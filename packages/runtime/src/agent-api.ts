@@ -138,8 +138,24 @@ export type AuthorizedAction =
   | "connection.check"
   | "env.export";
 
+/** The fixed names of the routines that run without a human or agent actor and ask the hook before they act. */
+export const SYSTEM_ROUTINES = ["team-sync-startup", "sign-in-scheduler", "live-check-scheduler"] as const;
+export type SystemRoutine = (typeof SYSTEM_ROUTINES)[number];
+
+/**
+ * The actor of a routine the process runs on its own (a timer or the start-up), only ever built inside the runtime by
+ * `authorizeSystem`. It is not an `Actor`: nothing that comes from a request (portal, agent API, MCP) can carry it, and no
+ * policy function accepts it.
+ */
+export interface SystemActor {
+  kind: "system";
+  name: SystemRoutine;
+  /** Never set: a routine has no principal. Present in the type only so a hook can read `actor.principalId` without narrowing first. */
+  principalId?: undefined;
+}
+
 export interface AuthorizationRequest {
-  actor: Actor;
+  actor: Actor | SystemActor;
   action: AuthorizedAction;
   /** What the action concerns: ids and actor references only, never values. */
   subject?: {
@@ -165,7 +181,7 @@ export interface AuthorizationRequest {
 /** What the runtime reports when the hook faulted (see `RuntimeOptions.onAuthorizeFault`). Never a message, never a value. */
 export interface AuthorizeFault {
   action: AuthorizedAction;
-  reason: "threw" | "returned-value" | "timeout" | "not-a-function";
+  reason: "threw" | "returned-value" | "timeout" | "not-a-function" | "invalid-actor";
   /** Class name of the foreign error, only for `threw`. */
   errorName?: string;
 }
@@ -182,18 +198,44 @@ export type Authorize = (request: AuthorizationRequest) => void | Promise<void>;
  * Consults the configured hook (if any). A refusal that is a `PolicyError` is passed on unchanged; anything else the hook throws
  * becomes a generic refusal so no hook internals reach a response. The hook gets a copy of the request.
  */
-export async function authorize(rt: Runtime, request: AuthorizationRequest): Promise<void> {
+export async function authorize(rt: Runtime, request: AuthorizationRequest & { actor: Actor }): Promise<void> {
+  // Only a human or an agent can reach the hook through here. Any other kind (above all `system`, which only the runtime's own
+  // routines may use, see `authorizeSystem`) is refused without asking the hook, even if a caller forged the object.
+  const kind: unknown = request.actor.kind;
+  if (rt.authorize !== undefined && kind !== "human" && kind !== "agent") return refuseAction(rt, request.action, "invalid-actor");
+  return askHook(rt, request);
+}
+
+/** Fails closed: every fault is one generic refusal, reported (class name only) to the optional callback. */
+function refuseAction(rt: Runtime, action: AuthorizedAction, reason: AuthorizeFault["reason"], error?: unknown): never {
+  try {
+    rt.onAuthorizeFault?.({ action, reason, ...(reason === "threw" ? { errorName: error instanceof Error ? error.constructor.name : typeof error } : {}) });
+  } catch {
+    // A faulty callback must not change the outcome.
+  }
+  throw new PolicyError("Die Berechtigungspruefung hat die Aktion nicht zugelassen.");
+}
+
+/**
+ * Asks the hook on behalf of a routine the process runs on its own (a timer or the start-up), with the actor
+ * `{ kind: "system", name: <routine> }`. True when the routine may go on. False when the hook refused or faulted (same rules as
+ * `authorize`: any non-undefined result, a throw, a timeout or a non-function refuses; a fault is reported to
+ * `onAuthorizeFault`): the routine skips that unit of work and tries again at its next turn. Never throws. Without a hook the
+ * answer is true and nothing else happens. The subject carries ids only, never a value.
+ */
+export async function authorizeSystem(rt: Runtime, routine: SystemRoutine, action: AuthorizedAction, subject?: AuthorizationRequest["subject"]): Promise<boolean> {
+  try {
+    await askHook(rt, { actor: { kind: "system", name: routine }, action, ...(subject ? { subject } : {}) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function askHook(rt: Runtime, request: AuthorizationRequest): Promise<void> {
   const hook = rt.authorize;
   if (hook === undefined) return;
-  // Fails closed: every fault is one generic refusal, reported (class name only) to the optional callback.
-  const refuse = (reason: AuthorizeFault["reason"], error?: unknown): never => {
-    try {
-      rt.onAuthorizeFault?.({ action: request.action, reason, ...(reason === "threw" ? { errorName: error instanceof Error ? error.constructor.name : typeof error } : {}) });
-    } catch {
-      // A faulty callback must not change the outcome.
-    }
-    throw new PolicyError("Die Berechtigungspruefung hat die Aktion nicht zugelassen.");
-  };
+  const refuse = (reason: AuthorizeFault["reason"], error?: unknown): never => refuseAction(rt, request.action, reason, error);
   if (typeof hook !== "function") return refuse("not-a-function");
   const timedOut = Symbol("timeout");
   let timer: ReturnType<typeof setTimeout> | undefined;
