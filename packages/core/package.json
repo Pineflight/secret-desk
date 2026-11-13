@@ -10,8 +10,13 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./portable": {
+      "types": "./dist/portable.d.ts",
+      "default": "./dist/portable.js"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
