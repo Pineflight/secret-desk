@@ -1,9 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, statSync, watch as fsWatch, type FSWatcher } from "node:fs";
-import { open, readFile, rename, rm } from "node:fs/promises";
-import { basename, dirname } from "node:path";
-import { writePrivateFile } from "./platform.js";
+import { readFile } from "node:fs/promises";
 import { parseDocument, type Document } from "yaml";
+import { InventoryConflictError, InventoryError, InvalidDiskError } from "./inventory-errors.js";
+import type { InventoryBackend, InventorySnapshot, InventoryRevision, InventoryTransaction } from "./inventory-backend.js";
+import { FileInventoryBackend, fileRevision } from "./inventory-file-backend.js";
 import {
   VariableSchema,
   type VariableEntry,
@@ -23,26 +22,7 @@ import { StageDefSchema, StageError, resolvePlaces, type StageDef } from "./stag
 import type { VariableSource } from "./variable-sources.js";
 import type { z } from "zod";
 
-export class InventoryError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InventoryError";
-  }
-}
-
-/**
- * The file changed on disk and a pending change could not be applied to the new content (or the new content is not
- * valid). Nothing was overwritten. Subclass of InventoryError so existing handlers still catch it; the portal maps it to 409.
- */
-export class InventoryConflictError extends InventoryError {
-  constructor(message: string) {
-    super(message);
-    this.name = "InventoryConflictError";
-  }
-}
-
-/** The file on disk cannot be parsed or validated (a writer may still be working on it). */
-class InvalidDiskError extends InventoryConflictError {}
+export { InventoryError, InventoryConflictError };
 
 /** A change that was applied in memory but is not on disk yet. `replay` re-applies it to a freshly loaded document. */
 interface PendingChange {
@@ -64,28 +44,10 @@ const REHASH_AFTER_MS = 1000;
 /** An invalid file is looked at again at most this often. */
 const INVALID_RETRY_MS = 250;
 const SAVE_ATTEMPTS = 6;
-const LOCK_WAIT_MS = 5000;
-const LOCK_STALE_MS = 15000;
 
-const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-interface FileStat {
-  mtimeMs: number;
-  size: number;
-  ino: number;
-}
-
-const sameStat = (a: FileStat | null, b: FileStat | null): boolean => !!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino;
-
-function statOf(path: string): FileStat | null {
-  try {
-    const st = statSync(path);
-    return { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino };
-  } catch {
-    return null;
-  }
-}
+const sameStamp = (a: string | null, b: string | null): boolean => a !== null && b !== null && a === b;
 
 /** Eine Aenderung an einem Eintrag fuer applyEdits: nur diese Felder, alles andere bleibt unveraendert. */
 export interface EntryEdit {
@@ -120,45 +82,62 @@ export class InventoryStore {
   #doc: Document;
   #data!: Inventory;
   #saving: Promise<void> = Promise.resolve();
-  /** Hash des Dateiinhalts, auf dem `#doc` (ohne `#pending`) beruht. null = noch nie gelesen oder geschrieben. */
-  #baseHash: string | null = null;
-  #stat: FileStat | null = null;
+  /** Revision des gespeicherten Inhalts, auf dem `#doc` (ohne `#pending`) beruht. null = noch nie gelesen oder geschrieben. */
+  #baseRevision: InventoryRevision | null = null;
+  #stamp: string | null = null;
+  readonly #backend: InventoryBackend | null;
+  readonly path: string | null;
   #verifiedAt = 0;
   /** true, solange der Speicher aus Text mit Pfad stammt und die Datei noch nie geschrieben wurde. */
   #unwritten = false;
   #pending: PendingChange[] = [];
   #version = 0;
   #problem: { message: string; since: number } | null = null;
-  #invalidStat: FileStat | null = null;
+  #invalidStamp: string | null = null;
   #invalidAt = 0;
   #stale = false;
   #saveRuns = 0;
   #refreshing = false;
   readonly #listeners = new Set<() => void>();
 
+  /** `loaded` is the revision `text` was read at; null = the text did not come from the backend (nothing written yet). */
   private constructor(
-    readonly path: string | null,
+    backend: InventoryBackend | null,
     text: string,
-    fromFile: boolean,
+    loaded: InventoryRevision | null,
   ) {
     const built = buildDocument(text);
     this.#doc = built.doc;
     this.#data = built.data;
-    if (path) {
-      if (fromFile) {
-        this.#baseHash = sha256(text);
-        this.#stat = statOf(path);
+    this.#backend = backend;
+    this.path = backend ? backend.label : null;
+    if (backend) {
+      if (loaded !== null) {
+        this.#baseRevision = loaded;
+        this.#stamp = backend.stamp();
         this.#verifiedAt = Date.now();
       } else this.#unwritten = true;
     }
   }
 
   static async open(path: string): Promise<InventoryStore> {
-    return new InventoryStore(path, await readFile(path, "utf8"), true);
+    const text = await readFile(path, "utf8");
+    return new InventoryStore(new FileInventoryBackend(path), text, fileRevision(text));
   }
 
   static fromText(text: string, path: string | null = null): InventoryStore {
-    return new InventoryStore(path, text, false);
+    return new InventoryStore(path ? new FileInventoryBackend(path) : null, text, null);
+  }
+
+  /**
+   * A store on any backend. With `initial` text the store starts unwritten (the first save() creates the stored
+   * document, like `fromText` with a path); without it the current content is read from the backend.
+   */
+  static withBackend(backend: InventoryBackend, initial?: string): InventoryStore {
+    if (initial !== undefined) return new InventoryStore(backend, initial, null);
+    const snapshot = backend.read();
+    if (!snapshot) throw new InventoryError(`Inventory cannot be read from ${backend.label}`);
+    return new InventoryStore(backend, snapshot.text, snapshot.revision);
   }
 
   get data(): Inventory {
@@ -190,11 +169,9 @@ export class InventoryStore {
    * Hinweis: Auf Bind-Mounts und Netzwerkdateisystemen fehlen Ereignisse, deshalb prueft jedes Lesen die Datei ohnehin.
    */
   watch(options: { debounceMs?: number } = {}): () => void {
-    if (!this.path) return () => undefined;
-    const file = basename(this.path);
+    if (!this.#backend?.watch) return () => undefined;
     const debounce = options.debounceMs ?? 100;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let watcher: FSWatcher | null = null;
     const hint = (): void => {
       this.#stale = true;
       if (timer) clearTimeout(timer);
@@ -206,17 +183,10 @@ export class InventoryStore {
       }, debounce);
       timer.unref?.();
     };
-    try {
-      watcher = fsWatch(dirname(this.path), { persistent: false }, (_event, name) => {
-        if (name === null || name === undefined || String(name) === file) hint();
-      });
-      watcher.on("error", () => undefined);
-    } catch {
-      watcher = null;
-    }
+    const stop = this.#backend.watch(hint);
     return () => {
       if (timer) clearTimeout(timer);
-      watcher?.close();
+      stop();
     };
   }
 
@@ -476,12 +446,12 @@ export class InventoryStore {
    * angewendet, nie ueberschrieben. Ohne Pfad passiert nichts, ohne eigene Aenderungen wird nichts geschrieben.
    */
   save(): Promise<void> {
-    if (!this.path) return Promise.resolve();
-    const path = this.path;
+    const backend = this.#backend;
+    if (!backend) return Promise.resolve();
     const run = async (): Promise<void> => {
       this.#saveRuns++;
       try {
-        await withFileLock(`${path}.lock`, () => this.#writeLocked(path));
+        await backend.withWriteLock((tx) => this.#writeLocked(backend, tx));
       } finally {
         this.#saveRuns--;
       }
@@ -491,15 +461,15 @@ export class InventoryStore {
     return next;
   }
 
-  async #writeLocked(path: string): Promise<void> {
+  async #writeLocked(backend: InventoryBackend, tx: InventoryTransaction): Promise<void> {
     let lastInvalid = "";
     for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
-      const disk = readText(path);
-      if (disk !== null && sha256(disk) !== this.#baseHash) {
+      const disk = tx.read();
+      if (disk !== null && disk.revision !== this.#baseRevision) {
         // The file differs from what this store is based on: somebody else wrote it.
         if (this.#pending.length === 0 && !this.#unwritten) {
           this.#adopt(disk);
-          this.#stat = statOf(path);
+          this.#stamp = backend.stamp();
           this.#verifiedAt = Date.now();
           this.#emit();
           return;
@@ -519,30 +489,11 @@ export class InventoryStore {
       } else if (this.#pending.length === 0 && !this.#unwritten) return;
       const count = this.#pending.length;
       const text = this.#doc.toString();
-      const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
-      try {
-        // Privat (0600): Die Datei kann Sollwerte, Ziele und Notizen enthalten.
-        await writePrivateFile(tmp, text);
-        const handle = await open(tmp, "r+");
-        try {
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        // Last look right before the rename: all writers of this store hold the lock, so this closes the race for them.
-        const now = readText(path);
-        if (now !== null && sha256(now) !== this.#baseHash && (this.#baseHash !== null || this.#pending.length > 0 || this.#unwritten)) {
-          await rm(tmp, { force: true });
-          continue;
-        }
-        await rename(tmp, path);
-      } catch (err) {
-        await rm(tmp, { force: true }).catch(() => undefined);
-        throw err;
-      }
-      await syncDirectory(dirname(path));
-      this.#baseHash = sha256(text);
-      this.#stat = statOf(path);
+      // The backend checks the revision once more right before it replaces the stored text.
+      const result = await tx.write(text, this.#baseRevision);
+      if (!result.written) continue;
+      this.#baseRevision = result.revision;
+      this.#stamp = result.stamp;
       this.#verifiedAt = Date.now();
       this.#unwritten = false;
       this.#pending.splice(0, count);
@@ -584,33 +535,34 @@ export class InventoryStore {
 
   /** Takes over the file on disk if it differs from the base. Cheap when nothing changed. */
   #refresh(): void {
-    if (!this.path || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return;
+    const backend = this.#backend;
+    if (!backend || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return;
     const now = Date.now();
-    const st = statOf(this.path);
+    const st = backend.stamp();
     if (!st) return;
-    const unchanged = sameStat(st, this.#stat);
+    const unchanged = sameStamp(st, this.#stamp);
     if (this.#problem) {
       // The last attempt failed: retry when the file changed or after a short pause.
-      if (sameStat(st, this.#invalidStat) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return;
+      if (sameStamp(st, this.#invalidStamp) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return;
     } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return;
-    const text = readText(this.path);
-    if (text === null) return;
+    const snapshot = backend.read();
+    if (snapshot === null) return;
     this.#stale = false;
-    if (sha256(text) === this.#baseHash) {
-      this.#stat = st;
+    if (snapshot.revision === this.#baseRevision) {
+      this.#stamp = st;
       this.#verifiedAt = now;
       this.#problem = null;
       return;
     }
     this.#refreshing = true;
     try {
-      if (this.#pending.length > 0) this.#rebase(text);
-      else this.#adopt(text);
-      this.#stat = st;
+      if (this.#pending.length > 0) this.#rebase(snapshot);
+      else this.#adopt(snapshot);
+      this.#stamp = st;
       this.#verifiedAt = now;
     } catch (err) {
       // Not valid yet (half written) or the unsaved change does not fit: keep the old state, look again later.
-      this.#invalidStat = st;
+      this.#invalidStamp = st;
       this.#invalidAt = now;
       this.#problem ??= { message: (err as Error).message, since: now };
       return;
@@ -632,25 +584,25 @@ export class InventoryStore {
   }
 
   /** Replaces the document by the file content. Throws (and keeps the old state) if it is invalid. */
-  #adopt(text: string): void {
+  #adopt(snapshot: InventorySnapshot): void {
     let built: { doc: Document; data: Inventory };
     try {
-      built = buildDocument(text);
+      built = buildDocument(snapshot.text);
     } catch (err) {
       throw new InvalidDiskError(`Die Inventar-Datei auf der Platte ist ungueltig: ${(err as Error).message}`);
     }
     this.#doc = built.doc;
     this.#data = built.data;
-    this.#baseHash = sha256(text);
+    this.#baseRevision = snapshot.revision;
     this.#version++;
     this.#pending = [];
   }
 
   /** Replaces the document by the file content and applies the unsaved changes again. Restores the old state on failure. */
-  #rebase(text: string): void {
+  #rebase(snapshot: InventorySnapshot): void {
     let built: { doc: Document; data: Inventory };
     try {
-      built = buildDocument(text);
+      built = buildDocument(snapshot.text);
     } catch (err) {
       throw new InvalidDiskError(`Die Inventar-Datei auf der Platte ist ungueltig: ${(err as Error).message}`);
     }
@@ -667,7 +619,7 @@ export class InventoryStore {
       this.#data = previous.data;
       throw new InventoryConflictError(`Die Inventar-Datei wurde von einem anderen Prozess geaendert und deine Aenderung passt nicht mehr dazu (${(err as Error).message}). Nichts ueberschrieben, bitte neu laden und erneut versuchen.`);
     }
-    this.#baseHash = sha256(text);
+    this.#baseRevision = snapshot.revision;
     this.#version++;
   }
 
@@ -675,11 +627,12 @@ export class InventoryStore {
   #discardPending(): void {
     this.#pending = [];
     this.#unwritten = false;
-    const disk = readText(this.path!);
+    const backend = this.#backend!;
+    const disk = backend.read();
     if (disk === null) return;
     try {
       this.#adopt(disk);
-      this.#stat = statOf(this.path!);
+      this.#stamp = backend.stamp();
       this.#verifiedAt = Date.now();
       this.#emit();
     } catch {
@@ -700,59 +653,6 @@ function buildDocument(text: string): { doc: Document; data: Inventory } {
   const parsed = InventorySchema.safeParse(doc.toJS());
   if (!parsed.success) throw new InventoryError(formatIssues(parsed.error));
   return { doc, data: parsed.data };
-}
-
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-/** Best effort: makes the rename durable. Not available everywhere (Windows), never fatal. */
-async function syncDirectory(dir: string): Promise<void> {
-  if (process.platform === "win32") return;
-  try {
-    const handle = await open(dir, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    // ignore
-  }
-}
-
-/**
- * Advisory lock between writers (portal, CLI, scripts) via an exclusively created file. A lock older than
- * `LOCK_STALE_MS` belongs to a crashed process and is broken. Readers never lock.
- */
-async function withFileLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      const handle = await open(lockPath, "wx", 0o600);
-      await handle.writeFile(`${process.pid}\n`);
-      await handle.close();
-      break;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const st = statOf(lockPath);
-      if (st && Date.now() - st.mtimeMs > LOCK_STALE_MS) {
-        await rm(lockPath, { force: true });
-        continue;
-      }
-      if (Date.now() > deadline) throw new InventoryConflictError("Ein anderer Prozess speichert gerade das Inventar. Bitte gleich noch einmal versuchen.");
-      await sleep(25);
-    }
-  }
-  try {
-    return await fn();
-  } finally {
-    await rm(lockPath, { force: true }).catch(() => undefined);
-  }
 }
 
 const sameMapKey = (a: { kind: string; repo: string; stage?: string | undefined }, b: { kind: string; repo: string; stage?: string | undefined }): boolean => a.kind === b.kind && a.repo === b.repo && (a.stage ?? "") === (b.stage ?? "");

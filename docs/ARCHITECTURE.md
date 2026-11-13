@@ -80,12 +80,13 @@ The **Compare** page (`/compare`), `GET compare` and the MCP tool `desk_compare_
 
 ## Storage seams in core
 
-Two interfaces separate what `packages/core` does from where the bytes live, so the core can run in a runtime without a file system:
+Three interfaces separate what `packages/core` does from where the bytes live, so the core can run in a runtime without a file system:
 
 - **Vault:** `Vault` (`vault-core.ts`) encrypts with AES-256-GCM through Web Crypto and talks to a `VaultStore` (`read`, `write`) and a `KeySource`. `FileVaultStore` (`vault-file-store.ts`) is the JSON file of the local edition, `MemoryVaultStore` the in-memory one. `SecretVault` (`vault.ts`) is a `Vault` with the file store and the operating system key sources as defaults; its constructor also accepts `store`. The stored format did not change: an entry written before the split is read by `Vault` and the other way round (tests: `vault-core.test.ts`).
 - **Evidence:** `EvidenceStore` (`evidence.ts`) is the interface for reports and attachments, `MemoryEvidenceStore` the in-memory implementation, `FileEvidenceStore` (`evidence-file-store.ts`) the folder-based one. One contract test runs the same cases against both.
+- **Inventory:** `InventoryStore` (`inventory.ts`) keeps its synchronous getters and all of its logic: refresh gating, adopting or rebasing an external change, the retry loop of `save()`, problem handling, versioning and listeners. Only the I/O primitives sit behind an `InventoryBackend` (`inventory-backend.ts`): `stamp()` (a cheap change stamp compared by string equality), `read()` (text plus an opaque revision), `withWriteLock(fn)` (the only writer; hands `fn` a transaction with `read()` and `write(text, expected)`, which writes only if the stored revision still equals `expected` and otherwise reports `written: false` so the store can rebase and retry) and an optional `watch(hint)`. `FileInventoryBackend` (`inventory-file-backend.ts`) is the file of the local edition: stat-based stamp, sha256 revision, lock file next to the file, temp file plus fsync plus rename. `InventoryStore.open(path)` and `fromText(text, path)` build it; `InventoryStore.withBackend(backend, initial?)` takes any other backend. The error classes live in `inventory-errors.ts` and are re-exported by `inventory.ts`. The store class itself still lives in `inventory.ts` and still imports Node for `open`; moving it is a later step.
 
-`vault-core.ts` and `evidence.ts` import no Node built-ins and do not use `process`, `Buffer` or `require`; `portable-modules.test.ts` fails if that changes. Everything that needs the file system or the operating system stays in `vault.ts`, `vault-file-store.ts`, `evidence-file-store.ts` and `platform.ts`.
+`vault-core.ts`, `evidence.ts`, `inventory-backend.ts` and `inventory-errors.ts` import no Node built-ins and do not use `process`, `Buffer` or `require`; `portable-modules.test.ts` fails if that changes. Everything that needs the file system or the operating system stays in `vault.ts`, `vault-file-store.ts`, `evidence-file-store.ts`, `inventory-file-backend.ts` and `platform.ts`.
 
 ## Packages
 
