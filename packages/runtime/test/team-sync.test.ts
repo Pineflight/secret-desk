@@ -308,6 +308,7 @@ describe("push", () => {
 
   it("pull-request: branch, commit, one PR; content has no values, externalId or rotatedAt", async () => {
     const { rt, gh } = await setup({ teamSync: PUSH });
+    rt.inventory.patchSecret("hmac-app", { verifiedAt: "2026-10-02", verifiedBy: "Test Person" });
     gh.setMain("version: 1\nsecrets: []\nvariables: []\n");
     await checkTeamSync(rt, t0);
     const plan = await planTeamPush(rt);
@@ -315,6 +316,9 @@ describe("push", () => {
     expect(r).toMatchObject({ pushed: true, strategy: "pull-request", pullRequest: { number: 1 } });
     const pushed = gh.branches.get("secret-desk/team-sync")!.get("secret-desk.team.yaml")!.text;
     expect(pushed).toContain("APP_HMAC_SECRET");
+    expect(pushed).not.toContain("verifiedBy");
+    expect(pushed).not.toContain("verifiedAt");
+    expect(pushed).not.toContain("Test Person");
     expect(pushed).not.toContain("externalId");
     expect(pushed).not.toContain("provider-internal-id-1");
     expect(pushed).not.toContain("rotatedAt");

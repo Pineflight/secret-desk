@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Team export no longer carries who confirmed a value:** `exportTeamBundle` removed only `externalId` and `rotatedAt`, so `verifiedAt` and `verifiedBy` (the name of the person who confirmed) travelled in the team file and in a team-sync push. The export now removes all four local fields, driven by the same list (`KEEP_LOCAL`) that a replace import uses to keep the local values, and the push check (`assertTeamFileClean`) refuses all four. Variables and the other entities carry no comparable fields. See [TEAM.md](docs/TEAM.md).
 - **Sync to GitHub with Cloudflare Worker places:** the runtime did not pass the Worker client to the sync plan and the sync run, so an inventory with a `cloudflare-worker` place failed with "no Worker client". Plan and write now go through it, under the same confirmation and production gate.
 - **Cloudflare Worker errors carry no upstream text:** a failed Worker call reports the HTTP status, a fixed text per status and Cloudflare's numeric error codes, not the message text Cloudflare sent.
 - **Provider cards:** *Works without browser sign-in* is shown only for integrations that issue keys through an API (new facade flag `issuesKeysByApi`); the Anthropic and RevenueCat cards no longer claim it.
