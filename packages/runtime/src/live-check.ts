@@ -1,7 +1,7 @@
 import { RecipeRunError, dryRunRecipe, recipeParamVars, type BrowserDriver, type HumanWait, type Recipe } from "@secret-desk/automation";
 import { NotConnectedError, stageKind } from "@secret-desk/core";
 import { safeText } from "@secret-desk/providers";
-import { listConnections } from "./agent-api.js";
+import { authorizeSystem, listConnections } from "./agent-api.js";
 import { checkConnection } from "./connection-check.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION, summarize, type LiveCheckConnection, type LiveCheckRecipe, type LiveCheckReport, type LiveCheckTrigger } from "./live-check-store.js";
 import type { Runtime } from "./runtime.js";
@@ -380,8 +380,8 @@ export interface LiveCheckSchedulerOptions {
 }
 
 export interface LiveCheckTick {
-  /** Why nothing ran: the check is off, no check is due yet, the browser is busy, or one is running already. */
-  skipped: "off" | "not-due" | "busy" | "running" | null;
+  /** Why nothing ran: the check is off, no check is due yet, the browser is busy, one is running already, or the authorisation hook did not allow it. */
+  skipped: "off" | "not-due" | "busy" | "running" | "refused" | null;
   report: LiveCheckReport | null;
 }
 
@@ -393,6 +393,8 @@ export class LiveCheckScheduler {
   readonly #interval: number;
   readonly #options: LiveCheckOptions;
   #timer: ReturnType<typeof setInterval> | null = null;
+  #asking = false;
+  #refused = false;
 
   constructor(rt: Runtime, options: LiveCheckSchedulerOptions = {}) {
     this.#rt = rt;
@@ -406,6 +408,26 @@ export class LiveCheckScheduler {
     if (!(rt.automation.liveCheckDays > 0)) return { skipped: "off", report: null };
     if (isLiveCheckRunning(rt)) return { skipped: "running", report: null };
     if (!liveCheckDue(rt)) return { skipped: "not-due", report: null };
+    // The run probes the integrations, opens the browser and may notify a webhook: `automation.run` for the system actor
+    // `live-check-scheduler`, like the manual run. A refusal skips this pass; the check stays due and the timer goes on.
+    if (rt.authorize !== undefined) {
+      // The hook may take seconds: a tick that comes in meanwhile must not ask (or start a run) a second time.
+      if (this.#asking) return { skipped: "running", report: null };
+      this.#asking = true;
+      let allowed: boolean;
+      try {
+        allowed = await authorizeSystem(rt, "live-check-scheduler", "automation.run");
+      } finally {
+        this.#asking = false;
+      }
+      if (!allowed) {
+        // One line when it turns from allowed to refused, not one per tick.
+        if (!this.#refused) (this.#options.log ?? ((line: string) => console.log(line)))("secret-desk: scheduled live check: not allowed by the authorisation hook");
+        this.#refused = true;
+        return { skipped: "refused", report: null };
+      }
+      this.#refused = false;
+    }
     try {
       return { skipped: null, report: await runLiveCheck(rt, this.#options) };
     } catch (err) {
