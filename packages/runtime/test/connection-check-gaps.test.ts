@@ -408,6 +408,15 @@ describe("github", () => {
     }
     const run = (rt: Awaited<ReturnType<typeof probing>>) => checkConnection(rt, "github", { deep: true, targets: [targetOf] }, NOW);
 
+    it("the write probe seals through the client's sealer and sends exactly its output", async () => {
+      const rt = await probing();
+      const seal = vi.spyOn(rt.github, "seal").mockResolvedValue("c2VhbGVkLWJ5LWNsaWVudA==");
+      const r = await run(rt);
+      expect(seal).toHaveBeenCalledExactlyOnceWith(PUBLIC_KEY, "probe");
+      expect(rt.github.putEncrypted).toHaveBeenCalledWith(expect.anything(), "SD_WRITE_PROBE", "c2VhbGVkLWJ5LWNsaWVudA==", "k");
+      expect(status(r, `write-secret:${targetOf}`)).toBe("pass");
+    });
+
     it("existing probe names are left alone", async () => {
       const rt = await probing();
       vi.spyOn(rt.github, "listSecrets").mockResolvedValue([{ name: "SD_WRITE_PROBE" }] as never);

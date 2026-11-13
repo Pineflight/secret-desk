@@ -9,7 +9,6 @@ import {
   NotConnectedError,
   parseStripeConnectionId,
   placeToTarget,
-  sealForGitHub,
   stageKind,
   type CheckStatus,
   type GitHubTarget,
@@ -439,7 +438,7 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
       out.push(item(sid, slabel, "warn", `Ein Secret ${WRITE_PROBE_SECRET} existiert schon: nichts geschrieben, bitte von Hand loeschen.`));
     } else {
       const { keyId, key } = await rt.github.publicKey(target);
-      await rt.github.putEncrypted(target, WRITE_PROBE_SECRET, await sealForGitHub(key, "probe"), keyId);
+      await rt.github.putEncrypted(target, WRITE_PROBE_SECRET, await rt.github.seal(key, "probe"), keyId);
       try {
         await rt.github.deleteSecret(target, WRITE_PROBE_SECRET);
         out.push(item(sid, slabel, "pass", "Anlegen und Loeschen eines Probe-Secrets hat funktioniert."));
