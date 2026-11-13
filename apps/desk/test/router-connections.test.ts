@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRuntime } from "@secret-desk/runtime";
+import { PolicyError, createRuntime } from "@secret-desk/runtime";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
@@ -173,5 +173,44 @@ describe("connections of a Stripe account (id with colons, sent percent-encoded)
     const res = await route(ui(deps, "POST", `connections/${enc}/check`, {}), deps);
     expect(res.status).toBe(200);
     expect((await json(res)).id).toBe(ID);
+  });
+});
+
+describe("authorization hook on connection tokens", () => {
+  const sample = "cf_" + "madeupauthzvalue123";
+
+  it("is asked with the connection id (never the token) before a token is stored or removed, and a refusal is a 403 that changes nothing", async () => {
+    const { deps } = await setup();
+    const seen: unknown[] = [];
+    let refusing = true;
+    deps.rt.authorize = (request) => {
+      seen.push(request);
+      if (refusing) throw new PolicyError("refused by test hook");
+    };
+    const stored = await route(ui(deps, "POST", "connections/cloudflare/token", { token: sample, neverExpires: true }), deps);
+    expect(stored.status).toBe(403);
+    expect(deps.rt.connections.session.has("cloudflare")).toBe(false);
+    const removed = await route(ui(deps, "DELETE", "connections/github/token"), deps);
+    expect(removed.status).toBe(403);
+    expect(deps.rt.connections.session.has("github")).toBe(true);
+    expect(seen).toEqual([
+      { actor: { kind: "human", name: expect.any(String) }, action: "integration.connect", subject: { connectionId: "cloudflare" } },
+      { actor: { kind: "human", name: expect.any(String) }, action: "integration.disconnect", subject: { connectionId: "github" } },
+    ]);
+    expect(JSON.stringify(seen)).not.toContain("madeupauthzvalue123");
+    expect(JSON.stringify(seen)).not.toContain(GH);
+    expect(await stored.text()).not.toContain("madeupauthzvalue123");
+    // Allowing changes nothing: the token is stored and removed as before.
+    refusing = false;
+    expect((await route(ui(deps, "POST", "connections/cloudflare/token", { token: sample, neverExpires: true }), deps)).status).toBe(200);
+    expect(deps.rt.connections.session.has("cloudflare")).toBe(true);
+    expect((await route(ui(deps, "DELETE", "connections/cloudflare/token"), deps)).status).toBe(200);
+    expect(deps.rt.connections.session.has("cloudflare")).toBe(false);
+  });
+
+  it("without a hook storing a token works as before", async () => {
+    const { deps } = await setup();
+    expect("authorize" in deps.rt).toBe(false);
+    expect((await route(ui(deps, "POST", "connections/cloudflare/token", { token: sample, neverExpires: true }), deps)).status).toBe(200);
   });
 });

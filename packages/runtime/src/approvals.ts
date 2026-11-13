@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { secretApprovalSnapshot, variableApprovalSnapshot, type ApprovalSnapshot, type InventoryStore } from "@secret-desk/core";
+import { secretApprovalSnapshot, variableApprovalSnapshot, type ActorRef, type ApprovalSnapshot, type InventoryStore } from "@secret-desk/core";
 
 /** stale = der Eintrag hat sich seit der Anfrage geaendert, die Freigabe wurde verworfen. */
 export type ApprovalState = "pending" | "approved" | "denied" | "failed" | "stale";
@@ -12,6 +12,8 @@ export interface Approval {
   /** Id des Secrets (issue) oder der Variable (apply-variable). */
   targetId: string;
   requestedBy: string;
+  /** Who asked, as a reference (name and kind, plus an opaque principal id when there is one). `requestedBy` stays for compatibility. */
+  requestedByRef: ActorRef;
   reason: string | null;
   createdAt: string;
   state: ApprovalState;
@@ -23,6 +25,9 @@ export interface Approval {
   snapshot: ApprovalSnapshot["view"];
   /** Kurztext nach der Ausfuehrung, nie ein Wert. */
   result?: string;
+  /** Who approved or denied (name, kind and an opaque principal id when there is one). Set when an actor resolves the request, never a value. */
+  decidedBy?: ActorRef;
+  decidedAt?: string;
 }
 
 /**
@@ -61,7 +66,7 @@ export class ApprovalQueue {
     return stale;
   }
 
-  create(input: { action: ApprovalAction; targetId: string; requestedBy: string; reason?: string | null; now?: Date; snapshot: ApprovalSnapshot }): Approval {
+  create(input: { action: ApprovalAction; targetId: string; requestedBy: string; requestedByRef?: ActorRef; reason?: string | null; now?: Date; snapshot: ApprovalSnapshot }): Approval {
     const open = [...this.#items.values()].find((a) => a.action === input.action && a.targetId === input.targetId && a.state === "pending");
     if (open) {
       if (open.snapshotHash === input.snapshot.hash) return open;
@@ -74,6 +79,8 @@ export class ApprovalQueue {
       action: input.action,
       targetId: input.targetId,
       requestedBy: input.requestedBy,
+      // Without a reference the request came from the agent interface, the only caller that is asked for approval.
+      requestedByRef: input.requestedByRef ? { ...input.requestedByRef } : { name: input.requestedBy, kind: "agent" },
       reason: input.reason ?? null,
       createdAt: (input.now ?? new Date()).toISOString(),
       state: "pending",
@@ -92,13 +99,17 @@ export class ApprovalQueue {
     return [...this.#items.values()].filter((a) => !state || a.state === state).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  resolve(id: string, state: Exclude<ApprovalState, "pending">, result?: string): Approval {
+  resolve(id: string, state: Exclude<ApprovalState, "pending">, result?: string, decidedBy?: ActorRef): Approval {
     const item = this.#items.get(id);
     if (!item) throw new Error(`Anfrage nicht gefunden: ${id}`);
     if (item.state !== "pending") throw new Error(`Anfrage ist schon erledigt: ${item.state}`);
     this.#busy.delete(id);
     item.state = state;
     if (result) item.result = result;
+    if (decidedBy) {
+      item.decidedBy = { ...decidedBy };
+      item.decidedAt = new Date().toISOString();
+    }
     return item;
   }
 }

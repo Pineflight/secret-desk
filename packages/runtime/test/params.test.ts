@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NotConnectedError, ParamsInvalidError, UnknownDiscoverKindError, type DiscoveredOption, type Provider } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
-import { PolicyError } from "../src/agent-api.js";
+import { PolicyError, type AuthorizationRequest, type Authorize } from "../src/agent-api.js";
 import {
   deleteResourceMap,
   getConnectionResources,
@@ -540,5 +540,49 @@ describe("variables from sources", () => {
     rt.providers.register({ ...rt.providers.list().find((p) => p.connection === "supabase")!, discover: async () => Promise.reject("plain string") });
     const r = await suggestAllVariables(rt, human);
     expect(r.suggestions[0]).toMatchObject({ status: "error", error: "Fehler" });
+  });
+});
+
+describe("authorization hook", () => {
+  const refuseAll = (seen: AuthorizationRequest[]): Authorize => (request) => {
+    seen.push(request);
+    throw new PolicyError("refused by test hook");
+  };
+
+  it("is consulted by every edit of the inventory made here, after the human-only check, and a refusal changes nothing", async () => {
+    const { rt, ctl } = await setup();
+    ctl.options["supabase.project"] = [opt("proj-1", "Project One")];
+    const seen: AuthorizationRequest[] = [];
+    rt.authorize = refuseAll(seen);
+    const before = JSON.stringify(rt.inventory.data);
+    // Built-in rule first: an agent is refused without the hook being asked.
+    await expect(putSecretParams(rt, agent, "svc-acme-app-staging", {})).rejects.toThrow(/nur ein Mensch/);
+    expect(seen).toEqual([]);
+    await expect(putSecretParams(rt, human, "svc-acme-app-staging", { params: { project: "p" } })).rejects.toThrow("refused by test hook");
+    await expect(putConnectionDefaults(rt, human, "fakeconn", { values: { a: "b" } })).rejects.toThrow("refused by test hook");
+    await expect(putResourceMap(rt, human, { kind: "x", value: "v" })).rejects.toThrow("refused by test hook");
+    await expect(deleteResourceMap(rt, human, { kind: "x" })).rejects.toThrow("refused by test hook");
+    // A proposal only reads; applying it edits the inventory and asks the hook.
+    await loadVariableFromSource(rt, human, "with-source", {});
+    expect(seen).toHaveLength(4);
+    await expect(loadVariableFromSource(rt, human, "with-source", { apply: true })).rejects.toThrow("refused by test hook");
+    expect(seen.map((r) => r.action)).toEqual(["inventory.edit", "inventory.edit", "inventory.edit", "inventory.edit", "inventory.edit"]);
+    expect(seen[0]).toEqual({ actor: human, action: "inventory.edit", subject: { secretId: "svc-acme-app-staging", stage: "staging" } });
+    expect(seen[4]).toEqual({ actor: human, action: "inventory.edit", subject: { variableId: "with-source", stage: "shared" } });
+    expect(JSON.stringify(rt.inventory.data)).toBe(before);
+    expect(JSON.stringify(seen)).not.toContain("proj-1");
+  });
+
+  it("an allowing hook changes nothing about the outcome", async () => {
+    const { rt, ctl } = await setup();
+    ctl.options["supabase.project"] = [opt("proj-1", "Project One")];
+    const seen: AuthorizationRequest[] = [];
+    rt.authorize = (request) => {
+      seen.push(request);
+    };
+    const applied = await loadVariableFromSource(rt, human, "with-source", { apply: true });
+    expect(applied).toMatchObject({ applied: true, proposed: "proj-1" });
+    expect(rt.inventory.getVariable("with-source")?.value).toBe("proj-1");
+    expect(seen).toHaveLength(1);
   });
 });

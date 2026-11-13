@@ -13,6 +13,10 @@ import { VARIABLE_SOURCES } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 
 const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+  // Authorisation hook
+  ["Die Berechtigungspruefung hat die Aktion nicht zugelassen.", "The authorization check did not allow the action."],
+  ["Die Pruefung wird gerade bearbeitet oder ist schon erledigt.", "The review is being processed or is already done."],
+  ["Konfiguration ungueltig: authorizeTimeoutMs: eine ganze Zahl von 1 bis 2147483647", "Invalid configuration: authorizeTimeoutMs: a whole number from 1 to 2147483647"],
   // Dev .env templates: ref, command, generate
   ["ref zeigt auf die eigene Vorlage", "ref points to its own template"],
   ["ref auf einen ref-Eintrag ist nicht erlaubt", "a ref to a ref entry is not allowed"],

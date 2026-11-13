@@ -14,7 +14,7 @@ import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
 import type { SecretValue } from "./secret.js";
-import { fingerprintOf, overallStatus, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
+import { fingerprintOf, overallStatus, type ActorRef, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
 
 export interface IssuanceDeps {
   inventory: InventoryStore;
@@ -48,6 +48,12 @@ export interface PendingIssuance {
   /** Der Eintrag, mit dem ausgestellt wurde. Widerrufen wird immer mit diesen Parametern, nie mit nachtraeglich geaenderten. */
   issuedSecret: SecretEntry;
   newExpires: string | null;
+  /** Who prepared this issuance, when the caller said so (the runtime always does). Names and an opaque principal id, never a value. */
+  preparedBy?: ActorRef;
+  /** Who asked for it when that is not the preparer (for example the agent whose request a human approved). */
+  requestedBy?: ActorRef;
+  /** The approval request this issuance was prepared for, when there was one. */
+  approvalId?: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -110,7 +116,7 @@ const addDays = (d: Date, days: number): string => new Date(d.getTime() + days *
 export async function prepareIssuance(
   secretId: string,
   deps: IssuanceDeps,
-  options: RotateOptions & { manualValue?: SecretValue; ttlMinutes?: number } = {},
+  options: RotateOptions & { manualValue?: SecretValue; ttlMinutes?: number; preparedBy?: ActorRef; requestedBy?: ActorRef; approvalId?: string } = {},
 ): Promise<PendingIssuance> {
   const secret = deps.inventory.getSecret(secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${secretId}`);
@@ -260,6 +266,9 @@ export async function prepareIssuance(
     snapshot,
     issuedSecret,
     newExpires,
+    ...(options.preparedBy ? { preparedBy: { ...options.preparedBy } } : {}),
+    ...(options.requestedBy ? { requestedBy: { ...options.requestedBy } } : {}),
+    ...(options.approvalId ? { approvalId: options.approvalId } : {}),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttl).toISOString(),
   };
@@ -280,6 +289,8 @@ export interface CommitResult {
 /** Anfragen, die gerade bestaetigt werden oder schon bestaetigt sind: ein zweiter Aufruf darf nichts mehr schreiben. */
 const committing = new WeakSet<PendingIssuance>();
 const committed = new WeakSet<PendingIssuance>();
+/** Items that were discarded (rejected, expired or stale): a second discard or a later commit must not touch the provider again. */
+const discarded = new WeakSet<PendingIssuance>();
 
 /**
  * Stufe 2: Nach der Bestaetigung in alle Ziele schreiben, nachpruefen, den alten Wert widerrufen und das Inventar
@@ -288,11 +299,11 @@ const committed = new WeakSet<PendingIssuance>();
 export async function commitIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  confirmation: { by: string; ticks: string[]; note?: string },
+  confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
   options: { force?: boolean } = {},
 ): Promise<CommitResult> {
   // Atomar (vor dem ersten await) als "in Bearbeitung" markieren: ein zweiter, auch paralleler Aufruf wirft sofort.
-  if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
+  if (committing.has(pending) || committed.has(pending) || discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
   committing.add(pending);
   let success = false;
   try {
@@ -308,17 +319,19 @@ export async function commitIssuance(
 async function commitIssuanceOnce(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  confirmation: { by: string; ticks: string[]; note?: string },
+  confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
   options: { force?: boolean },
 ): Promise<CommitResult> {
   const secret = deps.inventory.getSecret(pending.secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
+  // The deciding actor as it is recorded: the display name, plus the opaque principal id when the caller has one.
+  const decider = { by: confirmation.by, ...(confirmation.principalId ? { principalId: confirmation.principalId } : {}) };
   const now = (deps.now ?? (() => new Date()))();
   if (now.getTime() > Date.parse(pending.expiresAt)) throw new IssuanceError("Die Anfrage ist abgelaufen. Neu ausstellen.");
   // Bindung an den Stand der Pruefung: Wurden Ziele, Anbieter, Parameter, Stage oder Kennung inzwischen geaendert
   // (zum Beispiel durch einen Agenten oder einen importierten Pull Request), geht der Wert nirgends hin.
   if (issuanceSnapshot(secret, stageKind(deps.inventory.stages, secret.stage)) !== pending.snapshot) {
-    await discardIssuanceNow(pending, deps, { by: confirmation.by, why: "stale" });
+    await discardIssuanceNow(pending, deps, { ...decider, why: "stale" });
     throw new StaleIssuanceError();
   }
   if (!options.force && overallStatus(pending.report.checks) === "fail") {
@@ -333,7 +346,7 @@ async function commitIssuanceOnce(
     const found = companionEntry(deps.inventory, c.entryId);
     const entry = found?.entry;
     if (!entry || found.kind !== c.kind || companionSnapshot(entry) !== c.snapshot) {
-      await discardIssuanceNow(pending, deps, { by: confirmation.by, why: "stale" });
+      await discardIssuanceNow(pending, deps, { ...decider, why: "stale" });
       throw new StaleIssuanceError();
     }
     companionEntries.push({ entry, kind: c.kind, value: c.value });
@@ -427,7 +440,7 @@ async function commitIssuanceOnce(
   }
   if (unknownExpiry) warnings.push("Der Ablauf des neuen Tokens ist unbekannt: das Secret steht jetzt auf Ablauf unbekannt.");
 
-  const confirmationRecord: Confirmation = { by: confirmation.by, at: now.toISOString(), ticks: confirmation.ticks, decision: "confirmed", ...(confirmation.note ? { note: confirmation.note } : {}) };
+  const confirmationRecord: Confirmation = { ...decider, at: now.toISOString(), ticks: confirmation.ticks, decision: "confirmed", ...(confirmation.note ? { note: confirmation.note } : {}) };
   pending.report.confirmation = confirmationRecord;
   await deps.evidence?.save(pending.report);
   return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
@@ -437,7 +450,7 @@ async function commitIssuanceOnce(
 export async function discardIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; why: "rejected" | "expired" | "stale"; note?: string },
+  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string },
 ): Promise<{ revokedNew: boolean }> {
   // Waehrend der Bestaetigung (oder danach) darf der Wert nicht widerrufen werden: er wird gerade geschrieben bzw. ist im Einsatz.
   if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -447,8 +460,11 @@ export async function discardIssuance(
 async function discardIssuanceNow(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; why: "rejected" | "expired" | "stale"; note?: string },
+  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string },
 ): Promise<{ revokedNew: boolean }> {
+  // Marked before the first await: a second discard (also a parallel one) throws instead of revoking again.
+  if (discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
+  discarded.add(pending);
   // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
   const secret = pending.issuedSecret ?? deps.inventory.getSecret(pending.secretId);
   const provider = secret ? deps.providers.get(secret.provider) : undefined;
@@ -466,6 +482,7 @@ async function discardIssuanceNow(
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,
+    ...(reason.principalId ? { principalId: reason.principalId } : {}),
     at: now.toISOString(),
     ticks: [],
     decision: "rejected",

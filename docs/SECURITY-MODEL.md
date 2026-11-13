@@ -62,6 +62,9 @@ Values are never stored. The portal holds them in memory only, only for as long 
   An agent that only uses this interface **cannot confirm anything**, cannot set connections, upload attachments or pass values, and cannot trigger anything outside `policy.agentStages`
   (by default only stages of kind `dev`; never `live`) without approval.
 
+### Authorisation hook for embedding processes
+A process that embeds the runtime can pass an `authorize` hook (see [ARCHITECTURE.md](ARCHITECTURE.md#authorisation-hook)) that is asked before sensitive actions, for example to require a second person for a confirmation. The hook runs after the built-in checks, so it can only make the rules stricter, never weaker; an error inside the hook, a return value other than `undefined`, a missing function or a timeout is a refusal with a generic message and the action does not happen (fail closed). The hook sees ids, names and an opaque principal id, never a value. Every state-changing or value-moving entry point of the portal and the agent API asks it, including what an approval causes after it is approved and every env export. Note that agents can read the names and principal ids that are recorded on reviews (`preparedBy`, `requestedBy`), approvals (`requestedBy`, `requestedByRef`, `decidedBy`) and in the confirmation of evidence reports; a deployment that sets principal ids should treat them as identifiers that are visible to agents. This repository ships no rules and no sign-in: the local portal and CLI behave exactly as described above.
+
 ### Limit: agents with shell access as the same OS user
 The statements above hold for an agent that talks to the agent interface. An agent that has shell access as the **same operating-system user** can read every file that user can read
 (including `~/.secret-desk/agent-token`, `.env` files and the browser profile) and can start processes. It can also watch the terminal where secret-desk runs, if it is allowed to,

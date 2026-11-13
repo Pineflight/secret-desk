@@ -1,5 +1,5 @@
 import { EnvExportError, agentStageIds, commentText, findStage, formatEnvValue, generateEntryValue, stageKind, type EnvSource } from "@secret-desk/core";
-import { PolicyError, type Actor } from "./agent-api.js";
+import { PolicyError, authorize, type Actor } from "./agent-api.js";
 import type { Runtime } from "./runtime.js";
 
 export type EnvExportFormat = "dotenv" | "json";
@@ -90,7 +90,14 @@ function templateValue(rt: Runtime, from: EnvSource, pairs: Map<string, { public
  * Policy: an agent may export only the stages of `policy.agentStages`. A human may export any stage, but secret values of
  * a stage that is not of kind dev are never exported, for nobody.
  */
-export function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInput): EnvExportResult {
+export async function exportEnvContent(rt: Runtime, actor: Actor, input: EnvExportInput): Promise<EnvExportResult> {
+  // Built-in policy first; building only reads the inventory and creates strings in memory, nothing leaves this function before the hook said yes.
+  const result = buildEnvContent(rt, actor, input);
+  await authorize(rt, { actor, action: "env.export", subject: { repo: input.repo, stage: input.stage } });
+  return result;
+}
+
+function buildEnvContent(rt: Runtime, actor: Actor, input: EnvExportInput): EnvExportResult {
   const format = input.format ?? "dotenv";
   const include = input.include ?? "variables";
   const stages = rt.inventory.stages;

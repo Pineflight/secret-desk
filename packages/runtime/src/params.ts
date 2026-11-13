@@ -27,7 +27,7 @@ import {
 import { readVariableField } from "@secret-desk/providers";
 import { KNOWN_CONNECTIONS } from "./connection-check.js";
 import type { Actor } from "./agent-api.js";
-import { PolicyError } from "./agent-api.js";
+import { PolicyError, authorize } from "./agent-api.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
 
 /**
@@ -139,6 +139,7 @@ export async function putSecretParams(rt: Runtime, actor: Actor, id: string, bod
   requireHuman(actor, "Parameter aendern");
   const secret = rt.inventory.getSecret(id);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${id}`);
+  await authorize(rt, { actor, action: "inventory.edit", subject: { secretId: id, stage: secret.stage } });
   const provider = providerOrThrow(rt, secret.provider);
   const set: Record<string, unknown> = {};
   if (body.preset !== undefined) {
@@ -284,6 +285,7 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
 /** Setzt Standardwerte einer Integration (nicht geheim). null/leer entfernt einen Schluessel. Ersetzt nur die genannten Schluessel. */
 export async function putConnectionDefaults(rt: Runtime, actor: Actor, connection: string, body: { values?: unknown }): Promise<{ connection: string; defaults: Record<string, unknown>; defaultSpecs: ParamSpec[] }> {
   requireHuman(actor, "Standardwerte aendern");
+  await authorize(rt, { actor, action: "inventory.edit" });
   const providers = providersOf(rt, connection);
   if (providers.length === 0 && !KNOWN_CONNECTIONS.has(connection)) throw new InventoryError(`Unbekannte Verbindung: ${connection}`);
   if (!isRecord(body.values)) throw new InventoryError("Feld fehlt: values");
@@ -333,6 +335,7 @@ export function getResourceMap(rt: Runtime, actor: Actor): ResourceMapView {
 /** Setzt eine Zuordnung. (kind, repo, stage) ist der Schluessel; ein vorhandener Eintrag wird ersetzt. */
 export async function putResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { entry: ResourceMapEntry }> {
   requireHuman(actor, "Zuordnung aendern");
+  await authorize(rt, { actor, action: "inventory.edit" });
   const key = mapKeyOf(rt, body);
   const value = typeof body["value"] === "string" ? body["value"].trim() : typeof body["value"] === "number" ? String(body["value"]) : "";
   if (!value) throw new InventoryError("Feld fehlt: value");
@@ -345,6 +348,7 @@ export async function putResourceMap(rt: Runtime, actor: Actor, body: Record<str
 /** Entfernt eine Zuordnung. */
 export async function deleteResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { removed: boolean }> {
   requireHuman(actor, "Zuordnung aendern");
+  await authorize(rt, { actor, action: "inventory.edit" });
   const removed = rt.inventory.removeResourceMapEntry(mapKeyOf(rt, body));
   if (removed) await rt.inventory.save();
   return { ...mapView(rt), removed };
@@ -484,6 +488,7 @@ export async function loadVariableFromSource(rt: Runtime, actor: Actor, id: stri
   const apply = body.apply === true;
   if (apply) {
     assertPublicValue(v.name, r.value, body.acknowledgedPublic === true);
+    await authorize(rt, { actor, action: "inventory.edit", subject: { variableId: id, stage: v.stage } });
     rt.inventory.patchVariable(id, { value: r.value, from });
     await rt.inventory.save();
   }
