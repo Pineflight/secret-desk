@@ -4,6 +4,8 @@
 Values are never stored. The portal holds them in memory only, only for as long as review and confirmation need them
 (15 minutes), and passes them on in exactly two places: to the provider API and, encrypted, to GitHub.
 
+What "at most 15 minutes" means exactly (see [ARCHITECTURE.md](ARCHITECTURE.md#instance-state-and-deadlines)): every access to a pending review checks its deadline against the runtime's clock first, so an expired review is unreachable through the queue on the very next access, whether or not a timer or a sweep ran. A review that a confirm or reject has claimed is hidden past its deadline but held for that operation, and the queue takes it back at the deadline plus a fixed grace of two minutes (`CLAIM_GRACE_MS`) whatever the operation is doing; a commit that comes back after that writes nothing more (an abort signal, checked before each write). What this does not do: a write to GitHub that is already in flight is not cut off (the GitHub client takes no abort signal), and strings cannot be erased in this runtime, so "gone" means no reference is left in the queue, not that the memory is overwritten. A store of pending reviews that an embedder supplies sees metadata only (identifier, deadline, the provider's identifier of the new value), never the value. Timers inside the browser automation package use the system clock, not the runtime's injected clock.
+
 ## What is protected
 - **`SecretValue`**: the value lives in a private field and appears in no output (`toString`, JSON, `util.inspect`).
 - **Reports and responses** never contain a value. Instead they carry a fingerprint (12 characters of a SHA-256) for later comparison.
