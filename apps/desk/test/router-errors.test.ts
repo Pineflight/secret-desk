@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitHubError, NotConnectedError, StageError, VaultUnavailableError } from "@secret-desk/core";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
@@ -23,7 +23,7 @@ async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "sd-err-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_geheim_token_1" } as unknown as NodeJS.ProcessEnv });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { rt, deps };
 }
@@ -127,7 +127,7 @@ describe("M5: code instead of text for suspicious variable values", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-var-"));
     await writeFile(join(dir, "inventory.yaml"), `version: 1\nvariables:\n  - id: site-url\n    name: NEXT_PUBLIC_SITE_URL\n    stage: dev\n    places:\n      - { repo: acme-web, scope: repository }\n`);
     await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-    const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "x" } as unknown as NodeJS.ProcessEnv });
+    const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "x" } as unknown as NodeJS.ProcessEnv });
     const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
     const req = ui(deps, "PATCH", "variables/site-url", JSON.stringify({ value }));
     if (lang) req.headers.set("x-secret-desk-lang", lang);
