@@ -60,9 +60,13 @@ describe("getDesk", () => {
     vi.stubEnv("HOME", dir);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const { getDesk } = await import("../src/server/desk.js");
+    const { getDesk, demoRuntimeOptions } = await import("../src/server/desk.js");
     const desk = await getDesk();
     expect(desk.demo).toBe(true);
+    // The demo never opens the real vault file or the key store of the machine, although the configuration has the vault on (the default).
+    expect(desk.rt.connections.vault).toBeUndefined();
+    expect(desk.rt.config.vault.enabled).toBe(true);
+    expect(demoRuntimeOptions(fetch)).toMatchObject({ vault: null, watchInventory: true });
     expect(desk.rt.config.policy.envRoots).toEqual([join(tmpdir(), "secret-desk-demo")]);
     expect((await readFile(join(tmpdir(), "secret-desk-demo", "agent-token"), "utf8")).trim()).toBe(desk.agentToken);
     const sweep = vi.spyOn(desk.rt.issuances, "sweep").mockRejectedValue(new Error("sweep failed"));

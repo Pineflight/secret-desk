@@ -21,6 +21,14 @@ async function launchSecretOptions(): Promise<{ launchSecret?: string }> {
   return { launchSecret: await loadOrCreateLaunchSecret(file) };
 }
 
+/**
+ * Options of the demo runtime: simulated GitHub, its own environment, and no vault at all (`vault: null`), so the demo never opens
+ * the real vault file or the key store of the machine.
+ */
+export function demoRuntimeOptions(fetch: typeof globalThis.fetch): Parameters<typeof createLocalRuntime>[1] {
+  return { watchInventory: true, fetch, vault: null, env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv };
+}
+
 async function init(): Promise<Desk> {
   const demo = process.env.SECRET_DESK_DEMO === "1";
   const configPath = process.env.SECRET_DESK_CONFIG ?? resolve(process.cwd(), "../../secret-desk.config.yaml");
@@ -29,7 +37,7 @@ async function init(): Promise<Desk> {
   let demoRuntime: Runtime | undefined;
   const demoModule = demo ? await import("./demo") : undefined;
   const options: Parameters<typeof createLocalRuntime>[1] = demoModule
-    ? { watchInventory: true, fetch: await demoModule.createDemoFetch({ teamFile: () => demoModule.deriveDemoTeamFile(exportTeamBundle(demoRuntime!.inventory.data)) }), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv }
+    ? demoRuntimeOptions(await demoModule.createDemoFetch({ teamFile: () => demoModule.deriveDemoTeamFile(exportTeamBundle(demoRuntime!.inventory.data)) }))
     : { watchInventory: true, persistSignIn: true };
   // Container: fehlt die Datei unter SECRET_DESK_CONFIG, wird eine Minimalkonfiguration angelegt (statt ENOENT) und der Assistent startet.
   if (process.env.SECRET_DESK_CONFIG && !demo) await ensureConfigFile(configPath);
