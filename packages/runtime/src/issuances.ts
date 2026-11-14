@@ -51,7 +51,10 @@ export interface PendingRecord {
  * The store only ever sees a `PendingRecord`: the value itself is held by the queue, in memory, in a map the store cannot reach.
  * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. The queue
  * updates the record (`put`) with `writeStarted: true` BEFORE the first write of a commit is sent; when that update throws, the
- * commit does not write. A record whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is
+ * commit does not write. A new review's record is put BEFORE the queue takes the value (`IssuanceQueue.add`): a `put` that throws
+ * (a cap, a refused shape, a storage fault) means the queue holds nothing for that review, and the caller then hands the value
+ * that was issued at the provider to the revoke gate; a store may therefore refuse a record without leaving a value behind. A
+ * record whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is
  * an explicit call of the embedder (`IssuanceQueue.revokeOrphan`), which the gate refuses whenever the value may be in use. A
  * persistent store should remove the record in the same step in which the embedder's inventory takes the new identifier;
  * whatever order remains, a leftover record is harmless.
@@ -284,21 +287,51 @@ export class IssuanceQueue {
   }
 
   /**
-   * @internal Hands a freshly prepared review to the queue: the value is held in memory and its record is put into the store.
+   * Internal: hands a freshly prepared review to the queue. The record is put into the store first, and only once it is stored does
+   * the queue take the value into memory; if anything after the `put` throws, the record is removed again and the error is rethrown.
+   * So a store whose `put` throws (a cap, a refused shape, a storage fault) leaves no value held and the error reaches the caller,
+   * and a value is never held without a record that a later sweep or orphan revoke could report.
    * Called only by the runtime's own request paths (`requestIssuance`, `submitManualValue` and the approval of an issue request in
    * `agent-api-core.ts`), once, right after `prepareIssuance` returned the item. It is public because those functions live in another
    * module of this package, not because an embedder should call it: an item added here without the preparation steps skips the
    * report, the checks and the deadline that `prepareIssuance` sets, and a second `add` of the same id replaces the first.
-   * Embedders use the route functions and `Runtime.sweep` instead. The error of a store whose `put` throws reaches the caller; the
-   * value is already held in memory at that point (it expires through the queue's deadline like any other review).
+   * Embedders use the route functions and `Runtime.sweep` instead.
+   *
+   * The rule for a caller whose `add` threw: a value that was issued at a provider is now known to nobody, so the caller hands it to
+   * `discardUnkept` (the same path the sweep takes for an expired review, through the revoke gate) and rethrows the error.
    */
   add(pending: PendingIssuance): void {
-    this.#values.set(pending.id, pending);
-    this.#store.put(recordOf(pending));
+    const record = recordOf(pending);
+    this.#store.put(record);
+    try {
+      this.#values.set(pending.id, pending);
+    } catch (err) {
+      try {
+        this.#store.delete(record.id);
+      } catch {
+        /* the original error is the one to report */
+      }
+      throw err;
+    }
   }
 
   /**
-   * @internal Records, in the store, that a write of this review is about to start. Called only by the confirm path of the runtime
+   * Internal: the value of a review that `add` could not keep. Nothing is written for it, so it takes the path of an expired review
+   * that a sweep tries for the first time: `discardIssuance`, and through it the revoke gate (`revokeNewValue`), which decides.
+   * A refusal or a failed delete is handled and reported exactly as in the sweep (evidence note, the record dropped or flagged,
+   * `onNeedsDecision`, the retries and `onRevokeAbandoned`). The references the queue holds are dropped. Never throws.
+   */
+  async discardUnkept(pending: PendingIssuance, deps: IssuanceDeps): Promise<void> {
+    try {
+      this.#retire(pending);
+      await this.#settle(pending.id, this.#owed.get(pending.id)!, deps, this.#t(), []);
+    } catch {
+      /* the caller rethrows the error of `add`; what is still owed is tried again by the next sweep */
+    }
+  }
+
+  /**
+   * Internal: records, in the store, that a write of this review is about to start. Called only by the confirm path of the runtime
    * (`confirmIssuance` in `agent-api-core.ts`, as `commitIssuance`'s `beforeWrite`), before the commit sends its first write.
    * It exists so that the fact "a write was started" is in the store, where the revoke gate, a later sweep and an orphan revoke can
    * see it even if the process dies in the middle of the commit. When it throws (the store could not take the update) the commit

@@ -633,6 +633,25 @@ const issuanceSubject = (p: PendingIssuance): NonNullable<AuthorizationRequest["
 });
 
 /**
+ * Puts a prepared review into the queue. When the queue cannot keep it (`add` throws: the store refused the record) and the value was
+ * issued at a provider, that value is now known to nobody: it takes the path of an expired review (`discardIssuance`, through the
+ * revoke gate, which decides; a refusal or a failed delete is reported and retried as in the sweep), then the original error is
+ * rethrown. A manual value was never issued anywhere: it is only dropped.
+ */
+async function keepOrDiscard(rt: RuntimeCore, pending: PendingIssuance): Promise<void> {
+  try {
+    rt.issuances.add(pending);
+  } catch (err) {
+    if (pending.report.kind === "issued") await rt.issuances.discardUnkept(pending, issuanceDeps(rt));
+    else {
+      pending.value = new SecretValue("");
+      for (const c of pending.companions) c.value = new SecretValue("");
+    }
+    throw err;
+  }
+}
+
+/**
  * prepareIssuance; bei einem Browser-Anbieter als verfolgter Lauf (Zustand, Abbruch, nur einer gleichzeitig)
  * und mit den Belegen des Browsers als Anlagen am Bericht.
  */
@@ -711,7 +730,7 @@ export async function requestIssuance(rt: RuntimeCore, actor: Actor, secretId: s
   // Aufraeumen abgelaufener Pruefungen passiert beim Start einer neuen Ausstellung (und im Takt des Portals), nie beim Lesen.
   await rt.issuances.sweep(issuanceDeps(rt));
   const pending = await prepareTracked(rt, actor, secretId);
-  rt.issuances.add(pending);
+  await keepOrDiscard(rt, pending);
   return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben." };
 }
 
@@ -721,7 +740,7 @@ export async function submitManualValue(rt: RuntimeCore, actor: Actor, secretId:
   const stage = rt.inventory.getSecret(secretId)?.stage;
   await authorize(rt, { actor, action: "issuance.manual-value", subject: { secretId, ...(stage ? { stage } : {}) } });
   const pending = await prepareIssuance(secretId, issuanceDeps(rt), { manualValue: new SecretValue(value.trim()), preparedBy: actorRef(actor) });
-  rt.issuances.add(pending);
+  await keepOrDiscard(rt, pending);
   return issuanceView(pending);
 }
 
@@ -1002,7 +1021,7 @@ export async function resolveApproval(rt: RuntimeCore, actor: Actor, id: string,
     if (nowHash !== approval.snapshotHash) return rt.approvals.resolve(id, "stale", "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.", decidedBy);
     if (approval.action === "issue") {
       const pending = await prepareTracked(rt, actor, approval.targetId, { requestedBy: approval.requestedByRef, approvalId: id });
-      rt.issuances.add(pending);
+      await keepOrDiscard(rt, pending);
       return rt.approvals.resolve(id, "approved", `Pruefung ${pending.id} wartet auf Bestaetigung`, decidedBy);
     }
     // The hash above matched, so the target exists (and is the variable this approval was made for).
