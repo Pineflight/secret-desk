@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -77,13 +76,15 @@ function remoteMatches(url: string | null, owner: string, name: string): boolean
   return p !== null && p.owner.toLowerCase() === owner.toLowerCase() && p.repo.toLowerCase() === name.toLowerCase();
 }
 
-function gitOrigin(dir: string): Promise<string | null> {
-  return new Promise((res) => {
-    execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, out) => {
-      const url = err ? "" : String(out).trim();
-      res(url || null);
-    });
-  });
+/**
+ * The URL of `origin` of a working folder, asked through the host of the runtime. Without a host (or a host without `gitOrigin`)
+ * no process is started and the answer is null, the same as "no remote": the check is not available, never done on the side.
+ */
+async function gitOrigin(rt: Runtime, dir: string): Promise<string | null> {
+  const ask = rt.host?.gitOrigin;
+  if (!ask) return null;
+  const url: unknown = await ask.call(rt.host, dir);
+  return typeof url === "string" && url !== "" ? url : null;
 }
 
 const isDir = (p: string): Promise<boolean> => stat(p).then((s) => s.isDirectory(), () => false);
@@ -148,10 +149,11 @@ export async function setLink(rt: Runtime, name: string, rawPath: string): Promi
   const bases = await allowedBases(rt);
   if (!bases.some((b) => strictlyBelow(b, path))) throw new InventoryError("Der Ordner liegt ausserhalb des Home-Ordners und der erlaubten Ordner (policy.envRoots).");
   if (!(await exists(join(path, ".git")))) throw new InventoryError("Der Ordner ist kein Git-Repository (.git fehlt).");
-  const remote = await gitOrigin(path);
+  const remote = await gitOrigin(rt, path);
   const matches = remoteMatches(remote, rt.owner, name);
   const warnings: string[] = [];
-  if (remote === null) warnings.push("Der Ordner hat keinen Remote origin. Ob er zu diesem Repository gehoert, laesst sich nicht pruefen.");
+  if (!rt.host?.gitOrigin) warnings.push("Der Remote des Ordners laesst sich in dieser Umgebung nicht pruefen.");
+  else if (remote === null) warnings.push("Der Ordner hat keinen Remote origin. Ob er zu diesem Repository gehoert, laesst sich nicht pruefen.");
   else if (matches === false) warnings.push(`Der Remote origin (${remote}) zeigt nicht auf ${rt.owner}/${name}.`);
   const links = await readLinks(rt);
   links[name] = path;
@@ -209,7 +211,7 @@ export async function scanLocal(rt: Runtime): Promise<ScanSuggestion[]> {
     const root = await real(expandHome(rootRaw));
     if (!(await isDir(root))) continue;
     for await (const dir of gitDirs(root, 0)) {
-      const remote = await gitOrigin(dir);
+      const remote = await gitOrigin(rt, dir);
       const parsed = remote ? parseGitRemote(remote) : null;
       if (!remote || !parsed || parsed.owner.toLowerCase() !== rt.owner.toLowerCase() || !NAME_RE.test(parsed.repo)) continue;
       if (found.has(parsed.repo)) continue;
@@ -221,7 +223,7 @@ export async function scanLocal(rt: Runtime): Promise<ScanSuggestion[]> {
 
 async function linkStatus(rt: Runtime, name: string, stored: string, withPath: boolean): Promise<RepoLinkStatus> {
   const present = await isDir(stored);
-  const remote = present ? await gitOrigin(stored) : null;
+  const remote = present ? await gitOrigin(rt, stored) : null;
   return { path: withPath ? stored : null, exists: present, remote, remoteMatches: remoteMatches(remote, rt.owner, name) };
 }
 

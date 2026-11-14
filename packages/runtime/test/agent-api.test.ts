@@ -31,7 +31,7 @@ import {
   inspectVariableLive,
   adoptVariableFromGitHub,
 } from "../src/agent-api.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
 secrets:
@@ -125,7 +125,7 @@ policy:
   envRoots: [${JSON.stringify(dir)}]
 `,
   );
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock });
   return { rt, dir, calls, written };
 }
 

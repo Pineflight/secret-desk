@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureConfigFile, exportTeamBundle } from "@secret-desk/core";
-import { createRuntime, issuanceDeps, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime, type RuntimeOptions } from "@secret-desk/runtime";
+import { createLocalRuntime, issuanceDeps, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime } from "@secret-desk/runtime";
 import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
 
 export interface Desk {
@@ -28,12 +28,12 @@ async function init(): Promise<Desk> {
   // file with a few changes (read lazily: the runtime exists by the time the first request arrives).
   let demoRuntime: Runtime | undefined;
   const demoModule = demo ? await import("./demo") : undefined;
-  const options: RuntimeOptions = demoModule
+  const options: Parameters<typeof createLocalRuntime>[1] = demoModule
     ? { watchInventory: true, fetch: await demoModule.createDemoFetch({ teamFile: () => demoModule.deriveDemoTeamFile(exportTeamBundle(demoRuntime!.inventory.data)) }), env: { GITHUB_DEMO_TOKEN: "demo" } as unknown as NodeJS.ProcessEnv }
     : { watchInventory: true, persistSignIn: true };
   // Container: fehlt die Datei unter SECRET_DESK_CONFIG, wird eine Minimalkonfiguration angelegt (statt ENOENT) und der Assistent startet.
   if (process.env.SECRET_DESK_CONFIG && !demo) await ensureConfigFile(configPath);
-  const rt = await createRuntime(configPath, options);
+  const rt = await createLocalRuntime(configPath, options);
   demoRuntime = rt;
   // Demo with team sync in the configuration: remember a past sync before the first check, so the preview is "changed in the repository", not a conflict.
   await demoModule?.seedDemoTeamSync(rt);

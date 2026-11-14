@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listConnections } from "../src/agent-api.js";
 import { checkConnection } from "../src/connection-check.js";
-import { createRuntime, type Runtime } from "../src/runtime.js";
+import { createLocalRuntime, type Runtime } from "../src/runtime.js";
 import { checkTeamSync, checkTeamSyncAccess, neededRights, planTeamPush, pushTeamSync, teamPermissions, teamSyncStatus } from "../src/team-sync.js";
 
 const PAT = "github_pat_made_up_main_token";
@@ -73,7 +73,7 @@ async function setup(opts: { auth: "pat" | "app"; ownToken?: boolean; teamSync?:
   const authYaml = opts.auth === "pat" ? "{ type: pat, source: { type: env, name: GH_TEST } }" : "{ type: app, appId: \"123\", privateKey: { type: env, name: APP_KEY } }";
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: ${authYaml}\n${opts.teamSync ?? "teamSync:\n  repo: acme/team-config\n"}`);
   const env = { ...(opts.auth === "pat" ? { GH_TEST: PAT } : { APP_KEY: PRIVATE_KEY }), ...(opts.ownToken ? { SECRET_DESK_TEAM_TOKEN: OWN } : {}) } as unknown as NodeJS.ProcessEnv;
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: fake.fetch, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: fake.fetch, bundledRecipes: null });
   return { rt, fake };
 }
 const all = (...v: unknown[]) => JSON.stringify(v);
@@ -101,7 +101,7 @@ describe("team sync token source", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-tsauth-"));
     await writeFile(join(dir, "inventory.yaml"), FILE);
     await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: session } }\nteamSync:\n  repo: acme/team-config\n`);
-    const bare = await createRuntime(join(dir, "c.yaml"), { vault: null, env: {} as NodeJS.ProcessEnv, fetch: fake.fetch, bundledRecipes: null });
+    const bare = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: {} as NodeJS.ProcessEnv, fetch: fake.fetch, bundledRecipes: null });
     expect((await teamSyncStatus(bare)).tokenSource).toBe("none");
     expect((await checkTeamSyncAccess(bare))[0]).toMatchObject({ id: "source", status: "fail" });
   });

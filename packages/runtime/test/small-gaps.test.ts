@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { GitHubError, InventoryError, NotConnectedError } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readAbout } from "../src/about.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 import { shortenHome } from "../src/settings.js";
 import { SignInStore } from "../src/sign-in-store.js";
 import { listStages, setStages } from "../src/stages.js";
@@ -16,13 +16,15 @@ afterEach(() => {
 });
 
 describe("readAbout without an explicit env", () => {
-  it("falls back to the process environment", async () => {
+  it("reads nothing from the process environment", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-about-env-"));
     vi.stubEnv("SECRET_DESK_COMMIT", "0123456789abcdef0123");
     try {
       const a = readAbout({ rootDir: dir, thirdPartyFile: join(dir, "missing.json") });
-      expect(a.commit).toBe("0123456789ab");
+      expect(a.commit).toBeNull();
       expect(a.version).toBeTruthy();
+      // The caller can still hand the process environment in.
+      expect(readAbout({ rootDir: dir, thirdPartyFile: join(dir, "missing.json"), env: process.env }).commit).toBe("0123456789ab");
     } finally {
       vi.unstubAllEnvs();
     }
@@ -98,7 +100,7 @@ describe("sudoAnswerFrom", () => {
 async function runtimeIn(dir: string, extra = "") {
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${extra}`);
-  return createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  return createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
 }
 
 describe("setStages validation", () => {
@@ -124,7 +126,7 @@ envTemplates:
   - { id: t1, repo: r, stage: shared, entries: [{ key: V_ONE, from: { type: variable, variable: v1 } }] }
 `);
     await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-    const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+    const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
     const usage = listStages(rt).find((s) => s.id === "shared")?.usage;
     expect(usage).toMatchObject({ variables: 1, templates: 1 });
     await expect(setStages(rt, [{ id: "dev", kind: "dev" }])).rejects.toThrow(/1 Variablen, 1 Vorlagen/);

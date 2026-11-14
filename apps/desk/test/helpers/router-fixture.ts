@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SecretVault } from "@secret-desk/core";
-import { createRuntime, type RuntimeOptions } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { PortalSession, allowedHosts } from "../../src/server/security.js";
 import type { RouterDeps } from "../../src/server/router.js";
 
@@ -48,7 +48,7 @@ envTemplates:
 `;
 
 /** A runtime on a temp directory with a fake fetch (nothing leaves the process) and an in-memory vault key. */
-export async function routerFixture(opts: { inventory?: string; runtime?: RuntimeOptions; withVault?: boolean } = {}) {
+export async function routerFixture(opts: { inventory?: string; runtime?: Parameters<typeof createLocalRuntime>[1]; withVault?: boolean } = {}) {
   const calls: string[] = [];
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${String(url)}`);
@@ -58,7 +58,7 @@ export async function routerFixture(opts: { inventory?: string; runtime?: Runtim
   await writeFile(join(dir, "inventory.yaml"), opts.inventory ?? FIXTURE_INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nevidenceDir: ./evidence\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: session } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(dir)}]\n`);
   const vault = opts.withVault ? new SecretVault({ file: join(dir, "vault.json"), keySource: { label: "test key", key: async () => Buffer.alloc(32, 7) } }) : null;
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault, env: {} as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null, ...opts.runtime });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault, env: {} as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null, ...opts.runtime });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { rt, deps, dir, calls };
 }

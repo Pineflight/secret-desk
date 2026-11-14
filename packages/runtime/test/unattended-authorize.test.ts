@@ -20,7 +20,8 @@ import {
   type SystemRoutine,
 } from "../src/agent-api.js";
 import { LiveCheckScheduler, runLiveCheck } from "../src/live-check.js";
-import { createRuntime, issuanceDeps, type Runtime } from "../src/runtime.js";
+import { createLocalRuntime, issuanceDeps, type Runtime } from "../src/runtime.js";
+import { envHost } from "./helpers/env-host.js";
 import { SignInScheduler } from "../src/sign-in-schedule.js";
 import { startupTeamSync } from "../src/team-sync.js";
 import { newWorld, setup as liveCheckSetup } from "./helpers/live-check-world.js";
@@ -173,7 +174,7 @@ async function sweepWorld() {
   const dir = await mkdtemp(join(tmpdir(), "sd-unattended-sweep-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
   return { rt, calls };
 }
 
@@ -276,7 +277,7 @@ async function startupWorld(options: { pullOnStart?: boolean } = {}) {
     return json({ message: "Not Found" }, 404);
   }) as typeof fetch;
   const env = { SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: "team/desk.yaml", SECRET_DESK_TEAM_BRANCH: "main", SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv;
-  const rt = await createRuntime(path, { vault: null, env, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createLocalRuntime(path, { vault: null, env, fetch: fetchMock, bundledRecipes: null });
   const files = async () => ({ config: await readFile(path, "utf8"), inventory: JSON.stringify(rt.inventory.data) });
   return { rt, env, calls, files };
 }
@@ -287,7 +288,7 @@ describe("start-up team sync (team-sync-startup)", () => {
   it("runs without a hook, as before", async () => {
     const { rt, env } = await startupWorld();
     expect("authorize" in rt).toBe(false);
-    await startupTeamSync(rt, env);
+    await startupTeamSync(rt, envHost(env));
     expect(rt.config.teamSync).toMatchObject({ repo: "acme/team-config" });
     expect(rt.inventory.data.secrets).toHaveLength(2);
   });
@@ -296,7 +297,7 @@ describe("start-up team sync (team-sync-startup)", () => {
     const { rt, env } = await startupWorld();
     const seen = allowing(rt);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    await startupTeamSync(rt, env);
+    await startupTeamSync(rt, envHost(env));
     expect(seen).toEqual([
       { actor: SYSTEM, action: "team.sync.configure" },
       { actor: SYSTEM, action: "team.sync.apply", subject: { mode: "merge" } },
@@ -310,14 +311,14 @@ describe("start-up team sync (team-sync-startup)", () => {
       const before = await files();
       refusal.install(rt);
       const faults = collectFaults(rt);
-      await startupTeamSync(rt, env);
+      await startupTeamSync(rt, envHost(env));
       expect(await files()).toEqual(before);
       expect(rt.config.teamSync).toBeUndefined();
       expect(calls).toEqual([]);
       expectFaults(faults, refusal, "team.sync.configure", 1, "team-sync-startup");
       vi.spyOn(console, "info").mockImplementation(() => undefined);
       allowing(rt);
-      await startupTeamSync(rt, env);
+      await startupTeamSync(rt, envHost(env));
       expect(rt.inventory.data.secrets).toHaveLength(2);
     });
   }
@@ -334,7 +335,7 @@ describe("start-up team sync (team-sync-startup)", () => {
       };
       const faults = collectFaults(rt);
       const before = await files();
-      await startupTeamSync(rt, env);
+      await startupTeamSync(rt, envHost(env));
       expect(seen.map((r) => r.action)).toEqual(["team.sync.configure", "team.sync.apply"]);
       expect(rt.inventory.data.secrets).toHaveLength(0);
       expect((await files()).inventory).toBe(before.inventory);
@@ -348,7 +349,7 @@ describe("start-up team sync (team-sync-startup)", () => {
       // A second start does not enter the set-up branch again: nothing is asked and nothing is applied.
       const inventoryBefore = after.inventory;
       seen.length = 0;
-      await startupTeamSync(rt, env);
+      await startupTeamSync(rt, envHost(env));
       expect(seen).toEqual([]);
       expect(rt.inventory.data.secrets).toHaveLength(0);
       expect((await files()).inventory).toBe(inventoryBefore);
@@ -358,7 +359,7 @@ describe("start-up team sync (team-sync-startup)", () => {
   it("the read-only check of the repository (pullOnStart) is not asked", async () => {
     const { rt, env, calls } = await startupWorld({ pullOnStart: true });
     const seen = allowing(rt);
-    await startupTeamSync(rt, env);
+    await startupTeamSync(rt, envHost(env));
     expect(seen).toEqual([]);
     expect(calls.length).toBeGreaterThan(0);
     expect(rt.inventory.data.secrets).toHaveLength(0);
@@ -376,7 +377,7 @@ async function signInWorld() {
   const dir = await mkdtemp(join(tmpdir(), "sd-unattended-signin-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\nautomation:\n  signInCheckHours: 6\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
     env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv,
     automationDriver: () =>

@@ -21,7 +21,7 @@ import {
   suggestAllParams,
   suggestAllVariables,
 } from "../src/params.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const human = { kind: "human", name: "tester" } as const;
 const agent = { kind: "agent", name: "bot" } as const;
@@ -134,7 +134,7 @@ async function setup(inventory = INVENTORY, extraConfig = "") {
   await writeFile(join(dir, "inventory.yaml"), inventory);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nautomation:\n  enabled: false\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\nconnections:\n  fakeconn: { type: env, name: FAKE_CONN }\n  supabase: { type: env, name: SUPA_CONN }\n${extraConfig}`);
   const ctl: Ctl = { calls: [], options: {}, failWith: null, discoverParams: [] };
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1", FAKE_CONN: "fake_conn_made_up_2" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, fetch: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1", FAKE_CONN: "fake_conn_made_up_2" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, fetch: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch });
   rt.providers.register(fakeProvider(ctl));
   // Real providers answer discover with network calls; the variable sources use a stub for the supabase kinds instead.
   for (const p of rt.providers.list().filter((p) => p.connection === "supabase")) rt.providers.register({ ...p, discover: async (kind, ctx) => { ctl.calls.push(`supabase:${kind}`); ctl.discoverParams.push(ctx.params); if (ctl.failWith) throw ctl.failWith; return ctl.options[kind] ?? []; } });

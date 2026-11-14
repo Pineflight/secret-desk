@@ -3,7 +3,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { StageSchema, localPathProblem, writePrivateFile, type Stage } from "@secret-desk/core";
-import { createRuntime, exportEnvContent, translateEn, type EnvExportFormat, type EnvExportInclude } from "@secret-desk/runtime";
+import { createLocalRuntime, exportEnvContent, translateEn, type EnvExportFormat, type EnvExportInclude } from "@secret-desk/runtime";
 
 interface Io {
   out: (line: string) => void;
@@ -35,7 +35,7 @@ export async function envExportContent(args: string[], io: Io): Promise<number> 
   const include = values.include ?? "variables";
   if (format !== "dotenv" && format !== "json") throw new Error("--format: dotenv or json");
   if (include !== "variables" && include !== "all") throw new Error("--include: variables or all");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const stage: Stage = values.stage ? StageSchema.parse(values.stage) : (rt.inventory.stages.find((d) => d.kind === "dev")?.id ?? "dev");
   const r = await exportEnvContent(rt, { kind: "human", name: "cli" }, { repo: values.repo, stage, format: format as EnvExportFormat, include: include as EnvExportInclude });
   const target = resolve(values.out ?? r.filename);

@@ -607,6 +607,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["policy.envRoots ist leer: Agenten duerfen keine Dateien schreiben.", "policy.envRoots is empty: agents may not write files."],
   ["Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.", "The file is not ignored by Git. Add it to .gitignore before anything is committed."],
   ["Ob Git die Datei ignoriert, liess sich nicht pruefen.", "Could not check whether Git ignores the file."],
+  ["Befehle der Vorlage laufen in dieser Umgebung nicht; die betroffenen Werte bleiben leer.", "Template commands do not run in this environment; the affected values stay empty."],
   ["Diese Werte muss ein Mensch im Portal oder mit `secret-desk env export --prompt KEY=WERT` angeben.", "A human must provide these values in the portal or with `secret-desk env export --prompt KEY=VALUE`."],
   ["Werte eingeben", "Enter values"],
   ["Anlagen hinzufuegen", "Add attachments"],
@@ -652,6 +653,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Der Ordner liegt ausserhalb des Home-Ordners und der erlaubten Ordner (policy.envRoots).", "The folder is outside the home folder and the allowed folders (policy.envRoots)."],
   ["Der Ordner ist kein Git-Repository (.git fehlt).", "The folder is not a Git repository (.git is missing)."],
   ["Der Ordner hat keinen Remote origin. Ob er zu diesem Repository gehoert, laesst sich nicht pruefen.", "The folder has no remote origin. Whether it belongs to this repository cannot be checked."],
+  ["Der Remote des Ordners laesst sich in dieser Umgebung nicht pruefen.", "The remote of the folder cannot be checked in this environment."],
   // automation
   ["playwright-core ist nicht installiert (pnpm install, optionale Abhaengigkeit).", "playwright-core is not installed (pnpm install, optional dependency)."],
   ["Kein Chrome gefunden.", "No Chrome found."],

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import {
+  CDP_ENV,
   PlaywrightDriver,
   RecipeRunError,
   bundledRecipesDir,
@@ -32,12 +33,14 @@ import {
   expandHome,
   parseCdpEndpoint,
   redactCdpEndpoint,
+  type ConnectionHost,
   type DeskConfig,
   type EvidenceStore,
   type Provider,
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+import { readHostEnv } from "./host.js";
 import { LiveCheckStore, type LiveCheckReport } from "./live-check-store.js";
 import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
 
@@ -195,8 +198,11 @@ export interface AutomationOptions {
   bundledDir?: string | null;
   /** Tests only: shortens the waits of a "Confirm access" step. */
   access?: { mobileTimeoutMs?: number; submitTimeoutMs?: number; maxAttempts?: number };
-  /** Environment for SECRET_DESK_BROWSER_CDP (default process.env). */
-  env?: NodeJS.ProcessEnv;
+  /**
+   * Where the variables SECRET_DESK_BROWSER_CDP and SECRET_DESK_BROWSER_VIEWER_URL are read (by name, through `host.env`).
+   * Without a host they are not read and only the configuration (`automation.cdpEndpoint`, `automation.viewerUrl`) applies.
+   */
+  host?: ConnectionHost;
   /** Tests only: replaces the reachability check of the remote browser. */
   probe?: typeof probeCdp;
   now?: () => Date;
@@ -208,9 +214,12 @@ export interface AutomationOptions {
 
 const VIEWER_ENV = "SECRET_DESK_BROWSER_VIEWER_URL";
 
-/** Viewer address of the remote browser: environment first, then configuration. Only http(s) without credentials is kept. */
-export function viewerUrlFrom(configured: string | undefined, env: NodeJS.ProcessEnv = process.env): string | null {
-  const raw = env[VIEWER_ENV]?.trim() || configured?.trim();
+/**
+ * Viewer address of the remote browser: the host's environment first (only when there is a host), then configuration.
+ * Only http(s) without credentials is kept.
+ */
+export function viewerUrlFrom(configured: string | undefined, host?: ConnectionHost): string | null {
+  const raw = readHostEnv(host, VIEWER_ENV)?.trim() || configured?.trim();
   if (!raw) return null;
   // A path on the portal's own host ("/browser/vnc.html?..."): the link then follows whichever address the portal was opened with.
   if (raw.startsWith("/") && !raw.startsWith("//")) return /^\/[^\s\\]*$/.test(raw) ? raw : null;
@@ -280,8 +289,8 @@ export class AutomationManager {
     const c = opts.config.automation;
     this.enabled = c.enabled;
     this.#chromePath = c.chromePath ? path(c.chromePath, opts.configDir) : undefined;
-    this.#cdpEndpoint = cdpEndpointFrom(c.cdpEndpoint, opts.env ?? process.env);
-    this.#viewerUrl = viewerUrlFrom(c.viewerUrl, opts.env ?? process.env);
+    this.#cdpEndpoint = cdpEndpointFrom(c.cdpEndpoint, { [CDP_ENV]: readHostEnv(opts.host, CDP_ENV) });
+    this.#viewerUrl = viewerUrlFrom(c.viewerUrl, opts.host);
     this.profileDir = path(c.profileDir ?? PROFILE_DEFAULT, opts.configDir);
     this.loginTimeoutMinutes = c.loginTimeoutMinutes;
     this.signInFreshHours = c.signInFreshHours;

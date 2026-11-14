@@ -16,7 +16,6 @@ import {
   TEAM_SYNC_CONNECTION,
   patProvider,
   type DeskConfig,
-  type ExecFn,
   type FetchLike,
   type Provider,
   type SourceSpec,
@@ -28,6 +27,7 @@ import type { BrowserDriver } from "@secret-desk/automation";
 import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
+import { nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
 import { IssuanceQueue } from "./issuances.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-store.js";
 
@@ -46,6 +46,8 @@ export interface Runtime {
   automation: AutomationManager;
   owner: string;
   fetch: FetchLike;
+  /** The host capability this runtime was built with; absent when there is none (see `RuntimeOptions.host`). */
+  host?: RuntimeHost;
   /** Optional authorisation hook, consulted after the built-in policy checks (see `Authorize`). Absent in the local edition. */
   authorize?: Authorize;
   /** How long the hook may take before the action is refused (default 10000 ms). */
@@ -58,8 +60,14 @@ export interface Runtime {
 
 export interface RuntimeOptions {
   fetch?: FetchLike;
-  env?: NodeJS.ProcessEnv;
-  exec?: ExecFn;
+  /**
+   * What the runtime may reach on the machine that runs it (see `RuntimeHost`): environment variables by name, `op`, the
+   * allow-listed template commands, `git`. Omitted or `null` means no host: every path that needs one is unavailable
+   * (an `env` or `op` connection source, the team token from the environment, the team start-up settings, the remote browser
+   * address from the environment, template commands, Git remote checks) and nothing reads the process environment or starts
+   * a process. There is no fallback to the process; the local edition passes `nodeRuntimeHost()` (or uses `createLocalRuntime`).
+   */
+  host?: RuntimeHost | null;
   session?: SessionVault;
   /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
   watchInventory?: boolean;
@@ -113,17 +121,17 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   // Where the live check reads its notification address from: the same sources as a connection token (never shown, never logged).
   if (config.automation.liveCheckNotify) specs[LIVE_CHECK_NOTIFY_CONNECTION] = config.automation.liveCheckNotify.url;
 
-  // Headless: Token fuer das Team-Repository nur aus der Umgebung (Wert wird nie angezeigt).
-  const env = options.env ?? process.env;
-  if (env["SECRET_DESK_TEAM_TOKEN"] && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
+  // Headless: the token of the team repository comes from the environment of the host only (never shown). Without a host nothing is read.
+  const host = options.host ?? undefined;
+  if (readHostEnv(host, "SECRET_DESK_TEAM_TOKEN") && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
 
   const vault = options.vault === undefined ? (config.vault.enabled ? new SecretVault({ ...(config.vault.file ? { file: expandHome(config.vault.file) } : {}), ...(config.vault.keyFile ? { keyFile: expandHome(config.vault.keyFile) } : {}) }) : undefined) : (options.vault ?? undefined);
   const connections = new ConnectionStore({
     specs,
     ...(vault ? { vault } : {}),
     ...(options.session ? { session: options.session } : {}),
-    ...(options.env ? { env: options.env } : {}),
-    ...(options.exec ? { exec: options.exec } : {}),
+    // `null` keeps the store out of the Node default: without a host an `env` or `op` source is unavailable.
+    host: host ?? null,
   });
   const f = options.fetch ?? fetch;
 
@@ -162,7 +170,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     inventoryDir: dirname(resolve(dirname(path), config.inventory)),
     providers,
     evidence,
-    env,
+    ...(host ? { host } : {}),
     ...(options.persistSignIn ? { signInStateFile: join(dataDir, "sign-in-state.json"), liveCheckStateFile: join(dataDir, "live-check-state.json") } : {}),
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
@@ -194,11 +202,21 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     automation,
     owner: config.github.owner,
     fetch: f,
+    ...(host ? { host } : {}),
     ...(options.authorize !== undefined ? { authorize: options.authorize } : {}),
     ...(options.authorizeTimeoutMs !== undefined ? { authorizeTimeoutMs: options.authorizeTimeoutMs } : {}),
     ...(options.onAuthorizeFault ? { onAuthorizeFault: options.onAuthorizeFault } : {}),
     teamSyncMemo,
   };
+}
+
+/**
+ * The single-user local edition (portal, CLI, MCP server): `createRuntime` with the Node host passed explicitly. `env` and `exec`
+ * only shape that host (tests); they are not a way to reach the process from a runtime that has no host.
+ */
+export async function createLocalRuntime(configPath: string, options: Omit<RuntimeOptions, "host"> & NodeRuntimeHostOptions = {}): Promise<Runtime> {
+  const { env, exec, ...rest } = options;
+  return createRuntime(configPath, { ...rest, host: nodeRuntimeHost({ ...(env ? { env } : {}), ...(exec ? { exec } : {}) }) });
 }
 
 /** Abhaengigkeiten fuer die Funktionen des Kerns, die Ausstellung und Bestaetigung steuern. */

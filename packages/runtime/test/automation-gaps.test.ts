@@ -5,7 +5,8 @@ import { FakeDriver, PlaywrightDriver, type BrowserProvider } from "@secret-desk
 import { IssuanceError, InventoryError, ParamsInvalidError, ProviderRegistry } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutomationError, AutomationManager, viewerUrlFrom } from "../src/automation.js";
-import { createRuntime, type RuntimeOptions } from "../src/runtime.js";
+import { createLocalRuntime, type RuntimeOptions } from "../src/runtime.js";
+import { envHost } from "./helpers/env-host.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -35,7 +36,7 @@ async function setup(opts: { automation?: string; recipes?: Record<string, strin
   for (const [name, text] of Object.entries(opts.recipes ?? {})) await writeFile(join(dir, "recipes", name), text);
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${opts.automation ?? ""}`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1", ...(opts.env ?? {}) } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, ...(opts.runtime ?? {}) });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1", ...(opts.env ?? {}) } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, ...(opts.runtime ?? {}) });
   return { rt, dir };
 }
 
@@ -80,13 +81,17 @@ describe("loading recipes", () => {
 });
 
 describe("browser configuration", () => {
-  it("the manager reads the remote browser and viewer from the process environment by default", async () => {
+  it("the manager reads the remote browser and viewer only through the host, never from the process environment", async () => {
     const { rt, dir } = await setup();
     vi.stubEnv("SECRET_DESK_BROWSER_CDP", "http://127.0.0.1:9");
     vi.stubEnv("SECRET_DESK_BROWSER_VIEWER_URL", "http://desk.local/vnc.html");
-    const manager = new AutomationManager({ config: rt.config, configDir: dir, inventoryDir: dir, providers: new ProviderRegistry(), evidence: rt.evidence });
-    expect(manager.viewerUrl).toBe("http://desk.local/vnc.html");
-    expect(manager.info().browser).toMatchObject({ mode: "remote", viewerUrl: "http://desk.local/vnc.html" });
+    const base = { config: rt.config, configDir: dir, inventoryDir: dir, providers: new ProviderRegistry(), evidence: rt.evidence };
+    const withHost = new AutomationManager({ ...base, host: envHost({ SECRET_DESK_BROWSER_CDP: "http://127.0.0.1:9", SECRET_DESK_BROWSER_VIEWER_URL: "http://desk.local/vnc.html" }) });
+    expect(withHost.viewerUrl).toBe("http://desk.local/vnc.html");
+    expect(withHost.info().browser).toMatchObject({ mode: "remote", viewerUrl: "http://desk.local/vnc.html" });
+    const withoutHost = new AutomationManager(base);
+    expect(withoutHost.viewerUrl).toBeNull();
+    expect(withoutHost.info().browser).toMatchObject({ mode: "local" });
     expect(rt.automation.viewerUrl).toBeNull();
   });
 

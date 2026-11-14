@@ -37,7 +37,7 @@ import {
 import { runGitHubSync } from "../src/github-sync.js";
 import { applyNormalizationChanges } from "../src/normalize.js";
 import { exportEnvContent } from "../src/env-content.js";
-import { createRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "../src/runtime.js";
+import { createLocalRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
 secrets:
@@ -134,7 +134,7 @@ policy:
   envRoots: [${JSON.stringify(dir)}]
 `,
   );
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, ...(hook !== undefined ? { authorize: hook } : {}), ...extra });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, ...(hook !== undefined ? { authorize: hook } : {}), ...extra });
   return { rt, dir, calls, written };
 }
 

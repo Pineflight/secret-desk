@@ -1,6 +1,6 @@
 import { connect } from "node:net";
 import { parseArgs } from "node:util";
-import { createRuntime, getLiveCheck, runLiveCheck, type LiveCheckReport } from "@secret-desk/runtime";
+import { createLocalRuntime, getLiveCheck, runLiveCheck, type LiveCheckReport } from "@secret-desk/runtime";
 import type { Io } from "./index.js";
 
 const tag = (result: string): string => `[${result.padEnd(13)}]`;
@@ -43,7 +43,7 @@ export async function liveCheckCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, json: { type: "boolean" }, run: { type: "boolean" }, strict: { type: "boolean" } } });
   if (!values.config) throw new Error("live-check --config <datei> [--json] [--run] [--strict]");
   // The reports live in the data directory next to the sign-in memory, shared with the portal.
-  const rt = await createRuntime(values.config, { persistSignIn: true });
+  const rt = await createLocalRuntime(values.config, { persistSignIn: true });
   if (values.run) {
     if (await listensOn(rt.config.server.port)) {
       io.err(`live-check --run ist nicht moeglich: auf 127.0.0.1:${rt.config.server.port} laeuft bereits ein Portal. Dort den Knopf "Jetzt pruefen" (Integrationen, Live-Check) benutzen, sonst steuern zwei Laeufe denselben Browser.`);

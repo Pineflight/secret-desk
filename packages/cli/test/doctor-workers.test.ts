@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { runDoctor } from "../src/doctor.js";
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
@@ -24,7 +24,7 @@ async function setup(env: Record<string, string>) {
   const dir = await mkdtemp(join(tmpdir(), "sd-doc-workers-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_X } }\nconnections:\n  cloudflare: { type: env, name: CF_X }\n`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   return { rt, calls };
 }
 

@@ -22,9 +22,11 @@ import {
   writeTeamSyncConfig,
   writeTeamSyncState,
   type BundleDiff,
+  type ConnectionHost,
   type TeamSyncConfig,
 } from "@secret-desk/core";
 import { authorizeSystem } from "./agent-api.js";
+import { readHostEnv } from "./host.js";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
 import { teamRights, teamRightsLabels, type TeamRights } from "./team-token-rights.js";
@@ -478,11 +480,17 @@ export async function dismissTeamSetup(rt: Runtime): Promise<void> {
   await writeTeamSyncState(statePath(rt), { ...st, setupDismissed: true });
 }
 
-/** Umgebungsvariablen fuer den Erststart ohne Klicken (Token nur ueber SECRET_DESK_TEAM_TOKEN, siehe createRuntime). */
-export function teamSyncFromEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> | null {
-  const repo = env["SECRET_DESK_TEAM_REPO"]?.trim();
+/**
+ * Environment variables for the first start without clicking (the token only through SECRET_DESK_TEAM_TOKEN, see createRuntime),
+ * read by name through the host. Without a host (or a host without `env`) nothing is read and the result is null.
+ */
+export function teamSyncFromEnv(host?: ConnectionHost | null): Record<string, string> | null {
+  const read = (name: string): string | undefined => readHostEnv(host, name)?.trim() || undefined;
+  const repo = read("SECRET_DESK_TEAM_REPO");
   if (!repo) return null;
-  return { repo, ...(env["SECRET_DESK_TEAM_PATH"]?.trim() ? { path: env["SECRET_DESK_TEAM_PATH"]!.trim() } : {}), ...(env["SECRET_DESK_TEAM_BRANCH"]?.trim() ? { branch: env["SECRET_DESK_TEAM_BRANCH"]!.trim() } : {}) };
+  const path = read("SECRET_DESK_TEAM_PATH");
+  const branch = read("SECRET_DESK_TEAM_BRANCH");
+  return { repo, ...(path ? { path } : {}), ...(branch ? { branch } : {}) };
 }
 
 /** The startup log line: ids (never values) of applied entries and of entries that stay pending for the portal preview. */
@@ -500,9 +508,10 @@ export function startupSyncLine(applied: readonly string[], diff: BundleDiff | n
  * that step and the rest of the start-up sync. The read-only check of the repository (pullOnStart) is not asked, like the
  * check a human starts in the portal.
  */
-export async function startupTeamSync(rt: Runtime, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function startupTeamSync(rt: Runtime, host: ConnectionHost | null | undefined = rt.host): Promise<void> {
   try {
-    const fromEnv = teamSyncFromEnv(env);
+    // The settings come from the host (default: the host of the runtime); without a host the headless setup is skipped.
+    const fromEnv = teamSyncFromEnv(host);
     if (fromEnv && !rt.config.teamSync) {
       if (!(await authorizeSystem(rt, "team-sync-startup", "team.sync.configure"))) return;
       await setupTeamSync(rt, fromEnv);

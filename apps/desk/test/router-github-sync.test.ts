@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SecretVault } from "@secret-desk/core";
-import { createRuntime, secretValueEntry } from "@secret-desk/runtime";
+import { createLocalRuntime, secretValueEntry } from "@secret-desk/runtime";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
@@ -43,7 +43,7 @@ async function setup(opts: { failVariable?: string } = {}) {
   const key = randomBytes(32);
   const fixed = new SecretVault({ file: join(dir, "vault.json"), keySource: { label: "test", key: async () => key } });
   await fixed.set(secretValueEntry("api-key"), VALUE);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: fixed, env: { GH_TEST: "ghp_made_up_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: fixed, env: { GH_TEST: "ghp_made_up_token_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, dir, writes, fixed };
 }

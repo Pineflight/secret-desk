@@ -9,7 +9,8 @@ import { IssuanceError } from "@secret-desk/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { AutomationError, viewerUrlFrom } from "../src/automation.js";
 import { requestIssuance, resolveApproval, listProviders, listSecrets, getAutomation, getAutomationRun, cancelAutomationRun, PolicyError } from "../src/agent-api.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
+import { envHost } from "./helpers/env-host.js";
 
 const TOKEN = "tok_s3cr3tvalue99xyz";
 
@@ -86,7 +87,7 @@ async function setup(opts: Opts = {}) {
   const drivers: FakeDriver[] = [];
   const login = { done: false };
   const mode = opts.mode ?? "ok";
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
     env: { GH_TEST: "ghp_x", ...(opts.env ?? {}) },
     fetch: fetchMock,
@@ -188,11 +189,13 @@ describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
     const viewer = "http://desk.local/browser/vnc.html?path=browser/websockify&autoconnect=1";
     const { rt } = await setup({ env: { SECRET_DESK_BROWSER_CDP: url, SECRET_DESK_BROWSER_VIEWER_URL: viewer } });
     expect((await getAutomation(rt, human)).browser.viewerUrl).toBe(viewer);
-    expect(viewerUrlFrom("http://user:pw@desk.local/browser/", {})).toBeNull();
-    expect(viewerUrlFrom("javascript:alert(1)", {})).toBeNull();
-    expect(viewerUrlFrom("/browser/vnc.html?path=browser/websockify&autoconnect=1", {})).toBe("/browser/vnc.html?path=browser/websockify&autoconnect=1");
-    expect(viewerUrlFrom("//evil.example/x", {})).toBeNull();
-    expect(viewerUrlFrom("http://desk.local/a", { SECRET_DESK_BROWSER_VIEWER_URL: "https://other.local/b" })).toBe("https://other.local/b");
+    expect(viewerUrlFrom("http://user:pw@desk.local/browser/", envHost({}))).toBeNull();
+    expect(viewerUrlFrom("javascript:alert(1)", envHost({}))).toBeNull();
+    expect(viewerUrlFrom("/browser/vnc.html?path=browser/websockify&autoconnect=1", envHost({}))).toBe("/browser/vnc.html?path=browser/websockify&autoconnect=1");
+    expect(viewerUrlFrom("//evil.example/x", envHost({}))).toBeNull();
+    expect(viewerUrlFrom("http://desk.local/a", envHost({ SECRET_DESK_BROWSER_VIEWER_URL: "https://other.local/b" }))).toBe("https://other.local/b");
+    // Without a host the variable is not read and only the configured address counts.
+    expect(viewerUrlFrom("http://desk.local/a")).toBe("http://desk.local/a");
   });
 
   it("takes the endpoint from the configuration; the environment variable wins", async () => {
@@ -214,7 +217,7 @@ describe("remote browser (SECRET_DESK_BROWSER_CDP)", () => {
     const info = await getAutomation(rt, human);
     expect(info.browser).toMatchObject({ mode: "remote", endpoint: null, reachable: false });
     expect(JSON.stringify(info)).not.toContain("hunter2");
-    const real = await createRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x", SECRET_DESK_BROWSER_CDP: "ftp://u:hunter2@host" }, bundledRecipes: null });
+    const real = await createLocalRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x", SECRET_DESK_BROWSER_CDP: "ftp://u:hunter2@host" }, bundledRecipes: null });
     const err = await requestIssuance(real, human, "sample-a").then(
       () => null,
       (e: Error) => e,
@@ -349,7 +352,7 @@ describe("run", () => {
   it("returns a clear message without Playwright/Chrome instead of a crash", async () => {
     await sodium.ready;
     const { rt } = await setup({ automation: "automation: { chromePath: /gibt/es/nicht }\n" });
-    const real = await createRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x" }, bundledRecipes: null });
+    const real = await createLocalRuntime(rt.configPath, { vault: null, env: { GH_TEST: "ghp_x" }, bundledRecipes: null });
     await expect(requestIssuance(real, human, "sample-a")).rejects.toThrow(/Chrome nicht gefunden|playwright-core/);
     expect(real.automation.state("sample-a").status).toBe("failed");
   });

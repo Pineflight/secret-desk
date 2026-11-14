@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it } from "vitest";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { doctorExitCode, runDoctor } from "../src/doctor.js";
 
 const INVENTORY = `version: 1
@@ -41,7 +41,7 @@ async function setup(env: Record<string, string>, goneStatus = 404) {
   const dir = await mkdtemp(join(tmpdir(), "sd-doc-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_X } }\nconnections:\n  cloudflare: { type: env, name: CF_X }\n`);
-  return createRuntime(join(dir, "c.yaml"), { vault: null, env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
+  return createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: env as unknown as NodeJS.ProcessEnv, fetch: fetchMock });
 }
 
 describe("doctor", () => {

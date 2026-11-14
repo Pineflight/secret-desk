@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { PolicyError } from "../src/agent-api.js";
 import { planGitHubSync, runGitHubSync, secretValueEntry, secretValueSource } from "../src/github-sync.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const human = { kind: "human", name: "tester" } as const;
 const agent = { kind: "agent", name: "bot" } as const;
@@ -89,7 +89,7 @@ async function setup(withVault: boolean, inventoryText: string = INVENTORY) {
   await writeFile(join(dir, "inventory.yaml"), inventoryText);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
   const vault = withVault ? new SecretVault({ file: join(dir, "vault.json"), keySource: { label: "test", key: async () => randomBytes(32) } }) : null;
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
   return { rt, vault, written, cloudflare };
 }
 
