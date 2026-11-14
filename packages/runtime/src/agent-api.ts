@@ -88,7 +88,8 @@ import type { AutomationInfo, AutomationRunState } from "./automation.js";
 import { linkedFolder, usableEnvRoots } from "./repos.js";
 import { FACADES, facadeConnectionForRecipe } from "./facade.js";
 import { paramStatus } from "./params.js";
-import { issuanceDeps, type Runtime } from "./runtime.js";
+import { githubAppKeyStatus } from "./github-crypto.js";
+import { GITHUB_APP_KEY_CONNECTION, issuanceDeps, type Runtime } from "./runtime.js";
 
 /**
  * Die Operationen, die Portal, MCP-Server und CLI gemeinsam nutzen. Hier sitzt die Richtlinie:
@@ -474,6 +475,9 @@ export async function listConnections(rt: Runtime) {
   const stripeAccounts = (await rt.connections.ids("stripe:")).filter((id) => parseStripeConnectionId(id) !== null);
   const ids = [...new Set(["github", "github-app-key", ...(rt.config.teamSync ? ["team-sync"] : []), "stripe-test", "stripe-live", ...stripeAccounts, ...rt.providers.list().flatMap((p) => (p.connection ? [p.connection] : []))])];
   const statuses = await rt.connections.statuses(ids);
+  // With an injected signer the GitHub App is usable without a stored key (the shared answer of `githubAppKeyStatus`).
+  const appIndex = statuses.findIndex((x) => x.id === GITHUB_APP_KEY_CONNECTION);
+  if (appIndex >= 0 && !statuses[appIndex]!.connected) statuses[appIndex] = await githubAppKeyStatus(rt);
   // Team-Sync ohne eigenes Token nutzt die GitHub-Integration: so anzeigen, nicht als "nicht verbunden".
   const gh = [statuses.find((x) => x.id === "github"), statuses.find((x) => x.id === "github-app-key")].find((x) => x?.connected);
   for (let i = 0; i < statuses.length; i++) {

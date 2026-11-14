@@ -1,9 +1,8 @@
 import { dirname, join } from "node:path";
 import {
-  GitHubClient,
+  type GitHubClient,
   GitHubError,
   GitHubInputError,
-  githubAppProvider,
   type TokenProvider,
   InventoryError,
   NotConnectedError,
@@ -26,6 +25,7 @@ import {
   type TeamSyncConfig,
 } from "@secret-desk/core";
 import { authorizeSystem } from "./agent-api.js";
+import { createAppTokenProvider, createGitHubClient, githubAppUsable } from "./github-crypto.js";
 import { readHostEnv } from "./host.js";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
@@ -101,7 +101,7 @@ export async function teamTokenSource(rt: Runtime, scope: TeamTokenScope = {}): 
   if ((await rt.connections.status(TEAM_SYNC_CONNECTION)).connected && metaFits(await readTeamTokenMeta(rt), scope)) return "own";
   const auth = rt.config.github.auth;
   if (auth.type === "pat") return (await rt.connections.status(GITHUB_CONNECTION)).connected ? "github-pat" : "none";
-  return (await rt.connections.status(GITHUB_APP_KEY_CONNECTION)).connected ? "github-app" : "none";
+  return (await githubAppUsable(rt)) ? "github-app" : "none";
 }
 
 /** One team sync operation (one check, pull or push): one client and, with a GitHub App, one installation token provider. */
@@ -151,28 +151,30 @@ export async function openScopedSession(rt: Runtime, scope: SessionScope): Promi
     effective = "github-pat";
   } else {
     effective = "github-app";
-    let inner: TokenProvider | null = null;
-    provider = async () => {
-      if (!inner) {
+    const inner = createAppTokenProvider(
+      rt,
+      {
+        appId: auth.appId,
+        owner: scope.owner,
+        ...(scope.repositories?.length ? { repositories: scope.repositories } : {}),
+        permissions: scope.permissions,
+        fetch: rt.fetch,
+        onToken: (info) => { granted = info.permissions; },
+      },
+      async () => {
         const privateKey = await rt.connections.token(GITHUB_APP_KEY_CONNECTION);
         seenSecrets.push(privateKey.reveal());
-        inner = githubAppProvider({
-          appId: auth.appId,
-          privateKey,
-          owner: scope.owner,
-          ...(scope.repositories?.length ? { repositories: scope.repositories } : {}),
-          permissions: scope.permissions,
-          fetch: rt.fetch,
-          onToken: (info) => { granted = info.permissions; },
-        });
-      }
+        return privateKey;
+      },
+    );
+    provider = async () => {
       const token = await inner();
       const text = token.reveal();
       if (!seenSecrets.includes(text)) seenSecrets.push(text);
       return token;
     };
   }
-  return { gh: new GitHubClient({ auth: provider, fetch: rt.fetch }), source: effective, granted: () => granted, secrets: () => [...seenSecrets] };
+  return { gh: createGitHubClient(rt, { auth: provider, fetch: rt.fetch }), source: effective, granted: () => granted, secrets: () => [...seenSecrets] };
 }
 
 export const split = (repo: string): [string, string] => {

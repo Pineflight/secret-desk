@@ -1,8 +1,8 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureConfigFile, exportTeamBundle } from "@secret-desk/core";
-import { createLocalRuntime, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime } from "@secret-desk/runtime";
-import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
+import { createLocalRuntime, hostHome, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime } from "@secret-desk/runtime";
+import { PortalSession, agentTokenPath, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
 
 export interface Desk {
   rt: Runtime;
@@ -51,7 +51,7 @@ async function init(): Promise<Desk> {
   const desk: Desk = {
     rt,
     session: new PortalSession(await launchSecretOptions()),
-    agentToken: await loadOrCreateAgentToken(demo ? join(tmpdir(), "secret-desk-demo", "agent-token") : undefined),
+    agentToken: await loadOrCreateAgentToken(demo ? join(tmpdir(), "secret-desk-demo", "agent-token") : agentTokenPath(hostHome(rt.host))),
     hosts: allowedHosts(rt.config.server.port, extraHostsFromEnv()),
     demo,
   };

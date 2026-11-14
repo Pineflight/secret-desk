@@ -25,7 +25,10 @@ export interface PlaywrightDriverOptions {
   cdpEndpoint?: string;
 }
 
-export const DEFAULT_PROFILE_DIR = join(homedir(), ".secret-desk", "browser-profile");
+/** The default browser profile folder in the home folder of the process. Looked up when called, never when the module is imported. */
+export function defaultProfileDir(): string {
+  return join(homedir(), ".secret-desk", "browser-profile");
+}
 
 type Role = Parameters<Page["getByRole"]>[0];
 
@@ -51,7 +54,7 @@ export class PlaywrightDriver implements BrowserDriver {
     }
     if (this.#opts.cdpEndpoint) return this.#openRemote(chromium, this.#opts.cdpEndpoint);
     const path = findChrome(this.#opts.chromePath);
-    const profile = this.#opts.profileDir ?? DEFAULT_PROFILE_DIR;
+    const profile = this.#opts.profileDir ?? defaultProfileDir();
     await ensurePrivateDir(profile);
     try {
       this.#context = await chromium.launchPersistentContext(profile, {

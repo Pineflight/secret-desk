@@ -17,10 +17,11 @@ import {
   type SudoAnswer,
   type SudoEvent,
 } from "@secret-desk/automation";
-import { GitHubClient, GitHubError, GitHubInputError, InventoryError, IssuanceError, TEAM_SYNC_CONNECTION, patProvider, redact, type SecretValue } from "@secret-desk/core";
+import { GitHubError, GitHubInputError, InventoryError, IssuanceError, TEAM_SYNC_CONNECTION, patProvider, redact, type SecretValue } from "@secret-desk/core";
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry, RunAsk } from "./automation.js";
 import { credentialsFrom, methodFrom } from "./facade.js";
+import { createGitHubClient } from "./github-crypto.js";
 import { WaitExpiredError, waitDeadline, type TeamTokenAnswers, type Waiter, type WaiterBook } from "./instance-state.js";
 import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
@@ -215,7 +216,7 @@ function finishFailed(rt: Runtime, t: Tracker, f: Failure): void {
 
 /** What the new token has to prove before it is stored: it reads the repository, and for a push mode may push. Texts carry no value. */
 export async function verifyTeamToken(rt: Runtime, value: SecretValue, req: Pick<TeamTokenRequest, "owner" | "name" | "branch" | "mode" | "strategy">): Promise<string | null> {
-  const gh = new GitHubClient({ auth: patProvider(value), fetch: rt.fetch });
+  const gh = createGitHubClient(rt, { auth: patProvider(value), fetch: rt.fetch });
   const where = `${req.owner}/${req.name}`;
   try {
     const info = await gh.getRepo(req.owner, req.name);

@@ -2,18 +2,19 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   ConnectionStore,
-  GitHubClient,
+  type GitHubClient,
   CLOUDFLARE_CONNECTION,
   WorkerSecretsClient,
   InventoryStore,
   ProviderRegistry,
   type SecretVault,
   SessionVault,
-  githubAppProvider,
   loadConfig,
   TEAM_SYNC_CONNECTION,
   patProvider,
+  type AppJwtSigner,
   type DeskConfig,
+  type SecretSealer,
   type FetchLike,
   type Provider,
   type SourceSpec,
@@ -25,6 +26,7 @@ import type { BrowserDriver } from "@secret-desk/automation";
 import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
+import { createAppTokenProvider, createGitHubClient } from "./github-crypto.js";
 import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
 import { InstanceState } from "./instance-state.js";
 import { IssuanceQueue, type PendingRecord, type PendingStore } from "./issuances.js";
@@ -47,6 +49,10 @@ export interface Runtime {
   fetch: FetchLike;
   /** The host capability this runtime was built with; absent when there is none (see `RuntimeOptions.host`). */
   host?: RuntimeHost;
+  /** The injected sealer the GitHub clients of this runtime use (`RuntimeOptions.seal`); absent when none was given. */
+  seal?: SecretSealer;
+  /** The injected signer for GitHub App tokens (`RuntimeOptions.sign`); absent when none was given. */
+  sign?: AppJwtSigner;
   /** Optional authorisation hook, consulted after the built-in policy checks (see `Authorize`). Absent in the local edition. */
   authorize?: Authorize;
   /** How long the hook may take before the action is refused (default 10000 ms). */
@@ -85,6 +91,20 @@ export interface RuntimeOptions {
    * `createLocalRuntime`).
    */
   host?: RuntimeHost | null;
+  /**
+   * Seals a value for the GitHub secret store (the same `SecretSealer` the portable GitHub client takes). Without it, a runtime
+   * with a host seals with the libsodium default of the core, and a runtime without a host cannot seal: writing a GitHub secret
+   * (`putSecret` and the write probe) is refused with a `HostCapabilityError` before any request is made, the public key
+   * request included.
+   */
+  seal?: SecretSealer;
+  /**
+   * Signs the GitHub App token request (the same `AppJwtSigner` the portable GitHub client takes), so the App private key never
+   * enters this process and is not read. The signer must sign for the GitHub App named by `github.auth.appId` of the configuration
+   * (the issuer comes from the configuration; GitHub refuses a signer of another App). Without it, a runtime with a host signs with the key of the `github-app-key`
+   * connection, and a runtime without a host refuses to build an App token with a `HostCapabilityError`.
+   */
+  sign?: AppJwtSigner;
   session?: SessionVault;
   /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
   watchInventory?: boolean;
@@ -167,6 +187,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
 
   // Headless: the token of the team repository comes from the environment of the host only (never shown). Without a host nothing is read.
   const host = options.host ?? undefined;
+  const crypto = { host, seal: options.seal, sign: options.sign };
   if (readHostEnv(host, "SECRET_DESK_TEAM_TOKEN") && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
 
   // The default vault (a file plus the key source of the OS, which reads the environment and starts the OS key tools) is part of the
@@ -192,20 +213,17 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     auth = () => connections.token(GITHUB_CONNECTION);
   } else {
     const app = config.github.auth;
-    let cached: TokenProvider | null = null;
-    auth = async () => {
-      if (!cached) {
-        cached = githubAppProvider({
-          appId: app.appId,
-          privateKey: await connections.token(GITHUB_APP_KEY_CONNECTION),
-          owner: config.github.owner,
-          ...(app.repositories ? { repositories: app.repositories } : {}),
-          permissions: { secrets: "write", environments: "read", metadata: "read" },
-          fetch: f,
-        });
-      }
-      return cached();
-    };
+    auth = createAppTokenProvider(
+      crypto,
+      {
+        appId: app.appId,
+        owner: config.github.owner,
+        ...(app.repositories ? { repositories: app.repositories } : {}),
+        permissions: { secrets: "write", environments: "read", metadata: "read" },
+        fetch: f,
+      },
+      () => connections.token(GITHUB_APP_KEY_CONNECTION),
+    );
   }
 
   const providers = createDefaultRegistry();
@@ -257,7 +275,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     config,
     configPath: path,
     inventory,
-    github: new GitHubClient({ auth, fetch: f }),
+    github: createGitHubClient(crypto, { auth, fetch: f }),
     workers: new WorkerSecretsClient({ auth: () => connections.token(CLOUDFLARE_CONNECTION), fetch: f }),
     connections,
     providers,
@@ -268,6 +286,8 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     owner: config.github.owner,
     fetch: f,
     ...(host ? { host } : {}),
+    ...(options.seal ? { seal: options.seal } : {}),
+    ...(options.sign ? { sign: options.sign } : {}),
     ...(options.authorize !== undefined ? { authorize: options.authorize } : {}),
     ...(options.authorizeTimeoutMs !== undefined ? { authorizeTimeoutMs: options.authorizeTimeoutMs } : {}),
     ...(options.onAuthorizeFault ? { onAuthorizeFault: options.onAuthorizeFault } : {}),

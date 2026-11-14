@@ -2,7 +2,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sodium from "libsodium-wrappers";
-import { describe, expect, it } from "vitest";
+import type { SecretSealer } from "@secret-desk/core";
+import { describe, expect, it, vi } from "vitest";
 import { checkConnection, listWriteTargets, tokenPrefixProblem } from "../src/index.js";
 import { createRuntime } from "../src/runtime.js";
 
@@ -38,7 +39,8 @@ variables:
 type Handler = (url: string, method: string, headers: Record<string, string>) => { status?: number; body?: unknown; headers?: Record<string, string> } | undefined;
 type Call = { url: string; method: string; headers: Record<string, string>; redirect: RequestRedirect | undefined };
 
-async function setup(handler: Handler, opts: { tokens?: Record<string, string> } = {}) {
+/** `hostless`: the runtime gets no host (and, if given, this sealer); every other runtime of this suite gets a bare host. */
+async function setup(handler: Handler, opts: { tokens?: Record<string, string>; hostless?: { seal?: SecretSealer } } = {}) {
   await sodium.ready;
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
@@ -57,7 +59,7 @@ async function setup(handler: Handler, opts: { tokens?: Record<string, string> }
   const dir = await mkdtemp(join(tmpdir(), "sd-conncheck-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: session } }\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: {} as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, ...(opts.hostless ? (opts.hostless.seal ? { seal: opts.hostless.seal } : {}) : { host: { label: "test" } }), fetch: fetchMock, bundledRecipes: null });
   for (const [id, tok] of Object.entries({ github: TOKEN, ...(opts.tokens ?? {}) })) rt.connections.session.set(id, tok, null);
   return { rt, calls };
 }
@@ -113,6 +115,26 @@ describe("checkConnection: GitHub", () => {
     const c = r.checks.find((x) => x.id === "target:repository:acme-app");
     expect(c?.status).toBe("fail");
     expect(c?.detail).toMatch(/Read and write/);
+  });
+
+  it("a runtime without a host and with an injected sealer runs the deep write probe", async () => {
+    const seal = vi.fn<SecretSealer>(async () => "bWFkZS11cC1zZWFsZWQtb3V0cHV0");
+    const { rt, calls } = await setup(ghUser, { hostless: { seal } });
+    expect(rt.host).toBeUndefined();
+    const r = await checkConnection(rt, "github", { deep: true, targets: ["environment:acme-docs/staging"] }, NOW);
+    expect(byId(r)).toMatchObject({ "write-secret:environment:acme-docs/staging": "pass" });
+    expect(seal).toHaveBeenCalledWith(expect.any(String), "probe");
+    expect(calls.some((c) => c.method === "PUT")).toBe(true);
+  });
+
+  it("a runtime without a host and without a sealer fails the write probe without any request for it", async () => {
+    const { rt, calls } = await setup(ghUser, { hostless: {} });
+    const r = await checkConnection(rt, "github", { deep: true, targets: ["environment:acme-docs/staging"] }, NOW);
+    expect(byId(r)["write-secret:environment:acme-docs/staging"]).toBe("fail");
+    // The variable probe has nothing to seal and still runs; nothing at all is requested for the secret probe.
+    // The read checks fetch public keys; the secret probe itself must not list, write or delete anything.
+    expect(calls.filter((c) => c.url.includes("/secrets") && !c.url.endsWith("/secrets/public-key"))).toEqual([]);
+    expect(calls.some((c) => c.url.includes("SD_WRITE_PROBE") && !c.url.includes("SD_WRITE_PROBE_VAR"))).toBe(false);
   });
 
   it("deep writes only to the chosen targets: PUT then DELETE, secret and variable", async () => {

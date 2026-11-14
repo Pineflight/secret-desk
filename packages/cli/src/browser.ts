@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
-  DEFAULT_PROFILE_DIR,
+  defaultProfileDir,
   PlaywrightDriver,
   RecipeRunError,
   dryRunRecipe,
@@ -103,7 +103,7 @@ async function doctor(args: string[], io: Io): Promise<number> {
       line(io, "fail", (err as Error).message);
     }
 
-    line(io, "ok", `Profilordner: ${values["profile-dir"] ?? DEFAULT_PROFILE_DIR} (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
+    line(io, "ok", `Profilordner: ${values["profile-dir"] ?? defaultProfileDir()} (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
   }
 
   const { recipes, errors } = await loadRecipesDetailed(dirs(values.recipes));

@@ -43,7 +43,7 @@ async function setup(handler: Handler, opts: { inventory?: string; tokens?: Reco
   await writeFile(join(dir, "inventory.yaml"), opts.inventory ?? INVENTORY);
   const auth = opts.app ? '{ type: app, appId: "1", privateKey: { type: session } }' : "{ type: pat, source: { type: session } }";
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: ${auth}\n${opts.teamSync ? "teamSync:\n  repo: acme/team-config\n" : ""}`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: {} as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, host: { label: "test" }, fetch: fetchMock, bundledRecipes: null });
   for (const [id, tok] of Object.entries({ github: TOKEN, ...(opts.tokens ?? {}) })) rt.connections.session.set(id, tok, null);
   return rt;
 }
