@@ -11,7 +11,10 @@ import { describe, expect, it } from "vitest";
 // reads text, so it cannot see a name built at run time, a regular expression literal that looks like a comment opener, or what
 // a called function does. A determined caller defeats it; the behavioural test is what shows that nothing is reached.
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-const HOST_MODULES = ["host.ts"];
+// `host-core.ts` is the interface of the host without any Node API: it names host members (`findChrome`, `gitCheckIgnored`) that the
+// scanner would flag, although a name in a type declaration reaches nothing. `portable-modules.test.ts` guards that file instead
+// (no Node built-in, no `process`, no `Buffer`), as part of the portable entry.
+const HOST_MODULES = ["host.ts", "host-core.ts"];
 
 async function sourceFiles(dir = SRC): Promise<string[]> {
   const out: string[] = [];
