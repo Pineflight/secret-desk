@@ -8,7 +8,9 @@ import {
   ProviderRegistry,
   SecretValue,
   addUnrevokedNotices,
+  MemoryEvidenceStore,
   buildEnvFile,
+  checkEnvTarget,
   commitIssuance,
   entryHoldingId,
   forgetRunValues,
@@ -24,6 +26,8 @@ import type { EnvTemplate, Provider } from "../src/index.js";
 // rotates in place hands back the identifier the entry already has, so "the new value" and "the old value" are one object there.
 
 const LONG = "made-up-long-value-0123456789";
+const IN_PLACE_LOST = (list: string): string =>
+  `Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert ging mit dem fehlgeschlagenen Export verloren und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${list}.`;
 
 /** Rotates in place: the new value keeps the identifier of the entry. A new object otherwise. */
 const issuer = (mode: "in-place" | "new-id", over: Partial<Provider> = {}) => {
@@ -61,9 +65,34 @@ envTemplates:
     const err = await buildEnvFile(w.template, w.deps).catch((e: Error) => e);
     expect((err as Error).message).toContain("later entry failed");
     expect(w.revoke).not.toHaveBeenCalled();
-    expect((err as Error).message).toContain("Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle ist");
-    expect((err as Error).message).toContain("dev-token (same-id)");
-    expect((err as Error).message).not.toContain("von Hand entfernen");
+    // The exact text: the provider already replaced the value, the new one is lost, nothing to revoke, rotate again.
+    expect((err as Error).message).toBe(`later entry failed\n${IN_PLACE_LOST("dev-token (same-id)")}`);
+  });
+
+  it("the same text when the provider has no revoke at all (a password reset in place): no advice to revoke by hand", async () => {
+    const w = world("in-place");
+    const noRevoke = issuer("in-place", { revoke: undefined });
+    const outcomes = await revokeIssuedTokens([{ secretId: "dev-token", provider: "acme", externalId: "same-id" }], { ...w.deps, providers: new ProviderRegistry().register(noRevoke.provider) });
+    expect(outcomes).toEqual([{ secretId: "dev-token", externalId: "same-id", result: "value-in-use", inPlace: true }]);
+    expect(unrevokedNotices(outcomes)).toEqual([IN_PLACE_LOST("dev-token (same-id)")]);
+    const none = await revokeIssuedTokens([{ secretId: "dev-token", externalId: "same-id" }], { ...w.deps, providers: new ProviderRegistry() });
+    expect(unrevokedNotices(none)).toEqual([IN_PLACE_LOST("dev-token (same-id)")]);
+  });
+
+  it("with the file write started the in-place text says the new value is at most in that file", async () => {
+    const w = world("in-place");
+    const outcomes = await revokeIssuedTokens([{ secretId: "dev-token", externalId: "same-id" }], w.deps, { writeStarted: true });
+    expect(unrevokedNotices(outcomes)).toEqual([
+      "Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert steht hoechstens in der Datei, deren Schreiben begonnen hatte, und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: dev-token (same-id).",
+    ]);
+  });
+
+  it("a third entry that records the identifier as current is seen by the gate, named or not", async () => {
+    const w = world("new-id", ", externalId: new-id");
+    const outcomes = await revokeIssuedTokens([{ secretId: "dev-token", provider: "acme", externalId: "new-id" }], w.deps);
+    expect(outcomes[0]).toEqual({ secretId: "dev-token", externalId: "new-id", result: "value-in-use" });
+    expect(w.revoke).not.toHaveBeenCalled();
+    expect(unrevokedNotices(outcomes)).toEqual(["Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle eines Eintrags ist und der Token in Gebrauch ist (nicht loeschen): dev-token (new-id)."]);
   });
 
   it("a later entry failing still deletes a token that has a new identifier", async () => {
@@ -96,7 +125,7 @@ envTemplates:
   it("after the file write started nothing is revoked, and the notice says the token stays valid", async () => {
     const w = world("new-id");
     const outcomes = await revokeIssuedTokens([{ secretId: "dev-token", provider: "acme", externalId: "new-id" }], w.deps, { writeStarted: true });
-    expect(outcomes).toEqual([{ secretId: "dev-token", externalId: "new-id", result: "write-started" }]);
+    expect(outcomes).toEqual([{ secretId: "dev-token", externalId: "new-id", result: "write-started", writeStarted: true }]);
     expect(w.revoke).not.toHaveBeenCalled();
     expect(unrevokedNotices(outcomes)).toEqual([expect.stringContaining("das Schreiben der Datei begonnen hatte")]);
   });
@@ -112,8 +141,8 @@ envTemplates:
     addUnrevokedNotices(err, outcomes);
     expect(err.message.split("\n")).toEqual([
       "export failed",
+      IN_PLACE_LOST("dev-token (same-id)"),
       "Nicht widerrufen (beim Anbieter von Hand entfernen): gone (ohne Kennung), dev-other (e2).",
-      expect.stringContaining("dev-token (same-id)"),
     ]);
     expect(unrevokedNotices([])).toEqual([]);
     const notAnError = "plain";
@@ -133,6 +162,40 @@ envTemplates:
     const values = new Map([["tpl:A", "x"], ["tpl2:A", "y"]]);
     forgetRunValues(values, "tpl");
     expect([...values.keys()]).toEqual(["tpl2:A"]);
+  });
+
+  it("forgetRunValues matches the template id exactly, also when ids contain a colon or are a prefix of another", () => {
+    const values = new Map([["a:KEY", "1"], ["a:", ""], ["a:b:KEY", "2"], ["a:b:", ""], ["ab:KEY", "3"]]);
+    forgetRunValues(values, "a");
+    expect([...values.keys()]).toEqual(["a:b:KEY", "a:b:", "ab:KEY"]);
+  });
+});
+
+describe("checkEnvTarget: every check that needs no value", () => {
+  const tmp = () => mkdtemp(join(tmpdir(), "sd-revoke-gate-"));
+
+  it("refuses an existing file without overwrite, a folder at the path, a path outside the roots and a file in the folder chain", async () => {
+    const dir = await tmp();
+    await writeFile(join(dir, ".env.a"), "X=1\n");
+    await mkdir(join(dir, "folder"));
+    await writeFile(join(dir, "blocker"), "a file, not a folder");
+    await expect(checkEnvTarget(join(dir, ".env.a"))).rejects.toThrow(`Datei existiert schon: ${join(dir, ".env.a")}`);
+    await expect(checkEnvTarget(join(dir, "folder"), { overwrite: true })).rejects.toThrow(`Der Pfad ist ein Ordner, keine Datei: ${join(dir, "folder")}`);
+    await expect(checkEnvTarget(join(dir, ".env.b"), { allowedRoots: [join(dir, "elsewhere")] })).rejects.toThrow("Pfad liegt ausserhalb der erlaubten Ordner");
+    await expect(checkEnvTarget(join(dir, "blocker", "sub", ".env"))).rejects.toThrow(`Ein Teil des Pfades ist kein Ordner: ${join(dir, "blocker")}`);
+  });
+
+  it("accepts an existing file with overwrite and a path whose folders do not exist yet, and returns the resolved path", async () => {
+    const dir = await tmp();
+    await writeFile(join(dir, ".env.a"), "X=1\n");
+    expect(await checkEnvTarget(join(dir, ".env.a"), { overwrite: true, allowedRoots: [dir] })).toBe(join(dir, ".env.a"));
+    expect(await checkEnvTarget(join(dir, "new", "deeper", ".env"), { allowedRoots: [dir] })).toBe(join(dir, "new", "deeper", ".env"));
+  });
+
+  it("writeEnvFile repeats the checks (the file system can change after the first check)", async () => {
+    const dir = await tmp();
+    await mkdir(join(dir, "folder"));
+    await expect(writeEnvFile(join(dir, "folder"), "X=1\n", { overwrite: true })).rejects.toThrow("Der Pfad ist ein Ordner");
   });
 });
 
@@ -215,7 +278,7 @@ secrets:
     expect(w.revoke).not.toHaveBeenCalled();
     expect(r.newTokenRevoked).toBeUndefined();
     expect(r.orphanExternalId).toBeUndefined();
-    expect(r.warnings).toEqual([expect.stringContaining("unter derselben Kennung (same-id) rotiert")]);
+    expect(r.warnings).toEqual(["Der Anbieter hat den Wert unter derselben Kennung (same-id) ersetzt (Rotation an Ort und Stelle), aber kein Ziel hat den neuen Wert bestaetigt und er wird nicht zurueckgegeben: diese Ziele halten hoechstens noch den alten Wert, der nicht mehr gilt: web/repo, api/repo. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben."]);
   });
 
   it("all writes failed, new identifier: a write that reported failure may have landed, so the token is not deleted", async () => {
@@ -253,6 +316,35 @@ secrets:
     expect(r.orphanExternalId).toBeUndefined();
   });
 
+  it("a new token that stays valid is noted in the evidence report with its identifier (never the value), and a failing store changes nothing", async () => {
+    const evidence = new MemoryEvidenceStore();
+    const w = world("new-id");
+    const r = await rotateSecret("s1", { ...w.deps, evidence });
+    expect(r.orphanExternalId).toBe("new-id");
+    const [saved] = await evidence.list("s1");
+    expect(saved).toMatchObject({ secretId: "s1", externalId: "new-id", kind: "issued" });
+    expect(saved!.checks[0]).toMatchObject({ id: "rotation-new-token-valid", status: "warn", label: expect.stringContaining("new-id") });
+    expect(JSON.stringify(saved)).not.toContain(LONG);
+    const failing = world("new-id");
+    const broken = { ...failing.deps, evidence: { save: async () => Promise.reject(new Error("disk full")) } as never };
+    expect((await rotateSecret("s1", broken)).orphanExternalId).toBe("new-id");
+  });
+
+  it("no report for a rotation in place: nothing is left valid that is not already in the inventory", async () => {
+    const evidence = new MemoryEvidenceStore();
+    await rotateSecret("s1", { ...world("in-place").deps, evidence });
+    expect(await evidence.list("s1")).toEqual([]);
+  });
+
+  it("another entry records the new identifier: not deleted, named as in use", async () => {
+    const w = world("new-id");
+    w.inventory.patchSecret("s1", { externalId: "other" });
+    const holder = InventoryStore.fromText(`${YAML.replace("same-id", "other")}  - { id: s2, name: OTHER, stage: staging, service: x, provider: manual, expiry: none, externalId: new-id, places: [{ repo: api, scope: repository }] }\n`);
+    const r = await rotateSecret("s1", { ...w.deps, inventory: holder });
+    expect(w.revoke).not.toHaveBeenCalled();
+    expect(r.warnings).toEqual(["Der neue Token (Kennung new-id) wurde nicht widerrufen: seine Kennung ist die aktuelle eines anderen Eintrags im Inventar, der Token ist in Gebrauch."]);
+  });
+
   it("some writes failed, provider rotates in place: nothing to delete by hand, rewrite the failed places", async () => {
     let n = 0;
     const w = world("in-place", { putSecret: async () => (++n === 1 ? "updated" : Promise.reject(new Error("time-out"))) });
@@ -260,7 +352,7 @@ secrets:
     expect(r).toMatchObject({ ok: false, partial: true });
     expect(w.revoke).not.toHaveBeenCalled();
     expect(r.orphanExternalId).toBeUndefined();
-    expect(r.warnings).toEqual([expect.stringContaining("nicht beim Anbieter loeschen")]);
+    expect(r.warnings).toEqual(["Der Anbieter hat den Wert unter derselben Kennung (same-id) ersetzt (Rotation an Ort und Stelle) und der neue Wert ist nur in einem Teil der Ziele geschrieben: diese Ziele halten noch den alten Wert, der nicht mehr gilt: api/repo. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben."]);
   });
 });
 

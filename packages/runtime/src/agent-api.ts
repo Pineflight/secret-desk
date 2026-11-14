@@ -54,6 +54,7 @@ import {
   type EnvTemplate,
   revokeIssuedTokens,
   addUnrevokedNotices,
+  checkEnvTarget,
   forgetRunValues,
   commitIssuance,
   computeStatus,
@@ -1116,11 +1117,18 @@ export async function exportEnv(
         if (isPathInsideOrSame(await realpathLoose(root), realDir)) commandsAllowed = true;
       }
     }
+    // Every check of the target that needs no value runs before the first value is issued: a provider that rotates in place replaces
+    // the value at the provider when it issues, so an export that is bound to fail (file exists, path outside the roots, a folder at
+    // the path) must not issue at all. `writeEnvFile` repeats the checks (the file system can change in between).
+    const overwrite = actor.kind === "human" && (input.overwrite ?? false);
+    // Values of earlier templates of the run: only a human passes them on; an agent's map is never read or changed.
+    const runValues = actor.kind === "human" ? input.runValues : undefined;
+    await checkEnvTarget(target, { overwrite, allowedRoots: roots });
     const built = await buildEnvFile(template, {
       ...envDeps,
       ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}),
       ...(input.prompts ? { prompts: input.prompts } : {}),
-      ...(actor.kind === "human" && input.runValues ? { runValues: input.runValues } : {}),
+      ...(runValues ? { runValues } : {}),
       readTemplateFile,
       ...(commandsAllowed && host?.runCommand ? { runCommand: (command: EnvCommand) => host.runCommand!(command, commandDir) } : {}),
     });
@@ -1131,12 +1139,12 @@ export async function exportEnv(
     try {
       // Without the host's `gitCheckIgnored` no process is started: the answer is "cannot be checked" (null), which becomes a warning below.
       const checkIgnored = host?.gitCheckIgnored ? (path: string) => host.gitCheckIgnored!(path) : async () => null;
-      written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots, checkIgnored, onWriteStart: () => { writeStarted = true; } });
+      written = await writeEnvFile(target, built.text, { overwrite, allowedRoots: roots, checkIgnored, onWriteStart: () => { writeStarted = true; } });
     } catch (err) {
       // Datei nicht (vollstaendig) geschrieben: frisch ausgestellte Dev-Tokens nicht beim Anbieter verwaist lassen, aber nur ueber das Tor
       // (nie eine Kennung, die im Inventar noch gilt, nie nach Beginn des Schreibens), und was bleibt, steht in der Fehlermeldung.
       addUnrevokedNotices(err, await revokeIssuedTokens(built.issuedTokens, envDeps, { writeStarted }));
-      if (!writeStarted && actor.kind === "human") forgetRunValues(input.runValues, template.id);
+      if (!writeStarted) forgetRunValues(runValues, template.id);
       throw err;
     }
     const warnings: string[] = [];

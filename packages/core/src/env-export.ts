@@ -86,6 +86,13 @@ export interface IssuedTokenOutcome {
   secretId: string;
   externalId?: string;
   result: "revoked" | "failed" | RevokeRefusal;
+  /**
+   * The issued identifier is the entry's current one: the provider rotated in place, so it replaced the value at the provider when it
+   * issued. That cannot be undone and there is nothing to revoke, whatever the gate said.
+   */
+  inPlace?: true;
+  /** The file write had started when the outcome was made: the new value may be in the file. */
+  writeStarted?: true;
 }
 
 /**
@@ -107,23 +114,39 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
       },
       deps,
     );
-    out.push({ secretId: t.secretId, ...(t.externalId ? { externalId: t.externalId } : {}), result: outcome.status === "refused" ? outcome.reason : outcome.status });
+    // "In place" is read from the inventory: the identifier the provider returned is the one the entry records as current.
+    const inPlace = t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId;
+    out.push({
+      secretId: t.secretId,
+      ...(t.externalId ? { externalId: t.externalId } : {}),
+      result: outcome.status === "refused" ? outcome.reason : outcome.status,
+      ...(inPlace ? { inPlace: true as const } : {}),
+      ...(options.writeStarted === true ? { writeStarted: true as const } : {}),
+    });
   }
   return out;
 }
 
 /**
  * The sentences a failed export owes the person for values that are still valid at the provider (none when all were deleted).
- * Three kinds: to delete by hand (the provider failed or cannot delete), in use (do not delete), and written (the file may hold them).
+ * Four kinds. In place (the issued identifier is the entry's current one): the provider replaced the value when it issued, the new
+ * value was lost with the export, every place still holds the old value, which no longer works; nothing can or may be revoked, the
+ * secret must be rotated again. Then: to delete by hand (the provider failed or cannot delete), in use by another entry (do not
+ * delete), and written (the file may hold the value).
  */
 export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): string[] {
   const list = (pick: (o: IssuedTokenOutcome) => boolean): string => outcomes.filter(pick).map((o) => `${o.secretId} (${o.externalId ?? "ohne Kennung"})`).join(", ");
-  const inUse = list((o) => o.result === "value-in-use");
-  const written = list((o) => o.result === "write-started");
-  const byHand = list((o) => o.result !== "revoked" && o.result !== "value-in-use" && o.result !== "write-started");
+  const rest = (o: IssuedTokenOutcome): boolean => o.inPlace !== true && o.result !== "revoked";
+  const inPlaceLost = list((o) => o.inPlace === true && o.writeStarted !== true);
+  const inPlaceWritten = list((o) => o.inPlace === true && o.writeStarted === true);
+  const inUse = list((o) => rest(o) && o.result === "value-in-use");
+  const written = list((o) => rest(o) && o.result === "write-started");
+  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started");
   const notices: string[] = [];
+  if (inPlaceLost) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert ging mit dem fehlgeschlagenen Export verloren und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceLost}.`);
+  if (inPlaceWritten) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert steht hoechstens in der Datei, deren Schreiben begonnen hatte, und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceWritten}.`);
   if (byHand) notices.push(`Nicht widerrufen (beim Anbieter von Hand entfernen): ${byHand}.`);
-  if (inUse) notices.push(`Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle ist und der Token in Gebrauch ist (nicht loeschen; wurde unter derselben Kennung rotiert, kann der bisherige Wert ungueltig sein): ${inUse}.`);
+  if (inUse) notices.push(`Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle eines Eintrags ist und der Token in Gebrauch ist (nicht loeschen): ${inUse}.`);
   if (written) notices.push(`Nicht widerrufen, weil das Schreiben der Datei begonnen hatte und sie den Wert enthalten kann: der Token bleibt beim Anbieter gueltig (von Hand entfernen, wenn die Datei nicht gebraucht wird): ${written}.`);
   return notices;
 }
@@ -135,7 +158,9 @@ export function addUnrevokedNotices(err: unknown, outcomes: readonly IssuedToken
 
 /** Forgets the values a template put into the values of the run: its export failed before a file was written, so nothing may read them. */
 export function forgetRunValues(runValues: Map<string, string> | undefined, templateId: string): void {
-  for (const key of [...(runValues?.keys() ?? [])]) if (key.startsWith(`${templateId}:`)) runValues!.delete(key);
+  // Keys are `<templateId>:<KEY>` and the marker `<templateId>:`; a KEY is an environment name and has no colon, so the template id
+  // is everything before the last one and must match exactly (a template `a` does not own the keys of a template `a:b`).
+  for (const key of [...(runValues?.keys() ?? [])]) if (key.slice(0, key.lastIndexOf(":")) === templateId) runValues!.delete(key);
 }
 
 export function generateValue(kind: "hex" | "base64" | "base64url" | "uuid", bytes: number): string {
@@ -467,6 +492,41 @@ export function gitCheckIgnored(path: string, env?: Record<string, string>): Pro
   });
 }
 
+/**
+ * Every check of the target that needs no value: the path is usable, lies inside the allowed roots, is not a folder, does not exist
+ * (unless `overwrite`), and the nearest existing folder above it is a folder. Returns the resolved path. `exportEnv` runs it BEFORE
+ * the first value is issued (a provider that rotates in place replaces the value at the provider when it issues, so an export that
+ * was bound to fail must not issue); `writeEnvFile` runs it again (defence in depth: the file system can change in between).
+ */
+export async function checkEnvTarget(path: string, options: { overwrite?: boolean; allowedRoots?: string[] } = {}): Promise<string> {
+  const problem = localPathProblem(path);
+  if (problem) throw new EnvExportError(problem);
+  const target = resolve(path);
+  if (options.allowedRoots && options.allowedRoots.length > 0) {
+    // Symlinks und die Schreibweise auf der Platte aufloesen, dann vergleichen (Windows: ohne Gross-/Kleinschreibung).
+    const realTarget = await realpathLoose(target);
+    let ok = false;
+    for (const root of options.allowedRoots) {
+      const realRoot = await realpathLoose(root);
+      if (isPathInsideOrSame(realRoot, realTarget)) ok = true;
+    }
+    if (!ok) throw new EnvExportError(`Pfad liegt ausserhalb der erlaubten Ordner: ${target}`);
+  }
+  const info = await stat(target).catch(() => null);
+  if (info?.isDirectory()) throw new EnvExportError(`Der Pfad ist ein Ordner, keine Datei: ${target}`);
+  if (info && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
+  // The nearest folder that exists must be a folder, or the folder for the file cannot be made.
+  let up = dirname(target);
+  let parent = await stat(up).catch(() => null);
+  // The file system root always exists, so this ends.
+  while (!parent) {
+    up = dirname(up);
+    parent = await stat(up).catch(() => null);
+  }
+  if (!parent.isDirectory()) throw new EnvExportError(`Ein Teil des Pfades ist kein Ordner: ${up}`);
+  return target;
+}
+
 /** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
 export async function writeEnvFile(
   path: string,
@@ -484,21 +544,7 @@ export async function writeEnvFile(
     onWriteStart?: () => void;
   } = {},
 ): Promise<WriteEnvResult> {
-  const problem = localPathProblem(path);
-  if (problem) throw new EnvExportError(problem);
-  const target = resolve(path);
-  if (options.allowedRoots && options.allowedRoots.length > 0) {
-    // Symlinks und die Schreibweise auf der Platte aufloesen, dann vergleichen (Windows: ohne Gross-/Kleinschreibung).
-    const realTarget = await realpathLoose(target);
-    let ok = false;
-    for (const root of options.allowedRoots) {
-      const realRoot = await realpathLoose(root);
-      if (isPathInsideOrSame(realRoot, realTarget)) ok = true;
-    }
-    if (!ok) throw new EnvExportError(`Pfad liegt ausserhalb der erlaubten Ordner: ${target}`);
-  }
-  const exists = await stat(target).then(() => true, () => false);
-  if (exists && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
+  const target = await checkEnvTarget(path, options);
   await mkdir(dirname(target), { recursive: true });
   options.onWriteStart?.();
   await writePrivateFile(target, text);

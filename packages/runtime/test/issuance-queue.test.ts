@@ -41,7 +41,8 @@ const clock = (iso: string) => {
 /** What the sweep and the explicit revoke work with: the inventory holds `secret` (default: the entry as issued), the provider's delete is `revoke`. */
 const depsOf = (o: { revoke?: () => Promise<void>; secret?: SecretEntry | null; evidence?: MemoryEvidenceStore } = {}) =>
   ({
-    inventory: { data: {}, getSecret: (id: string) => (id === "s" && o.secret !== null ? (o.secret ?? entry()) : undefined) },
+    // The gate reads every secret entry (`data.secrets`) as well as the one it was asked about (`getSecret`).
+    inventory: { data: { secrets: o.secret === null ? [] : [o.secret ?? entry()] }, getSecret: (id: string) => (id === "s" && o.secret !== null ? (o.secret ?? entry()) : undefined) },
     providers: { get: () => (o.revoke ? { revoke: o.revoke } : undefined) },
     connections: {},
     owner: "o",

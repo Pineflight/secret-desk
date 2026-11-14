@@ -570,8 +570,9 @@ export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps,
   const id = target.externalId;
   if (!id) return { status: "refused", reason: "no-id" };
   const current = deps.inventory.getSecret(target.secretId);
-  const live = [current?.externalId, ...(target.companionIds ?? []).map((entry) => deps.inventory.getSecret(entry)?.externalId)];
-  if (live.includes(id)) return { status: "refused", reason: "value-in-use" };
+  // Any secret entry that records the identifier as its current one holds the value, named by the target or not (companions copy
+  // identifiers). Compared as strings over all secret entries, without the provider.
+  if (entryHoldingId(deps.inventory, id, []) !== undefined) return { status: "refused", reason: "value-in-use" };
   const started = target.writeStarted === true || (target.pending !== undefined && writeStarted.has(target.pending));
   if (started && !options.acknowledgeWritten) return { status: "refused", reason: "write-started" };
   if (!target.issuedSecret) {

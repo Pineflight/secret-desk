@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -554,9 +555,15 @@ describe("env files", () => {
     } as Provider);
     const folder = join(projects, "issue");
     await mkdir(folder);
-    await writeFile(join(folder, ".env.local"), "EXISTING=1\n");
     await writeFile(join(dir, "links.json"), JSON.stringify({ version: 1, links: { "acme-issue": folder } }));
-    await expect(exportEnv(rt, human, { repo: "acme-issue" })).rejects.toThrow(/Nicht widerrufen \(beim Anbieter von Hand entfernen\): dev-issued \(ext-1\)/);
+    // The file is created between the check of the target and the write (an existing file is otherwise found before anything is issued).
+    const runValues = new (class extends Map<string, string> {
+      override set(key: string, value: string): this {
+        writeFileSync(join(folder, ".env.local"), "EXISTING=1\n");
+        return super.set(key, value);
+      }
+    })();
+    await expect(exportEnv(rt, human, { repo: "acme-issue", runValues })).rejects.toThrow(/Nicht widerrufen \(beim Anbieter von Hand entfernen\): dev-issued \(ext-1\)/);
   });
 
   it("prompts, run values and local commands are only passed on for humans", async () => {

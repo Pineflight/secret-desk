@@ -122,7 +122,7 @@ describe("rotateSecret", () => {
     });
     it("without an id the hint stays general", async () => {
       const result = await rotateSecret("s1", setup({ putSecret: partial, provider: { issue: async () => ({ value: new SecretValue("v") }) } }).deps);
-      expect(result.warnings).toEqual(["Der neue Token ist nur in einem Teil der Ziele geschrieben: Ziele erneut schreiben oder ihn beim Anbieter von Hand widerrufen."]);
+      expect(result.warnings).toEqual(["Der neue Token ist nur in einem Teil der Ziele geschrieben: die anderen Ziele (api/repo) halten noch den alten Wert, der gueltig bleibt. Das Secret erneut rotieren."]);
     });
   });
 });
