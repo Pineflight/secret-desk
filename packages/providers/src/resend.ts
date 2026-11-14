@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type VerifyContext } from "@secret-desk/core";
+import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type VerifyContext } from "@secret-desk/core/portable";
 import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, isRecord, probeWithConnection, step } from "./checks.js";
 import { badResponse, callWithToken, JSON_HEADERS, optionalString, ProviderError, revokeIdempotent, seg } from "./http.js";

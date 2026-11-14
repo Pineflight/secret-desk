@@ -1,4 +1,4 @@
-import { contextKind, type Check, type Provider, type ProviderGuide, type SecretEntry, type StageKind, type VerifyContext } from "@secret-desk/core";
+import { contextKind, type Check, type Provider, type ProviderGuide, type SecretEntry, type StageKind, type VerifyContext } from "@secret-desk/core/portable";
 import { check, day, isRecord, probeWithValue, step } from "./checks.js";
 
 type Extras = Pick<Provider, "verify" | "reviewChecklist">;

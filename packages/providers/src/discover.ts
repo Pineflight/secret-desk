@@ -1,4 +1,4 @@
-import { ParamsInvalidError, UnknownDiscoverKindError, type DiscoverContext, type ParamProblem, type ParamSpec, type PreflightFinding } from "@secret-desk/core";
+import { ParamsInvalidError, UnknownDiscoverKindError, type DiscoverContext, type ParamProblem, type ParamSpec, type PreflightFinding } from "@secret-desk/core/portable";
 import { isRecord } from "./checks.js";
 import { callWithToken, ProviderError } from "./http.js";
 

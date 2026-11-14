@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext, type PreflightContext, type PreflightResult } from "@secret-desk/core";
+import { SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext, type PreflightContext, type PreflightResult } from "@secret-desk/core/portable";
 import { check } from "./checks.js";
 import { ACCOUNT_SCOPE, CLOUDFLARE_ACCOUNT_ID_SPEC, CLOUDFLARE_API, discoverCloudflare, preflightCloudflare } from "./cloudflare.js";
 import { badResponse, callJson, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg, type CallContext } from "./http.js";

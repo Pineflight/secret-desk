@@ -6,7 +6,7 @@ import {
   stripeConnectionId,
   stripeModeForStage,
   type Check,
-  type ConnectionStore,
+  type ConnectionStoreCore,
   type DiscoverContext,
   type DiscoveredOption,
   type ParamSpec,
@@ -15,7 +15,7 @@ import {
   type Provider,
   type StageKind,
   stripeKeyCarriesAccount,
-} from "@secret-desk/core";
+} from "@secret-desk/core/portable";
 import { check, isRecord, probeWithConnection, sameSet, step, strings } from "./checks.js";
 import { unknownKind } from "./discover.js";
 import { badResponse, callWithToken, optionalString, ProviderError, requireString, requireStringArray, seg, type CallContext } from "./http.js";
@@ -66,7 +66,7 @@ function accountOf(params: Record<string, unknown>): string | undefined {
  * der Stage (live -> live, test und dev -> sandbox); sonst nach Art der Stage die getrennte Verbindung (test -> stripe-test,
  * live -> stripe-live), falls verbunden, sonst die allgemeine Verbindung `stripe`.
  */
-async function connectionOf(ctx: { params: Record<string, unknown>; connections: ConnectionStore }, kind: StageKind): Promise<string> {
+async function connectionOf(ctx: { params: Record<string, unknown>; connections: ConnectionStoreCore }, kind: StageKind): Promise<string> {
   const explicit = optionalString(ID, ctx.params, "connection");
   if (explicit) return explicit;
   const account = accountOf(ctx.params);
