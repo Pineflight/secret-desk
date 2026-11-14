@@ -643,10 +643,7 @@ async function keepOrDiscard(rt: RuntimeCore, pending: PendingIssuance): Promise
     rt.issuances.add(pending);
   } catch (err) {
     if (pending.report.kind === "issued") await rt.issuances.discardUnkept(pending, issuanceDeps(rt));
-    else {
-      pending.value = new SecretValue("");
-      for (const c of pending.companions) c.value = new SecretValue("");
-    }
+    else pending.value = new SecretValue(""); // a manual value has no companions
     throw err;
   }
 }
