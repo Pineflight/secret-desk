@@ -181,10 +181,10 @@ describe("facade and recipe routes", () => {
     expect((await call(deps, "POST", "recipes/nope/sign-in/confirm", {})).json["error"]).toMatch(/Unknown recipe/);
     expect((await call(deps, "POST", "recipes/nope/check", { host: "h" })).status).toBe(400);
   });
-  it("answers an unknown review confirmation with a refusal", async () => {
+  it("answers an unknown review confirmation as gone (404), not as a refusal", async () => {
     const { deps } = await routerFixture();
-    expect((await call(deps, "POST", "reviews/x/confirm", { ticks: ["a"], note: "n", force: true })).status).toBe(403);
-    expect((await call(deps, "POST", "reviews/x/confirm", {})).status).toBe(403);
+    expect((await call(deps, "POST", "reviews/x/confirm", { ticks: ["a"], note: "n", force: true })).status).toBe(404);
+    expect((await call(deps, "POST", "reviews/x/confirm", {})).status).toBe(404);
   });
 });
 

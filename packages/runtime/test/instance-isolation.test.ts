@@ -198,7 +198,15 @@ describe("a wait cannot be satisfied after its deadline, whether or not a sweep 
     const timeoutAt = Date.parse(facade(rt).timeoutAt!);
     expect(await rt.sweep()).toEqual(new Date(timeoutAt));
     expect(rt.instance.codeWaiters.size).toBe(1);
+    // With reviews too, the earliest of everything that waits is reported.
+    rt.issuances.add(review("early", timeoutAt - 60_000));
+    rt.issuances.add(review("late", timeoutAt + 60_000));
+    expect(await rt.sweep()).toEqual(new Date(timeoutAt - 60_000));
+    t = timeoutAt - 30_000;
+    expect(await rt.sweep()).toEqual(new Date(timeoutAt));
     t = timeoutAt + 1;
+    expect(await rt.sweep()).toEqual(new Date(timeoutAt + 60_000));
+    t = timeoutAt + 60_000;
     expect(await rt.sweep()).toBeNull();
     expect(rt.instance.codeWaiters.size).toBe(0);
     await until(() => finished(rt));

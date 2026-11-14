@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeDriver } from "@secret-desk/automation";
-import { ensureConfigFile } from "@secret-desk/core";
+import { ensureConfigFile, type PendingIssuance } from "@secret-desk/core";
 import sodium from "libsodium-wrappers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -178,20 +178,22 @@ async function sweepWorld() {
   return { rt, calls };
 }
 
-/** One review that has expired already. */
-async function expiredReview(rt: Runtime): Promise<string> {
+/** One review that has expired already: the object is returned because the queue no longer hands out an expired item. */
+async function expiredReview(rt: Runtime, prepare: (pending: PendingIssuance) => void = () => undefined): Promise<{ id: string; pending: PendingIssuance }> {
   const r = await requestIssuance(rt, human, "hmac-acme-app");
   if (r.status !== "awaiting-review") throw new Error("expected a review");
-  (rt.issuances.get(r.issuance.id) as { expiresAt: string }).expiresAt = new Date(Date.now() - 1000).toISOString();
-  return r.issuance.id;
+  const pending = rt.issuances.get(r.issuance.id)!;
+  prepare(pending);
+  pending.expiresAt = new Date(Date.now() - 1000).toISOString();
+  return { id: r.issuance.id, pending };
 }
 
 describe("the expiry sweep is clean-up and no hook can refuse it", () => {
   /** An expired review whose new value exists at the provider, with a provider whose revoke is counted. */
   async function expiredWithRevoke(rt: Runtime) {
-    const id = await expiredReview(rt);
-    const pending = rt.issuances.get(id)!;
-    pending.report.externalId = "external-new-1";
+    const { id, pending } = await expiredReview(rt, (p) => {
+      p.report.externalId = "external-new-1";
+    });
     const revoke = vi.fn(async () => undefined);
     (rt.providers.get("random-hex") as { revoke?: unknown }).revoke = revoke;
     return { id, pending, revoke };
@@ -211,7 +213,12 @@ describe("the expiry sweep is clean-up and no hook can refuse it", () => {
       const asked = vi.fn(hook);
       rt.authorize = asked;
       const faults = collectFaults(rt);
-      expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([id]);
+      // The sweep hook of the runtime is the same clean-up and is not asked either.
+      expect(await rt.sweep()).toBeNull();
+      expect(rt.issuances.get(id)).toBeUndefined();
+      expect(revoke).toHaveBeenCalledTimes(1);
+      expect(pending.value.reveal()).toBe("");
+      expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([]);
       expect(rt.issuances.get(id)).toBeUndefined();
       expect(rt.issuances.list()).toEqual([]);
       expect(revoke).toHaveBeenCalledTimes(1);
