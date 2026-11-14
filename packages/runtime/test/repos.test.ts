@@ -114,7 +114,8 @@ describe("linking", () => {
     process.env["USERPROFILE"] = process.env["HOME"];
     try {
       await expect(setLink(rt, "acme-app", foreign)).rejects.toThrow("ausserhalb");
-      await expect(setLink(rt, "acme-app", "/etc")).rejects.toThrow("ausserhalb");
+      // A folder that exists on every system and lies outside the made-up home (`/etc` does not exist on Windows).
+      await expect(setLink(rt, "acme-app", process.platform === "win32" ? (process.env["SystemRoot"] ?? "C:\\Windows") : "/etc")).rejects.toThrow("ausserhalb");
     } finally {
       for (const [k, v] of Object.entries(savedHome)) {
         if (v === undefined) delete process.env[k];

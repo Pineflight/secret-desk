@@ -72,7 +72,8 @@ describe("getSettings", () => {
     expect(s.vault.enabled).toBe(true);
     // The label shows the path in the style of the platform (`~\sd-test\...` on Windows).
     expect(s.vault.file).toBe(join("~", "sd-test", "vault.json"));
-    expect(s.vault.keySourceLabel).toContain(join("~", "sd-test", "vault.key"));
+    // On Windows the key lives in DPAPI and the label names that, not a key file.
+    if (process.platform !== "win32") expect(s.vault.keySourceLabel).toContain(join("~", "sd-test", "vault.key"));
   });
   it("contains neither token values nor variable names of the sources", async () => {
     const { rt } = await setup("connections:\n  cloudflare: { type: env, name: CF_GEHEIM_NAME }\n");
