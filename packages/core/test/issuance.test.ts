@@ -7,7 +7,7 @@ import { ConnectionStore } from "../src/connections.js";
 import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
-import { commitIssuance, discardIssuance, prepareIssuance, revokeIssuedValue, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
+import { commitIssuance, discardIssuance, issuanceStateOf, prepareIssuance, revokeIssuedValue, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
 import { ProviderRegistry, type Provider } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
 import { renderEvidenceSvg } from "../src/verification.js";
@@ -103,6 +103,110 @@ describe("stage 2: commitIssuance", () => {
     expect(r.places.length).toBeGreaterThan(0);
     for (const place of r.places) expect(place).toMatchObject({ outcome: "failed", error: expect.stringMatching(/Abgebrochen/) });
     expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    // Nothing was written, so nothing is in use: the item stays open and may be discarded.
+    expect(issuanceStateOf(p)).toBe("open");
+  });
+  it("checks the hard bound against the clock before each write, with no signal and no sweep in between", async () => {
+    const { deps, writes } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const r = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }, { hardBound: new Date("2026-11-01T10:00:00Z").getTime() });
+    expect(r.ok).toBe(false);
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    const ok = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }, { hardBound: new Date("2026-11-01T10:00:01Z").getTime() });
+    expect(ok.ok).toBe(true);
+  });
+  it("the hard bound is read from the system clock when no clock is injected", async () => {
+    const { deps } = await setup();
+    const { now: _clock, ...noClock } = deps;
+    const p = await prepareIssuance("cf-deploy-acme-app", noClock);
+    const r = await commitIssuance(p, noClock, { by: "alice", ticks: ["c1", "c2"] }, { hardBound: Date.now() + 3_600_000 });
+    expect(r.ok).toBe(true);
+  });
+  it("states: committing while a commit writes, committed after, discarded after a discard", async () => {
+    const { deps } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const seen: string[] = [];
+    const real = deps.github.putSecret.bind(deps.github);
+    const github = Object.assign(Object.create(deps.github) as typeof deps.github, {
+      putSecret: async (...args: Parameters<typeof real>) => {
+        seen.push(issuanceStateOf(p));
+        return real(...args);
+      },
+    });
+    await commitIssuance(p, { ...deps, github }, { by: "alice", ticks: ["c1", "c2"] });
+    expect(seen).toEqual(["committing", "committing"]);
+    expect(issuanceStateOf(p)).toBe("committed");
+    const q = await prepareIssuance("cf-deploy-acme-app", deps);
+    await discardIssuance(q, deps, { by: "system", why: "expired" });
+    expect(issuanceStateOf(q)).toBe("discarded");
+  });
+  it("a commit that stopped after writing some places is partial: the new value is in use, a note names the places, and it is no longer open", async () => {
+    const { deps, writes, evidence } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const stop = new AbortController();
+    const real = deps.github.putSecret.bind(deps.github);
+    const github = Object.assign(Object.create(deps.github) as typeof deps.github, {
+      putSecret: async (...args: Parameters<typeof real>) => {
+        const out = await real(...args);
+        stop.abort();
+        return out;
+      },
+    });
+    const r = await commitIssuance(p, { ...deps, github }, { by: "alice", ticks: ["c1", "c2"] }, { signal: stop.signal });
+    expect(r.ok).toBe(false);
+    expect(r.partial).toBe(true);
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(1);
+    expect(issuanceStateOf(p)).toBe("partial");
+    const note = p.report.checks.find((c) => c.id === "partial-write")!;
+    expect(note.label).toContain("acme-app");
+    expect((await evidence.list("cf-deploy-acme-app")).some((rep) => rep.checks.some((c) => c.id === "partial-write"))).toBe(true);
+    // A person can still reject it (that revokes), and a second confirm that works makes it committed.
+    const again = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] });
+    expect(again.ok).toBe(true);
+    expect(issuanceStateOf(p)).toBe("committed");
+  });
+  it("a partial commit is reported as partial even when the note cannot be saved", async () => {
+    const { deps } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const stop = new AbortController();
+    const real = deps.github.putSecret.bind(deps.github);
+    const github = Object.assign(Object.create(deps.github) as typeof deps.github, {
+      putSecret: async (...args: Parameters<typeof real>) => {
+        const out = await real(...args);
+        stop.abort();
+        return out;
+      },
+    });
+    const evidence = {
+      ...deps.evidence,
+      save: async () => {
+        throw new Error("disk full");
+      },
+    } as never;
+    const r = await commitIssuance(p, { ...deps, github, evidence }, { by: "alice", ticks: ["c1", "c2"] }, { signal: stop.signal });
+    expect(r.partial).toBe(true);
+    expect(issuanceStateOf(p)).toBe("partial");
+  });
+  it("a report that cannot be saved after the places were written is a warning: the item counts as committed and cannot be revoked", async () => {
+    const { deps, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    expect(issuanceStateOf(p)).toBe("open");
+    const failing = {
+      ...deps,
+      evidence: {
+        ...deps.evidence,
+        save: async () => {
+          throw new Error("disk full");
+        },
+      } as never,
+    };
+    const r = await commitIssuance(p, failing, { by: "alice", ticks: ["c1", "c2"] });
+    expect(r.ok).toBe(true);
+    expect(r.warnings?.join(" ")).toMatch(/Pruefbericht/);
+    expect(issuanceStateOf(p)).toBe("committed");
+    revoke.mockClear();
+    await expect(discardIssuance(p, deps, { by: "system", why: "expired" })).rejects.toThrow(IssuanceError);
+    expect(revoke).not.toHaveBeenCalled();
   });
 });
 

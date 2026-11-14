@@ -9,7 +9,7 @@ import { cancelFacade, getFacadeState, startFacadeSignIn, submitFacadeCode, subm
 import { WAIT_WINDOWS_MS } from "../src/instance-state.js";
 import { MemoryPendingStore, type PendingRecord, type PendingStore } from "../src/issuances.js";
 import { isLiveCheckRunning } from "../src/live-check.js";
-import { createRuntime, type Runtime, type RuntimeOptions } from "../src/runtime.js";
+import { createRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "../src/runtime.js";
 import { startTeamToken, submitTeamTokenCode, submitTeamTokenCredentials } from "../src/team-token.js";
 
 // Two runtimes in one process must share nothing: a code typed for one is never taken by the other, and a wait that ran out
@@ -280,8 +280,8 @@ function review(id: string, expiresAtMs: number, externalId?: string): PendingIs
     expiresAt: new Date(expiresAtMs).toISOString(),
     value: new SecretValue("made-up-issued-value-1"),
     companions: [],
-    report: { id, secretName: "SOME_NAME", stage: "shared", provider: "manual", kind: "manual", checks: [], checklist: [], externalId },
-    issuedSecret: { id: "s" },
+    report: { id, secretId: "s", secretName: "SOME_NAME", stage: "shared", provider: "random-hex", kind: "manual", checks: [], checklist: [], externalId },
+    issuedSecret: { id: "s", provider: "random-hex" },
   } as unknown as PendingIssuance;
 }
 
@@ -354,8 +354,10 @@ describe("the store of pending values is the embedder's to choose", () => {
     const puts: PendingRecord[] = [];
     const watching: PendingStore = { put: (r) => (puts.push(r), store.put(r)), get: (id) => store.get(id), list: () => store.list(), delete: (id) => store.delete(id) };
     const first = await setup({ pendingStore: watching, now });
-    first.issuances.add(review("kept", T0 + 60_000, "ext-new-1"));
-    expect(puts).toEqual([{ id: "kept", secretId: "s", createdAt: new Date(T0).toISOString(), expiresAt: new Date(T0 + 60_000).toISOString(), externalId: "ext-new-1" }]);
+    const kept = review("kept", T0 + 60_000, "ext-new-1");
+    (kept.issuedSecret as { provider: string }).provider = "orphan-test";
+    first.issuances.add(kept);
+    expect(puts).toEqual([{ id: "kept", secretId: "s", provider: "orphan-test", createdAt: new Date(T0).toISOString(), expiresAt: new Date(T0 + 60_000).toISOString(), externalId: "ext-new-1" }]);
     expect(JSON.stringify(store.list())).not.toContain("made-up-issued-value-1");
     expect((await getIssuance(first, "kept")).id).toBe("kept");
 
@@ -368,31 +370,68 @@ describe("the store of pending values is the embedder's to choose", () => {
     expect(gone).toBeInstanceOf(IssuanceGoneError);
     expect(gone).toMatchObject({ code: "issuance-gone", message: "Pruefung nicht gefunden oder abgelaufen: kept" });
     expect(await listIssuances(second)).toEqual([]);
-    // Owed until the deadline of the record, then the sweep deletes the new value at the provider and forgets the record.
-    expect(await second.sweep()).toEqual(new Date(T0 + 60_000));
-    expect(revoke).not.toHaveBeenCalled();
-    t = T0 + 60_000;
+    // The sweep only reports what it holds no review for: it revokes nothing, even long after the deadline.
+    t = T0 + 3_600_000;
     expect(await second.sweep()).toBeNull();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(second.issuances.orphans().map((r) => r.id)).toEqual(["kept"]);
+    // Revoking is an explicit call, and it refuses what it cannot be sure about.
+    expect(await second.issuances.revokeOrphan("kept", issuanceDeps(second))).toEqual({ status: "revoked" });
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "ext-new-1" }));
     expect(store.list()).toEqual([]);
   });
 
-  it("with a hook configured, an unknown review is answered like a refused one (no probing for ids); without one it is plainly gone", async () => {
-    const refuse = (): void => {
-      throw new Error("no");
-    };
-    const guarded = await setup({ now: () => new Date(T0), authorize: refuse });
-    guarded.issuances.add(review("known", T0 + 60_000));
-    for (const act of [(id: string) => confirmIssuance(guarded, human, id, { ticks: [] }), (id: string) => rejectIssuance(guarded, human, id)]) {
-      const known = await act("known").catch((e: unknown) => e as Error);
-      const unknown = await act("unknown").catch((e: unknown) => e as Error);
-      expect(unknown).not.toBeInstanceOf(IssuanceGoneError);
-      expect(unknown.message).toBe(known.message);
+  it("a confirm whose record removal was lost leaves a record that is harmless: the sweep revokes nothing and the explicit call refuses", async () => {
+    const store = new MemoryPendingStore();
+    const revoke = vi.fn(async () => undefined);
+    // The inventory holds the identifier of the value that was rolled out; the record named it too and was left behind.
+    const record = { id: "left", secretId: "s", provider: "orphan-test", createdAt: new Date(T0).toISOString(), expiresAt: new Date(T0 + 1000).toISOString(), externalId: "ext-live" };
+    store.put(record);
+    const later = await setup({ pendingStore: store, now: () => new Date(T0 + 3_600_000) });
+    later.providers.register({ id: "orphan-test", label: "T", kind: "automatic", issue: async () => ({ value: new SecretValue("unused-issued-value-1") }), revoke });
+    later.inventory.patchSecret("s", { externalId: "ext-live" });
+    later.inventory.data.secrets.find((s) => s.id === "s")!.provider = "orphan-test";
+    expect(await later.sweep()).toBeNull();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await later.issuances.revokeOrphan("left", issuanceDeps(later))).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(revoke).not.toHaveBeenCalled();
+    expect(store.list()).toEqual([]);
+  });
+
+  it("an unknown review is answered 'gone' without asking the hook (no audit entry or approval is spent on a guessed id); a known one is authorised", async () => {
+    const authorize = vi.fn((): void => undefined);
+    const rt = await setup({ now: () => new Date(T0), authorize });
+    await expect(confirmIssuance(rt, human, "unknown", { ticks: [] })).rejects.toBeInstanceOf(IssuanceGoneError);
+    await expect(rejectIssuance(rt, human, "unknown")).rejects.toBeInstanceOf(IssuanceGoneError);
+    expect(authorize).not.toHaveBeenCalled();
+    rt.issuances.add(review("known", T0 + 60_000));
+    await rejectIssuance(rt, human, "known");
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "issuance.reject" }));
+  });
+
+  it("RuntimeOptions.onRevokeAbandoned is told when the sweep gives up on a delete; a failed reject goes on the same retry list", async () => {
+    let t = T0;
+    const abandoned = vi.fn();
+    const rt = await setup({ now: () => new Date(t), onRevokeAbandoned: abandoned });
+    const revoke = vi.fn(async () => {
+      throw new Error("provider down");
+    });
+    rt.providers.register({ id: "orphan-test", label: "T", kind: "automatic", issue: async () => ({ value: new SecretValue("unused-issued-value-1") }), revoke });
+    rt.inventory.data.secrets.find((s) => s.id === "s")!.provider = "orphan-test";
+    const doomed = review("doomed", T0 + 60_000, "ext-doomed");
+    (doomed.issuedSecret as { provider: string }).provider = "orphan-test";
+    rt.issuances.add(doomed);
+    // A person rejects it and the provider does not confirm: the delete is on the retry list, not forgotten.
+    const result = await rejectIssuance(rt, human, "doomed");
+    expect(result.revokedNew).toBe(false);
+    for (let i = 0; i < 20 && abandoned.mock.calls.length === 0; i++) {
+      t += 3_600_000;
+      await rt.sweep();
     }
-    const open = await setup({ now: () => new Date(T0) });
-    await expect(confirmIssuance(open, human, "unknown", { ticks: [] })).rejects.toBeInstanceOf(IssuanceGoneError);
-    await expect(rejectIssuance(open, human, "unknown")).rejects.toBeInstanceOf(IssuanceGoneError);
+    expect(abandoned).toHaveBeenCalledWith(expect.objectContaining({ id: "doomed", externalId: "ext-doomed" }));
+    expect(rt.issuances.orphans().map((r) => r.id)).toEqual(["doomed"]);
   });
 
   it("the clock is the one given, and without one the system clock", async () => {

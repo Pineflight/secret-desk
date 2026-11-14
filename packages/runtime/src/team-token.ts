@@ -276,7 +276,7 @@ function waitFor<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, signal:
   const book = rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>;
   return new Promise<TeamTokenAnswers[K]>((resolve, reject) => {
     const onAbort = (): void => {
-      book.delete(RUN_KEY);
+      book.delete(RUN_KEY, signal);
       reject(new Error("cancelled"));
     };
     if (signal.aborted) return onAbort();

@@ -47,16 +47,38 @@ describe("WaiterBook", () => {
 
   it("cancel rejects as cancelled and forgets; delete only forgets", () => {
     const book = new WaiterBook<boolean>();
+    const runB = new AbortController().signal;
     const a = waiter<boolean>(T0 + 100);
-    const b = waiter<boolean>(T0 + 100);
+    const b = waiter<boolean>(T0 + 100, runB);
+    const c = waiter<boolean>(T0 + 100);
     book.set("a", a);
     book.set("b", b);
+    book.set("c", c);
     book.cancel("a");
-    book.delete("b");
+    book.delete("b", runB);
+    book.discard("c");
     book.cancel("never-there");
     expect((a.reject.mock.calls[0]![0] as Error).message).toBe("cancelled");
     expect(b.reject).not.toHaveBeenCalled();
+    expect(c.reject).not.toHaveBeenCalled();
     expect(book.size).toBe(0);
+  });
+
+  it("a run only removes its own question, and a cancelled run cannot ask any more", () => {
+    const book = new WaiterBook<string>();
+    const mine = new AbortController();
+    const other = new AbortController();
+    const w = waiter<string>(T0 + 1000, mine.signal);
+    book.set("run", w);
+    book.delete("run", other.signal);
+    expect(book.size).toBe(1);
+    book.delete("run", mine.signal);
+    expect(book.size).toBe(0);
+    mine.abort();
+    const late = waiter<string>(T0 + 1000, mine.signal);
+    book.set("run", late);
+    expect(book.size).toBe(0);
+    expect((late.reject.mock.calls[0]![0] as Error).message).toBe("cancelled");
   });
 
   it("sweep removes the expired and returns the earliest deadline that remains", () => {

@@ -39,8 +39,15 @@ export interface Waiter<T> {
 export class WaiterBook<T> {
   readonly #items = new Map<string, Waiter<T>>();
 
-  /** Registers a question. A question it replaces is rejected (a run asks one question of a kind at a time). */
+  /**
+   * Registers a question. A question it replaces is rejected (a run asks one question of a kind at a time). A run that has been
+   * cancelled can no longer ask: its question is rejected at once and nothing is registered.
+   */
   set(key: string, waiter: Waiter<T>): void {
+    if (waiter.run.aborted) {
+      waiter.reject(new Error("cancelled"));
+      return;
+    }
     const old = this.#items.get(key);
     this.#items.set(key, waiter);
     old?.reject(new Error("replaced"));
@@ -71,7 +78,13 @@ export class WaiterBook<T> {
     return waiter;
   }
 
-  delete(key: string): void {
+  /** Forgets the question for `key`, but only when it belongs to the run that asks (a run never removes another run's question). */
+  delete(key: string, run: AbortSignal | undefined): void {
+    if (this.#items.get(key)?.run === run) this.#items.delete(key);
+  }
+
+  /** Forgets whatever question is open for `key`: for the answer path, which has just taken it. */
+  discard(key: string): void {
     this.#items.delete(key);
   }
 

@@ -749,28 +749,24 @@ export async function getIssuance(rt: Runtime, id: string): Promise<IssuanceView
   return issuanceView(p);
 }
 
-/**
- * A review that is not there. The hook is asked first (it has no subject to look at), so that a caller it refuses gets the same
- * refusal for a review that does not exist as for one that does, and cannot probe for ids. Without a hook nothing is asked and
- * the answer is "gone".
+/*
+ * Only a review that exists is authorised: for an id nobody knows the answer is "gone", with no hook call (a call per guessed id
+ * would write one audit entry per guess and could consume a per-action approval). Review ids are random, so they cannot be
+ * guessed; an authenticated person can tell "gone" from "not allowed", which is acceptable for the person who may confirm.
  */
-async function goneOrRefused(rt: Runtime, actor: Actor, action: "issuance.confirm" | "issuance.reject", id: string): Promise<never> {
-  await authorize(rt, { actor, action });
-  throw new IssuanceGoneError(id);
-}
-
 export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, input: { ticks: string[]; note?: string; force?: boolean }): Promise<CommitResult> {
   requireHuman(actor, "Bestaetigen");
-  await rt.issuances.sweep(issuanceDeps(rt));
   const pending = rt.issuances.get(id);
-  if (!pending) return goneOrRefused(rt, actor, "issuance.confirm", id);
+  if (!pending) throw new IssuanceGoneError(id);
   // Claimed before the first await: while the hook (or the commit) is pending, no second confirm or reject can start on this review.
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.confirm", subject: issuanceSubject(pending) });
+    // Clean-up of other expired reviews runs after the person was authorised, never before.
+    await rt.issuances.sweep(issuanceDeps(rt));
     // The hook may have taken a while: only go on with the very same item.
     if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
-    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)! });
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)!, hardBound: rt.issuances.hardBound(id)! });
     if (result.ok) rt.issuances.delete(id);
     return result;
   } catch (err) {
@@ -785,13 +781,16 @@ export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, inp
 export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string): Promise<{ revokedNew: boolean }> {
   requireHuman(actor, "Ablehnen");
   const pending = rt.issuances.get(id);
-  if (!pending) return goneOrRefused(rt, actor, "issuance.reject", id);
+  if (!pending) throw new IssuanceGoneError(id);
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.reject", subject: issuanceSubject(pending) });
     if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
     rt.issuances.delete(id);
-    return await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}) });
+    const result = await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}) });
+    // A delete the provider did not confirm is tried again by the sweep, like the delete of an expired review.
+    rt.issuances.oweIfNeeded(pending, result.revokedNew);
+    return result;
   } finally {
     rt.issuances.release(id);
   }

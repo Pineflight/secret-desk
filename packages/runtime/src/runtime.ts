@@ -27,7 +27,7 @@ import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
 import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
 import { InstanceState } from "./instance-state.js";
-import { IssuanceQueue, type PendingStore } from "./issuances.js";
+import { IssuanceQueue, type PendingRecord, type PendingStore } from "./issuances.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-store.js";
 
 export interface Runtime {
@@ -63,10 +63,12 @@ export interface Runtime {
    */
   instance: InstanceState;
   /**
-   * Removes everything that has expired (pending reviews, whose new values are also deleted at the provider, and waits for an
-   * answer) and returns the earliest deadline that remains, or null when nothing is waiting. For an embedder to call from a timer
-   * or an alarm and to re-arm with the result. Correctness never depends on it: every access checks its deadline itself, so a
-   * missed sweep never extends the life of a value. It is not behind the authorisation hook on purpose.
+   * Removes everything that has expired (pending reviews, whose unconfirmed new values this process itself issued are also deleted
+   * at the provider unless a commit has written them somewhere, and waits for an answer) and returns the earliest deadline that
+   * remains, or null when nothing is waiting. For an embedder to call from a timer or an alarm and to re-arm with the result.
+   * Correctness never depends on it: every access checks its deadline itself, so a missed sweep never extends the life of a value.
+   * It is not behind the authorisation hook on purpose. It never revokes the value of a record it does not hold the review for
+   * (see `Runtime.issuances.orphans()` and `revokeOrphan`).
    */
   sweep(now?: Date): Promise<Date | null>;
 }
@@ -127,6 +129,12 @@ export interface RuntimeOptions {
    * in memory itself. See `PendingStore`.
    */
   pendingStore?: PendingStore;
+  /**
+   * Told (with a record: ids and times, never a value) when the sweep gave up on deleting the new value of an unconfirmed review at
+   * the provider after several tries. The record stays as an orphan; the value stays valid at the provider until it expires or
+   * someone deletes it. A throwing callback changes nothing.
+   */
+  onRevokeAbandoned?: (record: PendingRecord) => void;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -236,7 +244,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   if (options.watchInventory) inventory.watch();
 
   const now = options.now ?? ((): Date => new Date());
-  const issuances = new IssuanceQueue({ now, ...(options.pendingStore ? { store: options.pendingStore } : {}) });
+  const issuances = new IssuanceQueue({ now, ...(options.pendingStore ? { store: options.pendingStore } : {}), ...(options.onRevokeAbandoned ? { onRevokeAbandoned: options.onRevokeAbandoned } : {}) });
   const instance = new InstanceState();
 
   const rt: Runtime = {
@@ -264,7 +272,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
       // Deliberately not asked of the authorisation hook: clean-up only discards values and answers, so a hook can never extend a life.
       const when = at ?? rt.now();
       await rt.issuances.sweep(issuanceDeps(rt), when);
-      const reviews = rt.issuances.nextDeadline(when)?.getTime() ?? null;
+      const reviews = rt.issuances.nextDeadline()?.getTime() ?? null;
       const waits = instance.sweepWaiters(when);
       const next = reviews === null ? waits : waits === null ? reviews : Math.min(reviews, waits);
       return next === null ? null : new Date(next);

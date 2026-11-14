@@ -1,16 +1,25 @@
-import { discardIssuance, revokeIssuedValue, SecretValue, type IssuanceDeps, type PendingIssuance } from "@secret-desk/core";
+import { discardIssuance, issuanceStateOf, revokeIssuedValue, SecretValue, type Check, type IssuanceDeps, type PendingIssuance } from "@secret-desk/core";
+
+/*
+ * The rule behind everything that revokes in this file: revoking a value that is in use is worse than leaving an unconfirmed value
+ * valid until the provider expires it. When in doubt nothing is revoked, the record is kept and the case is reported.
+ */
 
 /**
  * What a `PendingStore` is given about a pending review: metadata only. Never the value, never a companion value, never the
  * report. `externalId` is the provider's identifier of the newly issued value and is present only when that value would have to
  * be deleted at the provider if the review is not confirmed (it is absent when the provider renewed the value in place).
+ * `needsDecision` is set when a commit wrote the new value to some places and stopped: only a person decides about that value.
  */
 export interface PendingRecord {
   id: string;
   secretId: string;
+  /** The provider of the entry when the value was issued. A revoke is refused when the entry has another provider now. */
+  provider: string;
   createdAt: string;
   expiresAt: string;
   externalId?: string;
+  needsDecision?: true;
 }
 
 /**
@@ -18,9 +27,10 @@ export interface PendingRecord {
  * `RuntimeOptions.pendingStore` (for example one that survives an eviction of its process).
  *
  * The store only ever sees a `PendingRecord`: the value itself is held by the queue, in memory, in a map the store cannot reach.
- * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. What a
- * persistent store buys is the way back from an eviction: a record whose value is gone (see `IssuanceQueue.orphans`) is deleted
- * at the provider by the next `Runtime.sweep` once its deadline has passed, or by `revokeOrphan`.
+ * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. A record
+ * whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is an explicit call of the embedder
+ * (`IssuanceQueue.revokeOrphan`), which refuses whenever the value might be in use. A persistent store should remove the record
+ * in the same step in which the embedder's inventory takes the new identifier; whatever order remains, a leftover record is harmless.
  */
 export interface PendingStore {
   put(record: PendingRecord): void;
@@ -54,35 +64,76 @@ export class MemoryPendingStore implements PendingStore {
 
 /**
  * How long a review that an operation (confirm or reject) has claimed may outlive its deadline. After deadline plus this grace
- * the queue takes the review back whatever the operation is doing: the value becomes unreachable through the queue, the
- * operation's abort signal fires, and a commit that comes back later writes nothing more.
+ * the queue takes the review back: the value becomes unreachable through the queue, the operation's abort signal fires, and a
+ * commit checks that bound (the signal and the clock) before each write. A write that is already in flight is not cut off.
  */
 export const CLAIM_GRACE_MS = 2 * 60_000;
-/** How often the sweep tries to delete a new value at the provider before it gives the record up. */
+/** How often the sweep tries to delete a new value at the provider before it stops trying (the record is kept). */
 export const MAX_REVOKE_TRIES = 5;
-/** What `nextDeadline` reports for a record whose delete at the provider is still owed and past its deadline: look again after this. */
+/** The wait before the next try of a delete that failed, times the number of tries so far. */
 export const REVOKE_RETRY_MS = 60_000;
 
 const recordOf = (p: PendingIssuance): PendingRecord => {
   const rotatedInPlace = p.report.externalId !== undefined && p.report.externalId === p.oldExternalId;
-  return { id: p.id, secretId: p.secretId, createdAt: p.createdAt, expiresAt: p.expiresAt, ...(p.report.externalId && !rotatedInPlace ? { externalId: p.report.externalId } : {}) };
+  return {
+    id: p.id,
+    secretId: p.secretId,
+    provider: p.issuedSecret?.provider ?? p.report.provider,
+    createdAt: p.createdAt,
+    expiresAt: p.expiresAt,
+    ...(p.report.externalId && !rotatedInPlace ? { externalId: p.report.externalId } : {}),
+  };
 };
 
+/** The outcome of an attempt to delete the new value of a record at the provider. A refusal says why nothing was called. */
+export type OrphanResult =
+  | { status: "revoked" }
+  | { status: "nothing" }
+  | { status: "failed" }
+  | { status: "refused"; reason: "value-in-use" | "secret-gone" | "provider-changed" | "needs-decision" | "held-here" | "unknown" };
+
 /**
- * Deletes the new value of a record whose value is gone (an evicted process) at the provider. Metadata is all it needs: the entry
- * is looked up by `secretId` in the current inventory. True when there was nothing to delete or the provider confirmed the delete;
- * false when it failed (the value stays valid at the provider and a later call may try again).
+ * Deletes the new value of a record at the provider, from metadata alone, and only when that cannot hit a value in use. Refused
+ * without calling the provider when the record's identifier is the one the entry holds now (the value was rolled out), when the
+ * entry no longer exists, when its provider is not the one the value was issued by, and (unless `acceptPartial`) when a commit
+ * had written the value to some places. `nothing`: the record names no value to delete.
  */
-export async function revokeOrphan(record: PendingRecord, deps: IssuanceDeps): Promise<boolean> {
-  if (!record.externalId) return true;
+export async function revokeOrphanRecord(record: PendingRecord, deps: IssuanceDeps, options: { acceptPartial?: boolean } = {}): Promise<OrphanResult> {
+  if (!record.externalId) return { status: "nothing" };
   const secret = deps.inventory.getSecret(record.secretId);
-  return secret ? revokeIssuedValue(secret, record.externalId, deps) : false;
+  if (!secret) return { status: "refused", reason: "secret-gone" };
+  if (secret.provider !== record.provider) return { status: "refused", reason: "provider-changed" };
+  if (secret.externalId === record.externalId) return { status: "refused", reason: "value-in-use" };
+  if (record.needsDecision && !options.acceptPartial) return { status: "refused", reason: "needs-decision" };
+  return (await revokeIssuedValue(secret, record.externalId, deps)) ? { status: "revoked" } : { status: "failed" };
+}
+
+/** Adds a line to the evidence report of a record, when there is one. Never throws: a note is best effort. */
+async function noteEvidence(deps: IssuanceDeps, record: PendingRecord, check: Check): Promise<void> {
+  try {
+    const report = await deps.evidence?.get(record.secretId, record.id);
+    if (!report) return;
+    report.checks.push(check);
+    await deps.evidence!.save(report);
+  } catch {
+    /* best effort */
+  }
 }
 
 export interface IssuanceQueueOptions {
   store?: PendingStore;
-  /** The clock every deadline is checked against (default: the system clock). */
+  /** The clock every deadline is checked against (default: the system clock). The queue never decides with a time earlier than one it has seen. */
   now?: () => Date;
+  /** Told (a record, never a value) when the sweep stopped trying to delete a new value at the provider. The record stays. */
+  onRevokeAbandoned?: (record: PendingRecord) => void;
+}
+
+/** A delete at the provider that is still owed. `pending` is the retired item (value-free) until the first try has been made. */
+interface Owed {
+  record: PendingRecord;
+  pending: PendingIssuance | undefined;
+  tries: number;
+  nextTry: number;
 }
 
 /**
@@ -92,46 +143,57 @@ export interface IssuanceQueueOptions {
  * unreachable through the queue from then on, whether or not a sweep ran. Nothing here depends on a timer. (Strings cannot be
  * erased in this runtime: what is dropped is every reference the queue holds. A caller that kept the object keeps its value.)
  * What a read cannot do is the network call that deletes the new value at the provider: that is owed and is done by the next
- * `sweep`, which an embedder calls from a timer or an alarm (`Runtime.sweep`) and which a new issuance and a confirm run first.
+ * `sweep`, which an embedder calls from a timer or an alarm (`Runtime.sweep`).
  *
  * A claim is bounded too: a review claimed by an operation is hidden and left to it, but only until its deadline plus
- * `CLAIM_GRACE_MS`. Then the queue retires it whatever the operation is doing and aborts the operation's signal.
+ * `CLAIM_GRACE_MS`. Then the queue takes it back and aborts the operation's signal.
+ *
+ * The sweep only deletes what this process itself retired and knows to be unconfirmed. It does not touch an item a commit is
+ * working on, and it never deletes a value a commit has written to a place (that value waits for a person's decision).
  */
 export class IssuanceQueue {
   readonly #store: PendingStore;
   readonly #now: () => Date;
+  readonly #onAbandoned: ((record: PendingRecord) => void) | undefined;
+  /** The latest time this queue has seen. */
+  #seen = 0;
   /** The values, by id. Private to the queue: a store never sees them. */
   readonly #values = new Map<string, PendingIssuance>();
   /** Items an operation (confirm or reject) is working on, with a signal that fires when the queue takes the item back. */
   readonly #claims = new Map<string, { controller: AbortController }>();
-  /** Items whose deadline passed and whose value is unreachable; the provider-side delete (and the evidence note) is still owed. */
-  readonly #retired = new Map<string, PendingIssuance>();
-  /** Failed provider-side deletes, by id. */
-  readonly #tries = new Map<string, number>();
+  /** Deletes at the provider that are owed, with their number of tries and the time of the next one. */
+  readonly #owed = new Map<string, Owed>();
   /** Records a sweep is working on right now. */
   readonly #settling = new Set<string>();
 
   constructor(options: IssuanceQueueOptions = {}) {
     this.#store = options.store ?? new MemoryPendingStore();
     this.#now = options.now ?? (() => new Date());
+    this.#onAbandoned = options.onRevokeAbandoned;
+  }
+
+  /** The time to decide with: the given one or the clock, but never earlier than a time seen before. */
+  #t(given?: number): number {
+    this.#seen = Math.max(given ?? this.#now().getTime(), this.#seen);
+    return this.#seen;
   }
 
   #expired(p: PendingIssuance, at: number): boolean {
     return Date.parse(p.expiresAt) <= at;
   }
 
-  /** The hard bound of a claimed item. */
+  /** The hard bound of a claimed item (epoch milliseconds). */
   #bound(p: PendingIssuance): number {
     return Date.parse(p.expiresAt) + CLAIM_GRACE_MS;
   }
 
-  /** Takes an item out of the queue: its value is unreachable through it from here on. The provider-side delete stays owed. */
+  /** Takes an item out of the queue: its value is unreachable through it from here on. The provider-side delete is owed. */
   #retire(p: PendingIssuance): void {
     this.#values.delete(p.id);
     // The references the queue and the report hold are replaced too; a caller's own reference to the object is its own.
     p.value = new SecretValue("");
     for (const c of p.companions) c.value = new SecretValue("");
-    this.#retired.set(p.id, p);
+    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0 });
   }
 
   /**
@@ -153,7 +215,7 @@ export class IssuanceQueue {
 
   #live(id: string): PendingIssuance | undefined {
     const p = this.#values.get(id);
-    return p && this.#look(p, this.#now().getTime()) ? p : undefined;
+    return p && this.#look(p, this.#t()) ? p : undefined;
   }
 
   /**
@@ -172,6 +234,12 @@ export class IssuanceQueue {
     return this.#claims.get(id)?.controller.signal;
   }
 
+  /** The hard bound of a held review (epoch milliseconds), for the operation to check against the clock before it writes. */
+  hardBound(id: string): number | undefined {
+    const p = this.#values.get(id);
+    return p ? this.#bound(p) : undefined;
+  }
+
   release(id: string): void {
     this.#claims.delete(id);
   }
@@ -186,74 +254,127 @@ export class IssuanceQueue {
   }
 
   list(): PendingIssuance[] {
-    const at = this.#now().getTime();
+    const at = this.#t();
     return [...this.#values.values()].filter((p) => this.#look(p, at)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /** Forgets a review for good (confirmed, or rejected by a person): the value, the record and anything still owed for it. */
   delete(id: string): void {
     this.#values.delete(id);
+    this.#owed.delete(id);
     this.#store.delete(id);
   }
 
-  /** Records the store holds whose value this queue no longer has (retired here, or left by a process that was evicted). */
-  orphans(): PendingRecord[] {
-    return this.#store.list().filter((r) => !this.#values.has(r.id));
+  /**
+   * A person rejected a review and the provider did not confirm the delete: put it on the list of deletes that are tried again
+   * (same spacing and limit as an expired review). The record stays in the store until the delete worked.
+   */
+  oweIfNeeded(pending: PendingIssuance, revokedNew: boolean): void {
+    const record = recordOf(pending);
+    if (revokedNew || !record.externalId) return;
+    this.#store.put(record);
+    this.#owed.set(pending.id, { record, pending: undefined, tries: 1, nextTry: this.#t() + REVOKE_RETRY_MS });
   }
 
   /**
-   * Retires everything that expired (and every claim past its hard bound) and deletes the new values at the provider. Returns the
-   * ids that are settled: the value is unreachable and the provider confirmed the delete or had nothing to delete. An id whose
-   * provider call failed is not in the list; its record stays and the next sweeps try again, at most `MAX_REVOKE_TRIES` times in
-   * all. An item that is claimed within its bound (or was replaced in the meantime) is left to its operation.
+   * Records the store holds whose value this queue does not have and that nothing here is trying to delete: left by a process
+   * that was evicted, by a confirm whose record removal was lost, by a commit that needs a person's decision (`needsDecision`),
+   * or by a delete the sweep gave up on. The sweep only lists them; `revokeOrphan` is the explicit call.
    */
-  async sweep(deps: IssuanceDeps, now: Date = this.#now()): Promise<string[]> {
-    const at = now.getTime();
-    const swept: string[] = [];
-    const owed = [...this.#retired.values()];
-    const expired = [...this.#values.values()].filter((p) => this.#expired(p, at)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const orphans = this.orphans().filter((r) => !this.#retired.has(r.id) && Date.parse(r.expiresAt) <= at);
-    // Items an earlier read retired come first, then what expires now, then the records nobody holds a value for.
-    for (const p of owed) await this.#settle(p.id, p, deps, swept);
-    for (const p of expired) {
-      // Each step is awaited: an item that was claimed (or replaced) in the meantime is left to its operation.
-      if (this.#values.get(p.id) !== p) continue;
-      this.#look(p, at);
-      if (this.#retired.get(p.id) === p) await this.#settle(p.id, p, deps, swept);
+  orphans(): PendingRecord[] {
+    return this.#store.list().filter((r) => !this.#values.has(r.id) && !this.#owed.has(r.id));
+  }
+
+  /**
+   * The explicit call to delete the new value of an orphaned record at the provider, for the embedder (or a person) to make.
+   * Nothing is called when the delete could hit a value in use (see `revokeOrphanRecord`); a record that is plainly stale (the
+   * value is in use, the entry is gone or has another provider) is removed without calling the provider. A record that needs
+   * a person's decision stays unless `acceptPartial` says the person decided. A failed delete keeps the record.
+   */
+  async revokeOrphan(id: string, deps: IssuanceDeps, options: { acceptPartial?: boolean } = {}): Promise<OrphanResult> {
+    const record = this.#store.get(id);
+    if (!record) return { status: "refused", reason: "unknown" };
+    if (this.#values.has(id) || this.#owed.has(id)) return { status: "refused", reason: "held-here" };
+    const result = await revokeOrphanRecord(record, deps, options);
+    if (result.status === "refused" && result.reason !== "needs-decision") {
+      this.#store.delete(id);
+      await noteEvidence(deps, record, { id: "orphan-dropped", label: `Verwaister Eintrag verworfen, nichts widerrufen: ${result.reason}`, status: "warn" });
+    } else if (result.status === "revoked" || result.status === "nothing") {
+      this.#store.delete(id);
+      if (result.status === "revoked") await noteEvidence(deps, record, { id: "orphan-revoked", label: "Neuer Wert beim Anbieter widerrufen (verwaister Eintrag)", status: "pass" });
     }
-    for (const r of orphans) await this.#settle(r.id, undefined, deps, swept);
+    return result;
+  }
+
+  /**
+   * Retires everything that expired (and every claim past its hard bound) and tries the deletes at the provider that are owed
+   * and due. Returns the ids that are settled: nothing is left to delete, or it was deleted, or a commit had rolled the value
+   * out and nothing may delete it. An id whose provider call failed is not in the list: the record stays and it is tried
+   * again after a longer wait, at most `MAX_REVOKE_TRIES` times in all (then `onRevokeAbandoned` is told and the record stays
+   * as an orphan). An item a commit is working on, or has written to a place, is not deleted. An item that is claimed within its
+   * bound is left to its operation.
+   */
+  async sweep(deps: IssuanceDeps, now?: Date): Promise<string[]> {
+    const at = this.#t(now?.getTime());
+    const swept: string[] = [];
+    const expired = [...this.#values.values()].filter((p) => this.#expired(p, at)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    for (const p of expired) this.#look(p, at);
+    for (const [id, owed] of [...this.#owed]) {
+      if (owed.nextTry <= at && this.#owed.get(id) === owed) await this.#settle(id, owed, deps, at, swept);
+    }
     return swept;
   }
 
-  async #settle(id: string, pending: PendingIssuance | undefined, deps: IssuanceDeps, swept: string[]): Promise<void> {
+  async #settle(id: string, owed: Owed, deps: IssuanceDeps, at: number, swept: string[]): Promise<void> {
     // Another sweep is already on this record.
     if (this.#settling.has(id)) return;
     this.#settling.add(id);
+    const done = (): void => {
+      this.#owed.delete(id);
+      this.#store.delete(id);
+      swept.push(id);
+    };
     try {
-      const record = this.#store.get(id) ?? (pending ? recordOf(pending) : undefined);
-      if (!record) return;
-      let revoked: boolean;
-      if (pending && this.#retired.get(id) === pending) {
-        this.#retired.delete(id);
-        // discardIssuance also writes the evidence note. A throw means it must not (or could not) revoke: nothing to retry then.
-        const result = await discardIssuance(pending, deps, { by: "system", why: "expired" }).catch(() => undefined);
-        revoked = result === undefined || !record.externalId || result.revokedNew;
-      } else {
-        revoked = await revokeOrphan(record, deps).catch(() => false);
-      }
-      if (revoked) {
-        this.#store.delete(id);
-        this.#tries.delete(id);
-        swept.push(id);
+      const state = owed.pending ? issuanceStateOf(owed.pending) : "open";
+      if (state === "committing") {
+        // A commit is working on it: whatever it ends in decides, so nothing is done now.
+        owed.nextTry = at + REVOKE_RETRY_MS;
         return;
       }
-      const tries = (this.#tries.get(id) ?? 0) + 1;
-      if (tries >= MAX_REVOKE_TRIES) {
-        // Given up: the evidence says "not revoked", the record would only keep failing.
-        this.#store.delete(id);
-        this.#tries.delete(id);
-      } else {
-        this.#tries.set(id, tries);
+      if (state === "partial") {
+        // The new value is in use at some places: only a person decides. Kept, flagged, never revoked here.
+        this.#owed.delete(id);
+        this.#store.put({ ...owed.record, needsDecision: true });
+        return;
       }
+      if (state === "committed" || state === "discarded") return done();
+
+      let result: OrphanResult;
+      if (owed.pending) {
+        // The first try goes through the item itself: it also writes the evidence note. Anything but a clean answer is a failed try.
+        const discard = await discardIssuance(owed.pending, deps, { by: "system", why: "expired" }).catch(() => undefined);
+        owed.pending = undefined;
+        result = discard === undefined ? { status: "failed" } : !owed.record.externalId ? { status: "nothing" } : { status: discard.revokedNew ? "revoked" : "failed" };
+      } else {
+        result = await revokeOrphanRecord(owed.record, deps).catch(() => ({ status: "failed" }) as OrphanResult);
+      }
+      if (result.status !== "failed") {
+        if (owed.tries > 0 && result.status === "revoked") await noteEvidence(deps, owed.record, { id: "revoke-late", label: "Neuer Wert beim Anbieter widerrufen (spaeterer Versuch)", status: "pass" });
+        return done();
+      }
+      owed.tries += 1;
+      if (owed.tries >= MAX_REVOKE_TRIES) {
+        // Stopped, not settled: the record stays in the store and shows up as an orphan.
+        this.#owed.delete(id);
+        await noteEvidence(deps, owed.record, { id: "revoke-abandoned", label: "Neuer Wert beim Anbieter NICHT widerrufen: der Anbieter hat die Loeschung wiederholt nicht bestaetigt", status: "warn", detail: "Von Hand beim Anbieter loeschen oder verfallen lassen." });
+        try {
+          this.#onAbandoned?.(owed.record);
+        } catch {
+          /* a callback that throws changes nothing */
+        }
+        return;
+      }
+      owed.nextTry = at + REVOKE_RETRY_MS * owed.tries;
     } finally {
       this.#settling.delete(id);
     }
@@ -261,19 +382,15 @@ export class IssuanceQueue {
 
   /**
    * The earliest time something needs a sweep, or null: the deadline of an item that waits for a person, the hard bound of a
-   * claimed item, and for an owed provider-side delete the deadline of its record or, once that has passed, a retry after
-   * `REVOKE_RETRY_MS`.
+   * claimed item, and the next try of every delete that is still owed.
    */
-  nextDeadline(now: Date = this.#now()): Date | null {
+  nextDeadline(): Date | null {
     let next: number | null = null;
     const take = (t: number): void => {
       if (next === null || t < next) next = t;
     };
     for (const p of this.#values.values()) take(this.#claims.has(p.id) ? this.#bound(p) : Date.parse(p.expiresAt));
-    for (const r of this.orphans()) {
-      const at = Date.parse(r.expiresAt);
-      take(r.externalId && at <= now.getTime() ? now.getTime() + REVOKE_RETRY_MS : at);
-    }
+    for (const o of this.#owed.values()) take(o.nextTry);
     return next === null ? null : new Date(next);
   }
 }

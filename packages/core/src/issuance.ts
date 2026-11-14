@@ -291,6 +291,20 @@ const committing = new WeakSet<PendingIssuance>();
 const committed = new WeakSet<PendingIssuance>();
 /** Items that were discarded (rejected, expired or stale): a second discard or a later commit must not touch the provider again. */
 const discarded = new WeakSet<PendingIssuance>();
+/** Items a commit wrote the new value to at least one place of and then stopped: the new value is in use somewhere, so nothing may revoke it but a person. */
+const partial = new WeakSet<PendingIssuance>();
+
+/**
+ * Where an item stands for whoever wants to clean it up. `committing`: a commit is in flight. `committed`: the new value is in use.
+ * `partial`: a commit wrote some places and stopped; only a person decides what happens to the new value. `discarded`: done.
+ * `open`: nothing was written, the new value may be deleted at the provider.
+ */
+export function issuanceStateOf(pending: PendingIssuance): "open" | "committing" | "committed" | "partial" | "discarded" {
+  if (committing.has(pending)) return "committing";
+  if (committed.has(pending)) return "committed";
+  if (discarded.has(pending)) return "discarded";
+  return partial.has(pending) ? "partial" : "open";
+}
 
 /**
  * Stufe 2: Nach der Bestaetigung in alle Ziele schreiben, nachpruefen, den alten Wert widerrufen und das Inventar
@@ -300,7 +314,7 @@ export async function commitIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean; signal?: AbortSignal } = {},
+  options: { force?: boolean; signal?: AbortSignal; hardBound?: number } = {},
 ): Promise<CommitResult> {
   // Atomar (vor dem ersten await) als "in Bearbeitung" markieren: ein zweiter, auch paralleler Aufruf wirft sofort.
   if (committing.has(pending) || committed.has(pending) || discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -320,7 +334,7 @@ async function commitIssuanceOnce(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean; signal?: AbortSignal },
+  options: { force?: boolean; signal?: AbortSignal; hardBound?: number },
 ): Promise<CommitResult> {
   const secret = deps.inventory.getSecret(pending.secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
@@ -360,7 +374,8 @@ async function commitIssuanceOnce(
   for (const w of writes) {
     // Fail closed: when the caller gave up on this commit (the review passed its hard bound while an earlier write was still
     // pending), nothing more is written, whatever the values captured above still say.
-    if (options.signal?.aborted) {
+    // The same bound is also read from the clock here, so it holds without any access or sweep in between.
+    if (options.signal?.aborted || (options.hardBound !== undefined && (deps.now ?? (() => new Date()))().getTime() >= options.hardBound)) {
       outcomes.push({ place: w.label, outcome: "failed", error: "Abgebrochen: die Anfrage ist abgelaufen." });
       continue;
     }
@@ -376,8 +391,20 @@ async function commitIssuanceOnce(
   }
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
   if (failed > 0) {
+    const holding = outcomes.filter((o) => o.outcome !== "failed").map((o) => o.place);
+    if (holding.length > 0) {
+      // The new value is in use at these places: from here on only a person decides about it (nothing revokes it automatically).
+      partial.add(pending);
+      pending.report.checks.push({ id: "partial-write", label: `Neuer Wert bereits geschrieben, nicht widerrufen: ${holding.join(", ")}`, status: "warn", detail: "Ein Mensch entscheidet: erneut bestaetigen oder ablehnen." });
+      await deps.evidence?.save(pending.report).catch(() => undefined);
+    }
     return { secretId: pending.secretId, reportId: pending.report.id, ok: false, partial: failed < outcomes.length, places: outcomes, revokedOld: false, expires: secret.expires };
   }
+
+  // Every place holds the new value now: it is in use, whatever happens to the checks, the inventory or the report below.
+  // Nothing may revoke it any more (an evidence failure later must not leave the item looking unconfirmed).
+  committed.add(pending);
+  partial.delete(pending);
 
   // Nachpruefung: Der Name steht jetzt in jedem Ziel und wurde eben geaendert.
   const since = Date.parse(pending.createdAt) - 5_000;
@@ -448,7 +475,12 @@ async function commitIssuanceOnce(
 
   const confirmationRecord: Confirmation = { ...decider, at: now.toISOString(), ticks: confirmation.ticks, decision: "confirmed", ...(confirmation.note ? { note: confirmation.note } : {}) };
   pending.report.confirmation = confirmationRecord;
-  await deps.evidence?.save(pending.report);
+  // The value is rolled out: a report that cannot be saved is a warning, not a failure of the confirmation.
+  try {
+    await deps.evidence?.save(pending.report);
+  } catch {
+    warnings.push("Der Pruefbericht konnte nicht gespeichert werden. Der neue Wert ist geschrieben.");
+  }
   return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
 }
 

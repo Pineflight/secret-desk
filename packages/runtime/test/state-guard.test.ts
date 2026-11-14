@@ -26,6 +26,7 @@ export const EXCEPTIONS: Readonly<Record<string, string>> = Object.freeze({
   "issuance.ts:committing": "WeakSet keyed by the pending item itself: it cannot carry anything from one runtime to another (an object belongs to one runtime), and an entry dies with its object.",
   "issuance.ts:committed": "Same as `committing`: object-keyed WeakSet.",
   "issuance.ts:discarded": "Same as `committing`: object-keyed WeakSet.",
+  "issuance.ts:partial": "Same as `committing`: object-keyed WeakSet.",
   "evidence-store-contract.ts:PNG": "Test fixture of the importable contract suite (`@secret-desk/core/testing`): three made-up bytes handed to a store under test, read only, never runtime state.",
   "vault-store-contract.ts:FAKE_KEY": "Test fixture of the importable contract suite: a made-up key for the vault under test, read only, never runtime state.",
 });

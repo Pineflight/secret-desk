@@ -842,6 +842,9 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(rt.issuances.signal(view.id)).toBeUndefined();
     expect(pending.value.reveal()).toBe("");
     expect(rt.issuances.claim(view.id)).toBe(false);
+    // A sweep while the commit is still in flight keeps the record and revokes nothing (ordering one) ...
+    await rt.sweep();
+    expect(rt.issuances.orphans()).toEqual([]);
     letGo();
     // The write that was in flight went through; the second place was never written, and the commit reports it as failed.
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
@@ -849,6 +852,12 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(result.ok).toBe(false);
     expect(result.places.map((p) => p.outcome)).toEqual(["updated", "failed"]);
     expect(result.places[1]!.error).toMatch(/Abgebrochen/);
+    // ... and once it ended partial, the next sweep flags the record for a person's decision instead of revoking (ordering two).
+    t = deadline + CLAIM_GRACE_MS + 3_600_000;
+    await rt.sweep();
+    expect(rt.issuances.orphans()).toEqual([expect.objectContaining({ id: view.id, needsDecision: true })]);
+    const report = (await listEvidence(rt, "hmac-acme-app")).find((r) => r.id === view.id)!;
+    expect(report.checks.find((c) => c.id === "partial-write")?.label).toContain("nicht widerrufen");
   });
 });
 

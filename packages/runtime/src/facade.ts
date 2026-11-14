@@ -605,8 +605,8 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
   } finally {
     creds.username = "";
     creds.password = "";
-    rt.instance.codeWaiters.delete(key);
-    rt.instance.confirmWaiters.delete(key);
+    rt.instance.codeWaiters.delete(key, signal);
+    rt.instance.confirmWaiters.delete(key, signal);
   }
 }
 
@@ -706,8 +706,8 @@ async function runRecipeSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredenti
   } finally {
     creds.username = "";
     creds.password = "";
-    rt.instance.codeWaiters.delete(key);
-    rt.instance.confirmWaiters.delete(key);
+    rt.instance.codeWaiters.delete(key, signal);
+    rt.instance.confirmWaiters.delete(key, signal);
   }
 }
 
@@ -754,7 +754,7 @@ export function startFacadeConnect(rt: Runtime, actor: Actor, id: string, body: 
 
 function finishFailed(rt: Runtime, key: string, t: Tracker, f: Failure): void {
   const cancelled = f.code === "cancelled";
-  rt.instance.accessWaiters.delete(key);
+  rt.instance.accessWaiters.delete(key, rt.automation.runSignal(key));
   rt.automation.end(key, {
     status: cancelled ? "cancelled" : "failed",
     text: f.messageEn,
@@ -786,7 +786,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     await runConnectSteps(rt, actor, d, recipe, key, signal, t, projectGiven, inputs, signedInUrl);
   } finally {
     // Success, failure or cancel: no question of this run stays answerable.
-    if (rt.instance.accessWaiters.get(key, rt.now())?.run === signal) rt.instance.accessWaiters.delete(key);
+    rt.instance.accessWaiters.delete(key, signal);
   }
 }
 
@@ -839,7 +839,7 @@ async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, r
             });
             return new Promise<SudoAnswer>((resolve, reject) => {
               const onAbort = (): void => {
-                rt.instance.accessWaiters.delete(key);
+                rt.instance.accessWaiters.delete(key, signal);
                 reject(new Error("cancelled"));
               };
               if (signal.aborted) return onAbort();
@@ -975,7 +975,7 @@ function submitCodeAt(rt: Runtime, key: string, body: Record<string, unknown>): 
   const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
   if (typeof body["code"] === "string") body["code"] = "";
   if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
-  rt.instance.codeWaiters.delete(key);
+  rt.instance.codeWaiters.discard(key);
   waiter.resolve(code);
   return rt.automation.state(key);
 }
@@ -991,7 +991,7 @@ export function submitFacadeAccess(rt: Runtime, actor: Actor, id: string, body: 
   // Only the run that asked can be answered: a waiter of an ended or replaced run is refused.
   if (!waiter || waiter.run !== current || current?.aborted || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("The provider is not waiting for a verification.");
   const answer = sudoAnswerFrom(body, ask.methods);
-  rt.instance.accessWaiters.delete(key);
+  rt.instance.accessWaiters.discard(key);
   waiter.resolve(answer);
   return rt.automation.state(key);
 }
@@ -1007,7 +1007,7 @@ function submitConfirmAt(rt: Runtime, key: string, body: Record<string, unknown>
   const waiter = rt.instance.confirmWaiters.answerable(key, rt.now(), rt.automation.runSignal(key));
   if (!waiter || rt.automation.state(key).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
   if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
-  rt.instance.confirmWaiters.delete(key);
+  rt.instance.confirmWaiters.discard(key);
   waiter.resolve(body["accept"]);
   return rt.automation.state(key);
 }
