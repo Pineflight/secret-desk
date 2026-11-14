@@ -1,6 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /** Zugriffsschutz fuer das lokale Portal. Es lauscht nur auf 127.0.0.1, schuetzt aber auch vor fremden Webseiten im Browser. */
@@ -112,12 +111,14 @@ export class PortalSession {
   }
 }
 
-export function agentTokenPath(home = homedir()): string {
+/** The agent token file inside a home folder. The home folder comes from the host capability of the runtime (`hostHome(rt.host)`), never from this module. */
+export function agentTokenPath(home: string | undefined): string {
+  if (!home) throw new Error("The agent token needs a home folder, but the host of this runtime reports none.");
   return join(home, ".secret-desk", "agent-token");
 }
 
 /** Liest den Agenten-Token oder legt ihn an (Modus 600). Ist die Datei zu offen, wird sie auf 600 gesetzt (Windows: nur Warnung). */
-export async function loadOrCreateAgentToken(path = agentTokenPath(), rotate = false, platform: NodeJS.Platform = process.platform, warn: (msg: string) => void = (m) => console.warn(m)): Promise<string> {
+export async function loadOrCreateAgentToken(path: string, rotate = false, platform: NodeJS.Platform = process.platform, warn: (msg: string) => void = (m) => console.warn(m)): Promise<string> {
   if (!rotate) {
     try {
       const existing = (await readFile(path, "utf8")).trim();
