@@ -123,6 +123,26 @@ A store that can only be used inside a special context passes `{ run }` as the l
 
 `ConnectionStoreCore` (`connections-core.ts`, portable, covered by `portable-modules.test.ts`) holds the token lookup: session value, vault, then the configured source. What the hosting process lets a configuration reach is an explicit `ConnectionHost` (`label`, optional `env(name)` and `readReference(ref)`). Without `env`, an `env` source is not available; without `readReference`, an `op` source is not available. Both cases throw a `NotConnectedError` that tells the user to enter a token under Connections, and `status()` reports the same reason without throwing. Session and vault values are looked up first and work either way. `ConnectionStore` (`connections.ts`) is the Node facade of the local edition: it keeps the options `env` and `exec`, builds `nodeConnectionHost(env, exec)` (process environment and `op read <ref>`) from them, and accepts `host` to override it; `host: null` means no host at all. Omitting `host` on `ConnectionStore` grants the process environment and `op`: that default is for the local edition only. A runtime that shares one process between several users uses `ConnectionStoreCore` or `host: null` so a configuration cannot read the host's environment or run its tools.
 
+`nodeConnectionHost` answers `env(name)` only for an own property of the environment object whose value is a string (a source named `toString`, `constructor` or `__proto__` is "not set", not an inherited function), and refuses a reference that does not start with `op://` before a process is started; the reference is passed to `op read` after `--`.
+
+#### Host capability of the runtime
+
+`createRuntime` (`packages/runtime/src/runtime.ts`) takes an optional `RuntimeOptions.host` of type `RuntimeHost` (`packages/runtime/src/host.ts`). `RuntimeHost` extends `ConnectionHost` (`env(name)` reads one environment variable by name, `readReference(ref)` reads one 1Password reference) with `runCommand(command, cwd)` (one allow-listed template command), `gitOrigin(dir)` and `gitCheckIgnored(path)`. Every member is optional and an absent member means "not available". The host is passed in code by the embedder; configuration and requests can neither add a member nor widen one, and the members take values (a name, a command key, a folder), never a command line. `runEnvCommand` additionally refuses any command name that is not in its allow-list.
+
+Without a host (option omitted or `null`) the runtime does not read the process environment and does not start a process. There is no fallback to the Node host. The paths that used to reach the machine on their own:
+
+| Path | Without a host | With `nodeRuntimeHost()` |
+|---|---|---|
+| `env` and `op` connection sources (`ConnectionStore`) | `NotConnectedError` / status "not available in this environment" | process environment, `op read -- <ref>` |
+| Team token from `SECRET_DESK_TEAM_TOKEN` (`runtime.ts`) | no `team-sync` connection is added | `host.env` |
+| Team start-up settings `SECRET_DESK_TEAM_REPO`, `_PATH`, `_BRANCH` (`startupTeamSync`, `teamSyncFromEnv`) | not read; the headless setup is skipped | `host.env` |
+| Remote browser address and viewer address (`AutomationManager`, `viewerUrlFrom`) | variables not read; only `automation.cdpEndpoint` and `automation.viewerUrl` of the configuration apply | `host.env` |
+| Template commands (`exportEnv` with `runCommands`) | not run; the entries stay empty, `skipped` lists them and a warning says why | `host.runCommand` (`supabase status`) |
+| Git ignore check of a written env file (`writeEnvFile`) | not run; `gitIgnored` is `null` | `host.gitCheckIgnored` (`git check-ignore`) |
+| Git remote of a linked folder (`repos.ts`: `setLink`, `scanLocal`, `listRepos`) | not run; no remote is known, `setLink` warns that it cannot be checked, `scanLocal` finds nothing | `host.gitOrigin` (`git remote get-url origin`) |
+
+The single-user local edition passes the Node host explicitly: `createLocalRuntime(path, options)` is `createRuntime` with `nodeRuntimeHost({ env, exec })` (the portal, the CLI and the tests use it). `host-guard.test.ts` fails when a file under `packages/runtime/src` other than `host.ts` reads the process environment or imports `node:child_process`; `portable-modules.test.ts` does the same for the portable part of the core. Not covered by the host capability: file access (the runtime still reads and writes its configuration, inventory, links and state files, and writes env files under `policy.envRoots`) and the browser process that `@secret-desk/automation` starts for local sign-in runs.
+
 ### Injectable cryptography
 
 Two cryptographic operations of the GitHub client can be supplied by the host, so the client also runs where the default implementations are not available or not wanted:
