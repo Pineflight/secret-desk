@@ -5,7 +5,7 @@ import { FakeDriver } from "@secret-desk/automation";
 import { InventoryError, IssuanceError } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
 import { PolicyError } from "../src/agent-api.js";
-import { createRuntime, type Runtime } from "../src/runtime.js";
+import { createLocalRuntime, type Runtime } from "../src/runtime.js";
 import { checkTeamSyncAccess, teamSyncStatus, teamTokenSource } from "../src/team-sync.js";
 import { readTeamTokenRecord, retireTeamToken, writeTeamTokenRecord } from "../src/team-token-meta.js";
 import { rightsCover, teamRights, teamRightsLabels, teamRightsList, teamRightsQuery } from "../src/team-token-rights.js";
@@ -224,7 +224,7 @@ async function setup(opts: { automation?: boolean; teamSync?: string; signedIn?:
     join(dir, "secret-desk.config.yaml"),
     `inventory: ./inventory.yaml\ngithub:\n  owner: acme-org\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\nautomation:\n  enabled: ${opts.automation ?? true}\n${opts.teamSync ?? ""}`,
   );
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
     env: { GH_TEST: MAIN_TOKEN } as unknown as NodeJS.ProcessEnv,
     fetch: fetchMock,

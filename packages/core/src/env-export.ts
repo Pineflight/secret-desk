@@ -1,7 +1,7 @@
 import { assertEntryParams, effectiveParams, integrationDefaultsOf } from "./params.js";
 import { execFile } from "node:child_process";
 import { createECDH, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { ConnectionStore } from "./connections.js";
@@ -187,9 +187,10 @@ const COMMANDS: Record<EnvCommand, { program: string; args: string[] }> = {
 /** Environment names a local command may see: system basics and Docker, never prompt values or provider tokens. */
 const COMMAND_ENV_NAMES = /^(PATH|PATHEXT|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LC_[A-Z]+|TERM|DOCKER_[A-Z_]+|XDG_[A-Z_]+|SystemRoot|ComSpec|APPDATA|LOCALAPPDATA|USERPROFILE)$/;
 
-function commandEnv(): Record<string, string> {
+/** The filtered environment a local program may see (system basics and Docker, never prompt values or provider tokens). */
+export function commandEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) if (value !== undefined && COMMAND_ENV_NAMES.test(name)) out[name] = value;
+  for (const [name, value] of Object.entries(env)) if (value !== undefined && COMMAND_ENV_NAMES.test(name)) out[name] = value;
   return out;
 }
 
@@ -203,7 +204,15 @@ function packageManagerOf(cwd: string): "pnpm" | "yarn" | "npm" {
 /** The repository's own binary (node_modules/.bin/<program>) when it has one, else the program from PATH. */
 function programFor(program: string, cwd: string): string {
   const local = join(cwd, "node_modules", ".bin", program);
-  return existsSync(local) ? local : program;
+  if (!existsSync(local)) return program;
+  // A link that leads out of the folder (a planted node_modules or .bin link) is not the repository's own binary: use PATH.
+  try {
+    return isPathInsideOrSame(realpathSync(cwd), realpathSync(local)) ? local : program;
+  } catch {
+    /* v8 ignore start -- the file was there a moment ago; only a file removed in between gets here */
+    return program;
+    /* v8 ignore stop */
+  }
 }
 
 /**
@@ -230,6 +239,8 @@ export function supabaseStartCommand(cwd: string): string {
  * stack, never the output.
  */
 export function runEnvCommand(command: EnvCommand, cwd: string, options: { timeoutMs?: number } = {}): Promise<Map<string, string>> {
+  // Only the names in COMMANDS exist: nothing a configuration or a request supplies can select another program.
+  if (!Object.prototype.hasOwnProperty.call(COMMANDS, command)) return Promise.reject(new EnvExportError("Unknown template command."));
   const spec = COMMANDS[command];
   const program = programFor(spec.program, cwd);
   return new Promise((res, rej) => {
@@ -400,9 +411,10 @@ export interface WriteEnvResult {
   gitIgnored: boolean | null;
 }
 
-function checkIgnored(path: string): Promise<boolean | null> {
+/** Asks Git whether it ignores `path` (starts `git`): true, false, or null when it cannot be checked. */
+export function gitCheckIgnored(path: string, env?: Record<string, string>): Promise<boolean | null> {
   return new Promise((res) => {
-    execFile("git", ["check-ignore", "-q", path], { cwd: dirname(path), timeout: 5000, windowsHide: true }, (err) => {
+    execFile("git", ["check-ignore", "-q", "--", path], { cwd: dirname(path), timeout: 5000, windowsHide: true, ...(env ? { env } : {}) }, (err) => {
       if (!err) return res(true);
       const code = (err as { code?: number | string }).code;
       res(code === 1 ? false : null);
@@ -411,7 +423,16 @@ function checkIgnored(path: string): Promise<boolean | null> {
 }
 
 /** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
-export async function writeEnvFile(path: string, text: string, options: { overwrite?: boolean; allowedRoots?: string[] } = {}): Promise<WriteEnvResult> {
+export async function writeEnvFile(
+  path: string,
+  text: string,
+  options: {
+    overwrite?: boolean;
+    allowedRoots?: string[];
+    /** How to ask whether Git ignores the written file. Default: `gitCheckIgnored` (starts `git`). A caller without that capability passes a function that answers null. */
+    checkIgnored?: (path: string) => Promise<boolean | null>;
+  } = {},
+): Promise<WriteEnvResult> {
   const problem = localPathProblem(path);
   if (problem) throw new EnvExportError(problem);
   const target = resolve(path);
@@ -429,5 +450,5 @@ export async function writeEnvFile(path: string, text: string, options: { overwr
   if (exists && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
   await mkdir(dirname(target), { recursive: true });
   await writePrivateFile(target, text);
-  return { path: target, gitIgnored: await checkIgnored(target) };
+  return { path: target, gitIgnored: await (options.checkIgnored ?? gitCheckIgnored)(target) };
 }

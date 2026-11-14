@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
-  createRuntime: vi.fn(),
+  createLocalRuntime: vi.fn(),
   planGitHubSync: vi.fn(),
   runGitHubSync: vi.fn(),
   answers: [] as string[],
@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({
 
 vi.mock("@secret-desk/runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@secret-desk/runtime")>()),
-  createRuntime: m.createRuntime,
+  createLocalRuntime: m.createLocalRuntime,
   planGitHubSync: m.planGitHubSync,
   runGitHubSync: m.runGitHubSync,
 }));
@@ -52,7 +52,7 @@ async function run(...args: string[]) {
 }
 
 beforeEach(() => {
-  m.createRuntime.mockReset().mockResolvedValue(RT);
+  m.createLocalRuntime.mockReset().mockResolvedValue(RT);
   m.planGitHubSync.mockReset();
   m.runGitHubSync.mockReset();
   m.answers.length = 0;

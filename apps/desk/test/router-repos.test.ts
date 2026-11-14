@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
@@ -46,7 +46,7 @@ async function setup() {
   execFileSync("git", ["init", "-q"], { cwd: join(projects, "acme-app") });
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  agentStages: [dev]\n  envRoots: [${JSON.stringify(projects)}]\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv, fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" } as unknown as NodeJS.ProcessEnv, fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
   return { deps, repo: join(projects, "acme-app") };
 }

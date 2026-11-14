@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import type { SyncLine, SyncPlan } from "@secret-desk/core";
-import { createRuntime, planGitHubSync, runGitHubSync } from "@secret-desk/runtime";
+import { createLocalRuntime, planGitHubSync, runGitHubSync } from "@secret-desk/runtime";
 import type { Io } from "./index.js";
 
 const REASON: Record<string, string> = {
@@ -34,7 +34,7 @@ export function printSyncPlan(plan: SyncPlan, selected: ReadonlySet<string>, io:
 export async function syncCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, "to-github": { type: "boolean" }, "dry-run": { type: "boolean" }, yes: { type: "boolean" }, repo: { type: "string" } } });
   if (!values.config || !values["to-github"]) throw new Error("sync --to-github --config <datei> [--dry-run] [--yes] [--repo <name>]");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const actor = { kind: "human", name: "cli" } as const;
   const plan = await planGitHubSync(rt, actor, values.repo ? { repo: values.repo } : {});
   const chosen = plan.lines.filter((l) => l.action !== "skip" && l.defaultOn);

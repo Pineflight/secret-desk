@@ -38,7 +38,8 @@ const readText = (file: string): string => {
  * third-party.json (erzeugt von scripts/licenses.mjs). Nur lokale Dateien, kein Netzwerk. `rootDir` = Repository (oder /app im Image).
  */
 export function readAbout(options: { rootDir: string; thirdPartyFile: string; env?: NodeJS.ProcessEnv }): AboutInfo {
-  const env = options.env ?? process.env;
+  // The environment is the caller's to give: without `env` no variable is read (the local entry points pass the process environment).
+  const env = options.env ?? {};
   let pkg: { name?: string; version?: string; description?: string; license?: string; homepage?: string; bugs?: string; repository?: string } = {};
   try {
     pkg = JSON.parse(readText(join(options.rootDir, "package.json"))) as typeof pkg;

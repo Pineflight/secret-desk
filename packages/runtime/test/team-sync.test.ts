@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TeamSyncError, TeamSyncSchema, ensureConfigFile, exportTeamBundle, InventoryStore, readTeamSyncState, ConfigSchema } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
-import { createRuntime, type Runtime } from "../src/runtime.js";
+import { createLocalRuntime, type Runtime } from "../src/runtime.js";
+import { envHost } from "./helpers/env-host.js";
 import {
   MIN_PUSH_INTERVAL_MS,
   applyTeamSync,
@@ -129,7 +130,7 @@ async function setup(opts: { teamSync?: string; inventory?: string; gh?: FakeGit
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${opts.teamSync ?? TEAM_SYNC}`);
   const gh = opts.gh ?? new FakeGitHub();
   const env = { GH_TEST: "gh_main_token_made_up", ...(opts.token === false ? {} : { SECRET_DESK_TEAM_TOKEN: TOKEN }) } as unknown as NodeJS.ProcessEnv;
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
   return { rt, gh, dir };
 }
 const t0 = new Date("2026-03-01T10:00:00Z");
@@ -224,7 +225,7 @@ describe("pull: check", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-ts-"));
     await writeFile(join(dir, "inventory.yaml"), LOCAL_INVENTORY);
     await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${TEAM_SYNC}`);
-    const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "x_made_up", SECRET_DESK_TEAM_TOKEN: "other_token_made_up_9" } as unknown as NodeJS.ProcessEnv, fetch: new FakeGitHub().fetch, bundledRecipes: null });
+    const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "x_made_up", SECRET_DESK_TEAM_TOKEN: "other_token_made_up_9" } as unknown as NodeJS.ProcessEnv, fetch: new FakeGitHub().fetch, bundledRecipes: null });
     await expect(checkTeamSync(rt)).rejects.toThrow(/abgelehnt/);
   });
 
@@ -466,12 +467,12 @@ describe("startup merge", () => {
     const gh = new FakeGitHub();
     gh.setMain(REMOTE_OTHER, "team/desk.yaml");
     const env = { SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: "team/desk.yaml", SECRET_DESK_TEAM_BRANCH: "main", SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv;
-    const rt = await createRuntime(path, { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
     const logs: string[] = [];
     const orig = console.info;
     console.info = (m: unknown) => { logs.push(String(m)); };
     try {
-      await startupTeamSync(rt, env);
+      await startupTeamSync(rt, envHost(env));
     } finally {
       console.info = orig;
     }
@@ -533,7 +534,7 @@ describe("first start: configuration and wizard", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-boot-"));
     const path = join(dir, "config", "secret-desk.config.yaml");
     expect(await ensureConfigFile(path)).toBe(true);
-    const rt = await createRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
     expect(rt.inventory.data.secrets).toEqual([]);
     expect((await readFile(path, "utf8"))).not.toMatch(/token|secret_|ghp_/i);
     expect((await teamSyncStatus(rt)).setupNeeded).toBe(true);
@@ -560,7 +561,7 @@ describe("first start: configuration and wizard", () => {
     await ensureConfigFile(path);
     const gh = new FakeGitHub();
     gh.setMain(REMOTE_OTHER);
-    const rt = await createRuntime(path, { vault: null, env: { SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv, fetch: gh.fetch, bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { vault: null, env: { SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv, fetch: gh.fetch, bundledRecipes: null });
     await setupTeamSync(rt, { repo: "acme/team-config" });
     const written = await readFile(path, "utf8");
     expect(written).toContain("repo: acme/team-config");
@@ -568,7 +569,7 @@ describe("first start: configuration and wizard", () => {
     const c = await checkTeamSync(rt, t0);
     await applyTeamSync(rt, { expectSha: c.remoteSha!, resolution: "merge" }, t0);
     expect(rt.inventory.data.secrets).toHaveLength(2);
-    const reopened = await createRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
+    const reopened = await createLocalRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
     expect(reopened.config.teamSync?.repo).toBe("acme/team-config");
     expect((await teamSyncStatus(rt)).setupNeeded).toBe(false);
   });
@@ -577,7 +578,7 @@ describe("first start: configuration and wizard", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-wiz-"));
     const path = join(dir, "c.yaml");
     await ensureConfigFile(path);
-    const rt = await createRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
     expect(previewTeamText(rt, REMOTE_OTHER).sections.secrets.added).toEqual(["hmac-app", "api-key"]);
     expect(rt.inventory.data.secrets).toHaveLength(0);
   });
@@ -586,7 +587,7 @@ describe("first start: configuration and wizard", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-wiz-"));
     const path = join(dir, "c.yaml");
     await ensureConfigFile(path);
-    const rt = await createRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { vault: null, env: {} as NodeJS.ProcessEnv, bundledRecipes: null });
     expect((await teamSyncStatus(rt)).setupNeeded).toBe(true);
     await dismissTeamSetup(rt);
     expect((await teamSyncStatus(rt)).setupNeeded).toBe(false);
@@ -606,8 +607,8 @@ describe("first start: configuration and wizard", () => {
     const gh = new FakeGitHub();
     gh.setMain(REMOTE_OTHER, "team/desk.yaml");
     const env = { SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: "team/desk.yaml", SECRET_DESK_TEAM_BRANCH: "main", SECRET_DESK_TEAM_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv;
-    const rt = await createRuntime(path, { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
-    await startupTeamSync(rt, env);
+    const rt = await createLocalRuntime(path, { vault: null, env, fetch: gh.fetch, bundledRecipes: null });
+    await startupTeamSync(rt, envHost(env));
     expect(rt.config.teamSync).toMatchObject({ repo: "acme/team-config", path: "team/desk.yaml" });
     expect(rt.inventory.data.secrets).toHaveLength(2);
     const text = await readFile(path, "utf8");
@@ -618,17 +619,17 @@ describe("first start: configuration and wizard", () => {
   it("start with pullOnStart only looks (nothing is taken over) and errors never abort the start", async () => {
     const { rt, gh } = await setup({ inventory: "version: 1\nsecrets: []\nvariables: []\n" });
     gh.setMain(REMOTE_OTHER);
-    await startupTeamSync(rt, {} as NodeJS.ProcessEnv);
+    await startupTeamSync(rt, envHost({}));
     expect(rt.inventory.data.secrets).toHaveLength(0);
     expect((await teamSyncStatus(rt)).lastCheck?.state).toBe("remote-new");
     gh.fail = { status: 403 };
-    await startupTeamSync(rt, {} as NodeJS.ProcessEnv);
+    await startupTeamSync(rt, envHost({}));
     expect((await teamSyncStatus(rt)).lastError).toMatch(/Rechte/);
   });
 
   it("pullOnStart false does not call GitHub", async () => {
     const { rt, gh } = await setup({ teamSync: "teamSync:\n  repo: acme/team-config\n  pullOnStart: false\n" });
-    await startupTeamSync(rt, {} as NodeJS.ProcessEnv);
+    await startupTeamSync(rt, envHost({}));
     expect(gh.calls).toEqual([]);
   });
 });

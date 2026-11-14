@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getConnectionResources, putConnectionDefaults } from "../src/params.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const TOKEN = "gh_connection_token_made_up_1";
 
@@ -11,7 +11,7 @@ async function setup(automation: boolean) {
   const dir = await mkdtemp(join(tmpdir(), "sd-connres-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nautomation:\n  enabled: ${automation}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\nteamSync:\n  repo: acme/team-config\n`);
-  return createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: TOKEN, SECRET_DESK_TEAM_TOKEN: "team_token_made_up_2" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  return createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: TOKEN, SECRET_DESK_TEAM_TOKEN: "team_token_made_up_2" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
 }
 const human = { kind: "human", name: "tester" } as const;
 
@@ -64,7 +64,7 @@ describe("connection resources use saved integration defaults", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-connres-grafana-"));
     await writeFile(join(dir, "inventory.yaml"), inventory);
     await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nautomation:\n  enabled: true\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-    return createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: TOKEN } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+    return createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: TOKEN } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
   }
 
   it("grafana service accounts get baseUrl from the integration defaults", async () => {

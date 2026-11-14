@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compareStages } from "../src/compare.js";
 import { listRepos, renameInventoryRepo, setLink } from "../src/repos.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
 secrets:
@@ -59,7 +59,7 @@ async function setup(spec: Spec, opts: { projects?: boolean } = {}) {
   await mkdir(projects);
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  envRoots: [${JSON.stringify(projects)}]\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
   return { rt, calls, projects, dir, max: () => maxInflight };
 }
 const sec = (...n: string[]) => ({ secrets: n.map((name) => ({ name, created_at: "c", updated_at: "u" })) });

@@ -110,7 +110,80 @@ describe("nodeConnectionHost", () => {
       return "  out-made-up\n";
     });
     expect(await host.readReference?.("op://a/b/c")).toBe("  out-made-up\n");
-    expect(calls).toEqual([["op", ["read", "op://a/b/c"]]]);
+    expect(calls).toEqual([["op", ["read", "--", "op://a/b/c"]]]);
+  });
+
+  it("an env source finds only own string properties, never inherited members", () => {
+    const host = nodeConnectionHost({ MADE_UP_HOST_VAR: "value-made-up", EMPTY_VAR: "" });
+    for (const name of ["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf", "isPrototypeOf"]) {
+      expect(host.env?.(name), name).toBeUndefined();
+    }
+    expect(host.env?.("EMPTY_VAR")).toBe("");
+    expect(host.env?.("MADE_UP_HOST_VAR")).toBe("value-made-up");
+  });
+
+  it("an own property that is not a string counts as not set", () => {
+    const env = { OWN_FUNCTION: () => "made-up", OWN_NUMBER: 7, OWN_UNDEFINED: undefined } as unknown as NodeJS.ProcessEnv;
+    const host = nodeConnectionHost(env);
+    expect(host.env?.("OWN_FUNCTION")).toBeUndefined();
+    expect(host.env?.("OWN_NUMBER")).toBeUndefined();
+    expect(host.env?.("OWN_UNDEFINED")).toBeUndefined();
+  });
+
+  it("an own property named like an inherited member is still found when it is a string", () => {
+    const env: NodeJS.ProcessEnv = {};
+    Object.defineProperty(env, "toString", { value: "own-made-up", enumerable: true });
+    Object.defineProperty(env, "__proto__", { value: "own-proto-made-up", enumerable: true });
+    const host = nodeConnectionHost(env);
+    expect(host.env?.("toString")).toBe("own-made-up");
+    expect(host.env?.("__proto__")).toBe("own-proto-made-up");
+  });
+
+  it.each(["toString", "constructor", "__proto__", "hasOwnProperty"])("a source named %s on the store is not set and yields no value", async (name) => {
+    const store = new ConnectionStore({ specs: { svc: { type: "env", name } }, env: { OTHER: "value-made-up" }, now: NOW });
+    expect((await failure(store.token("svc"))).hint).toBe(`Umgebungsvariable ${name} ist nicht gesetzt.`);
+    expect(await store.status("svc")).toEqual({ id: "svc", connected: false, source: "env", hint: `${name} fehlt` });
+  });
+
+  it("the store also ignores a host that answers with something that is not a string", async () => {
+    const host = { label: "t", env: () => (() => "made-up") as unknown as string };
+    const store = new ConnectionStoreCore({ specs: ENV_SPEC, host, now: NOW });
+    expect((await failure(store.token("svc"))).hint).toBe("Umgebungsvariable MADE_UP_HOST_VAR ist nicht gesetzt.");
+    expect(await store.status("svc")).toMatchObject({ connected: false });
+  });
+
+  it.each(["-", "--", "-h", "--config=made-up", "--help", "", "OP://a/b/c", " op://a/b/c", "https://made-up.example/x", "a/b/c"])("readReference refuses %j before a process is started", async (ref) => {
+    const exec = vi.fn(async () => "never");
+    const host = nodeConnectionHost({}, exec);
+    const err = await host.readReference?.(ref).then(() => null, (e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect(exec).not.toHaveBeenCalled();
+    if (ref !== "") expect(err?.message).not.toContain(ref);
+  });
+
+  it("readReference refuses a value that is not text", async () => {
+    const exec = vi.fn(async () => "never");
+    const host = nodeConnectionHost({}, exec);
+    await expect(host.readReference?.(undefined as unknown as string)).rejects.toBeInstanceOf(Error);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("a refused reference becomes the usual hint through the store, without starting op", async () => {
+    const exec = vi.fn(async () => "never");
+    const store = new ConnectionStore({ specs: { svc: { type: "op", ref: "--made-up-flag" } }, exec, now: NOW });
+    expect((await failure(store.token("svc"))).hint).toContain("konnte nicht gelesen werden");
+    expect(await store.status("svc")).toMatchObject({ connected: false, source: "op" });
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("a reference that starts with op:// but looks like an option after it is passed after --", async () => {
+    const calls: string[][] = [];
+    const host = nodeConnectionHost({}, async (_file, args) => {
+      calls.push(args);
+      return "ok-made-up";
+    });
+    await host.readReference?.("op://--made-up/-item/field");
+    expect(calls).toEqual([["read", "--", "op://--made-up/-item/field"]]);
   });
 
   it("the default exec rejects when the op binary is missing", async () => {
@@ -148,7 +221,7 @@ describe("ConnectionStore keeps its old options", () => {
     const store = new ConnectionStore({ specs: OP_SPEC, exec, now: NOW });
     expect((await store.token("svc")).reveal()).toBe("out-made-up");
     expect(await store.status("svc")).toEqual({ id: "svc", connected: true, source: "op" });
-    expect(calls[0]).toEqual(["op", ["read", "op://made-up-vault/made-up-item/made-up-field"]]);
+    expect(calls[0]).toEqual(["op", ["read", "--", "op://made-up-vault/made-up-item/made-up-field"]]);
   });
 
   it("an explicit host wins over env and exec", async () => {

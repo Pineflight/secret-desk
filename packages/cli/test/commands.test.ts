@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fake runtime: the command wiring (arguments, output text, exit codes) is under test, not the runtime itself.
 const m = vi.hoisted(() => ({
-  createRuntime: vi.fn(),
+  createLocalRuntime: vi.fn(),
   listSecrets: vi.fn(),
   listVariables: vi.fn(),
   inspectVariableLive: vi.fn(),
@@ -33,7 +33,7 @@ const m = vi.hoisted(() => ({
 
 vi.mock("@secret-desk/runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@secret-desk/runtime")>()),
-  createRuntime: m.createRuntime,
+  createLocalRuntime: m.createLocalRuntime,
   listSecrets: m.listSecrets,
   listVariables: m.listVariables,
   inspectVariableLive: m.inspectVariableLive,
@@ -84,7 +84,7 @@ beforeEach(() => {
   for (const fn of Object.values(m)) if (typeof fn === "function") (fn as ReturnType<typeof vi.fn>).mockReset();
   m.answers.length = 0;
   m.questions.length = 0;
-  m.createRuntime.mockResolvedValue(RT);
+  m.createLocalRuntime.mockResolvedValue(RT);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -124,7 +124,7 @@ describe("help and dispatch", () => {
   });
 
   it("an error thrown by a command ends with exit 2 and a message", async () => {
-    m.createRuntime.mockRejectedValue(new Error("config broken"));
+    m.createLocalRuntime.mockRejectedValue(new Error("config broken"));
     const r = await run("status", "--config", "c.yaml");
     expect(r).toMatchObject({ code: 2, err: "Fehler: config broken" });
   });
@@ -214,11 +214,11 @@ describe("check", () => {
   it("uses the real date without --today and takes the inventory from --config", async () => {
     const path = await file(inventory(secret("old-key", "2020-01-01")));
     const { InventoryStore } = await import("@secret-desk/core");
-    m.createRuntime.mockResolvedValue({ inventory: await InventoryStore.open(path) });
+    m.createLocalRuntime.mockResolvedValue({ inventory: await InventoryStore.open(path) });
     const r = await run("check", "--config", "c.yaml");
     expect(r.code).toBe(1);
     expect(r.out).toContain("[expired] OLD_KEY");
-    expect(m.createRuntime).toHaveBeenCalledWith("c.yaml");
+    expect(m.createLocalRuntime).toHaveBeenCalledWith("c.yaml");
   });
 
   it("a due secret also exits 1", async () => {
@@ -761,7 +761,7 @@ describe("env export (template mode)", () => {
   });
 
   it("exports the dev template of the repository and never prints a value", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web"), tpl("web-staging", "web", "staging")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web"), tpl("web-staging", "web", "staging")]));
     m.exportEnv.mockResolvedValue(written());
     const r = await run(...base, "--repo", "web");
     expect(m.exportEnv).toHaveBeenCalledTimes(1);
@@ -772,24 +772,24 @@ describe("env export (template mode)", () => {
 
   it("the stage of the first dev stage of the inventory is used, 'dev' when there is none, --stage wins", async () => {
     m.exportEnv.mockResolvedValue(written());
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-local", "web", "local")], [{ id: "prod", kind: "live" }, { id: "local", kind: "dev" }]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-local", "web", "local")], [{ id: "prod", kind: "live" }, { id: "local", kind: "dev" }]));
     expect((await run(...base, "--repo", "web")).code).toBe(0);
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web", "dev")], []));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web", "dev")], []));
     expect((await run(...base, "--repo", "web")).code).toBe(0);
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-staging", "web", "staging")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-staging", "web", "staging")]));
     expect((await run(...base, "--repo", "web", "--stage", "staging")).code).toBe(0);
     expect(m.exportEnv.mock.calls.map((c) => c[2].stage)).toEqual(["local", "dev", "staging"]);
   });
 
   it("--template picks a template by id; --out, --overwrite and --no-commands are passed on", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web"), tpl("api-dev", "api")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web"), tpl("api-dev", "api")]));
     m.exportEnv.mockResolvedValue(written());
     await run(...base, "--template", "api-dev", "--out", "out/.env", "--overwrite", "--no-commands");
     expect(m.exportEnv.mock.calls[0]![2]).toMatchObject({ repo: "api", template: "api-dev", path: "out/.env", overwrite: true, runCommands: false });
   });
 
   it("reports a missing template by id and a repository without a dev template", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
     const byId = await run(...base, "--template", "nope");
     expect(byId).toMatchObject({ code: 1 });
     expect(byId.err).toBe("Error: no dev template for nope.");
@@ -802,14 +802,14 @@ describe("env export (template mode)", () => {
   it("collects prompt values from --prompt and SECRET_DESK_PROMPT_<KEY>; malformed or empty ones are ignored", async () => {
     vi.stubEnv("SECRET_DESK_PROMPT_FROM_ENV", "env-value");
     vi.stubEnv("SECRET_DESK_PROMPT_EMPTY", "");
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
     m.exportEnv.mockResolvedValue(written());
     await run(...base, "--repo", "web", "--prompt", "KEY=a=b", "--prompt", "noequals", "--prompt", "=novalue", "--prompt", "EMPTY_OK=");
     expect(m.exportEnv.mock.calls[0]![2].prompts).toEqual({ KEY: "a=b", EMPTY_OK: "", FROM_ENV: "env-value" });
   });
 
   it("an entry that needs input is reported on stderr and the exit code is 1; the other repositories still run", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("a-dev", "a"), tpl("b-dev", "b")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("a-dev", "a"), tpl("b-dev", "b")]));
     m.exportEnv.mockResolvedValueOnce({ status: "needs-input", keys: ["STRIPE_KEY", "MAPS_KEY"] }).mockResolvedValueOnce(written());
     const r = await run(...base, "--repo", "a", "--repo", "b");
     expect(r.code).toBe(1);
@@ -818,7 +818,7 @@ describe("env export (template mode)", () => {
   });
 
   it("lists keys left empty and warnings (translated)", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
     m.exportEnv.mockResolvedValue(written({ keys: ["A", "B", "C"], skipped: ["B"], warnings: ["Datei ist nicht in .gitignore"] }));
     const r = await run(...base, "--repo", "web");
     expect(r.out).toBe("written: /work/.env.local (2 of 3 keys set, mode 600)\n  left empty: B");
@@ -828,7 +828,7 @@ describe("env export (template mode)", () => {
 
   it("orders templates so that a referenced template runs first and shares its values", async () => {
     const ref = { key: "TOKEN", from: { type: "ref", template: "b-dev", key: "T" } };
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("a-dev", "a", "dev", [ref]), tpl("b-dev", "b")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("a-dev", "a", "dev", [ref]), tpl("b-dev", "b")]));
     m.exportEnv.mockResolvedValue(written());
     await run(...base, "--repo", "a", "--repo", "b");
     expect(m.exportEnv.mock.calls.map((c) => c[2].template)).toEqual(["b-dev", "a-dev"]);
@@ -836,7 +836,7 @@ describe("env export (template mode)", () => {
   });
 
   it("an error from the runtime is translated and ends with exit 2", async () => {
-    m.createRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
+    m.createLocalRuntime.mockResolvedValue(fakeRuntime([tpl("web-dev", "web")]));
     m.exportEnv.mockRejectedValue(new Error("boom"));
     const r = await run(...base, "--repo", "web");
     expect(r).toMatchObject({ code: 2 });

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitHubClient, GitHubError, GitHubInputError, InventoryError, NotConnectedError, TeamBundleError, TeamSyncError, exportTeamBundle, textHash } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
+import { envHost } from "./helpers/env-host.js";
 import { applyTeamSync, checkTeamSync, checkTeamSyncAccess, mapTeamSyncError, pushTeamSync, setupTeamSync, startupTeamSync, teamSyncFromEnv, teamTokenSource } from "../src/team-sync.js";
 
 afterEach(() => {
@@ -24,7 +25,7 @@ async function setup(opts: { teamSync?: string; inventory?: string; token?: bool
   const auth = opts.app ? '{ type: app, appId: "123", privateKey: { type: env, name: APP_KEY } }' : "{ type: pat, source: { type: env, name: GH_TEST } }";
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: ${auth}\n${opts.teamSync ?? "teamSync:\n  repo: acme/team-config\n  mode: pull-push\n"}`);
   const env = { ...(opts.app ? {} : { GH_TEST: "gh_main_token_made_up" }), ...(opts.token === false ? {} : { SECRET_DESK_TEAM_TOKEN: TOKEN }) } as unknown as NodeJS.ProcessEnv;
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env, bundledRecipes: null });
   return { rt, dir };
 }
 
@@ -176,15 +177,15 @@ describe("setup", () => {
 
 describe("environment variables", () => {
   it("returns only what is set", () => {
-    expect(teamSyncFromEnv({} as NodeJS.ProcessEnv)).toBeNull();
-    expect(teamSyncFromEnv({ SECRET_DESK_TEAM_REPO: " acme/team-config " } as unknown as NodeJS.ProcessEnv)).toEqual({ repo: "acme/team-config" });
-    expect(teamSyncFromEnv({ SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: " a/b.yaml ", SECRET_DESK_TEAM_BRANCH: " dev " } as unknown as NodeJS.ProcessEnv)).toEqual({ repo: "acme/team-config", path: "a/b.yaml", branch: "dev" });
+    expect(teamSyncFromEnv(envHost({}))).toBeNull();
+    expect(teamSyncFromEnv(envHost({ SECRET_DESK_TEAM_REPO: " acme/team-config " }))).toEqual({ repo: "acme/team-config" });
+    expect(teamSyncFromEnv(envHost({ SECRET_DESK_TEAM_REPO: "acme/team-config", SECRET_DESK_TEAM_PATH: " a/b.yaml ", SECRET_DESK_TEAM_BRANCH: " dev " }))).toEqual({ repo: "acme/team-config", path: "a/b.yaml", branch: "dev" });
   });
 });
 
 describe("startup", () => {
   it("headless setup without a token or with a non-empty inventory does not take anything over", async () => {
-    const env = { SECRET_DESK_TEAM_REPO: "acme/team-config" } as unknown as NodeJS.ProcessEnv;
+    const env = envHost({ SECRET_DESK_TEAM_REPO: "acme/team-config" });
     const noToken = await setup({ teamSync: "", inventory: EMPTY, token: false, app: true });
     const checkSpy = vi.spyOn(GitHubClient.prototype, "getContentFile");
     await startupTeamSync(noToken.rt, env);
@@ -198,7 +199,7 @@ describe("startup", () => {
   it("headless setup leaves a repository state alone that is neither new nor changed", async () => {
     const { rt } = await setup({ teamSync: "", inventory: EMPTY });
     memoryGitHub({ file: null });
-    await startupTeamSync(rt, { SECRET_DESK_TEAM_REPO: "acme/team-config" } as unknown as NodeJS.ProcessEnv);
+    await startupTeamSync(rt, envHost({ SECRET_DESK_TEAM_REPO: "acme/team-config" }));
     expect(rt.inventory.data.secrets).toEqual([]);
     expect(rt.teamSyncMemo.lastCheck).toMatchObject({ state: "missing-remote" });
   });
@@ -210,7 +211,7 @@ describe("startup after an earlier sync", () => {
     await writeFile(join(dir, ".secret-desk-team-sync.json"), JSON.stringify({ remoteSha: "old-sha", localHash: textHash(exportTeamBundle(rt.inventory.data)) }));
     memoryGitHub({ file: { text: LOCAL, sha: "new-sha" } });
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    await startupTeamSync(rt, { SECRET_DESK_TEAM_REPO: "acme/team-config" } as unknown as NodeJS.ProcessEnv);
+    await startupTeamSync(rt, envHost({ SECRET_DESK_TEAM_REPO: "acme/team-config" }));
     expect(rt.inventory.data.secrets.map((x) => x.id)).toEqual(["hmac-app"]);
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/^team sync startup: applied 1 new entries \(hmac-app\)/));
   });

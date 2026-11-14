@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
@@ -14,7 +14,7 @@ async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "sd-settings-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\n");
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nserver: { port: 4747 }\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: ${ENV_NAME} } }\nconnections:\n  cloudflare: { type: env, name: CF_SETTINGS_TEST }\npolicy:\n  agentStages: [dev, production]\n  envRoots: [${JSON.stringify(join(dir, "wurzel"))}]\n`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { [ENV_NAME]: GITHUB_TOKEN, CF_SETTINGS_TEST: "cf_geheim_wert_settings_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { [ENV_NAME]: GITHUB_TOKEN, CF_SETTINGS_TEST: "cf_geheim_wert_settings_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
   const deps: RouterDeps = { rt, session: new PortalSession(), agentToken: AGENT_TOKEN, hosts: allowedHosts(4747) };
   return { deps, dir };
 }

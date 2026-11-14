@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } f
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { parseEnvText } from "@secret-desk/core";
-import { createRuntime, exportEnv } from "@secret-desk/runtime";
+import { createLocalRuntime, exportEnv } from "@secret-desk/runtime";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main, orderTemplatesByRefs } from "../src/index.js";
 
@@ -160,7 +160,7 @@ describe.skipIf(process.platform === "win32")("exportEnv: target and commands", 
     const t = await setup();
     process.env.PATH = `${t.bin}${delimiter}${oldPath ?? ""}`;
     await writeFile(join(t.dir, "links.json"), JSON.stringify({ version: 1, links: {} }));
-    const rt = await createRuntime(t.config, { vault: null });
+    const rt = await createLocalRuntime(t.config, { vault: null });
     const fallback = join(t.dir, "cwd");
     const r = await exportEnv(rt, { kind: "human", name: "cli" }, { repo: "landing", fallbackDir: fallback });
     expect(r).toMatchObject({ status: "written", path: join(fallback, "apps", "web", ".env.local") });
@@ -185,7 +185,7 @@ describe.skipIf(process.platform === "win32")("exportEnv: agent policy", () => {
     const t = await setup();
     const text = await readFile(join(t.dir, "inventory.yaml"), "utf8");
     await writeFile(join(t.dir, "inventory.yaml"), `${text}  - id: staging-tpl\n    repo: landing\n    stage: staging\n    entries:\n      - { key: A, from: { type: generate } }\n`);
-    const rt = await createRuntime(t.config, { vault: null });
+    const rt = await createLocalRuntime(t.config, { vault: null });
     await expect(exportEnv(rt, { kind: "agent", name: "mcp" }, { repo: "landing", template: "staging-tpl", path: join(t.dir, ".env.x") })).rejects.toThrow(/Agenten duerfen fuer staging keine \.env erzeugen/);
   });
 });

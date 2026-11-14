@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeDriver } from "@secret-desk/automation";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { describe, expect, it } from "vitest";
 import { route, type RouterDeps } from "../src/server/router.js";
 import { PortalSession, allowedHosts } from "../src/server/security.js";
@@ -27,7 +27,7 @@ async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "sd-tt-router-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
   await writeFile(join(dir, "secret-desk.config.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme-org\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
     env: { GH_TEST: "gh_main_made_up" } as unknown as NodeJS.ProcessEnv,
     fetch: fetchMock,

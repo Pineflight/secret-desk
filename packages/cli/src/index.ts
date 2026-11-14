@@ -19,7 +19,7 @@ import {
   addVariable,
   applyNormalizationChanges,
   confirmIssuance,
-  createRuntime,
+  createLocalRuntime,
   exportEnv,
   translateEn,
   getNormalizationPlan,
@@ -96,7 +96,7 @@ Aufruf: secret-desk <befehl> [optionen]
 /** Angaben zu dieser Installation (Repository liegt zwei Ordner ueber dist/ von packages/cli). */
 function aboutInfo() {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
-  return readAbout({ rootDir: root, thirdPartyFile: join(root, "apps", "desk", "third-party.json") });
+  return readAbout({ rootDir: root, thirdPartyFile: join(root, "apps", "desk", "third-party.json"), env: process.env });
 }
 
 export async function main(argv: string[], io: Io = defaultIo): Promise<number> {
@@ -121,7 +121,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "doctor": {
         const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
         if (!values.config) throw new Error("doctor --config <datei>");
-        const findings = await runDoctor(await createRuntime(values.config));
+        const findings = await runDoctor(await createLocalRuntime(values.config));
         for (const f of findings) io.out(`[${f.status.padEnd(4)}] ${f.label}${f.detail ? `  (${f.detail})` : ""}`);
         const bad = findings.filter((f) => f.status === "fail").length;
         io.out(bad === 0 ? "Bereit fuer den Probelauf." : `${bad} Problem(e) beheben, dann erneut ausfuehren.`);
@@ -195,7 +195,7 @@ function describeChange(c: NormalizationChange): string {
 async function normalizeCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, apply: { type: "string" }, yes: { type: "boolean" } } });
   if (!values.config) throw new Error("inventory normalize --config <datei> [--apply all|<id>,<id>...] [--yes]");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const plan = getNormalizationPlan(rt);
   if (plan.changes.length === 0) {
     io.out("Nichts zu vereinheitlichen.");
@@ -246,7 +246,7 @@ function usage(io: Io): number {
 
 async function loadStore(values: { inventory?: string | undefined; config?: string | undefined }): Promise<InventoryStore> {
   if (values.inventory) return InventoryStore.open(values.inventory);
-  if (values.config) return (await createRuntime(values.config)).inventory;
+  if (values.config) return (await createLocalRuntime(values.config)).inventory;
   throw new Error("--inventory <datei> oder --config <datei> angeben");
 }
 
@@ -266,7 +266,7 @@ async function check(args: string[], io: Io): Promise<number> {
 async function status(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, stage: { type: "string" }, repo: { type: "string" }, live: { type: "boolean" } } });
   if (!values.config) throw new Error("--config <datei> angeben");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const stage = values.stage ? StageSchema.parse(values.stage) : undefined;
   const rows = await listSecrets(rt, { ...(stage ? { stage } : {}), ...(values.repo ? { repo: values.repo } : {}), ...(values.live ? { live: true } : {}) });
   for (const r of rows) {
@@ -286,7 +286,7 @@ async function renew(args: string[], io: Io): Promise<number> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { config: { type: "string" }, "dry-run": { type: "boolean" }, yes: { type: "boolean" } } });
   const id = positionals[0];
   if (!id || !values.config) throw new Error("renew <id> --config <datei>");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const actor = { kind: "human", name: "cli" } as const;
   const r = await requestIssuance(rt, actor, id, { dryRun: Boolean(values["dry-run"]) });
   if (r.status === "dry-run") {
@@ -334,7 +334,7 @@ async function varsCmd(args: string[], io: Io): Promise<number> {
     options: { config: { type: "string" }, stage: { type: "string" }, repo: { type: "string" }, value: { type: "string" }, "ack-public": { type: "boolean" }, id: { type: "string" }, name: { type: "string" }, place: { type: "string", multiple: true } },
   });
   if (!values.config) throw new Error("--config <datei> angeben");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const actor = { kind: "human", name: "cli" } as const;
   const ack = { acknowledgedPublic: Boolean(values["ack-public"]) };
   const id = positionals[0];
@@ -430,7 +430,7 @@ async function envExport(args: string[], io: Io): Promise<number> {
   if (!values.config || (repos.length === 0 && !values.template)) throw new Error("env export --config <file> --repo <repo> [--repo <repo>]... [--template <id>] [--out <path>] [--overwrite] [--prompt KEY=VALUE]... [--no-commands]");
   if (values.out && repos.length > 1) throw new Error("--out works with a single --repo only.");
   try {
-    const rt = await createRuntime(values.config);
+    const rt = await createLocalRuntime(values.config);
     const prompts: Record<string, string> = {};
     for (const p of values.prompt ?? []) {
       const i = p.indexOf("=");
@@ -478,7 +478,7 @@ async function envExport(args: string[], io: Io): Promise<number> {
 async function teamExportCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, out: { type: "string" } } });
   if (!values.config) throw new Error("team export --config <datei>");
-  const text = teamExport(await createRuntime(values.config));
+  const text = teamExport(await createLocalRuntime(values.config));
   if (values.out) {
     await writeFile(values.out, text, "utf8");
     io.out(`geschrieben: ${values.out}`);
@@ -509,7 +509,7 @@ const diffLines = (diff: { sections: Record<string, { added: string[]; changed: 
 async function teamStatusCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" } } });
   if (!values.config) throw new Error("team status --config <datei>");
-  const s = await teamSyncStatus(await createRuntime(values.config));
+  const s = await teamSyncStatus(await createLocalRuntime(values.config));
   io.out(s.configured ? `Repository: ${s.repo} (${s.path}, Zweig ${s.branch}), Modus ${s.mode}, verbunden: ${s.connected ? "ja" : "nein"}, letzter Abgleich: ${s.lastSyncAt ?? "nie"}` : "Team-Sync ist nicht eingerichtet.");
   return 0;
 }
@@ -517,7 +517,7 @@ async function teamStatusCmd(args: string[], io: Io): Promise<number> {
 async function teamPullCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, apply: { type: "string" }, "confirm-replace": { type: "boolean" } } });
   if (!values.config) throw new Error("team pull --config <datei> [--apply merge|replace|keep-local]");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const check = await checkTeamSync(rt);
   io.out(`Stand: ${check.state}`);
   if (check.diff) for (const l of diffLines(check.diff)) io.out(l);
@@ -532,7 +532,7 @@ async function teamPullCmd(args: string[], io: Io): Promise<number> {
 async function teamPushCmd(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" }, yes: { type: "boolean" } } });
   if (!values.config) throw new Error("team push --config <datei> [--yes]");
-  const rt = await createRuntime(values.config);
+  const rt = await createLocalRuntime(values.config);
   const plan = await planTeamPush(rt);
   io.out(`Ziel: ${plan.targetBranch} (${plan.strategy})`);
   for (const l of diffLines(plan.diff)) io.out(l);

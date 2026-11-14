@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeDriver, describeSelector } from "@secret-desk/automation";
-import { createRuntime } from "../../src/runtime.js";
+import { createLocalRuntime } from "../../src/runtime.js";
 
 /** Made-up values: nothing here is a real key. They must never show up in a report or a log line. */
 export const FAKE_TOKEN = "sk-admin-MADEUPLIVECHECKVALUE0001";
@@ -174,7 +174,7 @@ export async function setup(opts: SetupOptions = {}) {
     fetchCalls.push({ url: String(url), method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined, redirect: init?.redirect });
     return baseFetch(url, init);
   }) as unknown as typeof fetch;
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), {
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), {
     vault: null,
     env: (opts.env ?? {}) as unknown as NodeJS.ProcessEnv,
     fetch: recordingFetch,

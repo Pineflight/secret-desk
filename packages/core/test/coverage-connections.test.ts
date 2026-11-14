@@ -84,14 +84,14 @@ describe("token", () => {
     const calls: unknown[][] = [];
     const ok = store({ specs, exec: async (f, a) => { calls.push([f, a]); return "  from-op\n"; } });
     expect((await ok.token("gh")).reveal()).toBe("from-op");
-    expect(calls).toEqual([["op", ["read", "op://vault/item/field"]]]);
+    expect(calls).toEqual([["op", ["read", "--", "op://vault/item/field"]]]);
     expect(await hintOf(store({ specs, exec: async () => "  " }).token("gh"))).toContain("konnte nicht gelesen werden");
     expect(await hintOf(store({ specs, exec: async () => { throw new Error("not signed in"); } }).token("gh"))).toContain("op://vault/item/field");
   });
 
   it.skipIf(process.platform === "win32")("without an injected exec it runs the real op binary", async () => {
     const bin = await mkdtemp(join(tmpdir(), "sd-cov-op-"));
-    await writeFile(join(bin, "op"), '#!/bin/sh\nif [ "$2" = "op://good" ]; then echo from-real-op; else exit 1; fi\n', { mode: 0o755 });
+    await writeFile(join(bin, "op"), '#!/bin/sh\nif [ "$2" = "--" ] && [ "$3" = "op://good" ]; then echo from-real-op; else exit 1; fi\n', { mode: 0o755 });
     vi.stubEnv("PATH", `${bin}${delimiter}${process.env.PATH}`);
     expect((await new ConnectionStore({ specs: { gh: { type: "op", ref: "op://good" } } }).token("gh")).reveal()).toBe("from-real-op");
     expect(await hintOf(new ConnectionStore({ specs: { gh: { type: "op", ref: "op://bad" } } }).token("gh"))).toContain("konnte nicht gelesen werden");

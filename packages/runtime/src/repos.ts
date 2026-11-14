@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, rename, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { GitHubError, githubPlacesOf, InventoryError, NotConnectedError, ensurePrivateDir, expandHome as expandHomeCore, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
+import { GitHubError, githubPlacesOf, InventoryError, NotConnectedError, ensurePrivateDir, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
+import { HostCapabilityError, expandHomeFor, hostHome, type RuntimeHost } from "./host.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -57,12 +56,20 @@ export interface ScanSuggestion {
   linked: boolean;
 }
 
-export function expandHome(p: string): string {
-  return expandHomeCore(p, homedir());
+/** `~` is the home folder of the host; without one a `~` path is refused with a `HostCapabilityError` (never the home of the process). */
+export function expandHome(p: string, host?: RuntimeHost): string {
+  return expandHomeFor(host, p);
 }
 
+/**
+ * Where the links file lives: `linksFile` of the configuration, else `.secret-desk/repo-links.json` in the home folder of the host.
+ * Without a home folder there is no default location and the call is refused with a `HostCapabilityError`.
+ */
 export function linksPath(rt: Runtime): string {
-  return resolve(expandHome(rt.config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json")));
+  if (rt.config.linksFile) return resolve(expandHome(rt.config.linksFile, rt.host));
+  const home = hostHome(rt.host);
+  if (!home) throw new HostCapabilityError("homeDir", "Kein Ablageort fuer die Verknuepfungen: linksFile in der Konfiguration angeben oder einen Host mit Home-Ordner uebergeben.");
+  return resolve(join(home, ".secret-desk", "repo-links.json"));
 }
 
 /** Zerlegt eine Git-Remote-URL (https, ssh, scp-Form) in Eigentuemer und Name. */
@@ -77,13 +84,15 @@ function remoteMatches(url: string | null, owner: string, name: string): boolean
   return p !== null && p.owner.toLowerCase() === owner.toLowerCase() && p.repo.toLowerCase() === name.toLowerCase();
 }
 
-function gitOrigin(dir: string): Promise<string | null> {
-  return new Promise((res) => {
-    execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, out) => {
-      const url = err ? "" : String(out).trim();
-      res(url || null);
-    });
-  });
+/**
+ * The URL of `origin` of a working folder, asked through the host of the runtime. Without a host (or a host without `gitOrigin`)
+ * no process is started and the answer is null, the same as "no remote": the check is not available, never done on the side.
+ */
+async function gitOrigin(rt: Runtime, dir: string): Promise<string | null> {
+  const ask = rt.host?.gitOrigin;
+  if (!ask) return null;
+  const url: unknown = await ask.call(rt.host, dir);
+  return typeof url === "string" && url !== "" ? url : null;
 }
 
 const isDir = (p: string): Promise<boolean> => stat(p).then((s) => s.isDirectory(), () => false);
@@ -100,9 +109,14 @@ async function real(p: string): Promise<string> {
 // Echt unterhalb (nicht gleich); auf Windows ohne Gross-/Kleinschreibung, Laufwerke muessen passen. Beide Seiten kommen aus `real`.
 const strictlyBelow = (base: string, p: string): boolean => isPathInside(base, p);
 
-/** Erlaubte Wurzeln fuer Verknuepfungen: der Home-Ordner und policy.envRoots (jeweils aufgeloest). */
+/**
+ * Erlaubte Wurzeln fuer Verknuepfungen: der Home-Ordner des Hosts (nur wenn er einen meldet) und policy.envRoots (jeweils
+ * aufgeloest). Ohne Host ist der Home-Ordner des Prozesses keine erlaubte Wurzel.
+ */
 async function allowedBases(rt: Runtime): Promise<string[]> {
-  return Promise.all([homedir(), ...rt.config.policy.envRoots.map(expandHome)].map(real));
+  const home = hostHome(rt.host);
+  const roots = rt.config.policy.envRoots.map((r) => expandHome(r, rt.host));
+  return Promise.all([...(home ? [home] : []), ...roots].map(real));
 }
 
 async function readLinks(rt: Runtime): Promise<Record<string, string>> {
@@ -138,7 +152,13 @@ function checkName(name: string): void {
 export async function setLink(rt: Runtime, name: string, rawPath: string): Promise<LinkResult> {
   checkName(name);
   if (typeof rawPath !== "string" || rawPath.trim() === "") throw new InventoryError("Der Pfad fehlt.");
-  const expanded = expandHome(rawPath.trim());
+  let expanded: string;
+  try {
+    expanded = expandHome(rawPath.trim(), rt.host);
+  } catch (err) {
+    // The only thing expanding can refuse is a `~` without a home folder (a `HostCapabilityError`).
+    throw new InventoryError((err as Error).message);
+  }
   const pathProblem = localPathProblem(expanded);
   if (pathProblem) throw new InventoryError(pathProblem);
   if (!isAbsolute(expanded)) throw new InventoryError("Der Pfad muss absolut sein (oder mit ~ beginnen).");
@@ -148,10 +168,11 @@ export async function setLink(rt: Runtime, name: string, rawPath: string): Promi
   const bases = await allowedBases(rt);
   if (!bases.some((b) => strictlyBelow(b, path))) throw new InventoryError("Der Ordner liegt ausserhalb des Home-Ordners und der erlaubten Ordner (policy.envRoots).");
   if (!(await exists(join(path, ".git")))) throw new InventoryError("Der Ordner ist kein Git-Repository (.git fehlt).");
-  const remote = await gitOrigin(path);
+  const remote = await gitOrigin(rt, path);
   const matches = remoteMatches(remote, rt.owner, name);
   const warnings: string[] = [];
-  if (remote === null) warnings.push("Der Ordner hat keinen Remote origin. Ob er zu diesem Repository gehoert, laesst sich nicht pruefen.");
+  if (!rt.host?.gitOrigin) warnings.push("Der Remote des Ordners laesst sich in dieser Umgebung nicht pruefen.");
+  else if (remote === null) warnings.push("Der Ordner hat keinen Remote origin. Ob er zu diesem Repository gehoert, laesst sich nicht pruefen.");
   else if (matches === false) warnings.push(`Der Remote origin (${remote}) zeigt nicht auf ${rt.owner}/${name}.`);
   const links = await readLinks(rt);
   links[name] = path;
@@ -206,10 +227,10 @@ export async function scanLocal(rt: Runtime): Promise<ScanSuggestion[]> {
   const links = await readLinks(rt);
   const found = new Map<string, ScanSuggestion>();
   for (const rootRaw of rt.config.policy.envRoots) {
-    const root = await real(expandHome(rootRaw));
+    const root = await real(expandHome(rootRaw, rt.host));
     if (!(await isDir(root))) continue;
     for await (const dir of gitDirs(root, 0)) {
-      const remote = await gitOrigin(dir);
+      const remote = await gitOrigin(rt, dir);
       const parsed = remote ? parseGitRemote(remote) : null;
       if (!remote || !parsed || parsed.owner.toLowerCase() !== rt.owner.toLowerCase() || !NAME_RE.test(parsed.repo)) continue;
       if (found.has(parsed.repo)) continue;
@@ -221,7 +242,7 @@ export async function scanLocal(rt: Runtime): Promise<ScanSuggestion[]> {
 
 async function linkStatus(rt: Runtime, name: string, stored: string, withPath: boolean): Promise<RepoLinkStatus> {
   const present = await isDir(stored);
-  const remote = present ? await gitOrigin(stored) : null;
+  const remote = present ? await gitOrigin(rt, stored) : null;
   return { path: withPath ? stored : null, exists: present, remote, remoteMatches: remoteMatches(remote, rt.owner, name) };
 }
 

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRuntime } from "@secret-desk/runtime";
+import { createLocalRuntime } from "@secret-desk/runtime";
 import { describe, expect, it } from "vitest";
 import { messages } from "../src/messages";
 import { route, type RouterDeps } from "../src/server/router.js";
@@ -15,7 +15,7 @@ async function deps(): Promise<RouterDeps> {
   const dir = await mkdtemp(join(tmpdir(), "sd-about-r-"));
   await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_token_made_up_for_about" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_token_made_up_for_about" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
   return { rt, session: new PortalSession({ env: {} }), agentToken: "agent-token-1234567890-agent-token-1234567890", hosts: allowedHosts(4747) };
 }
 const get = (d: RouterDeps) => new Request("http://127.0.0.1:4747/api/ui/about", { headers: { host: "127.0.0.1:4747", origin: "http://127.0.0.1:4747", cookie: `sd_session=${d.session.cookie}`, "x-secret-desk-csrf": d.session.csrf } });

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionVault, type ExecFn } from "@secret-desk/core";
 import { describe, expect, it, vi } from "vitest";
-import { createRuntime, readOptional, type RuntimeOptions } from "../src/runtime.js";
+import { createLocalRuntime, readOptional, type RuntimeOptions } from "../src/runtime.js";
 
 const BASE_AUTH = "github:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n";
 
@@ -18,34 +18,34 @@ async function config(extra = "", auth = BASE_AUTH, inventory = "version: 1\nsec
 const env = (extra: Record<string, string> = {}) => ({ GH_TEST: "gh_made_up_value_1", ...extra }) as unknown as NodeJS.ProcessEnv;
 const opts = (more: RuntimeOptions = {}): RuntimeOptions => ({ env: env(), vault: null, bundledRecipes: null, ...more });
 
-describe("createRuntime vault selection", () => {
+describe("createLocalRuntime vault selection", () => {
   it("builds the configured vault when none is passed, with and without custom files", async () => {
     const { dir, path } = await config(`vault:\n  enabled: true\n  file: ${JSON.stringify("~/sd-test-vault.json")}\n  keyFile: ${JSON.stringify("~/sd-test-vault.key")}\n`);
-    const rt = await createRuntime(path, { env: env(), bundledRecipes: null });
+    const rt = await createLocalRuntime(path, { env: env(), bundledRecipes: null });
     expect(rt.connections.vault).toBeDefined();
     const plain = await config("vault:\n  enabled: true\n");
-    expect((await createRuntime(plain.path, { env: env(), bundledRecipes: null })).connections.vault).toBeDefined();
+    expect((await createLocalRuntime(plain.path, { env: env(), bundledRecipes: null })).connections.vault).toBeDefined();
     expect(dir).toBeTruthy();
   });
 
   it("has no vault when it is disabled in the config", async () => {
     const { path } = await config("vault:\n  enabled: false\n");
-    expect((await createRuntime(path, { env: env(), bundledRecipes: null })).connections.vault).toBeUndefined();
+    expect((await createLocalRuntime(path, { env: env(), bundledRecipes: null })).connections.vault).toBeUndefined();
   });
 
   it("an explicit vault option wins, null means none", async () => {
     const { path } = await config("vault:\n  enabled: true\n");
-    const rt = await createRuntime(path, opts());
+    const rt = await createLocalRuntime(path, opts());
     expect(rt.connections.vault).toBeUndefined();
   });
 });
 
-describe("createRuntime wiring", () => {
+describe("createLocalRuntime wiring", () => {
   it("falls back to the process environment and the global fetch", async () => {
     vi.stubEnv("GH_TEST", "gh_from_process_env_1");
     try {
       const { path } = await config();
-      const rt = await createRuntime(path, { vault: null, bundledRecipes: null });
+      const rt = await createLocalRuntime(path, { vault: null, bundledRecipes: null });
       expect((await rt.connections.token("github")).reveal()).toBe("gh_from_process_env_1");
       expect(rt.fetch).toBe(fetch);
     } finally {
@@ -62,24 +62,24 @@ describe("createRuntime wiring", () => {
       calls.push([file, ...args]);
       return "exec_token_made_up\n";
     };
-    const rt = await createRuntime(path, opts({ session, exec }));
+    const rt = await createLocalRuntime(path, opts({ session, exec }));
     expect((await rt.connections.token("sess-conn")).reveal()).toBe("session_token_made_up");
     expect((await rt.connections.token("op-conn")).reveal()).toBe("exec_token_made_up");
-    expect(calls).toEqual([["op", "read", "op://made-up/item/field"]]);
+    expect(calls).toEqual([["op", "read", "--", "op://made-up/item/field"]]);
   });
 
   it("derives the team-sync connection from the environment only when none is configured", async () => {
     const { path } = await config();
-    const rt = await createRuntime(path, opts({ env: env({ SECRET_DESK_TEAM_TOKEN: "team_token_made_up_2" }) }));
+    const rt = await createLocalRuntime(path, opts({ env: env({ SECRET_DESK_TEAM_TOKEN: "team_token_made_up_2" }) }));
     expect((await rt.connections.token("team-sync")).reveal()).toBe("team_token_made_up_2");
     const own = await config("connections:\n  team-sync: { type: env, name: OWN_TEAM }\n");
-    const rt2 = await createRuntime(own.path, opts({ env: env({ SECRET_DESK_TEAM_TOKEN: "ignored_made_up", OWN_TEAM: "own_team_made_up" }) }));
+    const rt2 = await createLocalRuntime(own.path, opts({ env: env({ SECRET_DESK_TEAM_TOKEN: "ignored_made_up", OWN_TEAM: "own_team_made_up" }) }));
     expect((await rt2.connections.token("team-sync")).reveal()).toBe("own_team_made_up");
   });
 
   it("with watchInventory, an external change to the inventory file drops the cached team-sync comparison", async () => {
     const { dir, path } = await config();
-    const rt = await createRuntime(path, opts({ watchInventory: true }));
+    const rt = await createLocalRuntime(path, opts({ watchInventory: true }));
     rt.teamSyncMemo.lastCheck = { stale: true };
     await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n# changed from outside\n");
     // Every read checks the file as well (the watcher is only a hint), so reading is a deterministic trigger.
@@ -91,14 +91,14 @@ describe("createRuntime wiring", () => {
 
   it("persistSignIn keeps the sign-in memory next to the links file, or in the home directory by default", async () => {
     const { dir, path } = await config(`linksFile: ${JSON.stringify(join("~", "sd-links-test", "links.json"))}\n`);
-    expect(await createRuntime(path, opts({ persistSignIn: true }))).toBeTruthy();
+    expect(await createLocalRuntime(path, opts({ persistSignIn: true }))).toBeTruthy();
     const none = await config();
-    expect(await createRuntime(none.path, opts({ persistSignIn: true }))).toBeTruthy();
+    expect(await createLocalRuntime(none.path, opts({ persistSignIn: true }))).toBeTruthy();
     expect(dir).toBeTruthy();
   });
 });
 
-describe("createRuntime with a GitHub App", () => {
+describe("createLocalRuntime with a GitHub App", () => {
   function appConfig(repositories: string) {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -120,7 +120,7 @@ describe("createRuntime with a GitHub App", () => {
       }
       return new Response(JSON.stringify({ variables: [] }), { status: 200 });
     }) as unknown as typeof fetch;
-    const rt = await createRuntime(path, { env: env({ APP_KEY: pem }), vault: null, bundledRecipes: null, fetch: fetchMock });
+    const rt = await createLocalRuntime(path, { env: env({ APP_KEY: pem }), vault: null, bundledRecipes: null, fetch: fetchMock });
     return { rt, bodies, calls };
   }
 
@@ -146,7 +146,7 @@ describe("createRuntime with a GitHub App", () => {
       }
       return new Response(JSON.stringify({ variables: [] }), { status: 200 });
     }) as unknown as typeof fetch;
-    const rt = await createRuntime(path, { env: env({ APP_KEY: pem }), vault: null, bundledRecipes: null, fetch: fetchMock });
+    const rt = await createLocalRuntime(path, { env: env({ APP_KEY: pem }), vault: null, bundledRecipes: null, fetch: fetchMock });
     await rt.github.listVariables({ owner: "acme", repo: "acme-app", scope: "repository" });
     expect(bodies[0]).toMatchObject({ repositories: ["acme-app"] });
   });

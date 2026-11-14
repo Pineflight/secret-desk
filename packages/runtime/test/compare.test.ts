@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compareStages } from "../src/compare.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
 secrets:
@@ -34,8 +34,8 @@ async function setup(spec: Spec) {
   const dir = await mkdtemp(join(tmpdir(), "sd-cmp-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
-  const bare = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: {}, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: { GH_TEST: "ghp_x" }, fetch: fetchMock, bundledRecipes: null });
+  const bare = await createLocalRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: {}, fetch: fetchMock, bundledRecipes: null });
   return { rt, bare, calls };
 }
 const sec = (...n: string[]) => ({ secrets: n.map((name) => ({ name, created_at: "c", updated_at: "u" })) });

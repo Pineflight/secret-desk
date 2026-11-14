@@ -35,7 +35,7 @@ import {
   resolveApproval,
   updateVariable,
 } from "../src/agent-api.js";
-import { createRuntime, type RuntimeOptions } from "../src/runtime.js";
+import { createLocalRuntime, type RuntimeOptions } from "../src/runtime.js";
 import { writeConnectionLabel } from "@secret-desk/core";
 
 afterEach(() => {
@@ -143,7 +143,7 @@ async function setup(opts: SetupOpts = {}) {
   await writeFile(join(dir, "links.json"), JSON.stringify({ version: 1, links: opts.links ?? {} }));
   const roots = opts.roots === false ? "" : `policy:\n  envRoots: [${JSON.stringify(projects)}]\n`;
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${opts.config ?? ""}${roots}`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, fetch: fakeGitHub({ putStatus: opts.putStatus ?? 204 }), ...(opts.runtime ?? {}) });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null, fetch: fakeGitHub({ putStatus: opts.putStatus ?? 204 }), ...(opts.runtime ?? {}) });
   return { rt, dir, projects };
 }
 

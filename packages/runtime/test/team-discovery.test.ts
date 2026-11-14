@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitHubClient, GitHubError, GitHubInputError } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 import {
   CONVENTIONAL_TEAM_FILE,
   checkTeamModeAccess,
@@ -148,7 +148,7 @@ async function setup(opts: { auth: "pat" | "app" | "none"; ownToken?: boolean; f
   const authYaml = opts.auth === "app" ? '{ type: app, appId: "123", privateKey: { type: env, name: APP_KEY } }' : "{ type: pat, source: { type: env, name: GH_TEST } }";
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: ${authYaml}\n`);
   const env = { ...(opts.auth === "pat" ? { GH_TEST: PAT } : {}), ...(opts.auth === "app" ? { APP_KEY: PRIVATE_KEY } : {}), ...(opts.ownToken ? { SECRET_DESK_TEAM_TOKEN: OWN } : {}) } as unknown as NodeJS.ProcessEnv;
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: fake.fetch, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env, fetch: fake.fetch, bundledRecipes: null });
   return { rt, fake };
 }
 

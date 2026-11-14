@@ -83,7 +83,9 @@ function expectPortable(files: Map<string, string>, allowedPackages: string[]): 
     expect(source, where).not.toMatch(/import\s*\(\s*["']node:/);
     for (const mod of NODE_BUILTINS) expect(source, `${where}: ${mod}`).not.toMatch(new RegExp(`from\\s+["']${mod}(/[^"']*)?["']`));
     expect(source, where).not.toMatch(/\bprocess\./);
+    expect(source, where).not.toMatch(/\bprocess\s*\[/);
     expect(source, where).not.toMatch(/\bglobalThis\.process\b/);
+    expect(source, where).not.toMatch(/\b(globalThis|global)\s*\[\s*["']process["']\s*\]/);
     expect(source, where).not.toMatch(/\bBuffer\b/);
     expect(source, where).not.toMatch(/\brequire\(/);
     expect(source, where).not.toMatch(/\bNodeJS\./);

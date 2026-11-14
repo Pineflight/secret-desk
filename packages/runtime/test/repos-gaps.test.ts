@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { GitHubError, NotConnectedError } from "@secret-desk/core";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { linkedFolder, listRepos, removeLink, renameInventoryRepo, scanLocal, setLink } from "../src/repos.js";
-import { createRuntime } from "../src/runtime.js";
+import { createLocalRuntime } from "../src/runtime.js";
 
 // Git without user or system configuration, as in repos.test.ts.
 const SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
@@ -53,7 +53,7 @@ async function setup(opts: { envRoots?: string[]; omitLinksFile?: boolean } = {}
   const linksFile = join(dir, "state", "links.json");
   const roots = opts.envRoots ?? [projects];
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(linksFile)}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  envRoots: [${roots.map((r) => JSON.stringify(r)).join(", ")}]\n`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
   return { rt, dir, projects, linksFile };
 }
 
