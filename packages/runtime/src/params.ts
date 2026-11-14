@@ -23,12 +23,12 @@ import {
   parseInput,
   type VariableEntry,
   type VariableSource,
-} from "@secret-desk/core";
-import { readVariableField } from "@secret-desk/providers";
-import { KNOWN_CONNECTIONS } from "./connection-check.js";
-import type { Actor } from "./agent-api.js";
-import { PolicyError, authorize } from "./agent-api.js";
-import { issuanceDeps, type Runtime } from "./runtime.js";
+} from "@secret-desk/core/portable";
+import { readVariableField } from "@secret-desk/providers/portable";
+import { KNOWN_CONNECTIONS } from "./known-connections.js";
+import type { Actor } from "./agent-api-core.js";
+import { PolicyError, authorize } from "./agent-api-core.js";
+import { issuanceDeps, type RuntimeCore } from "./runtime-core.js";
 
 /**
  * Parameter der Anbieter: Spezifikation, Pruefung, Entdeckung beim verbundenen Konto, Vorschlaege und Vorabcheck.
@@ -43,13 +43,13 @@ const requireHuman = (actor: Actor, what: string): void => {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-function providerOrThrow(rt: Runtime, id: string): Provider {
+function providerOrThrow(rt: RuntimeCore, id: string): Provider {
   const p = rt.providers.get(id);
   if (!p) throw new InventoryError(`Unbekannter Anbieter: ${id}`);
   return p;
 }
 
-const deps = (rt: Runtime) => issuanceDeps(rt);
+const deps = (rt: RuntimeCore) => issuanceDeps(rt);
 
 export type ResourceState = Pick<DiscoveryResult, "status" | "options" | "suggested" | "mapMismatch" | "error" | "hint" | "connection">;
 
@@ -79,7 +79,7 @@ export interface ParamsView {
 const resourceOf = (d: DiscoveryResult): ResourceState => ({ status: d.status, options: d.options, suggested: d.suggested, ...(d.mapMismatch ? { mapMismatch: d.mapMismatch } : {}), ...(d.error ? { error: d.error } : {}), ...(d.hint ? { hint: d.hint } : {}), ...(d.connection ? { connection: d.connection } : {}) });
 
 /** Entdeckt fuer jeden Parameter mit `discover` (je Art und Parameterstand nur einmal). */
-async function discoverAll(rt: Runtime, provider: Provider, hint: DiscoverHint, params: Record<string, unknown>): Promise<Record<string, ResourceState>> {
+async function discoverAll(rt: RuntimeCore, provider: Provider, hint: DiscoverHint, params: Record<string, unknown>): Promise<Record<string, ResourceState>> {
   const out: Record<string, ResourceState> = {};
   const cache = new Map<string, ResourceState>();
   for (const spec of provider.params ?? []) {
@@ -96,13 +96,13 @@ async function discoverAll(rt: Runtime, provider: Provider, hint: DiscoverHint, 
   return out;
 }
 
-async function connectedState(rt: Runtime, provider: Provider): Promise<boolean | null> {
+async function connectedState(rt: RuntimeCore, provider: Provider): Promise<boolean | null> {
   if (!provider.connection) return null;
   return (await rt.connections.status(provider.connection)).connected;
 }
 
 /** Parameter eines bestehenden Eintrags. live (Standard): Entdeckung, Vorschlaege und Vorabcheck beim Anbieter. */
-export async function getSecretParams(rt: Runtime, actor: Actor, id: string, options: { live?: boolean } = {}): Promise<ParamsView> {
+export async function getSecretParams(rt: RuntimeCore, actor: Actor, id: string, options: { live?: boolean } = {}): Promise<ParamsView> {
   requireHuman(actor, "Parameter bearbeiten");
   const secret = rt.inventory.getSecret(id);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${id}`);
@@ -135,7 +135,7 @@ export async function getSecretParams(rt: Runtime, actor: Actor, id: string, opt
  * unbekannte bleiben erhalten. Falsche Typen und Werte ausserhalb der Optionen sind params_invalid (nichts gespeichert);
  * fehlende Pflichtparameter nicht (Teilstand), sie stehen in problems/complete.
  */
-export async function putSecretParams(rt: Runtime, actor: Actor, id: string, body: { params?: unknown; remove?: unknown; preset?: unknown }): Promise<ParamsView> {
+export async function putSecretParams(rt: RuntimeCore, actor: Actor, id: string, body: { params?: unknown; remove?: unknown; preset?: unknown }): Promise<ParamsView> {
   requireHuman(actor, "Parameter aendern");
   const secret = rt.inventory.getSecret(id);
   if (!secret) throw new InventoryError(`Secret nicht gefunden: ${id}`);
@@ -167,7 +167,7 @@ export async function putSecretParams(rt: Runtime, actor: Actor, id: string, bod
 }
 
 /** Parameterstatus fuer Listen und die Agenten-Schnittstelle: nur fehlend/ok, keine Werte. */
-export function paramStatus(rt: Runtime, secret: Pick<SecretEntry, "provider" | "params">): { status: "ok" | "missing" | "invalid" | "none"; missing: string[] } {
+export function paramStatus(rt: RuntimeCore, secret: Pick<SecretEntry, "provider" | "params">): { status: "ok" | "missing" | "invalid" | "none"; missing: string[] } {
   const provider = rt.providers.get(secret.provider);
   if (!provider?.params?.length) return { status: "none", missing: [] };
   const problems = entryParamsState(rt.inventory, provider, secret).problems;
@@ -178,10 +178,10 @@ export function paramStatus(rt: Runtime, secret: Pick<SecretEntry, "provider" | 
 
 // ------------------------------------------------------------------------------- Entwuerfe (ohne Eintrag)
 
-const draftHint = (rt: Runtime, repo?: string, stage?: string): DiscoverHint => ({ repos: repo ? [repo] : [], ...(stage ? { stage, stageKind: stageKind(rt.inventory.stages, stage) } : {}), ...(rt.inventory.data.resourceMap ? { resourceMap: rt.inventory.data.resourceMap } : {}) });
+const draftHint = (rt: RuntimeCore, repo?: string, stage?: string): DiscoverHint => ({ repos: repo ? [repo] : [], ...(stage ? { stage, stageKind: stageKind(rt.inventory.stages, stage) } : {}), ...(rt.inventory.data.resourceMap ? { resourceMap: rt.inventory.data.resourceMap } : {}) });
 
 /** Spezifikation und Vorschlaege fuer einen Eintrag, der noch nicht existiert (Anlegedialog). */
-export async function getProviderParams(rt: Runtime, actor: Actor, providerId: string, options: { repo?: string; stage?: string; live?: boolean; params?: Record<string, unknown> } = {}): Promise<ParamsView> {
+export async function getProviderParams(rt: RuntimeCore, actor: Actor, providerId: string, options: { repo?: string; stage?: string; live?: boolean; params?: Record<string, unknown> } = {}): Promise<ParamsView> {
   requireHuman(actor, "Parameter ansehen");
   const provider = providerOrThrow(rt, providerId);
   const state = entryParamsState(rt.inventory, provider, { params: options.params ?? {} });
@@ -203,14 +203,14 @@ export async function getProviderParams(rt: Runtime, actor: Actor, providerId: s
 }
 
 /** Entdeckung einer Art fuer einen Anbieter-Entwurf. `params`: bereits gewaehlte Parameter (zum Beispiel accountId). */
-export async function getProviderResources(rt: Runtime, actor: Actor, providerId: string, kind: string, options: { repo?: string; stage?: string; params?: Record<string, unknown> } = {}): Promise<DiscoveryResult & { provider: string; kind: string }> {
+export async function getProviderResources(rt: RuntimeCore, actor: Actor, providerId: string, kind: string, options: { repo?: string; stage?: string; params?: Record<string, unknown> } = {}): Promise<DiscoveryResult & { provider: string; kind: string }> {
   requireHuman(actor, "Ressourcen ansehen");
   const provider = providerOrThrow(rt, providerId);
   const r = await discoverResources(provider, kind, deps(rt), draftHint(rt, options.repo, options.stage), effectiveFor(rt, provider, options.params ?? {}));
   return { provider: provider.id, kind, ...r };
 }
 
-function effectiveFor(rt: Runtime, provider: Provider, params: Record<string, unknown>): Record<string, unknown> {
+function effectiveFor(rt: RuntimeCore, provider: Provider, params: Record<string, unknown>): Record<string, unknown> {
   return entryParamsState(rt.inventory, provider, { params }).effective;
 }
 
@@ -225,7 +225,7 @@ export interface ConnectionResources {
   resources: Record<string, ResourceState>;
 }
 
-function providersOf(rt: Runtime, connection: string): Provider[] {
+function providersOf(rt: RuntimeCore, connection: string): Provider[] {
   const list = rt.providers.list().filter((p) => p.connection === connection);
   return list;
 }
@@ -254,7 +254,7 @@ function kindsOf(providers: Provider[]): Map<string, Provider> {
  * Was die verbundene Integration hergibt (Konten, Projekte, Zonen, Domains ...) und welche Standardwerte sie braucht.
  * Ohne `kind` alle Arten, die ohne weitere Parameter gehen; mit `kind` genau diese (und `params` fuer Abhaengigkeiten).
  */
-export async function getConnectionResources(rt: Runtime, actor: Actor, connection: string, options: { kind?: string; repo?: string; stage?: string; params?: Record<string, unknown> } = {}): Promise<ConnectionResources> {
+export async function getConnectionResources(rt: RuntimeCore, actor: Actor, connection: string, options: { kind?: string; repo?: string; stage?: string; params?: Record<string, unknown> } = {}): Promise<ConnectionResources> {
   requireHuman(actor, "Ressourcen ansehen");
   const providers = providersOf(rt, connection);
   // Bekannte Verbindungen ohne Anbieter (github, team-sync, ...) haben nichts zu entdecken: leere Ansicht statt Fehler.
@@ -283,7 +283,7 @@ export async function getConnectionResources(rt: Runtime, actor: Actor, connecti
 }
 
 /** Setzt Standardwerte einer Integration (nicht geheim). null/leer entfernt einen Schluessel. Ersetzt nur die genannten Schluessel. */
-export async function putConnectionDefaults(rt: Runtime, actor: Actor, connection: string, body: { values?: unknown }): Promise<{ connection: string; defaults: Record<string, unknown>; defaultSpecs: ParamSpec[] }> {
+export async function putConnectionDefaults(rt: RuntimeCore, actor: Actor, connection: string, body: { values?: unknown }): Promise<{ connection: string; defaults: Record<string, unknown>; defaultSpecs: ParamSpec[] }> {
   requireHuman(actor, "Standardwerte aendern");
   await authorize(rt, { actor, action: "inventory.edit" });
   const providers = providersOf(rt, connection);
@@ -312,9 +312,9 @@ export interface ResourceMapView {
   kinds: string[];
 }
 
-const mapView = (rt: Runtime): ResourceMapView => ({ entries: rt.inventory.data.resourceMap ?? [], kinds: Object.keys(SUGGEST_MODES) });
+const mapView = (rt: RuntimeCore): ResourceMapView => ({ entries: rt.inventory.data.resourceMap ?? [], kinds: Object.keys(SUGGEST_MODES) });
 
-function mapKeyOf(rt: Runtime, body: Record<string, unknown>): { kind: string; repo: string; stage?: string } {
+function mapKeyOf(rt: RuntimeCore, body: Record<string, unknown>): { kind: string; repo: string; stage?: string } {
   const text = (k: string): string | undefined => (typeof body[k] === "string" && (body[k] as string).trim() !== "" ? (body[k] as string).trim() : undefined);
   const kind = text("kind");
   if (!kind) throw new InventoryError("Feld fehlt: kind");
@@ -327,13 +327,13 @@ function mapKeyOf(rt: Runtime, body: Record<string, unknown>): { kind: string; r
 }
 
 /** Die Zuordnung Repository (und Stage) zu Ressourcen des Anbieters. Nicht geheim. */
-export function getResourceMap(rt: Runtime, actor: Actor): ResourceMapView {
+export function getResourceMap(rt: RuntimeCore, actor: Actor): ResourceMapView {
   requireHuman(actor, "Zuordnung ansehen");
   return mapView(rt);
 }
 
 /** Setzt eine Zuordnung. (kind, repo, stage) ist der Schluessel; ein vorhandener Eintrag wird ersetzt. */
-export async function putResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { entry: ResourceMapEntry }> {
+export async function putResourceMap(rt: RuntimeCore, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { entry: ResourceMapEntry }> {
   requireHuman(actor, "Zuordnung aendern");
   await authorize(rt, { actor, action: "inventory.edit" });
   const key = mapKeyOf(rt, body);
@@ -346,7 +346,7 @@ export async function putResourceMap(rt: Runtime, actor: Actor, body: Record<str
 }
 
 /** Entfernt eine Zuordnung. */
-export async function deleteResourceMap(rt: Runtime, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { removed: boolean }> {
+export async function deleteResourceMap(rt: RuntimeCore, actor: Actor, body: Record<string, unknown>): Promise<ResourceMapView & { removed: boolean }> {
   requireHuman(actor, "Zuordnung aendern");
   await authorize(rt, { actor, action: "inventory.edit" });
   const removed = rt.inventory.removeResourceMapEntry(mapKeyOf(rt, body));
@@ -370,7 +370,7 @@ export interface ParamSuggestion {
  * Vorschlaege fuer alle Eintraege mit fehlenden Parametern. Schreibt nichts: der Mensch uebernimmt je Eintrag
  * (PUT secrets/:id/params). Zweideutige oder unsichere Treffer ergeben keinen Vorschlag.
  */
-export async function suggestAllParams(rt: Runtime, actor: Actor): Promise<{ suggestions: ParamSuggestion[] }> {
+export async function suggestAllParams(rt: RuntimeCore, actor: Actor): Promise<{ suggestions: ParamSuggestion[] }> {
   requireHuman(actor, "Vorschlaege einholen");
   const out: ParamSuggestion[] = [];
   const cache = new Map<string, DiscoveryResult>();
@@ -420,7 +420,7 @@ export async function suggestAllParams(rt: Runtime, actor: Actor): Promise<{ sug
 // ------------------------------------------------------------------------------------ Variablen aus Quellen
 
 /** Quellen, aus denen Variablen geladen werden koennen, mit Feldern (nur erlaubte, nie geheime) und Verbindungsstand. */
-export async function listVariableSources(rt: Runtime, actor: Actor) {
+export async function listVariableSources(rt: RuntimeCore, actor: Actor) {
   requireHuman(actor, "Quellen ansehen");
   const out = [];
   for (const k of VARIABLE_SOURCES) out.push({ ...k, connected: (await rt.connections.status(k.connection)).connected });
@@ -428,7 +428,7 @@ export async function listVariableSources(rt: Runtime, actor: Actor) {
 }
 
 /** Liest den Wert eines erlaubten Felds der gewaehlten Ressource aus der Integration (lesend). */
-async function readSource(rt: Runtime, src: VariableSource, hint: DiscoverHint, params: Record<string, unknown> = {}): Promise<{ value: string; label: string }> {
+async function readSource(rt: RuntimeCore, src: VariableSource, hint: DiscoverHint, params: Record<string, unknown> = {}): Promise<{ value: string; label: string }> {
   const provider = kindsOf(providersOf(rt, src.connection)).get(src.kind);
   if (!provider?.discover) throw new InventoryError(`Unbekannte Quelle: ${src.kind}`);
   // Integration defaults (for example the RevenueCat project) fill what the call does not name.
@@ -440,7 +440,7 @@ async function readSource(rt: Runtime, src: VariableSource, hint: DiscoverHint, 
   return { value, label: option.label };
 }
 
-const varHint = (rt: Runtime, v: Pick<VariableEntry, "places" | "stage">): DiscoverHint => hintFor(rt.inventory, v);
+const varHint = (rt: RuntimeCore, v: Pick<VariableEntry, "places" | "stage">): DiscoverHint => hintFor(rt.inventory, v);
 
 export interface SourceValue {
   from: VariableSource;
@@ -450,7 +450,7 @@ export interface SourceValue {
 }
 
 /** Vorschau fuer den Anlegedialog: Wert einer Quelle, ohne eine Variable zu kennen. Schreibt nichts. */
-export async function previewVariableSource(rt: Runtime, actor: Actor, body: { connection?: unknown; kind?: unknown; resource?: unknown; field?: unknown; params?: unknown; repo?: unknown; stage?: unknown }): Promise<SourceValue> {
+export async function previewVariableSource(rt: RuntimeCore, actor: Actor, body: { connection?: unknown; kind?: unknown; resource?: unknown; field?: unknown; params?: unknown; repo?: unknown; stage?: unknown }): Promise<SourceValue> {
   requireHuman(actor, "Quellen lesen");
   const kind = typeof body.kind === "string" ? body.kind : "";
   const from = parseInput(VariableSourceSchema, { connection: body.connection ?? VARIABLE_SOURCES.find((k) => k.kind === kind)?.connection, kind, resource: body.resource, field: body.field });
@@ -475,7 +475,7 @@ export interface SourceProposal {
  * gemerkt, ueber denselben Weg wie jede Sollwert-Aenderung (Pruefung auf Geheimnisse inklusive). In GitHub geschrieben
  * wird dadurch nichts: das bleibt "apply" der Variable.
  */
-export async function loadVariableFromSource(rt: Runtime, actor: Actor, id: string, body: { connection?: unknown; kind?: unknown; resource?: unknown; field?: unknown; params?: unknown; apply?: unknown; acknowledgedPublic?: unknown }): Promise<SourceProposal> {
+export async function loadVariableFromSource(rt: RuntimeCore, actor: Actor, id: string, body: { connection?: unknown; kind?: unknown; resource?: unknown; field?: unknown; params?: unknown; apply?: unknown; acknowledgedPublic?: unknown }): Promise<SourceProposal> {
   requireHuman(actor, "Variablen aus Quellen laden");
   const v = rt.inventory.getVariable(id);
   if (!v) throw new InventoryError(`Variable nicht gefunden: ${id}`);
@@ -496,7 +496,7 @@ export async function loadVariableFromSource(rt: Runtime, actor: Actor, id: stri
 }
 
 /** Vorschlaege fuer alle Variablen mit Quelle. Schreibt nichts. Fehler einer Variable stoppen die anderen nicht. */
-export async function suggestAllVariables(rt: Runtime, actor: Actor): Promise<{ suggestions: (Omit<SourceProposal, "applied"> & { status: "ok" } | { variableId: string; from: VariableSource; status: "error"; error: string })[] }> {
+export async function suggestAllVariables(rt: RuntimeCore, actor: Actor): Promise<{ suggestions: (Omit<SourceProposal, "applied"> & { status: "ok" } | { variableId: string; from: VariableSource; status: "error"; error: string })[] }> {
   requireHuman(actor, "Vorschlaege einholen");
   const out: Awaited<ReturnType<typeof suggestAllVariables>>["suggestions"] = [];
   for (const v of rt.inventory.data.variables) {

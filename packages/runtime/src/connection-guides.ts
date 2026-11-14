@@ -1,5 +1,5 @@
-import { ANTHROPIC_KEY_KIND_PROBLEM, isAnthropicAdminKey, isAnthropicApiKey } from "@secret-desk/providers";
-import { parseStripeConnectionId, type StripeAccountMode } from "@secret-desk/core";
+import { ANTHROPIC_KEY_KIND_PROBLEM, isAnthropicAdminKey, isAnthropicApiKey } from "@secret-desk/providers/portable";
+import { parseStripeConnectionId, type StripeAccountMode } from "@secret-desk/core/portable";
 
 /** Beschreibung der Zugaenge, mit denen das Portal arbeitet: Wofuer, wo man ihn anlegt und was er koennen muss. Keine Werte. */
 export interface ConnectionGuide {

@@ -1,4 +1,4 @@
-import type { TeamSyncConfig } from "@secret-desk/core";
+import type { TeamSyncConfig } from "@secret-desk/core/portable";
 
 /** The GitHub fine-grained permissions team sync needs for one mode: exactly these, not more. */
 export type TeamRights = {
@@ -17,6 +17,16 @@ export type TeamPushStrategy = TeamSyncConfig["push"]["strategy"];
 export function teamRights(mode: TeamMode, strategy: TeamPushStrategy): TeamRights {
   if (mode === "pull") return { contents: "read", metadata: "read" };
   return strategy === "pull-request" ? { contents: "write", pull_requests: "write", metadata: "read" } : { contents: "write", metadata: "read" };
+}
+
+/** Rechte, die Team-Sync braucht (genau diese, nicht mehr): Lesen reicht fuer mode pull. */
+export function teamPermissions(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): TeamRights {
+  return teamRights(c.mode, c.push.strategy);
+}
+
+/** Rechte als lesbare Liste fuer Befunde und Anleitungen. */
+export function neededRights(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): string[] {
+  return teamRightsLabels(teamPermissions(c));
 }
 
 /** Human readable list in the wording of GitHub's token form. */

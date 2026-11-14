@@ -1,0 +1,2 @@
+/** Verbindungen, die das Portal selbst anbietet (auch ohne registrierten Anbieter, zum Beispiel bei ausgeschalteter Automatisierung). */
+export const KNOWN_CONNECTIONS: ReadonlySet<string> = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "revenuecat", "openai", "anthropic", "grafana", "grafana-cloud"]);

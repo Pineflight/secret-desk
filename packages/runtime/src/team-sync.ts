@@ -29,7 +29,7 @@ import { createAppTokenProvider, createGitHubClient, githubAppUsable } from "./g
 import { readHostEnv } from "./host.js";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
-import { teamRights, teamRightsLabels, type TeamRights } from "./team-token-rights.js";
+import { neededRights, teamPermissions } from "./team-token-rights.js";
 
 /** Mindestabstand zwischen zwei Pushs (Entprellung): schnelle Folgeklicks erzeugen keine Folge-Commits. */
 export const MIN_PUSH_INTERVAL_MS = 30_000;
@@ -79,15 +79,8 @@ function requireConfig(rt: Runtime): TeamSyncConfig {
 /** Woher das Token fuer das Team-Repository kommt. own = eigenes team-sync-Token, github-pat/github-app = die GitHub-Integration. */
 export type TeamTokenSource = "own" | "github-pat" | "github-app" | "none";
 
-/** Rechte, die Team-Sync braucht (genau diese, nicht mehr): Lesen reicht fuer mode pull. */
-export function teamPermissions(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): TeamRights {
-  return teamRights(c.mode, c.push.strategy);
-}
-
-/** Rechte als lesbare Liste fuer Befunde und Anleitungen. */
-export function neededRights(c: { mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): string[] {
-  return teamRightsLabels(teamPermissions(c));
-}
+// `teamPermissions` and `neededRights` live in `team-token-rights.ts` (portable); this module keeps exporting them under the same names.
+export { neededRights, teamPermissions };
 
 /** The scope a configured team sync asks the token source about. */
 export const scopeOf = (c: { repo: string; mode: TeamSyncConfig["mode"]; push: { strategy: TeamSyncConfig["push"]["strategy"] } }): TeamTokenScope => ({ repo: c.repo, mode: c.mode, strategy: c.push.strategy });
