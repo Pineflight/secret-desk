@@ -414,7 +414,8 @@ export interface WriteEnvResult {
 /** Asks Git whether it ignores `path` (starts `git`): true, false, or null when it cannot be checked. */
 export function gitCheckIgnored(path: string, env?: Record<string, string>): Promise<boolean | null> {
   return new Promise((res) => {
-    execFile("git", ["check-ignore", "-q", "--", path], { cwd: dirname(path), timeout: 5000, windowsHide: true, ...(env ? { env } : {}) }, (err) => {
+    // No file system monitor hook and no untracked cache: a repository's own config must not make this check run a program.
+    execFile("git", ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "check-ignore", "-q", "--", path], { cwd: dirname(path), timeout: 5000, windowsHide: true, ...(env ? { env } : {}) }, (err) => {
       if (!err) return res(true);
       const code = (err as { code?: number | string }).code;
       res(code === 1 ? false : null);

@@ -115,8 +115,25 @@ const strictlyBelow = (base: string, p: string): boolean => isPathInside(base, p
  */
 async function allowedBases(rt: Runtime): Promise<string[]> {
   const home = hostHome(rt.host);
-  const roots = rt.config.policy.envRoots.map((r) => expandHome(r, rt.host));
-  return Promise.all([...(home ? [home] : []), ...roots].map(real));
+  return Promise.all([...(home ? [home] : []), ...usableEnvRoots(rt)].map(real));
+}
+
+/**
+ * The `policy.envRoots` entries that can serve as a root: absolute, or starting with `~` and expandable with the host's home folder.
+ * An empty or relative entry would be read against the current folder of the process and is ignored, as is a `~` entry without a home.
+ */
+export function usableEnvRoots(rt: Runtime): string[] {
+  const out: string[] = [];
+  for (const raw of rt.config.policy.envRoots) {
+    if (raw.trim() === "" || !(raw.startsWith("~") || isAbsolute(raw))) continue;
+    try {
+      const expanded = expandHome(raw, rt.host);
+      if (isAbsolute(expanded)) out.push(expanded);
+    } catch {
+      // `~` without a home folder: not usable here
+    }
+  }
+  return out;
 }
 
 async function readLinks(rt: Runtime): Promise<Record<string, string>> {

@@ -200,7 +200,7 @@ export interface AutomationOptions {
   inventoryDir: string;
   providers: ProviderRegistry;
   evidence: EvidenceStore;
-  /** Nur Tests: ersetzt den Browser. */
+  /** Replaces the browser (see `RuntimeOptions.automationDriver`): available without a host; the status probe of a configured address still runs. */
   driverFactory?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: mitgelieferter Rezeptordner. */
   bundledDir?: string | null;
