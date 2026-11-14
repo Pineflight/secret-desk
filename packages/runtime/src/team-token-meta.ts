@@ -32,7 +32,7 @@ export interface TeamTokenRecord {
 }
 
 const ENTRY = `${TEAM_SYNC_CONNECTION}#meta`;
-const EMPTY: TeamTokenRecord = { active: null, pendingRevocation: null };
+const EMPTY: Readonly<TeamTokenRecord> = Object.freeze({ active: null, pendingRevocation: null });
 
 const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;

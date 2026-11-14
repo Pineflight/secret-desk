@@ -93,7 +93,7 @@ function gitEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 /** `-c` switches for every Git call of the host: no file system monitor hook, no untracked cache. */
-const GIT_SAFE_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
+const GIT_SAFE_CONFIG: readonly string[] = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
 
 /**
  * The host of the local, single-user edition: the process environment, the `op` tool, the allow-listed template commands,

@@ -7,7 +7,7 @@ import { ConnectionStore } from "../src/connections.js";
 import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
-import { commitIssuance, discardIssuance, prepareIssuance, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
+import { commitIssuance, discardIssuance, prepareIssuance, revokeIssuedValue, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
 import { ProviderRegistry, type Provider } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
 import { renderEvidenceSvg } from "../src/verification.js";
@@ -92,6 +92,29 @@ describe("stage 2: commitIssuance", () => {
     await expect(commitIssuance(p, deps, { by: "n", ticks: ["c1", "c2"] })).rejects.toThrow(IssuanceError);
     const later = { ...deps, now: () => new Date("2026-11-01T11:00:00Z") };
     await expect(commitIssuance(p, later, { by: "n", ticks: ["c1", "c2"] }, { force: true })).rejects.toThrow(/abgelaufen/);
+  });
+  it("writes nothing once the caller has given up (abort signal), and reports the places as failed", async () => {
+    const { deps, writes } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const gaveUp = new AbortController();
+    gaveUp.abort();
+    const r = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }, { signal: gaveUp.signal });
+    expect(r.ok).toBe(false);
+    expect(r.places.length).toBeGreaterThan(0);
+    for (const place of r.places) expect(place).toMatchObject({ outcome: "failed", error: expect.stringMatching(/Abgebrochen/) });
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+  });
+});
+
+describe("revokeIssuedValue", () => {
+  it("deletes a new value from metadata alone and says whether the provider confirmed", async () => {
+    const { deps, inventory, revoke } = await setup();
+    const secret = inventory.getSecret("cf-deploy-acme-app")!;
+    expect(await revokeIssuedValue(secret, "new-id", deps)).toBe(true);
+    expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
+    revoke.mockRejectedValueOnce(new Error("provider down"));
+    expect(await revokeIssuedValue(secret, "new-id", deps)).toBe(false);
+    expect(await revokeIssuedValue({ ...secret, provider: "no-such-provider" }, "new-id", deps)).toBe(false);
   });
 });
 

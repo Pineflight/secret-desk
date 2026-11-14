@@ -99,7 +99,7 @@ export class StaleIssuanceError extends IssuanceError {
   }
 }
 
-const DEFAULT_CHECKLIST: string[] = [
+const DEFAULT_CHECKLIST: readonly string[] = [
   "Der Name beim Anbieter ist der erwartete.",
   "Die Rechte sind so eng wie vorgesehen.",
   "Das Ablaufdatum stimmt.",
@@ -300,7 +300,7 @@ export async function commitIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean } = {},
+  options: { force?: boolean; signal?: AbortSignal } = {},
 ): Promise<CommitResult> {
   // Atomar (vor dem ersten await) als "in Bearbeitung" markieren: ein zweiter, auch paralleler Aufruf wirft sofort.
   if (committing.has(pending) || committed.has(pending) || discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -320,7 +320,7 @@ async function commitIssuanceOnce(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean },
+  options: { force?: boolean; signal?: AbortSignal },
 ): Promise<CommitResult> {
   const secret = deps.inventory.getSecret(pending.secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
@@ -358,6 +358,12 @@ async function commitIssuanceOnce(
     ...companionEntries.flatMap(({ entry, kind, value }) => entry.places.map((place) => ({ place, name: place.name ?? entry.name, label: `${entry.name}: ${describePlace(place)}`, value, variable: kind === "variable" }))),
   ];
   for (const w of writes) {
+    // Fail closed: when the caller gave up on this commit (the review passed its hard bound while an earlier write was still
+    // pending), nothing more is written, whatever the values captured above still say.
+    if (options.signal?.aborted) {
+      outcomes.push({ place: w.label, outcome: "failed", error: "Abgebrochen: die Anfrage ist abgelaufen." });
+      continue;
+    }
     try {
       const outcome =
         w.variable && !isWorkerPlace(w.place)
@@ -446,6 +452,24 @@ async function commitIssuanceOnce(
   return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
 }
 
+/**
+ * Deletes a newly issued value at the provider. Needs no value: only the entry the value was issued for and the provider's
+ * identifier of it (metadata). This is what an embedder calls for a record whose value is gone (a restarted process). Returns
+ * true when the provider confirmed the delete, false when there is nothing to call or the call failed (the value then stays
+ * valid at the provider; a caller may try again).
+ */
+export async function revokeIssuedValue(secret: SecretEntry, externalId: string, deps: IssuanceDeps): Promise<boolean> {
+  const provider = deps.providers.get(secret.provider);
+  if (!provider?.revoke) return false;
+  try {
+    await provider.revoke({ externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+    return true;
+  } catch {
+    /* bleibt gueltig, steht im Bericht */
+    return false;
+  }
+}
+
 /** Verwirft einen ausgestellten Wert: Der neue Wert wird beim Anbieter wieder geloescht, nichts wurde geschrieben. */
 export async function discardIssuance(
   pending: PendingIssuance,
@@ -472,12 +496,7 @@ async function discardIssuanceNow(
   // Same id as before means the provider rotated in place: nothing new exists that could be deleted.
   const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
   if (secret && pending.report.externalId && !rotatedInPlace && provider?.revoke) {
-    try {
-      await provider.revoke({ externalId: pending.report.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
-      revokedNew = true;
-    } catch {
-      /* bleibt gueltig, steht im Bericht */
-    }
+    revokedNew = await revokeIssuedValue(secret, pending.report.externalId, deps);
   }
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {

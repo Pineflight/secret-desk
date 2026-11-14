@@ -749,18 +749,28 @@ export async function getIssuance(rt: Runtime, id: string): Promise<IssuanceView
   return issuanceView(p);
 }
 
+/**
+ * A review that is not there. The hook is asked first (it has no subject to look at), so that a caller it refuses gets the same
+ * refusal for a review that does not exist as for one that does, and cannot probe for ids. Without a hook nothing is asked and
+ * the answer is "gone".
+ */
+async function goneOrRefused(rt: Runtime, actor: Actor, action: "issuance.confirm" | "issuance.reject", id: string): Promise<never> {
+  await authorize(rt, { actor, action });
+  throw new IssuanceGoneError(id);
+}
+
 export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, input: { ticks: string[]; note?: string; force?: boolean }): Promise<CommitResult> {
   requireHuman(actor, "Bestaetigen");
   await rt.issuances.sweep(issuanceDeps(rt));
   const pending = rt.issuances.get(id);
-  if (!pending) throw new IssuanceGoneError(id);
+  if (!pending) return goneOrRefused(rt, actor, "issuance.confirm", id);
   // Claimed before the first await: while the hook (or the commit) is pending, no second confirm or reject can start on this review.
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.confirm", subject: issuanceSubject(pending) });
     // The hook may have taken a while: only go on with the very same item.
     if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
-    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)! });
     if (result.ok) rt.issuances.delete(id);
     return result;
   } catch (err) {
@@ -775,7 +785,7 @@ export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, inp
 export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string): Promise<{ revokedNew: boolean }> {
   requireHuman(actor, "Ablehnen");
   const pending = rt.issuances.get(id);
-  if (!pending) throw new IssuanceGoneError(id);
+  if (!pending) return goneOrRefused(rt, actor, "issuance.reject", id);
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.reject", subject: issuanceSubject(pending) });

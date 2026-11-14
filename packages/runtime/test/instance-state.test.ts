@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_WAIT_MS, InstanceState, WaitExpiredError, WaiterBook, waitDeadline, type Waiter } from "../src/instance-state.js";
+import { DEFAULT_WAIT_MS, InstanceState, WAIT_WINDOWS_MS, WaitExpiredError, WaiterBook, waitDeadline, type Waiter } from "../src/instance-state.js";
 
 const T0 = Date.parse("2026-11-14T10:00:00.000Z");
 const at = (ms: number): Date => new Date(T0 + ms);
 
-function waiter<T>(deadline: number): Waiter<T> & { resolve: ReturnType<typeof vi.fn>; reject: ReturnType<typeof vi.fn> } {
-  return { resolve: vi.fn(), reject: vi.fn(), deadline };
+function waiter<T>(deadline: number, run: AbortSignal = new AbortController().signal): Waiter<T> & { resolve: ReturnType<typeof vi.fn>; reject: ReturnType<typeof vi.fn> } {
+  return { resolve: vi.fn(), reject: vi.fn(), run, deadline };
 }
 
 describe("WaiterBook", () => {
@@ -74,14 +74,45 @@ describe("WaiterBook", () => {
     expect(book.size).toBe(0);
     expect(book.sweep(at(1000))).toBeNull();
   });
+
+  it("a question that replaces another rejects the old one", () => {
+    const book = new WaiterBook<string>();
+    const old = waiter<string>(T0 + 1000);
+    const fresh = waiter<string>(T0 + 1000);
+    book.set("run", old);
+    book.set("run", fresh);
+    expect((old.reject.mock.calls[0]![0] as Error).message).toBe("replaced");
+    expect(fresh.reject).not.toHaveBeenCalled();
+    expect(book.get("run", at(0))).toBe(fresh);
+  });
+
+  it("answerable gives the wait only to the run that asked", () => {
+    const book = new WaiterBook<string>();
+    const mine = new AbortController();
+    const other = new AbortController();
+    const w = waiter<string>(T0 + 1000, mine.signal);
+    book.set("run", w);
+    expect(book.answerable("run", at(0), mine.signal)).toBe(w);
+    expect(book.answerable("run", at(0), other.signal)).toBeUndefined();
+    expect(book.answerable("run", at(0), undefined)).toBeUndefined();
+    // A wrong run does not consume or expire anything; an expired wait is gone for every run.
+    expect(book.size).toBe(1);
+    expect(book.answerable("run", at(1000), mine.signal)).toBeUndefined();
+    expect(w.reject).toHaveBeenCalledTimes(1);
+    const aborted = new AbortController();
+    book.set("run", waiter<string>(T0 + 1000, aborted.signal));
+    aborted.abort();
+    expect(book.answerable("run", at(0), aborted.signal)).toBeUndefined();
+  });
 });
 
 describe("waitDeadline", () => {
-  it("is the time-out of the run when it has one, else the default from now", () => {
-    expect(waitDeadline(at(0), "2026-11-14T10:05:00.000Z")).toBe(T0 + 5 * 60_000);
-    expect(waitDeadline(at(0), null)).toBe(T0 + DEFAULT_WAIT_MS);
-    expect(waitDeadline(at(0), undefined)).toBe(T0 + DEFAULT_WAIT_MS);
-    expect(waitDeadline(at(0), "not a date")).toBe(T0 + DEFAULT_WAIT_MS);
+  it("is the window of the kind of question, counted from the moment it is asked, and never longer than the default", () => {
+    for (const kind of ["credentials", "access", "code", "confirm"] as const) {
+      expect(waitDeadline(at(0), kind)).toBe(T0 + WAIT_WINDOWS_MS[kind]);
+      expect(WAIT_WINDOWS_MS[kind]).toBeLessThanOrEqual(DEFAULT_WAIT_MS);
+    }
+    expect(waitDeadline(at(7 * 3_600_000), "access")).toBe(T0 + 7 * 3_600_000 + WAIT_WINDOWS_MS.access);
   });
 });
 

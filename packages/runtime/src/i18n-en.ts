@@ -265,6 +265,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["nicht pruefbar", "not checkable"],
   ["Ich weiss, dass dieser Wert die Produktion betrifft.", "I know this value affects production."],
   ["Die Anfrage ist abgelaufen. Neu ausstellen.", "The request has expired. Issue it again."],
+  ["Abgebrochen: die Anfrage ist abgelaufen.", "Cancelled: the request has expired."],
   ["Die automatische Pruefung ist fehlgeschlagen. Verwerfen oder Ursache beheben.", "The automatic check failed. Discard it or fix the cause."],
   ["Name nicht gefunden", "Name not found"],
   ["Alter Wert beim Anbieter widerrufen", "Old value revoked at the provider"],

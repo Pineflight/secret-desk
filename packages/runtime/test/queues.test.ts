@@ -1,7 +1,7 @@
 import { SecretValue, secretApprovalSnapshot, variableApprovalSnapshot, type InventoryStore, type PendingIssuance, type SecretEntry, type VariableEntry } from "@secret-desk/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApprovalQueue } from "../src/approvals.js";
-import { IssuanceQueue, MemoryPendingStore, type PendingStore } from "../src/issuances.js";
+import { CLAIM_GRACE_MS, IssuanceQueue, MAX_REVOKE_TRIES, MemoryPendingStore, REVOKE_RETRY_MS, revokeOrphan, type PendingRecord, type PendingStore } from "../src/issuances.js";
 
 const secret = (id: string, params: Record<string, unknown> = {}): SecretEntry => ({ id, name: "TOKEN", stage: "shared", service: "svc", provider: "manual", expiry: "none", params, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as SecretEntry;
 const variable = (id: string, value: string): VariableEntry => ({ id, name: "VAR", stage: "shared", value, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as VariableEntry;
@@ -159,12 +159,51 @@ describe("IssuanceQueue deadline on every access (injected clock, no sweep, no t
     expect(q.claim("gone")).toBe(false);
     expect(q.get("held")).toBeUndefined();
     expect(q.list()).toEqual([]);
-    // Not dropped while its operation runs; nothing is owed for it yet.
+    // Not dropped while its operation runs, and the sweep leaves it alone within its bound; the next look is at the bound.
     expect(held.value.reveal()).not.toBe("");
-    expect(q.nextDeadline()).toBeNull();
+    expect(await q.sweep({} as never)).toEqual(["gone"]);
+    expect(held.value.reveal()).not.toBe("");
+    expect(q.nextDeadline()).toEqual(new Date(Date.parse("2026-11-14T10:01:00.000Z") + CLAIM_GRACE_MS));
     q.release("held");
-    expect(await q.sweep({} as never)).toEqual(["gone", "held"]);
+    expect(await q.sweep({} as never)).toEqual(["held"]);
     expect(held.value.reveal()).toBe("");
+  });
+
+  it("a claim is bounded: past deadline plus grace every access takes the item back and the operation's signal fires", async () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const bound = Date.parse("2026-11-14T10:01:00.000Z") + CLAIM_GRACE_MS;
+    for (const access of ["get", "list", "claim", "sweep"] as const) {
+      const q = new IssuanceQueue({ now });
+      const p = withValue("held", "2026-11-14T10:01:00.000Z");
+      c.t = Date.parse("2026-11-14T10:00:00.000Z");
+      q.add(p);
+      expect(q.claim("held")).toBe(true);
+      const signal = q.signal("held")!;
+      c.t = bound - 1;
+      if (access === "sweep") expect(await q.sweep({} as never)).toEqual([]);
+      else expect(q.get("held")).toBeUndefined();
+      expect(signal.aborted).toBe(false);
+      expect(p.value.reveal()).not.toBe("");
+      c.t = bound;
+      if (access === "get") expect(q.get("held")).toBeUndefined();
+      else if (access === "list") expect(q.list()).toEqual([]);
+      else if (access === "claim") expect(q.claim("held")).toBe(false);
+      else expect(await q.sweep({} as never)).toEqual(["held"]);
+      expect(signal.aborted).toBe(true);
+      expect(q.signal("held")).toBeUndefined();
+      expect(p.value.reveal()).toBe("");
+      // The operation lets go later: nothing comes back to life.
+      q.release("held");
+      expect(q.get("held")).toBeUndefined();
+    }
+  });
+
+  it("nextDeadline counts a claimed item at its hard bound", () => {
+    const { now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    q.add(withValue("a", "2026-11-14T10:05:00.000Z"));
+    expect(q.claim("a")).toBe(true);
+    expect(q.nextDeadline()).toEqual(new Date(Date.parse("2026-11-14T10:05:00.000Z") + CLAIM_GRACE_MS));
   });
 
   it("a read leaves the provider-side delete owed, and the next sweep does it once", async () => {
@@ -196,27 +235,151 @@ describe("IssuanceQueue deadline on every access (injected clock, no sweep, no t
     expect(q.nextDeadline()).toEqual(new Date("2026-11-14T10:10:00.000Z"));
   });
 
-  it("works on a store of the embedder: put, get, list and delete are all it needs, and it may have lost the value", () => {
-    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+  it("a store sees metadata records only: never the value, a companion value or the report", () => {
+    const { now } = clock("2026-11-14T10:00:00.000Z");
+    const puts: PendingRecord[] = [];
     const inner = new MemoryPendingStore();
-    const calls: string[] = [];
-    const store: PendingStore = {
-      put: (p) => (calls.push(`put ${p.id}`), inner.put(p)),
-      get: (id) => (calls.push(`get ${id}`), inner.get(id)),
-      list: () => (calls.push("list"), inner.list()),
-      delete: (id) => (calls.push(`delete ${id}`), inner.delete(id)),
-    };
+    const store: PendingStore = { put: (r) => (puts.push(r), inner.put(r)), get: (id) => inner.get(id), list: () => inner.list(), delete: (id) => inner.delete(id) };
     const q = new IssuanceQueue({ store, now });
     const p = withValue("a", "2026-11-14T10:05:00.000Z");
+    p.report.externalId = "ext-new";
     q.add(p);
+    q.add(withValue("renewed", "2026-11-14T10:05:00.000Z"));
+    const same = withValue("same", "2026-11-14T10:05:00.000Z");
+    same.report.externalId = "ext-1";
+    same.oldExternalId = "ext-1";
+    q.add(same);
+    expect(puts).toEqual([
+      { id: "a", secretId: "s", createdAt: "2026-11-14T10:00:00.000Z", expiresAt: "2026-11-14T10:05:00.000Z", externalId: "ext-new" },
+      { id: "renewed", secretId: "s", createdAt: "2026-11-14T10:00:00.000Z", expiresAt: "2026-11-14T10:05:00.000Z" },
+      { id: "same", secretId: "s", createdAt: "2026-11-14T10:00:00.000Z", expiresAt: "2026-11-14T10:05:00.000Z" },
+    ]);
+    expect(JSON.stringify(inner.list())).not.toMatch(/made-up|value|report/);
+    // The queue does not depend on getting the same object back from the store: it keeps the values itself.
     expect(q.get("a")).toBe(p);
-    q.delete("a");
-    // The embedder's process was evicted and the store no longer has it: that is "gone", not a fault.
-    expect(q.get("a")).toBeUndefined();
-    expect(q.list()).toEqual([]);
-    q.add(withValue("b", "2026-11-14T10:05:00.000Z"));
-    c.t = Date.parse("2026-11-14T10:06:00.000Z");
-    expect(q.get("b")).toBeUndefined();
-    expect(calls).toEqual(["put a", "get a", "delete a", "get a", "list", "put b", "get b", "delete b"]);
+    expect(q.orphans()).toEqual([]);
+  });
+
+  describe("the provider-side delete", () => {
+    const entry = secret("s");
+    const depsOf = (revoke: () => Promise<void>) =>
+      ({ inventory: { data: {}, getSecret: (id: string) => (id === "s" ? entry : undefined) }, providers: { get: () => ({ revoke }) }, connections: {}, owner: "o" }) as never;
+    const issued = (id: string, externalId: string): PendingIssuance => {
+      const p = withValue(id, "2026-11-14T10:05:00.000Z");
+      p.report.externalId = externalId;
+      return p;
+    };
+
+    it("a failed delete is not reported as swept: the record stays and the next sweeps try again, a bounded number of times", async () => {
+      const { c, now } = clock("2026-11-14T10:00:00.000Z");
+      const store = new MemoryPendingStore();
+      const q = new IssuanceQueue({ store, now });
+      q.add(issued("a", "ext-new"));
+      c.t = Date.parse("2026-11-14T10:06:00.000Z");
+      const revoke = vi.fn(async () => {
+        throw new Error("provider down");
+      });
+      // Try 1 happens at the discard of the item, tries 2 to 5 as retries of the record; none of them is a "swept" id.
+      for (let i = 1; i <= MAX_REVOKE_TRIES; i++) {
+        expect(await q.sweep(depsOf(revoke))).toEqual([]);
+        expect(revoke).toHaveBeenCalledTimes(i);
+        expect(store.list().length).toBe(i < MAX_REVOKE_TRIES ? 1 : 0);
+      }
+      // Given up: no more calls.
+      expect(await q.sweep(depsOf(revoke))).toEqual([]);
+      expect(revoke).toHaveBeenCalledTimes(MAX_REVOKE_TRIES);
+    });
+
+    it("a retry that works settles the record", async () => {
+      const { c, now } = clock("2026-11-14T10:00:00.000Z");
+      const store = new MemoryPendingStore();
+      const q = new IssuanceQueue({ store, now });
+      q.add(issued("a", "ext-new"));
+      c.t = Date.parse("2026-11-14T10:06:00.000Z");
+      const revoke = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValue(undefined);
+      expect(await q.sweep(depsOf(revoke))).toEqual([]);
+      expect(q.nextDeadline()).toEqual(new Date(c.t + REVOKE_RETRY_MS));
+      expect(await q.sweep(depsOf(revoke))).toEqual(["a"]);
+      expect(store.list()).toEqual([]);
+      expect(q.nextDeadline()).toBeNull();
+      expect(revoke).toHaveBeenCalledTimes(2);
+    });
+
+    it("a record whose value is gone (a restarted process) is deleted at the provider once its deadline has passed", async () => {
+      const { c, now } = clock("2026-11-14T10:00:00.000Z");
+      const store = new MemoryPendingStore();
+      const before = new IssuanceQueue({ store, now });
+      before.add(issued("a", "ext-new"));
+      before.add(withValue("no-new-value", "2026-11-14T10:05:00.000Z"));
+      const after = new IssuanceQueue({ store, now });
+      expect(after.get("a")).toBeUndefined();
+      expect(after.orphans().map((r) => r.id)).toEqual(["a", "no-new-value"]);
+      const revoke = vi.fn(async () => undefined);
+      // Not yet due: nothing happens, and the next deadline is the record's.
+      expect(await after.sweep(depsOf(revoke))).toEqual([]);
+      expect(after.nextDeadline()).toEqual(new Date("2026-11-14T10:05:00.000Z"));
+      c.t = Date.parse("2026-11-14T10:05:00.000Z");
+      expect(await after.sweep(depsOf(revoke))).toEqual(["a", "no-new-value"]);
+      expect(revoke).toHaveBeenCalledTimes(1);
+      expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "ext-new" }));
+      expect(store.list()).toEqual([]);
+    });
+
+    it("two sweeps at once settle a record once, a record the store lost in the meantime is left alone, and a retired item whose record was deleted still settles", async () => {
+      const { c, now } = clock("2026-11-14T10:00:00.000Z");
+      const store = new MemoryPendingStore();
+      expect(store.get("nope")).toBeUndefined();
+      const q = new IssuanceQueue({ store, now });
+      q.add(issued("a", "ext-new"));
+      c.t = Date.parse("2026-11-14T10:06:00.000Z");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const revoke = vi.fn(async () => gate);
+      const first = q.sweep(depsOf(revoke));
+      const second = await q.sweep(depsOf(revoke));
+      release();
+      expect(second).toEqual([]);
+      expect(await first).toEqual(["a"]);
+      expect(revoke).toHaveBeenCalledTimes(1);
+
+      // The record is listed but gone by the time it is settled.
+      const lost: PendingStore = { put: (r) => store.put(r), get: () => undefined, list: () => [{ id: "z", secretId: "s", createdAt: "x", expiresAt: "2026-11-14T10:01:00.000Z", externalId: "ext-z" }], delete: (id) => store.delete(id) };
+      const q2 = new IssuanceQueue({ store: lost, now });
+      expect(await q2.sweep(depsOf(revoke))).toEqual([]);
+      expect(revoke).toHaveBeenCalledTimes(1);
+
+      // An item retired by a read whose record was deleted from the store: the delete at the provider is still done.
+      const q3 = new IssuanceQueue({ store: new MemoryPendingStore(), now });
+      c.t = Date.parse("2026-11-14T10:00:00.000Z");
+      q3.add(issued("b", "ext-b"));
+      c.t = Date.parse("2026-11-14T10:06:00.000Z");
+      expect(q3.get("b")).toBeUndefined();
+      q3.delete("b");
+      expect(await q3.sweep(depsOf(vi.fn(async () => undefined)))).toEqual(["b"]);
+    });
+
+    it("a delete that throws unexpectedly counts as a failed try and never breaks the sweep", async () => {
+      const { c, now } = clock("2026-11-14T10:00:00.000Z");
+      const store = new MemoryPendingStore();
+      const q = new IssuanceQueue({ store, now });
+      store.put({ id: "o", secretId: "s", createdAt: "x", expiresAt: "2026-11-14T10:01:00.000Z", externalId: "ext-o" });
+      c.t = Date.parse("2026-11-14T10:06:00.000Z");
+      const broken = { inventory: { data: {}, getSecret: () => { throw new Error("inventory unreadable"); } } } as never;
+      expect(await q.sweep(broken)).toEqual([]);
+      expect(store.list()).toHaveLength(1);
+    });
+
+    it("revokeOrphan is the documented way to delete the new value of a record whose value is gone", async () => {
+      const revoke = vi.fn(async () => undefined);
+      const record = { id: "a", secretId: "s", createdAt: "x", expiresAt: "y", externalId: "ext-new" };
+      expect(await revokeOrphan(record, depsOf(revoke))).toBe(true);
+      expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "ext-new" }));
+      expect(await revokeOrphan({ ...record, externalId: undefined } as never, depsOf(revoke))).toBe(true);
+      expect(revoke).toHaveBeenCalledTimes(1);
+      expect(await revokeOrphan({ ...record, secretId: "gone" }, depsOf(revoke))).toBe(false);
+      expect(await revokeOrphan(record, depsOf(async () => Promise.reject(new Error("down"))))).toBe(false);
+    });
   });
 });

@@ -37,6 +37,7 @@ import {
 import { runGitHubSync } from "../src/github-sync.js";
 import { applyNormalizationChanges } from "../src/normalize.js";
 import { exportEnvContent } from "../src/env-content.js";
+import { CLAIM_GRACE_MS } from "../src/issuances.js";
 import { createLocalRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
@@ -97,7 +98,7 @@ const agent = { kind: "agent", name: "claude" } as const;
 const aliceP = { kind: "human", name: "alice", principalId: "principal-a" } as const;
 const bobP = { kind: "human", name: "bob", principalId: "principal-b" } as const;
 
-async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions> = {}) {
+async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions> = {}, gate?: (method: string, url: string) => Promise<void>) {
   await sodium.ready;
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
@@ -108,6 +109,7 @@ async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions
     const u = String(url).replace("https://api.github.com", "");
     const method = init?.method ?? "GET";
     calls.push(`${method} ${u}`);
+    await gate?.(method, u);
     if (method === "PUT" && typeof init?.body === "string") {
       const enc = (JSON.parse(init.body) as { encrypted_value?: string }).encrypted_value;
       if (enc) written.push(sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(enc, sodium.base64_variants.ORIGINAL), kp.publicKey, kp.privateKey)));
@@ -769,7 +771,8 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(rt.issuances.claim("no-such-review")).toBe(false);
     const confirming = confirmIssuance(rt, human, view.id, { ticks: ticksOf(view) });
     await settle();
-    rt.issuances.get(view.id)!.expiresAt = "2000-01-01T00:00:00.000Z";
+    // Just expired: within the grace a claimed review is left to its operation.
+    rt.issuances.get(view.id)!.expiresAt = new Date(Date.now() - 1000).toISOString();
     expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([]);
     open();
     await expect(confirming).rejects.toThrow(/abgelaufen/);
@@ -790,7 +793,7 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     const [first, second, third] = items.map((p) => p.id) as [string, string, string];
     // An operation took the second item while it was still valid; then all three run out.
     expect(rt.issuances.claim(second)).toBe(true);
-    for (const p of items) p.expiresAt = "2000-01-01T00:00:00.000Z";
+    for (const p of items) p.expiresAt = new Date(Date.now() - 1000).toISOString();
     const sweeping = rt.issuances.sweep(issuanceDeps(rt));
     // The sweep is now waiting for the first discard: remove the third item.
     rt.issuances.delete(third);
@@ -804,6 +807,48 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(revoke).toHaveBeenCalledTimes(2);
     // An expired item cannot be claimed any more.
     expect(rt.issuances.claim(second)).toBe(false);
+  });
+
+  it("a commit that never settles is cut off at the hard bound: the value is gone and the late commit writes nothing", async () => {
+    let t = Date.parse("2026-11-14T10:00:00.000Z");
+    // The first write to GitHub hangs until the test lets it go; the review has two places to write, so a second write would follow.
+    let letGo!: () => void;
+    const hang = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    let armed = false;
+    let hung = false;
+    const { rt, calls } = await setup(undefined, { now: () => new Date(t) }, async (method) => {
+      if (armed && !hung && method === "PUT") {
+        hung = true;
+        await hang;
+      }
+    });
+    rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.places.push({ repo: "acme-docs", scope: "repository" } as never);
+    const view = await prepared(rt);
+    const pending = rt.issuances.get(view.id)!;
+    const deadline = Date.parse(pending.expiresAt);
+    armed = true;
+    const confirming = confirmIssuance(rt, human, view.id, { ticks: ticksOf(view) });
+    await settle();
+    expect(hung).toBe(true);
+    // Within the grace the claimed review is hidden but still held.
+    t = deadline + 60_000;
+    expect(rt.issuances.get(view.id)).toBeUndefined();
+    expect(rt.issuances.signal(view.id)?.aborted).toBe(false);
+    // Past deadline plus grace the queue takes it back whatever the operation is doing.
+    t = deadline + CLAIM_GRACE_MS;
+    expect(rt.issuances.list()).toEqual([]);
+    expect(rt.issuances.signal(view.id)).toBeUndefined();
+    expect(pending.value.reveal()).toBe("");
+    expect(rt.issuances.claim(view.id)).toBe(false);
+    letGo();
+    // The write that was in flight went through; the second place was never written, and the commit reports it as failed.
+    expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
+    const result = await confirming;
+    expect(result.ok).toBe(false);
+    expect(result.places.map((p) => p.outcome)).toEqual(["updated", "failed"]);
+    expect(result.places[1]!.error).toMatch(/Abgebrochen/);
   });
 });
 

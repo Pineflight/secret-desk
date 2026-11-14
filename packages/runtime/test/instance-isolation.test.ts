@@ -6,7 +6,8 @@ import { IssuanceError, SecretValue, type PendingIssuance } from "@secret-desk/c
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IssuanceGoneError, confirmIssuance, getIssuance, listIssuances, rejectIssuance } from "../src/agent-api.js";
 import { cancelFacade, getFacadeState, startFacadeSignIn, submitFacadeCode, submitFacadeConfirm } from "../src/facade.js";
-import { MemoryPendingStore, type PendingStore } from "../src/issuances.js";
+import { WAIT_WINDOWS_MS } from "../src/instance-state.js";
+import { MemoryPendingStore, type PendingRecord, type PendingStore } from "../src/issuances.js";
 import { isLiveCheckRunning } from "../src/live-check.js";
 import { createRuntime, type Runtime, type RuntimeOptions } from "../src/runtime.js";
 import { startTeamToken, submitTeamTokenCode, submitTeamTokenCredentials } from "../src/team-token.js";
@@ -24,7 +25,7 @@ const T0 = Date.parse("2026-11-14T10:00:00.000Z");
 
 async function setup(options: Partial<RuntimeOptions> = {}): Promise<Runtime> {
   const dir = await mkdtemp(join(tmpdir(), "sd-instance-"));
-  await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
+  await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets:\n  - id: s\n    name: SOME_NAME\n    stage: shared\n    service: intern\n    provider: random-hex\n    expiry: none\n    places:\n      - { repo: acme-app, scope: repository }\nvariables: []\n");
   await writeFile(join(dir, "c.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme-org\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
   return createRuntime(join(dir, "c.yaml"), { env: { GH_TEST: "gh_made_up_value_1" } as unknown as NodeJS.ProcessEnv, vault: null, fetch: (async () => new Response(null, { status: 404 })) as unknown as typeof fetch, automationDriver: () => new FakeDriver(), ...options });
 }
@@ -173,13 +174,12 @@ describe("two runtimes in one process share no waiter", () => {
 });
 
 describe("a wait cannot be satisfied after its deadline, whether or not a sweep ran", () => {
-  it("an answer typed after the deadline is refused, and the run ends as expired", async () => {
+  it("an answer typed after the window of the question is refused, and the run ends as timed out", async () => {
     let t = T0;
     const rt = await setup({ now: () => new Date(t) });
     signInAs(rt, "a@example.test");
     await until(() => facade(rt).needs === "mfa-code");
-    const timeoutAt = Date.parse(facade(rt).timeoutAt!);
-    expect(timeoutAt).toBeGreaterThan(T0);
+    const timeoutAt = T0 + WAIT_WINDOWS_MS.code;
     t = timeoutAt - 1;
     expect(rt.instance.codeWaiters.get(FACADE_KEY, rt.now())).toBeDefined();
     t = timeoutAt;
@@ -187,7 +187,37 @@ describe("a wait cannot be satisfied after its deadline, whether or not a sweep 
     expect(received).toEqual({});
     expect(rt.instance.codeWaiters.size).toBe(0);
     await until(() => finished(rt));
-    expect(facade(rt)).toMatchObject({ status: "failed", failure: { message: "The time for the answer ran out." } });
+    expect(facade(rt)).toMatchObject({ status: "failed", failure: { code: "timeout", message: "Time limit reached while waiting for your answer." } });
+  });
+
+  it("a question asked late in a long sign-in still gets its own window: it is not born expired", async () => {
+    let t = T0;
+    const rt = await setup({ now: () => new Date(t) });
+    // The sign-in uses up all but 30 seconds of its time, then the key step asks the identity question.
+    mocks.signIn.mockImplementation(async () => {
+      t = Date.parse(facade(rt).timeoutAt!) - 30_000;
+      return { url: `https://app.revenuecat.com/projects/proj1a2b3c/overview` };
+    });
+    mocks.runRecipe.mockImplementation(async (_r: unknown, _v: unknown, _d: unknown, hooks: RunHooks) => {
+      await hooks.access!.request({ methods: ["code"], attempt: 1, maxAttempts: 3 } as never);
+      return { value: SecretValue.from("made_up_key_value_1") };
+    });
+    signInAs(rt, "a@example.test");
+    await until(() => facade(rt).ask?.type === "access");
+    const asked = t;
+    const runTimeout = Date.parse(facade(rt).timeoutAt!);
+    const waiter = rt.instance.accessWaiters.get(FACADE_KEY, rt.now())!;
+    expect(waiter).toBeDefined();
+    expect(waiter.deadline).toBe(asked + WAIT_WINDOWS_MS.access);
+    expect(waiter.deadline).toBeGreaterThan(runTimeout);
+    // Past the time-out of the run itself, within the window of the question: still open.
+    t = runTimeout + 60_000;
+    expect(rt.instance.accessWaiters.get(FACADE_KEY, rt.now())).toBeDefined();
+    // Window over: refused, and the run ends with the usual time-out code.
+    t = waiter.deadline;
+    expect(rt.instance.accessWaiters.get(FACADE_KEY, rt.now())).toBeUndefined();
+    await until(() => finished(rt));
+    expect(facade(rt)).toMatchObject({ status: "failed", failure: { code: "timeout", message: "Time limit reached while waiting for your answer." } });
   });
 
   it("the sweep hook removes the expired wait and reports the earliest deadline that remains", async () => {
@@ -195,7 +225,7 @@ describe("a wait cannot be satisfied after its deadline, whether or not a sweep 
     const rt = await setup({ now: () => new Date(t) });
     signInAs(rt, "a@example.test");
     await until(() => facade(rt).needs === "mfa-code");
-    const timeoutAt = Date.parse(facade(rt).timeoutAt!);
+    const timeoutAt = T0 + WAIT_WINDOWS_MS.code;
     expect(await rt.sweep()).toEqual(new Date(timeoutAt));
     expect(rt.instance.codeWaiters.size).toBe(1);
     // With reviews too, the earliest of everything that waits is reported.
@@ -222,15 +252,27 @@ describe("a wait cannot be satisfied after its deadline, whether or not a sweep 
     });
     startTeamToken(rt, human, { repo: REPO, mode: "pull", branch: "main" });
     await until(() => rt.automation.state("team-token").ask?.type === "credentials");
-    const timeoutAt = Date.parse(rt.automation.state("team-token").timeoutAt!);
-    t = timeoutAt + 1;
+    t = T0 + WAIT_WINDOWS_MS.credentials + 1;
     expect(() => submitTeamTokenCredentials(rt, human, { method: "email", username: "a@example.test", password: "made-up-pw-1" })).toThrow(IssuanceError);
     expect(rt.instance.teamToken.credentials.size).toBe(0);
     await until(() => ["failed", "done"].includes(rt.automation.state("team-token").status));
+    expect(rt.automation.state("team-token")).toMatchObject({ status: "failed", failure: { code: "timeout" } });
+  });
+
+  it("an answer is only taken for the run that asked", async () => {
+    const rt = await setup();
+    signInAs(rt, "a@example.test");
+    await until(() => facade(rt).needs === "mfa-code");
+    // A question left by an earlier run of the same provider: it carries another run's signal and is not answerable.
+    rt.instance.codeWaiters.set(FACADE_KEY, { resolve: () => undefined, reject: () => undefined, run: new AbortController().signal, deadline: Date.now() + 60_000 });
+    expect(() => submitFacadeCode(rt, human, PROVIDER, { code: "123456" })).toThrow(IssuanceError);
+    expect(received).toEqual({});
+    cancelFacade(rt, human, PROVIDER);
+    await until(() => finished(rt));
   });
 });
 
-function review(id: string, expiresAtMs: number): PendingIssuance {
+function review(id: string, expiresAtMs: number, externalId?: string): PendingIssuance {
   return {
     id,
     secretId: "s",
@@ -238,7 +280,7 @@ function review(id: string, expiresAtMs: number): PendingIssuance {
     expiresAt: new Date(expiresAtMs).toISOString(),
     value: new SecretValue("made-up-issued-value-1"),
     companions: [],
-    report: { id, secretName: "SOME_NAME", stage: "shared", provider: "manual", kind: "manual", checks: [], checklist: [], externalId: undefined },
+    report: { id, secretName: "SOME_NAME", stage: "shared", provider: "manual", kind: "manual", checks: [], checklist: [], externalId },
     issuedSecret: { id: "s" },
   } as unknown as PendingIssuance;
 }
@@ -305,20 +347,52 @@ describe("a pending review expires by its deadline on every access path", () => 
 });
 
 describe("the store of pending values is the embedder's to choose", () => {
-  it("a runtime uses the store it is given, and a value the store no longer has is a normal outcome", async () => {
-    const inner = new MemoryPendingStore();
-    const puts: string[] = [];
-    const store: PendingStore = { put: (p) => (puts.push(p.id), inner.put(p)), get: (id) => inner.get(id), list: () => inner.list(), delete: (id) => inner.delete(id) };
-    const rt = await setup({ pendingStore: store, now: () => new Date(T0) });
-    rt.issuances.add(review("kept", T0 + 60_000));
-    expect(puts).toEqual(["kept"]);
-    expect((await getIssuance(rt, "kept")).id).toBe("kept");
-    // The process was evicted and restarted: the embedder's store has the identifier at most, not the value.
-    inner.delete("kept");
-    const gone = await getIssuance(rt, "kept").catch((e: unknown) => e);
+  it("a runtime uses the store it is given, which sees metadata only; after a restart the value is gone, which is a normal outcome, and the new value is deleted at the provider", async () => {
+    let t = T0;
+    const now = (): Date => new Date(t);
+    const store = new MemoryPendingStore();
+    const puts: PendingRecord[] = [];
+    const watching: PendingStore = { put: (r) => (puts.push(r), store.put(r)), get: (id) => store.get(id), list: () => store.list(), delete: (id) => store.delete(id) };
+    const first = await setup({ pendingStore: watching, now });
+    first.issuances.add(review("kept", T0 + 60_000, "ext-new-1"));
+    expect(puts).toEqual([{ id: "kept", secretId: "s", createdAt: new Date(T0).toISOString(), expiresAt: new Date(T0 + 60_000).toISOString(), externalId: "ext-new-1" }]);
+    expect(JSON.stringify(store.list())).not.toContain("made-up-issued-value-1");
+    expect((await getIssuance(first, "kept")).id).toBe("kept");
+
+    // The process is evicted and a new runtime is built on the same store: it has the record, not the value.
+    const second = await setup({ pendingStore: store, now });
+    const revoke = vi.fn(async () => undefined);
+    second.providers.register({ id: "orphan-test", label: "T", kind: "automatic", issue: async () => ({ value: new SecretValue("unused-issued-value-1") }), revoke });
+    second.inventory.data.secrets.find((s) => s.id === "s")!.provider = "orphan-test";
+    const gone = await getIssuance(second, "kept").catch((e: unknown) => e);
     expect(gone).toBeInstanceOf(IssuanceGoneError);
     expect(gone).toMatchObject({ code: "issuance-gone", message: "Pruefung nicht gefunden oder abgelaufen: kept" });
-    expect(await listIssuances(rt)).toEqual([]);
+    expect(await listIssuances(second)).toEqual([]);
+    // Owed until the deadline of the record, then the sweep deletes the new value at the provider and forgets the record.
+    expect(await second.sweep()).toEqual(new Date(T0 + 60_000));
+    expect(revoke).not.toHaveBeenCalled();
+    t = T0 + 60_000;
+    expect(await second.sweep()).toBeNull();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "ext-new-1" }));
+    expect(store.list()).toEqual([]);
+  });
+
+  it("with a hook configured, an unknown review is answered like a refused one (no probing for ids); without one it is plainly gone", async () => {
+    const refuse = (): void => {
+      throw new Error("no");
+    };
+    const guarded = await setup({ now: () => new Date(T0), authorize: refuse });
+    guarded.issuances.add(review("known", T0 + 60_000));
+    for (const act of [(id: string) => confirmIssuance(guarded, human, id, { ticks: [] }), (id: string) => rejectIssuance(guarded, human, id)]) {
+      const known = await act("known").catch((e: unknown) => e as Error);
+      const unknown = await act("unknown").catch((e: unknown) => e as Error);
+      expect(unknown).not.toBeInstanceOf(IssuanceGoneError);
+      expect(unknown.message).toBe(known.message);
+    }
+    const open = await setup({ now: () => new Date(T0) });
+    await expect(confirmIssuance(open, human, "unknown", { ticks: [] })).rejects.toBeInstanceOf(IssuanceGoneError);
+    await expect(rejectIssuance(open, human, "unknown")).rejects.toBeInstanceOf(IssuanceGoneError);
   });
 
   it("the clock is the one given, and without one the system clock", async () => {

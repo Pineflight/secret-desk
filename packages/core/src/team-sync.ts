@@ -103,7 +103,7 @@ export interface TeamSyncState {
   setupDismissed: boolean;
 }
 
-export const EMPTY_STATE: TeamSyncState = { remoteSha: null, localHash: null, lastSyncAt: null, lastPushAt: null, pendingPullUrl: null, setupDismissed: false };
+export const EMPTY_STATE: Readonly<TeamSyncState> = { remoteSha: null, localHash: null, lastSyncAt: null, lastPushAt: null, pendingPullUrl: null, setupDismissed: false };
 
 export async function readTeamSyncState(path: string): Promise<TeamSyncState> {
   try {

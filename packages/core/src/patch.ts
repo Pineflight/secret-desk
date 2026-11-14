@@ -18,7 +18,7 @@ const metaShape = {
   tags: z.array(Tag).max(12).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
   product: z.string().max(100).nullable().optional(),
-};
+} as const;
 
 /** Erlaubte Felder einer Agenten-Aenderung. */
 export const SecretAgentPatchSchema = z.strictObject(metaShape);

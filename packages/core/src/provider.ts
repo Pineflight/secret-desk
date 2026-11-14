@@ -154,7 +154,7 @@ export class ProviderRegistry {
 }
 
 /** Fallback fuer Anbieter ohne API. */
-export const MANUAL_PROVIDER: Provider = {
+export const MANUAL_PROVIDER: Readonly<Provider> = {
   id: "manual",
   label: "Von Hand",
   kind: "manual",

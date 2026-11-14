@@ -10,7 +10,8 @@ export interface NamingConfig {
   keep: string[];
 }
 
-export const DEFAULT_NAMING: NamingConfig = { renames: {}, keep: [] };
+/** The default naming rules: none. Frozen: nothing may change what every caller shares. */
+export const DEFAULT_NAMING: Readonly<{ renames: Readonly<Record<string, string>>; keep: readonly string[] }> = Object.freeze({ renames: Object.freeze({}), keep: Object.freeze([]) });
 
 export type NameFindingCode = "not-upper-snake" | "stage-in-name" | "provider-abbreviation" | "github-prefix" | "framework-prefix" | "supabase-canonical" | "non-english" | "workspace-rename";
 
@@ -64,7 +65,7 @@ const GERMAN_TO_ENGLISH: Readonly<Record<string, string>> = {
   ASSISTENT: "ASSISTANT",
 };
 
-const MESSAGES: Record<NameFindingCode, string> = {
+const MESSAGES: Readonly<Record<NameFindingCode, string>> = {
   "not-upper-snake": "Der Name ist nicht in GROSSBUCHSTABEN_MIT_UNTERSTRICH",
   "stage-in-name": "Die Stage steht im Namen, sie kommt aus der GitHub-Environment",
   "provider-abbreviation": "Der Anbieter ist abgekuerzt, er wird ausgeschrieben",

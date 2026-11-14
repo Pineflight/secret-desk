@@ -122,8 +122,9 @@ export interface RuntimeOptions {
   /** The clock for every deadline (pending reviews, waits for an answer, browser runs). Default: the system clock. Tests and embedders inject their own. */
   now?: () => Date;
   /**
-   * Where issued, unconfirmed values are kept (default: memory of this runtime). A store must never persist the value; it may
-   * persist the identifier and the deadline. See `PendingStore`.
+   * Where the records of pending reviews are kept (default: memory of this runtime). The store only ever sees metadata (a
+   * `PendingRecord`: identifier, deadline, the provider's identifier of the new value), never the value, which the runtime keeps
+   * in memory itself. See `PendingStore`.
    */
   pendingStore?: PendingStore;
 }
@@ -263,7 +264,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
       // Deliberately not asked of the authorisation hook: clean-up only discards values and answers, so a hook can never extend a life.
       const when = at ?? rt.now();
       await rt.issuances.sweep(issuanceDeps(rt), when);
-      const reviews = rt.issuances.nextDeadline()?.getTime() ?? null;
+      const reviews = rt.issuances.nextDeadline(when)?.getTime() ?? null;
       const waits = instance.sweepWaiters(when);
       const next = reviews === null ? waits : waits === null ? reviews : Math.min(reviews, waits);
       return next === null ? null : new Date(next);

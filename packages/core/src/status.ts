@@ -4,7 +4,7 @@ import { isWorkerPlace, type Inventory, type Place, type SecretEntry } from "./t
 export type StatusLevel = "ok" | "unknown" | "soon" | "no-date" | "due" | "missing" | "expired";
 
 /** Reihenfolge = Dringlichkeit, grosser Wert = dringender. */
-const URGENCY: Record<StatusLevel, number> = { ok: 0, unknown: 1, soon: 2, "no-date": 3, due: 4, missing: 5, expired: 6 };
+const URGENCY: Readonly<Record<StatusLevel, number>> = { ok: 0, unknown: 1, soon: 2, "no-date": 3, due: 4, missing: 5, expired: 6 };
 
 // Moved to place-key.ts (no zod) so the portable GitHub client does not reach types.ts; re-exported, so imports stay.
 export { placeKey, type LiveSecret, type LiveSnapshot } from "./place-key.js";

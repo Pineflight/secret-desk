@@ -180,7 +180,7 @@ export function parseEnvText(text: string): Map<string, string> {
   return out;
 }
 
-const COMMANDS: Record<EnvCommand, { program: string; args: string[] }> = {
+const COMMANDS: Readonly<Record<EnvCommand, Readonly<{ program: string; args: string[] }>>> = {
   "supabase-status": { program: "supabase", args: ["status", "-o", "env"] },
 };
 

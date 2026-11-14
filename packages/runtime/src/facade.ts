@@ -22,7 +22,7 @@ import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
 import { checkConnection, stripeKeyCarriesAccount, type ConnectionCheckResult } from "./connection-check.js";
 import { getConnectionResources } from "./params.js";
-import { waitDeadline } from "./instance-state.js";
+import { WaitExpiredError, waitDeadline } from "./instance-state.js";
 import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 
@@ -535,6 +535,8 @@ function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
     const code: FacadeFailureCode = err.kind === "abort" ? "cancelled" : err.kind === "timeout" ? "timeout" : err.kind === "host" ? "host" : "key";
     return { code, message: clean(err.message), messageEn: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
   }
+  // A question nobody answered in time ends the run like any other time-out.
+  if (err instanceof WaitExpiredError) return { code: "timeout", message: err.message, messageEn: err.message };
   if (cancelled) return { code: "cancelled", message: "Cancelled.", messageEn: "Cancelled." };
   const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0]!) : "";
   return { code: "browser", message: text || "The browser could not be used.", messageEn: text || "The browser could not be used." };
@@ -624,12 +626,12 @@ async function driveSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredentials,
       onEvent: (e) => mapSignInEvent(t, rt, e, timeoutAt),
       requestCode: () =>
         new Promise<string>((resolve, reject) => {
-          rt.instance.codeWaiters.set(key, { resolve, reject, deadline: Date.parse(timeoutAt) });
+          rt.instance.codeWaiters.set(key, { resolve, reject, run: signal, deadline: waitDeadline(rt.now(), "code") });
           signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
         }),
       requestConfirm: () =>
         new Promise<boolean>((resolve, reject) => {
-          rt.instance.confirmWaiters.set(key, { resolve, reject, deadline: Date.parse(timeoutAt) });
+          rt.instance.confirmWaiters.set(key, { resolve, reject, run: signal, deadline: waitDeadline(rt.now(), "confirm") });
           signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
         }),
     },
@@ -845,7 +847,7 @@ async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, r
               // The waiter belongs to this run (its signal); answered, it drops the listener so questions do not pile them up.
               rt.instance.accessWaiters.set(key, {
                 run: signal,
-                deadline: waitDeadline(rt.now(), rt.automation.state(key).timeoutAt),
+                deadline: waitDeadline(rt.now(), "access"),
                 resolve: (answer) => {
                   signal.removeEventListener("abort", onAbort);
                   resolve(answer);
@@ -967,7 +969,7 @@ export function submitFacadeCode(rt: Runtime, actor: Actor, id: string, body: Re
 }
 
 function submitCodeAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
-  const waiter = rt.instance.codeWaiters.get(key, rt.now());
+  const waiter = rt.instance.codeWaiters.answerable(key, rt.now(), rt.automation.runSignal(key));
   const state = rt.automation.state(key);
   if (!waiter || state.needs !== "mfa-code") throw new IssuanceError("The provider is not waiting for a one-time code.");
   const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
@@ -1002,7 +1004,7 @@ export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body:
 }
 
 function submitConfirmAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
-  const waiter = rt.instance.confirmWaiters.get(key, rt.now());
+  const waiter = rt.instance.confirmWaiters.answerable(key, rt.now(), rt.automation.runSignal(key));
   if (!waiter || rt.automation.state(key).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
   if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
   rt.instance.confirmWaiters.delete(key);

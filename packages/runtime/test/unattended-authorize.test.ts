@@ -241,7 +241,9 @@ describe("the expiry sweep is clean-up and no hook can refuse it", () => {
     await expect(confirmIssuance(rt, human, "unknown-review", { ticks: [] })).rejects.toThrow(/nicht gefunden/);
     expect(rt.issuances.get(second.id)).toBeUndefined();
     expect(second.revoke).toHaveBeenCalledTimes(1);
-    expect(seen.map((r) => [r.actor.kind, r.action])).toEqual([["human", "issuance.prepare"], ["human", "issuance.prepare"]]);
+    // The sweeps asked nothing. What was asked: the two requests and, for the unknown review, the confirm of the person who tried it
+    // (so a refused caller cannot tell an unknown review from a known one), always as a human and never as the system.
+    expect(seen.map((r) => [r.actor.kind, r.action])).toEqual([["human", "issuance.prepare"], ["human", "issuance.prepare"], ["human", "issuance.confirm"]]);
   });
 });
 

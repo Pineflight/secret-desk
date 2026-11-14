@@ -12,19 +12,25 @@ import type { LoginCredentials, LoginMethodId, SudoAnswer } from "@secret-desk/a
 /** The wait ran out before an answer arrived. The run that waited fails like any other time-out. */
 export class WaitExpiredError extends Error {
   constructor() {
-    super("The time for the answer ran out.");
+    super("Time limit reached while waiting for your answer.");
     this.name = "WaitExpiredError";
   }
 }
 
-/** The longest a wait may last when its run names no time-out of its own. */
+/** The longest any single question may stay open. */
 export const DEFAULT_WAIT_MS = 15 * 60_000;
+
+/**
+ * How long a person has to answer each kind of question, counted from the moment it is asked (never from the start of the run:
+ * a long sign-in must not leave the next question expired before it is asked). None is longer than `DEFAULT_WAIT_MS`.
+ */
+export const WAIT_WINDOWS_MS = { credentials: 15 * 60_000, access: 10 * 60_000, code: 10 * 60_000, confirm: 10 * 60_000 } as const;
 
 export interface Waiter<T> {
   resolve: (answer: T) => void;
   reject: (err: Error) => void;
-  /** The run this question belongs to (its signal), when the answer must be matched to it. */
-  run?: AbortSignal;
+  /** The run this question belongs to (its signal): an answer is only taken for the run that asked. */
+  run: AbortSignal;
   /** Epoch milliseconds after which the wait cannot be satisfied. */
   deadline: number;
 }
@@ -33,8 +39,17 @@ export interface Waiter<T> {
 export class WaiterBook<T> {
   readonly #items = new Map<string, Waiter<T>>();
 
+  /** Registers a question. A question it replaces is rejected (a run asks one question of a kind at a time). */
   set(key: string, waiter: Waiter<T>): void {
+    const old = this.#items.get(key);
     this.#items.set(key, waiter);
+    old?.reject(new Error("replaced"));
+  }
+
+  /** The live wait for `key` that belongs to the run `run`, or undefined: an answer meant for another run (or none) finds nothing. */
+  answerable(key: string, now: Date, run: AbortSignal | undefined): Waiter<T> | undefined {
+    const waiter = this.get(key, now);
+    return waiter && run !== undefined && waiter.run === run && !run.aborted ? waiter : undefined;
   }
 
   /** The live wait for `key`. A wait past its deadline is removed, rejected with `WaitExpiredError` and reported as absent. */
@@ -119,8 +134,7 @@ export class InstanceState {
   }
 }
 
-/** The deadline of a wait: the time-out of its run when it has one, else `DEFAULT_WAIT_MS` from now. */
-export function waitDeadline(now: Date, timeoutAt: string | null | undefined): number {
-  const parsed = timeoutAt ? Date.parse(timeoutAt) : Number.NaN;
-  return Number.isNaN(parsed) ? now.getTime() + DEFAULT_WAIT_MS : parsed;
+/** The deadline of a question asked now: the window of its kind from this moment (epoch milliseconds). */
+export function waitDeadline(now: Date, kind: keyof typeof WAIT_WINDOWS_MS): number {
+  return now.getTime() + Math.min(WAIT_WINDOWS_MS[kind], DEFAULT_WAIT_MS);
 }

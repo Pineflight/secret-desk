@@ -21,7 +21,7 @@ import { GitHubClient, GitHubError, GitHubInputError, InventoryError, IssuanceEr
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry, RunAsk } from "./automation.js";
 import { credentialsFrom, methodFrom } from "./facade.js";
-import { waitDeadline, type TeamTokenAnswers, type Waiter, type WaiterBook } from "./instance-state.js";
+import { WaitExpiredError, waitDeadline, type TeamTokenAnswers, type Waiter, type WaiterBook } from "./instance-state.js";
 import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 import {
@@ -159,7 +159,7 @@ class Tracker {
     const last = this.#timeline.at(-1);
     if (last?.phase === phase && last.state === "active") return this.rt.automation.update(this.key, { ...patch, timeline: [...this.#timeline] });
     if (last?.state === "active") last.state = "done";
-    this.#timeline.push({ phase, state: "active", at: new Date().toISOString() });
+    this.#timeline.push({ phase, state: "active", at: this.rt.now().toISOString() });
     this.rt.automation.update(this.key, { phase, timeline: [...this.#timeline], ...patch });
   }
 
@@ -194,6 +194,8 @@ function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
     const code: TeamTokenFailureCode = err.kind === "abort" ? "cancelled" : err.kind === "timeout" ? "timeout" : err.kind === "host" ? "host" : err.kind === "step" ? "step" : "key";
     return { code, message: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
   }
+  // A question nobody answered in time ends the run like any other time-out.
+  if (err instanceof WaitExpiredError) return { code: "timeout", message: err.message };
   if (cancelled) return { code: "cancelled", message: "Cancelled." };
   const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0]!) : "";
   return { code: "browser", message: text || "The browser could not be used." };
@@ -244,7 +246,7 @@ export function startTeamToken(rt: Runtime, actor: Actor, body: Record<string, u
   if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
   const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
   if (!recipe) throw new InventoryError(`The recipe ${TEAM_TOKEN_RECIPE} is not loaded.`);
-  const now = new Date();
+  const now = rt.now();
   const vars = teamTokenVars(recipe, req, now);
   rt.automation.forget(RUN_KEY);
   const minutes = rt.automation.loginTimeoutMinutes;
@@ -280,7 +282,8 @@ function waitFor<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, signal:
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
     book.set(RUN_KEY, {
-      deadline: waitDeadline(rt.now(), rt.automation.state(RUN_KEY).timeoutAt),
+      run: signal,
+      deadline: waitDeadline(rt.now(), slot),
       resolve: (answer) => {
         signal.removeEventListener("abort", onAbort);
         resolve(answer);
@@ -294,7 +297,7 @@ function waitFor<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, signal:
 }
 
 /** The question of this kind that can still be answered, or undefined (nothing asked, or its deadline passed). */
-const open = <K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K): Waiter<TeamTokenAnswers[K]> | undefined => (rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>).get(RUN_KEY, rt.now());
+const open = <K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K): Waiter<TeamTokenAnswers[K]> | undefined => (rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>).answerable(RUN_KEY, rt.now(), rt.automation.runSignal(RUN_KEY));
 
 /** Delivers the answer to the waiting run, once. */
 function deliver<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, value: TeamTokenAnswers[K]): void {
@@ -544,7 +547,7 @@ export async function checkTeamTokenSession(rt: Runtime, actor: Actor): Promise<
   if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
   const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
   if (!recipe) throw new InventoryError(`The recipe ${TEAM_TOKEN_RECIPE} is not loaded.`);
-  const checkedAt = (): string => new Date().toISOString();
+  const checkedAt = (): string => rt.now().toISOString();
   if (rt.automation.isBusy()) return { signedIn: false, checkedAt: checkedAt(), failure: { code: "busy", message: "A browser run is already in progress. Wait for it or cancel it first." } };
   const expect = recipe.login?.expect.url ? new RegExp(recipe.login.expect.url) : null;
   rt.automation.begin(CHECK_KEY, TEAM_TOKEN_RECIPE, { text: "Checking the browser session.", needs: null });

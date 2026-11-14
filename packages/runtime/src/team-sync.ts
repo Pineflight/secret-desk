@@ -403,7 +403,7 @@ export function previewTeamText(rt: Runtime, text: string): BundleDiff {
   return diffBundles(rt.inventory.data, parseTeamBundle(text));
 }
 
-const messages = {
+const messages: Readonly<Record<"de" | "en", Readonly<{ commit: string; title: string; body: string }>>> = {
   de: { commit: "secret-desk: Team-Konfiguration aktualisiert", title: "secret-desk: Team-Konfiguration aktualisieren", body: "Automatisch vom secret-desk Portal erstellt. Enthaelt nur Struktur, keine Werte. Bitte die Aenderungen pruefen." },
   en: { commit: "secret-desk: update team configuration", title: "secret-desk: update team configuration", body: "Created by the secret-desk portal. Contains structure only, no values. Please review the changes." },
 };
