@@ -33,6 +33,7 @@ import {
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
 import type { AutomationBrowserInfo, AutomationInfo, AutomationPort, AutomationRecipeInfo, AutomationRunState, AutomationStatus } from "./automation-port.js";
+import type { PortableBrowserProvider } from "./automation-types.js";
 import { HostCapabilityError, expandHomeFor, readHostEnv, type RuntimeHost } from "./host.js";
 import { LiveCheckStore, type LiveCheckReport } from "./live-check-store.js";
 import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
@@ -378,7 +379,8 @@ export class AutomationManager implements AutomationPort {
       parseCdpEndpoint(this.#cdpEndpoint); // fail closed: an invalid endpoint never falls back to a local Chrome
       // The address comes from configuration or the environment of the host: a host that does not offer the capability refuses it.
       if (!host?.connectRemoteBrowser) throw new BrowserNotAvailableError("remote");
-      // The host interface names the driver by what the portable declarations know (open and close); this module needs the whole driver.
+      // The host contract is the whole driver (`PortableBrowserDriver` has every member of `BrowserDriver`, kept equal by
+      // `test/automation-types.check.ts`). The cast stays for one type only: a screenshot is `Uint8Array` there, `Buffer` here.
       return host.connectRemoteBrowser({ cdpEndpoint: this.#cdpEndpoint, ...slow }) as BrowserDriver | Promise<BrowserDriver>;
     }
     if (!host?.launchLocalBrowser) throw new BrowserNotAvailableError("local");
@@ -425,7 +427,7 @@ export class AutomationManager implements AutomationPort {
    * Fuehrt `work` als Browser-Lauf zu diesem Secret aus (nur einer gleichzeitig) und haelt den Zustand fest.
    * `work` erzeugt den Wert (prepareIssuance); `issuanceId` liefert die id der entstandenen Pruefung.
    */
-  async run<T>(secretId: string, provider: BrowserProvider, work: () => Promise<T>, issuanceId?: (r: T) => string): Promise<T> {
+  async run<T>(secretId: string, provider: PortableBrowserProvider, work: () => Promise<T>, issuanceId?: (r: T) => string): Promise<T> {
     if (this.#active !== null) {
       throw new IssuanceError(this.#active === secretId ? "Fuer dieses Secret laeuft schon ein Browser-Lauf." : `Es laeuft schon ein Browser-Lauf (Secret ${this.#active}). Erst abwarten oder abbrechen.`);
     }
@@ -458,7 +460,7 @@ export class AutomationManager implements AutomationPort {
   }
 
   /** Haengt die Belege des Laufs an den Bericht. Ein Fehler dabei kippt die Pruefung nicht. */
-  async attach(provider: BrowserProvider, secretId: string, reportId: string): Promise<number> {
+  async attach(provider: PortableBrowserProvider, secretId: string, reportId: string): Promise<number> {
     try {
       return await provider.attachScreenshots(secretId, reportId);
     } catch {

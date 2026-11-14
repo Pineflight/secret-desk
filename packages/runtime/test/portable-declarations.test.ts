@@ -57,7 +57,7 @@ describe("who installs the automation package", () => {
   it("the runtime package asks for it as an optional peer (and has it for its own build and tests), not as a hard dependency", async () => {
     const runtime = await manifestOf("../package.json");
     expect(runtime["dependencies"]).not.toHaveProperty("@secret-desk/automation");
-    expect(runtime["peerDependencies"]).toEqual({ "@secret-desk/automation": "workspace:*" });
+    expect(runtime["peerDependencies"]).toEqual({ "@secret-desk/automation": "workspace:^" });
     expect(runtime["peerDependenciesMeta"]).toEqual({ "@secret-desk/automation": { optional: true } });
     expect(runtime["devDependencies"]).toHaveProperty("@secret-desk/automation", "workspace:*");
   });

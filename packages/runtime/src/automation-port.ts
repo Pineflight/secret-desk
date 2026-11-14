@@ -167,15 +167,18 @@ export interface AutomationPort {
   /** Like `info()`, plus a reachability check of a remote browser. */
   status(): Promise<AutomationInfo>;
   /** A loaded recipe by id. */
-  recipe(id: string): Recipe | undefined;
+  // The members that name a type of the automation package are properties of a function type, not methods: a method's parameters
+  // are compared loosely (bivariantly), a property's strictly, so an implementation that reads more of a provider than the port
+  // hands out is refused (`test/automation-types.check.ts` keeps that so).
+  readonly recipe: (id: string) => Recipe | undefined;
   /** The portal host a multi-host browser provider uses for the parameters of an entry, else null. */
   browserHostOf(provider: unknown, params: Record<string, unknown>): string | null;
   /** Whether this provider is one of the browser providers of this port. */
-  isBrowserProvider(provider: Provider | undefined): provider is BrowserProvider;
+  readonly isBrowserProvider: (provider: Provider | undefined) => provider is BrowserProvider;
   /** Runs `work` as the browser run for a secret (one run at a time) and keeps its state. */
-  run<T>(secretId: string, provider: BrowserProvider, work: () => Promise<T>, issuanceId?: (result: T) => string): Promise<T>;
+  readonly run: <T>(secretId: string, provider: BrowserProvider, work: () => Promise<T>, issuanceId?: (result: T) => string) => Promise<T>;
   /** Attaches the evidence of a run to a report. Never throws. */
-  attach(provider: BrowserProvider, secretId: string, reportId: string): Promise<number>;
+  readonly attach: (provider: BrowserProvider, secretId: string, reportId: string) => Promise<number>;
   /** The state of a run (idle when there is none). */
   state(key: string): AutomationRunState;
   /** Cancels the running run of a key; refused when none runs. */
@@ -193,7 +196,7 @@ export interface AutomationPort {
   /** Whether a tracked run holds the browser right now. */
   isBusy(): boolean;
   /** A fresh driver for the configured browser. */
-  newDriver(): BrowserDriver | Promise<BrowserDriver>;
+  readonly newDriver: () => BrowserDriver | Promise<BrowserDriver>;
   /** Remembers that the browser was signed in (or out) at a host just now. Never stores values. */
   noteSignIn(host: string, signedIn: boolean, source?: SignInSource): void;
   /** The last known sign-in state of every host seen so far. */
