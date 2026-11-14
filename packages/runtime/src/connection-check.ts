@@ -18,6 +18,7 @@ import {
 import { ANTHROPIC_KEY_KIND_PROBLEM, GRAFANA_COM_ROOT, isAnthropicAdminKey, isAnthropicApiKey, safeText } from "@secret-desk/providers";
 import { stripeKeyCarriesAccount } from "@secret-desk/core";
 export { stripeKeyCarriesAccount };
+import { assertCanSeal, githubAppKeyStatus } from "./github-crypto.js";
 import type { Runtime } from "./runtime.js";
 
 /** Feste Namen der Probe-Eintraege des Schreibtests. */
@@ -433,6 +434,7 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
   const sid = `write-secret:${id}`;
   const slabel = `Schreibtest Secret in ${place}`;
   try {
+    assertCanSeal(rt); // a runtime that cannot seal makes no request for this probe
     const existing = (await rt.github.listSecrets(target)).some((s) => s.name === WRITE_PROBE_SECRET);
     if (existing) {
       out.push(item(sid, slabel, "warn", `Ein Secret ${WRITE_PROBE_SECRET} existiert schon: nichts geschrieben, bitte von Hand loeschen.`));
@@ -491,7 +493,7 @@ export async function checkConnection(rt: Runtime, id: string, options: Connecti
     return { id, ok: true, checks: [item("token", "Token", "info", "Nicht pruefbar ohne Stack-Adresse. Der Token wird beim Ausstellen geprueft.")] };
   }
   if (id === "github-app-key") {
-    const st = await rt.connections.status(id);
+    const st = await githubAppKeyStatus(rt, id);
     if (!st.connected) return { id, ok: false, checks: [item("connected", "Verbunden", "fail", "Nicht verbunden")] };
     return { id, ok: true, checks: [item("token", "Schluessel", "info", "Der App-Schluessel wird beim ersten Zugriff geprueft: Test ueber die Verbindung GitHub.")] };
   }

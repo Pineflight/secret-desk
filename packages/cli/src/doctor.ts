@@ -1,5 +1,5 @@
 import { CLOUDFLARE_CONNECTION, GitHubError, WorkerSecretsError, agentStageIds, githubPlacesOf, isWorkerPlace, placeToTarget, stageKind, workerKey, type Place } from "@secret-desk/core";
-import { listConnections, type Runtime } from "@secret-desk/runtime";
+import { githubAppUsable, listConnections, type Runtime } from "@secret-desk/runtime";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
 
@@ -38,7 +38,7 @@ export async function runDoctor(rt: Runtime): Promise<DoctorFinding[]> {
   const allPlaces = [...inv.secrets.flatMap((s) => s.places), ...inv.variables.flatMap((v) => v.places)];
   const places = githubPlacesOf(allPlaces);
   const seen = new Set<string>();
-  const githubOk = (await rt.connections.status("github")).connected || (await rt.connections.status("github-app-key")).connected;
+  const githubOk = (await rt.connections.status("github")).connected || (await githubAppUsable(rt));
   if (githubOk) {
     for (const place of places) {
       const key = placeLabel(place);

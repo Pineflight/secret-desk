@@ -5,6 +5,9 @@ import { SecretValue, SessionVault, type AppJwtSigner, type SecretSealer } from 
 import { describe, expect, it, vi } from "vitest";
 import { HostCapabilityError } from "../src/host.js";
 import { createRuntime, GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type RuntimeOptions } from "../src/runtime.js";
+import { listConnections } from "../src/agent-api.js";
+import { checkConnection } from "../src/connection-check.js";
+import { githubAppUsable } from "../src/github-crypto.js";
 import { openScopedSession, teamTokenSource } from "../src/team-sync.js";
 import { verifyTeamToken } from "../src/team-token.js";
 
@@ -65,7 +68,7 @@ describe("seal option of the runtime", () => {
 
   it("the client that checks a new team token follows the same rule (no host, no sealer: it can read, never seal)", async () => {
     const { rt } = await setup("pat");
-    const problem = await verifyTeamToken(rt, new SecretValue("made-up-team-token"), { owner: "acme", name: "team-config", branch: "main", mode: "read", strategy: "direct" });
+    const problem = await verifyTeamToken(rt, new SecretValue("made-up-team-token"), { owner: "acme", name: "team-config", branch: "main", mode: "pull", strategy: "direct" });
     expect(problem === null || typeof problem === "string").toBe(true);
   });
 
@@ -75,7 +78,13 @@ describe("seal option of the runtime", () => {
     expect(err).toBeInstanceOf(HostCapabilityError);
     expect((err as HostCapabilityError).capability).toBe("seal");
     expect(String((err as Error).message)).not.toContain(PLAINTEXT);
-    expect(calls.filter((c) => c.method === "PUT")).toEqual([]);
+    expect(calls).toEqual([]); // no request at all: not even the public key is fetched
+  });
+
+  it("sealing directly through the client of a runtime without a host and without a sealer is refused the same way", async () => {
+    const { rt, calls } = await setup("pat");
+    await expect(rt.github.seal("made-up-public-key", PLAINTEXT)).rejects.toBeInstanceOf(HostCapabilityError);
+    expect(calls).toEqual([]);
   });
 
   it("a runtime with a host and no sealer keeps the default of the core (the client is built without a replacement sealer)", async () => {
@@ -113,6 +122,39 @@ describe("sign option of the runtime", () => {
     expect(await teamTokenSource(rt)).toBe("github-app");
     const without = await setup("app", {}, false);
     expect(await teamTokenSource(without.rt)).toBe("none");
+  });
+
+  it("one shared answer: signer only is usable and listed as connected with the source injected; the key view, the team view and the check agree", async () => {
+    const sign = vi.fn<AppJwtSigner>(async () => "made-up-signature");
+    const { rt } = await setup("app", { sign }, false);
+    expect(await githubAppUsable(rt)).toBe(true);
+    expect(await teamTokenSource(rt)).toBe("github-app");
+    const key = (await listConnections(rt)).find((c) => c.id === GITHUB_APP_KEY_CONNECTION)!;
+    expect(key).toMatchObject({ connected: true, source: "injected" });
+    expect(JSON.stringify(key)).not.toContain("made-up-key-or-token");
+    expect((await checkConnection(rt, GITHUB_APP_KEY_CONNECTION)).ok).toBe(true);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("with a stored key and no signer the key connection is listed as before (source session), and without either it is not connected", async () => {
+    const { rt } = await setup("app", {}, true);
+    expect(await githubAppUsable(rt)).toBe(true);
+    expect((await listConnections(rt)).find((c) => c.id === GITHUB_APP_KEY_CONNECTION)).toMatchObject({ connected: true, source: "session" });
+    const none = await setup("app", {}, false);
+    expect(await githubAppUsable(none.rt)).toBe(false);
+    expect((await listConnections(none.rt)).find((c) => c.id === GITHUB_APP_KEY_CONNECTION)).toMatchObject({ connected: false });
+    expect((await checkConnection(none.rt, GITHUB_APP_KEY_CONNECTION)).ok).toBe(false);
+  });
+
+  it("with a stored key and a signer the stored key is shown (a stored key wins in the display)", async () => {
+    const { rt } = await setup("app", { sign: async () => "made-up-signature" }, true);
+    expect((await listConnections(rt)).find((c) => c.id === GITHUB_APP_KEY_CONNECTION)).toMatchObject({ connected: true, source: "session" });
+  });
+
+  it("a signer does not make a runtime with a token-based GitHub configuration look app-connected", async () => {
+    const { rt } = await setup("pat", { sign: async () => "made-up-signature" }, false);
+    expect(await githubAppUsable(rt)).toBe(false);
+    expect((await listConnections(rt)).find((c) => c.id === GITHUB_APP_KEY_CONNECTION)).toMatchObject({ connected: false });
   });
 
   it("a runtime without a host and without a signer refuses with the host capability error before the key is read", async () => {

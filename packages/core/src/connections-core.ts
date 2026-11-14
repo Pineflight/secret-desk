@@ -60,8 +60,9 @@ export class SessionVault {
 export interface ConnectionStatus {
   id: string;
   connected: boolean;
-  source: SourceSpec["type"] | "vault" | "none" | "github";
+  source: SourceSpec["type"] | "vault" | "none" | "github" | "injected";
   // "github": team-sync without an own token, served by the GitHub integration.
+  // "injected": the runtime was given a signer, so the GitHub App private key is held by the embedder and not stored here.
   hint?: string;
   /** Nur bei Tokens aus der Sitzung: Tag, bis zu dem der Token gilt, null = laeuft nie ab. */
   expires?: string | null;

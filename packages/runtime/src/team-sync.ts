@@ -25,7 +25,7 @@ import {
   type TeamSyncConfig,
 } from "@secret-desk/core";
 import { authorizeSystem } from "./agent-api.js";
-import { createAppTokenProvider, createGitHubClient } from "./github-crypto.js";
+import { createAppTokenProvider, createGitHubClient, githubAppUsable } from "./github-crypto.js";
 import { readHostEnv } from "./host.js";
 import { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, type Runtime } from "./runtime.js";
 import { metaFits, readTeamTokenMeta, type TeamTokenScope } from "./team-token-meta.js";
@@ -101,9 +101,7 @@ export async function teamTokenSource(rt: Runtime, scope: TeamTokenScope = {}): 
   if ((await rt.connections.status(TEAM_SYNC_CONNECTION)).connected && metaFits(await readTeamTokenMeta(rt), scope)) return "own";
   const auth = rt.config.github.auth;
   if (auth.type === "pat") return (await rt.connections.status(GITHUB_CONNECTION)).connected ? "github-pat" : "none";
-  // With an injected signer the private key stays where the signer is: no stored key is needed.
-  if (rt.sign) return "github-app";
-  return (await rt.connections.status(GITHUB_APP_KEY_CONNECTION)).connected ? "github-app" : "none";
+  return (await githubAppUsable(rt)) ? "github-app" : "none";
 }
 
 /** One team sync operation (one check, pull or push): one client and, with a GitHub App, one installation token provider. */

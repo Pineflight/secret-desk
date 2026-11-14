@@ -1,4 +1,5 @@
 export * from "./approvals.js";
+export { githubAppKeyStatus, githubAppUsable } from "./github-crypto.js";
 export * from "./automation.js";
 export * from "./connection-check.js";
 export * from "./instance-state.js";

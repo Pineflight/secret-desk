@@ -94,12 +94,14 @@ export interface RuntimeOptions {
   /**
    * Seals a value for the GitHub secret store (the same `SecretSealer` the portable GitHub client takes). Without it, a runtime
    * with a host seals with the libsodium default of the core, and a runtime without a host cannot seal: writing a GitHub secret
-   * is refused with a `HostCapabilityError` before anything is sent.
+   * (`putSecret` and the write probe) is refused with a `HostCapabilityError` before any request is made, the public key
+   * request included.
    */
   seal?: SecretSealer;
   /**
    * Signs the GitHub App token request (the same `AppJwtSigner` the portable GitHub client takes), so the App private key never
-   * enters this process and is not read. Without it, a runtime with a host signs with the key of the `github-app-key`
+   * enters this process and is not read. The signer must sign for the GitHub App named by `github.auth.appId` of the configuration
+   * (the issuer comes from the configuration; GitHub refuses a signer of another App). Without it, a runtime with a host signs with the key of the `github-app-key`
    * connection, and a runtime without a host refuses to build an App token with a `HostCapabilityError`.
    */
   sign?: AppJwtSigner;
