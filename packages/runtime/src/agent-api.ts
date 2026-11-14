@@ -56,6 +56,7 @@ import {
   exportTeamBundle,
   inspectVariable,
   isPathInside,
+  isPathInsideOrSame,
   overallStatus,
   planRotation,
   prepareIssuance,
@@ -1049,13 +1050,22 @@ export async function exportEnv(
     // Commands run only for a human who asked for them and only through the host of the runtime; there is no other way to start one.
     const host = rt.host;
     const wantsCommands = actor.kind === "human" && Boolean(input.runCommands);
+    // The command runs in `commandDir` and prefers that folder's own node_modules/.bin: before anything starts, the folder must lie
+    // (by real path) inside policy.envRoots or be the linked folder of the repository (itself checked against the allowed bases).
+    let commandsAllowed = false;
+    if (wantsCommands && host?.runCommand) {
+      const realDir = await realpathLoose(commandDir);
+      for (const root of [...roots, ...(folder ? [folder] : [])]) {
+        if (isPathInsideOrSame(await realpathLoose(root), realDir)) commandsAllowed = true;
+      }
+    }
     const built = await buildEnvFile(template, {
       ...envDeps,
       ...(actor.kind === "agent" ? { allowedIssueStages: agentStages(rt) } : {}),
       ...(input.prompts ? { prompts: input.prompts } : {}),
       ...(actor.kind === "human" && input.runValues ? { runValues: input.runValues } : {}),
       readTemplateFile,
-      ...(wantsCommands && host?.runCommand ? { runCommand: (command: EnvCommand) => host.runCommand!(command, commandDir) } : {}),
+      ...(commandsAllowed && host?.runCommand ? { runCommand: (command: EnvCommand) => host.runCommand!(command, commandDir) } : {}),
     });
     let written;
     try {
@@ -1072,6 +1082,7 @@ export async function exportEnv(
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");
     if (wantsCommands && !host?.runCommand) warnings.push("Befehle der Vorlage laufen in dieser Umgebung nicht; die betroffenen Werte bleiben leer.");
+    else if (wantsCommands && !commandsAllowed) warnings.push("Befehle der Vorlage laufen nur in einem Ordner unter policy.envRoots oder im verknuepften Ordner; die betroffenen Werte bleiben leer.");
     return { status: "written", path: written.path, keys: built.keys, sources: built.sources, skipped: built.skipped, gitIgnored: written.gitIgnored, warnings };
   } catch (err) {
     if (err instanceof PromptsRequiredError) {

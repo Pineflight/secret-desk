@@ -1,8 +1,8 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { createRuntime } from "../src/runtime.js";
+import { describe, expect, it, vi } from "vitest";
+import { createLocalRuntime } from "../src/runtime.js";
 import { getSettings, shortenHome } from "../src/settings.js";
 
 const INVENTORY = `version: 1
@@ -17,7 +17,7 @@ async function setup(policy: string, vaultOff = true) {
   const dir = await mkdtemp(join(tmpdir(), "sd-set-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nserver: { port: 5151 }\ngithub:\n  owner: P\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n${policy}`);
-  const rt = await createRuntime(join(dir, "c.yaml"), { ...(vaultOff ? { vault: null } : {}), env: { GH_TEST: "ghp_testwert_nie_zeigen_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
+  const rt = await createLocalRuntime(join(dir, "c.yaml"), { ...(vaultOff ? { vault: null } : {}), env: { GH_TEST: "ghp_testwert_nie_zeigen_1" } as unknown as NodeJS.ProcessEnv, bundledRecipes: null });
   return { rt, dir };
 }
 
@@ -29,23 +29,19 @@ describe("shortenHome", () => {
     expect(shortenHome("/opt/data")).toBe("/opt/data");
     expect(shortenHome("/Userset/x")).toBe("/Userset/x");
   });
-  it("respects path boundaries with the real home too (not /Users/alice2/x -> ~2/x)", () => {
-    const saved = { HOME: process.env["HOME"], USERPROFILE: process.env["USERPROFILE"] };
-    process.env["HOME"] = "/srv/alice";
-    process.env["USERPROFILE"] = "/srv/alice";
-    try {
-      expect(shortenHome("/srv/alice/x")).toBe("~/x");
-      expect(shortenHome("/srv/alice")).toBe("~");
-      expect(shortenHome("/srv/alice2/x")).toBe("/srv/alice2/x");
-      expect(shortenHome("/srv/alice-alt")).toBe("/srv/alice-alt");
-      expect(shortenHome("/data/srv/alice/x")).toBe("/data/srv/alice/x");
-      expect(shortenHome("Datei /srv/alice/a und /srv/alice2/b")).toBe("Datei ~/a und /srv/alice2/b");
-    } finally {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete process.env[k];
-        else process.env[k] = v;
-      }
-    }
+  it("respects path boundaries with the home of the host too (not /Users/alice2/x -> ~2/x)", () => {
+    const home = "/srv/alice";
+    expect(shortenHome("/srv/alice/x", home)).toBe("~/x");
+    expect(shortenHome("/srv/alice", home)).toBe("~");
+    expect(shortenHome("/srv/alice2/x", home)).toBe("/srv/alice2/x");
+    expect(shortenHome("/srv/alice-alt", home)).toBe("/srv/alice-alt");
+    expect(shortenHome("/data/srv/alice/x", home)).toBe("/data/srv/alice/x");
+    expect(shortenHome("Datei /srv/alice/a und /srv/alice2/b", home)).toBe("Datei ~/a und /srv/alice2/b");
+  });
+  it("does not ask the process for a home folder: without one only the general patterns apply", () => {
+    vi.stubEnv("HOME", "/srv/alice");
+    expect(shortenHome("/srv/alice/x")).toBe("/srv/alice/x");
+    vi.unstubAllEnvs();
   });
 });
 

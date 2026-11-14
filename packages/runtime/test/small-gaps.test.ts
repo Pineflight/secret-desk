@@ -33,13 +33,8 @@ describe("readAbout without an explicit env", () => {
 
 describe("shortenHome with a root home directory", () => {
   it("does not build a home pattern when the home directory is just a slash", () => {
-    vi.stubEnv("HOME", "/");
-    try {
-      expect(shortenHome("/opt/data/file")).toBe("/opt/data/file");
-      expect(shortenHome("/home/anna/x")).toBe("~/x");
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    expect(shortenHome("/opt/data/file", "/")).toBe("/opt/data/file");
+    expect(shortenHome("/home/anna/x", "/")).toBe("~/x");
   });
 });
 

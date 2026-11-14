@@ -1,13 +1,41 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { NotConnectedError } from "@secret-desk/core";
+import { FakeDriver } from "@secret-desk/automation";
+import { InventoryError, NotConnectedError } from "@secret-desk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exportEnv, getAutomation } from "../src/agent-api.js";
-import { nodeRuntimeHost, readHostEnv, type RuntimeHost } from "../src/host.js";
-import { listRepos, scanLocal, setLink } from "../src/repos.js";
+import { exportEnv, getAutomation, requestIssuance } from "../src/agent-api.js";
+import { BrowserNotAvailableError } from "../src/automation.js";
+import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type RuntimeHost } from "../src/host.js";
+import { linksPath, listRepos, scanLocal, setLink } from "../src/repos.js";
 import { createLocalRuntime, createRuntime } from "../src/runtime.js";
+import { getSettings } from "../src/settings.js";
 import { startupTeamSync } from "../src/team-sync.js";
+
+// While `blocked` is set, every function of the child-process module that starts something throws and is recorded. The fake
+// programs on PATH below are the second line: they leave a trace when something starts a process by any other route.
+const spawnGuard = vi.hoisted(() => ({ blocked: false, calls: [] as string[] }));
+vi.mock("node:child_process", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:child_process")>();
+  const guard = <F extends (...args: never[]) => unknown>(name: string, fn: F): F =>
+    ((...args: never[]) => {
+      if (spawnGuard.blocked) {
+        spawnGuard.calls.push(name);
+        throw new Error(`blocked: ${name}`);
+      }
+      return fn(...args);
+    }) as F;
+  return {
+    ...real,
+    execFile: guard("execFile", real.execFile),
+    execFileSync: guard("execFileSync", real.execFileSync),
+    exec: guard("exec", real.exec),
+    execSync: guard("execSync", real.execSync),
+    spawn: guard("spawn", real.spawn),
+    spawnSync: guard("spawnSync", real.spawnSync),
+    fork: guard("fork", real.fork),
+  };
+});
 
 // Everything here uses made-up values. The "poisoned" values sit in the real process environment on purpose: a runtime
 // without a host must never return them, and the environment object must not even be asked for them.
@@ -36,6 +64,8 @@ envTemplates:
 `;
 
 afterEach(() => {
+  spawnGuard.blocked = false;
+  spawnGuard.calls.length = 0;
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -79,6 +109,13 @@ function watchProcessEnv(): { reads: string[]; stop: () => void } {
   Object.defineProperty(process, "env", { value: proxy, configurable: true, writable: true, enumerable: true });
   return { reads, stop: () => Object.defineProperty(process, "env", original) };
 }
+
+/**
+ * The YAML parser we depend on looks at two debug switches of its own (`LOG_TOKENS`, `LOG_STREAM`) every time it parses; that is
+ * a third-party diagnostic flag, not a configuration path, and it cannot be turned off from here. Everything else counts.
+ */
+const THIRD_PARTY_DEBUG_SWITCHES = new Set(["LOG_TOKENS", "LOG_STREAM"]);
+const ownReads = (reads: string[]): string[] => [...new Set(reads.filter((r) => !THIRD_PARTY_DEBUG_SWITCHES.has(r)))];
 
 async function setup(options: { host?: RuntimeHost | null | "local"; teamRepo?: boolean } = {}) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-")));
@@ -196,6 +233,12 @@ describe("the test instruments", () => {
     expect(watch.reads).toEqual(expect.arrayContaining(["MADE_UP_WATCHED_NAME", "<enumeration>"]));
   });
 
+  it("the child-process guard blocks and records the starters the host uses", async () => {
+    spawnGuard.blocked = true;
+    await expect(nodeRuntimeHost({ env: {} }).gitOrigin?.(tmpdir())).rejects.toThrow("blocked: execFile");
+    expect(spawnGuard.calls).toEqual(["execFile"]);
+  });
+
   it.skipIf(windows)("the fake programs leave a trace when they are started", async () => {
     const programs = await fakePrograms();
     const host = nodeRuntimeHost({ env: {} });
@@ -299,7 +342,7 @@ describe("the local edition", () => {
 
   it("nodeRuntimeHost offers every member and answers `env` only for own string properties", () => {
     const host = nodeRuntimeHost({ env: { MADE_UP_HOST_VAR: "v_made_up" } });
-    expect(Object.keys(host).sort()).toEqual(["env", "gitCheckIgnored", "gitOrigin", "label", "readReference", "runCommand"]);
+    expect(Object.keys(host).sort()).toEqual(["connectRemoteBrowser", "env", "findChrome", "gitCheckIgnored", "gitOrigin", "homeDir", "label", "launchLocalBrowser", "openVault", "readReference", "runCommand"]);
     expect(host.env?.("MADE_UP_HOST_VAR")).toBe("v_made_up");
     expect(host.env?.("toString")).toBeUndefined();
     expect(host.env?.("__proto__")).toBeUndefined();
@@ -318,5 +361,362 @@ describe("the local edition", () => {
     const bin = await realpath(await mkdtemp(join(tmpdir(), "sd-host-nogit-")));
     vi.stubEnv("PATH", bin);
     expect(await nodeRuntimeHost().gitOrigin?.(tmpdir())).toBeNull();
+  });
+
+  it("the Node host hands git a filtered environment: system basics and the Git switches, never provider tokens", async () => {
+    vi.stubEnv("GH_TEST", "poison_github_token_made_up");
+    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+    vi.stubEnv("GIT_TERMINAL_PROMPT", "1");
+    const bin = await realpath(await mkdtemp(join(tmpdir(), "sd-host-envgit-")));
+    const dump = join(bin, "env.txt");
+    await writeFile(join(bin, "git"), `#!/bin/sh\nenv > "${dump}"\n`, { mode: 0o755 });
+    vi.stubEnv("PATH", `${bin}${delimiter}/usr/bin${delimiter}/bin`);
+    const host = nodeRuntimeHost();
+    await host.gitOrigin?.(tmpdir());
+    const seen = await readFile(dump, "utf8");
+    expect(seen).not.toContain("GH_TEST");
+    expect(seen).not.toContain("poison_github_token_made_up");
+    expect(seen).toContain("GIT_CONFIG_NOSYSTEM=1");
+    expect(seen).toContain("GIT_TERMINAL_PROMPT=0");
+    await rm(dump);
+    await host.gitCheckIgnored?.(join(tmpdir(), "x.env"));
+    expect(await readFile(dump, "utf8")).not.toContain("GH_TEST");
+  });
+});
+
+const RECIPE = `# STATUS: not checked against the real site
+id: sample-token
+label: Sample
+host: example.test
+login:
+  expect: { url: "^https://example\\\\.test/tokens" }
+  message: Please sign in
+steps:
+  - goto: "https://example.test/tokens/new?name={{name}}"
+  - click: { role: button, name: Create, createsToken: true }
+capture:
+  token:
+    find: { css: "#tok" }
+    pattern: "^(tok_[a-z0-9]+)$"
+    timeoutSeconds: 0.05
+  externalId: { from: name }
+  expires: { from: days }
+mask: [{ css: "#tok" }]
+`;
+
+const DEFAULTS_INVENTORY = `version: 1
+secrets:
+  - { id: sample-b, name: SAMPLE_B, stage: dev, service: example, provider: sample-token-browser, expiry: none, places: [{ repo: acme-app, scope: repository }] }
+variables: []
+envTemplates:
+  - id: acme-dev
+    repo: acme-app
+    stage: dev
+    file: .env.local
+    entries:
+      - { key: SITE_URL, from: { type: default, value: "http://localhost:3000" } }
+      - { key: ANON_KEY, from: { type: command, command: supabase-status, key: ANON_KEY, optional: true } }
+`;
+
+/** A configuration that sets neither `vault` nor `automation`, so both are on (the defaults), with a recipe and a connection of each kind. */
+async function prepareDefaults(extra = ""): Promise<{ dir: string; path: string; projects: string; outside: string }> {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-defaults-")));
+  const projects = join(dir, "projects");
+  const outside = join(dir, "outside");
+  await mkdir(projects);
+  await mkdir(outside);
+  await mkdir(join(dir, "recipes"));
+  await writeFile(join(dir, "recipes", "sample.yaml"), RECIPE);
+  await writeFile(join(dir, "inventory.yaml"), DEFAULTS_INVENTORY);
+  await writeFile(
+    join(dir, "c.yaml"),
+    [
+      "inventory: ./inventory.yaml",
+      `linksFile: ${JSON.stringify(join(dir, "links.json"))}`,
+      "github:",
+      "  owner: acme",
+      "  auth: { type: pat, source: { type: env, name: GH_TEST } }",
+      "connections:",
+      "  env-conn: { type: env, name: MADE_UP_HOST_VAR }",
+      "policy:",
+      `  envRoots: [${JSON.stringify(projects)}]`,
+      extra,
+      "",
+    ].join("\n"),
+  );
+  return { dir, path: join(dir, "c.yaml"), projects, outside };
+}
+
+describe("a runtime without a host, from a configuration with the defaults", () => {
+  it.skipIf(windows)("reads no environment variable and starts no process, on any path that used to", async () => {
+    poisonProcessEnv();
+    const programs = await fakePrograms();
+    const { path, projects } = await prepareDefaults();
+    const folder = await gitFolder(projects, "acme-app");
+    await writeFile(join(projects, "..", "links.json"), JSON.stringify({ version: 1, links: { "acme-app": folder } }));
+    const fetchMock = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+
+    const watch = watchProcessEnv();
+    spawnGuard.blocked = true;
+    let out: Awaited<ReturnType<typeof exercise>>;
+    try {
+      out = await exercise();
+    } finally {
+      spawnGuard.blocked = false;
+      watch.stop();
+    }
+    expect(ownReads(watch.reads)).toEqual([]);
+    expect(spawnGuard.calls).toEqual([]);
+    expect(await programs.started()).toEqual([]);
+    expect(JSON.stringify(out)).not.toMatch(/poison_/);
+
+    async function exercise() {
+      // No `vault`, no `automationDriver`, no host: the configuration asks for a vault and automation, the runtime offers neither.
+      const rt = await createRuntime(path, { bundledRecipes: undefined, fetch: fetchMock });
+      const vault = rt.connections.vault;
+      const token = await rt.connections.token("env-conn").catch((e: unknown) => e);
+      const github = await rt.connections.status("github");
+      const exported = await exportEnv(rt, human, { repo: "acme-app", runCommands: true, runValues: new Map(), prompts: {} });
+      const link = await setLink(rt, "acme-app", folder);
+      const found = await scanLocal(rt);
+      const info = rt.automation.info();
+      const status = await rt.automation.status();
+      const settings = getSettings(rt);
+      const recipeRun = await requestIssuance(rt, human, "sample-b").then(
+        () => null,
+        (e: unknown) => e,
+      );
+      const driver = await Promise.resolve()
+        .then(() => rt.automation.newDriver())
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      return { vault, token, github, exported, link, found, info, status, settings, recipeRun, driver, recipes: rt.automation.recipes.length };
+    }
+    expect(out.vault).toBeUndefined();
+    expect(out.token).toBeInstanceOf(NotConnectedError);
+    expect(out.github).toMatchObject({ connected: false });
+    expect(out.exported).toMatchObject({ status: "written", skipped: ["ANON_KEY"] });
+    expect(out.link.warnings).toEqual(["Der Remote des Ordners laesst sich in dieser Umgebung nicht pruefen."]);
+    expect(out.found).toEqual([]);
+    expect(out.recipes).toBeGreaterThan(1); // the bundled recipes and the sample one are loaded; only starting a browser is refused
+    expect(out.info.chrome).toEqual({ found: false, path: null, hint: "A browser is not available in this environment." });
+    expect(out.info.browser).toMatchObject({ mode: "local", detail: "A browser is not available in this environment." });
+    expect(out.status.browser.detail).toBe("A browser is not available in this environment.");
+    expect(out.settings.vault).toEqual({ enabled: false, file: "", keySourceLabel: null });
+    expect(out.recipeRun).toBeInstanceOf(Error);
+    expect(out.driver).toBeInstanceOf(BrowserNotAvailableError);
+    expect(out.driver).toMatchObject({ mode: "local", kind: "browser-unavailable" });
+  });
+});
+
+describe("the browser capability", () => {
+  it("a configured remote endpoint is refused without the host's remote capability, and not even probed", async () => {
+    poisonProcessEnv();
+    const { path } = await prepareDefaults("automation: { cdpEndpoint: \"http://127.0.0.1:9\" }");
+    const rt = await createRuntime(path, { bundledRecipes: null });
+    const info = rt.automation.info();
+    expect(info.browser).toMatchObject({ mode: "remote", reachable: false, detail: "A browser is not available in this environment." });
+    expect((await rt.automation.status()).browser).toMatchObject({ reachable: false, detail: "A browser is not available in this environment." });
+    expect(info.chrome.hint).toContain("remote browser");
+    await expect(Promise.resolve().then(() => rt.automation.newDriver())).rejects.toMatchObject({ mode: "remote", name: "BrowserNotAvailableError" });
+    // A local-only host does not make the remote endpoint available either.
+    const localOnly = await createRuntime(path, { bundledRecipes: null, host: { label: "t", launchLocalBrowser: () => new FakeDriver({ url: "about:blank" }) } });
+    await expect(Promise.resolve().then(() => localOnly.automation.newDriver())).rejects.toMatchObject({ mode: "remote" });
+  });
+
+  it("the host decides: remote and local drivers come from its members, with fixed values", async () => {
+    const seen: unknown[] = [];
+    const host: RuntimeHost = {
+      label: "t",
+      homeDir: () => "/home/made-up",
+      connectRemoteBrowser: (o) => (seen.push(["remote", o]), new FakeDriver({ url: "about:blank" })),
+      launchLocalBrowser: (o) => (seen.push(["local", o]), new FakeDriver({ url: "about:blank" })),
+      findChrome: (preferred) => ({ path: preferred ?? null, hint: null }),
+    };
+    const remote = await prepareDefaults("automation: { cdpEndpoint: \"http://127.0.0.1:9\", slowMoMs: 5 }");
+    const rtRemote = await createRuntime(remote.path, { bundledRecipes: null, host });
+    expect(await rtRemote.automation.newDriver()).toBeInstanceOf(FakeDriver);
+    expect(rtRemote.automation.info().browser).toMatchObject({ mode: "remote", detail: null });
+    const local = await prepareDefaults("automation: { chromePath: /opt/made-up/chrome, profileDir: ~/made-up-profile }");
+    const rtLocal = await createRuntime(local.path, { bundledRecipes: null, host });
+    expect(await rtLocal.automation.newDriver()).toBeInstanceOf(FakeDriver);
+    expect(rtLocal.automation.info().chrome).toEqual({ found: true, path: "/opt/made-up/chrome", hint: null });
+    expect(seen).toEqual([
+      ["remote", { cdpEndpoint: "http://127.0.0.1:9", slowMoMs: 5 }],
+      ["local", { chromePath: "/opt/made-up/chrome", profileDir: "/home/made-up/made-up-profile" }],
+    ]);
+  });
+
+  it("a host that finds no Chrome or throws while looking reports it without failing", async () => {
+    const { path } = await prepareDefaults();
+    const missing = await createRuntime(path, { bundledRecipes: null, host: { label: "t", findChrome: () => ({ path: null, hint: "install it" }) } });
+    expect(missing.automation.info().chrome).toEqual({ found: false, path: null, hint: "install it" });
+    const broken = await createRuntime(path, { bundledRecipes: null, host: { label: "t", findChrome: () => { throw new Error("lookup failed"); } } });
+    expect(broken.automation.info().chrome).toEqual({ found: false, path: null, hint: "lookup failed" });
+  });
+
+  it("a local browser with a `~` profile needs the host's home folder", async () => {
+    const { path } = await prepareDefaults();
+    const host: RuntimeHost = { label: "t", launchLocalBrowser: () => new FakeDriver({ url: "about:blank" }) };
+    const rt = await createRuntime(path, { bundledRecipes: null, host });
+    expect(rt.automation.profileDir).toBe("");
+    await expect(Promise.resolve().then(() => rt.automation.newDriver())).rejects.toBeInstanceOf(HostCapabilityError);
+    const chrome = await prepareDefaults("automation: { chromePath: ~/chrome, profileDir: /abs/made-up-profile }");
+    const rtChrome = await createRuntime(chrome.path, { bundledRecipes: null, host });
+    expect(rtChrome.automation.profileDir).toBe("/abs/made-up-profile");
+    await expect(Promise.resolve().then(() => rtChrome.automation.newDriver())).rejects.toBeInstanceOf(HostCapabilityError);
+  });
+
+  it("a test driver factory still works without a host", async () => {
+    const { path } = await prepareDefaults();
+    const rt = await createRuntime(path, { bundledRecipes: null, automationDriver: () => new FakeDriver({ url: "about:blank" }) });
+    expect(await rt.automation.newDriver()).toBeInstanceOf(FakeDriver);
+    expect(rt.automation.info().browser.detail).toBeNull();
+  });
+
+  it("recipe folders with `~` and no home folder are reported as a problem, not a crash", async () => {
+    const { path } = await prepareDefaults("automation: { recipesDirs: [\"~/recipes\"] }");
+    const rt = await createRuntime(path, { bundledRecipes: null });
+    expect(rt.automation.problems.map((p) => p.file)).toContain("~/recipes");
+  });
+});
+
+describe("the vault capability", () => {
+  it("the default vault comes from the host's openVault, with expanded paths, and not at all without it", async () => {
+    const opened: unknown[] = [];
+    const host: RuntimeHost = { label: "t", homeDir: () => "/home/made-up", openVault: (o) => (opened.push(o), undefined as never) };
+    const { path } = await prepareDefaults("vault: { file: ~/v.json, keyFile: ~/v.key }");
+    await createRuntime(path, { bundledRecipes: null, host });
+    expect(opened).toEqual([{ file: "/home/made-up/v.json", keyFile: "/home/made-up/v.key" }]);
+    const plain = await prepareDefaults();
+    await createRuntime(plain.path, { bundledRecipes: null, host });
+    expect(opened[1]).toEqual({});
+    expect(opened).toHaveLength(2);
+    const noOpener = await createRuntime(plain.path, { bundledRecipes: null, host: { label: "t", env: () => undefined } });
+    expect(noOpener.connections.vault).toBeUndefined();
+  });
+
+  it("an explicit vault (or null) wins over the host and the host's opener is not called", async () => {
+    const opener = vi.fn(() => undefined as never);
+    const { path } = await prepareDefaults();
+    const rt = await createRuntime(path, { bundledRecipes: null, host: { label: "t", openVault: opener }, vault: null });
+    expect(rt.connections.vault).toBeUndefined();
+    expect(opener).not.toHaveBeenCalled();
+  });
+
+  it("a `~` vault file without a home folder is refused when the host would open it", async () => {
+    const { path } = await prepareDefaults("vault: { file: ~/v.json }");
+    await expect(createRuntime(path, { bundledRecipes: null, host: { label: "t", openVault: () => undefined as never } })).rejects.toBeInstanceOf(HostCapabilityError);
+  });
+
+  it("the local edition opens the vault through the Node host", async () => {
+    const { dir, path } = await prepareDefaults(`vault: { file: ${JSON.stringify("PLACEHOLDER")} }`);
+    const file = join(dir, "vault.json");
+    await writeFile(path, (await readFile(path, "utf8")).replace('"PLACEHOLDER"', JSON.stringify(file)));
+    const rt = await createLocalRuntime(path, { bundledRecipes: null, env: { SECRET_DESK_VAULT_KEY: "made_up_vault_key_32_bytes_long!!" } as never });
+    expect(rt.connections.vault).toBeDefined();
+  });
+});
+
+describe("the home folder", () => {
+  it("expands `~` with the host's home folder and refuses it without one", () => {
+    expect(expandHomeFor({ label: "t", homeDir: () => "/home/made-up" }, "~/x")).toBe("/home/made-up/x");
+    expect(expandHomeFor({ label: "t", homeDir: () => "/home/made-up" }, "~")).toBe("/home/made-up");
+    expect(expandHomeFor(undefined, "/abs/x")).toBe("/abs/x");
+    expect(expandHomeFor(undefined, "~other/x")).toBe("~other/x");
+    expect(() => expandHomeFor(undefined, "~/x")).toThrow(HostCapabilityError);
+    expect(() => expandHomeFor({ label: "t", homeDir: () => "" }, "~")).toThrow("Home-Ordner");
+    expect(hostHome({ label: "t", homeDir: () => 7 as never })).toBeUndefined();
+  });
+
+  it("without a host the home folder of the process is not an allowed root and not a default location", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-home-")));
+    vi.stubEnv("HOME", dir);
+    vi.stubEnv("USERPROFILE", dir);
+    const projects = join(dir, "work");
+    await mkdir(projects);
+    await mkdir(join(dir, "inv"));
+    await writeFile(join(dir, "inv", "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
+    await writeFile(join(dir, "inv", "c.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
+    const repo = await gitFolder(projects, "acme-app");
+    const rt = await createRuntime(join(dir, "inv", "c.yaml"), { vault: null, bundledRecipes: null });
+    // Under the process home, but nobody gave the runtime a home folder or a root: refused.
+    await expect(setLink(rt, "acme-app", repo)).rejects.toThrow("ausserhalb des Home-Ordners");
+    await expect(setLink(rt, "acme-app", "~/work/acme-app")).rejects.toBeInstanceOf(InventoryError);
+    expect(() => linksPath(rt)).toThrow(HostCapabilityError);
+    expect(await listRepos(rt)).toMatchObject({ repos: [] });
+    expect(getSettings(rt).linksFile).toBe("");
+    // The local edition: the same folder is under the home folder of the Node host.
+    const local = await createLocalRuntime(join(dir, "inv", "c.yaml"), { vault: null, bundledRecipes: null });
+    expect(linksPath(local)).toBe(join(dir, ".secret-desk", "repo-links.json"));
+    await mkdir(join(dir, ".secret-desk"));
+    await expect(setLink(local, "acme-app", repo)).resolves.toMatchObject({ path: repo });
+  });
+
+  it("persisting the sign-in memory needs a place: a links file, or a host with a home folder", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-persist-")));
+    await writeFile(join(dir, "inventory.yaml"), "version: 1\nsecrets: []\nvariables: []\n");
+    await writeFile(join(dir, "c.yaml"), "inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n");
+    await expect(createRuntime(join(dir, "c.yaml"), { vault: null, bundledRecipes: null, persistSignIn: true })).rejects.toBeInstanceOf(HostCapabilityError);
+    await writeFile(join(dir, "c2.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "state", "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
+    await expect(createRuntime(join(dir, "c2.yaml"), { vault: null, bundledRecipes: null, persistSignIn: true })).resolves.toBeDefined();
+    await expect(createRuntime(join(dir, "c.yaml"), { vault: null, bundledRecipes: null, persistSignIn: true, host: { label: "t", homeDir: () => dir } })).resolves.toBeDefined();
+  });
+
+  it("settings show `~` paths as configured when the host has no home folder", async () => {
+    const { path } = await prepareDefaults("evidenceDir: ~/evidence");
+    const rt = await createRuntime(path, { vault: null, bundledRecipes: null });
+    expect(getSettings(rt).evidenceDir).toBe("~/evidence");
+  });
+});
+
+describe("template commands run only where they may", () => {
+  it.skipIf(windows)("a command is not started in a folder outside policy.envRoots, even with a planted binary", async () => {
+    const programs = await fakePrograms();
+    const { path, outside } = await prepareDefaults();
+    const bin = join(outside, "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "supabase"), `#!/bin/sh\necho planted >> "${programs.marker}"\necho ANON_KEY=planted_made_up\n`, { mode: 0o755 });
+    const rt = await createLocalRuntime(path, { vault: null, bundledRecipes: null });
+    await expect(exportEnv(rt, human, { repo: "acme-app", path: join(outside, ".env.local"), runCommands: true, runValues: new Map(), prompts: {} })).rejects.toThrow("ausserhalb der erlaubten Ordner");
+    expect(await programs.started()).toEqual([]);
+    expect(await stat(join(outside, ".env.local")).then(() => true, () => false)).toBe(false);
+  });
+
+  it.skipIf(windows)("inside the roots the same command starts, so the check is the only difference", async () => {
+    const programs = await fakePrograms();
+    const { path, projects } = await prepareDefaults();
+    const rt = await createLocalRuntime(path, { vault: null, bundledRecipes: null });
+    const result = await exportEnv(rt, human, { repo: "acme-app", path: join(projects, ".env.local"), runCommands: true, runValues: new Map(), prompts: {} });
+    expect(result).toMatchObject({ status: "written", warnings: expect.not.arrayContaining([expect.stringContaining("nur in einem Ordner")]) });
+    expect(await programs.started()).toContain("supabase");
+  });
+
+  it.skipIf(windows)("with no roots configured only the linked folder may run commands", async () => {
+    const programs = await fakePrograms();
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-noroots-")));
+    await writeFile(join(dir, "inventory.yaml"), DEFAULTS_INVENTORY);
+    await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\n`);
+    const loose = join(dir, "loose");
+    await mkdir(loose);
+    const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, bundledRecipes: null });
+    const result = await exportEnv(rt, human, { repo: "acme-app", path: join(loose, ".env.local"), runCommands: true, runValues: new Map(), prompts: {} });
+    expect(result).toMatchObject({ status: "written", skipped: ["ANON_KEY"] });
+    if (result.status === "written") expect(result.warnings).toContain("Befehle der Vorlage laufen nur in einem Ordner unter policy.envRoots oder im verknuepften Ordner; die betroffenen Werte bleiben leer.");
+    expect(await programs.started()).not.toContain("supabase");
+  });
+
+  it.skipIf(windows)("a node_modules link that leads out of the folder is not the repository's own binary", async () => {
+    const programs = await fakePrograms();
+    const { path, projects, outside } = await prepareDefaults();
+    await mkdir(join(outside, ".bin"), { recursive: true });
+    await writeFile(join(outside, ".bin", "supabase"), `#!/bin/sh\necho planted-link >> "${programs.marker}"\necho ANON_KEY=planted_made_up\n`, { mode: 0o755 });
+    await symlink(outside, join(projects, "node_modules"));
+    const rt = await createLocalRuntime(path, { vault: null, bundledRecipes: null });
+    const result = await exportEnv(rt, human, { repo: "acme-app", path: join(projects, ".env.local"), runCommands: true, runValues: new Map(), prompts: {} });
+    expect(result.status).toBe("written");
+    expect(await programs.started()).not.toContain("planted-link");
   });
 });

@@ -1,7 +1,7 @@
 import { readFile, readdir, realpath, rename, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { GitHubError, githubPlacesOf, InventoryError, NotConnectedError, ensurePrivateDir, expandHome as expandHomeCore, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
+import { GitHubError, githubPlacesOf, InventoryError, NotConnectedError, ensurePrivateDir, isPathInside, localPathProblem, writePrivateFile, type RemoteRepo } from "@secret-desk/core";
+import { HostCapabilityError, expandHomeFor, hostHome, type RuntimeHost } from "./host.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -56,12 +56,20 @@ export interface ScanSuggestion {
   linked: boolean;
 }
 
-export function expandHome(p: string): string {
-  return expandHomeCore(p, homedir());
+/** `~` is the home folder of the host; without one a `~` path is refused with a `HostCapabilityError` (never the home of the process). */
+export function expandHome(p: string, host?: RuntimeHost): string {
+  return expandHomeFor(host, p);
 }
 
+/**
+ * Where the links file lives: `linksFile` of the configuration, else `.secret-desk/repo-links.json` in the home folder of the host.
+ * Without a home folder there is no default location and the call is refused with a `HostCapabilityError`.
+ */
 export function linksPath(rt: Runtime): string {
-  return resolve(expandHome(rt.config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json")));
+  if (rt.config.linksFile) return resolve(expandHome(rt.config.linksFile, rt.host));
+  const home = hostHome(rt.host);
+  if (!home) throw new HostCapabilityError("homeDir", "Kein Ablageort fuer die Verknuepfungen: linksFile in der Konfiguration angeben oder einen Host mit Home-Ordner uebergeben.");
+  return resolve(join(home, ".secret-desk", "repo-links.json"));
 }
 
 /** Zerlegt eine Git-Remote-URL (https, ssh, scp-Form) in Eigentuemer und Name. */
@@ -101,9 +109,14 @@ async function real(p: string): Promise<string> {
 // Echt unterhalb (nicht gleich); auf Windows ohne Gross-/Kleinschreibung, Laufwerke muessen passen. Beide Seiten kommen aus `real`.
 const strictlyBelow = (base: string, p: string): boolean => isPathInside(base, p);
 
-/** Erlaubte Wurzeln fuer Verknuepfungen: der Home-Ordner und policy.envRoots (jeweils aufgeloest). */
+/**
+ * Erlaubte Wurzeln fuer Verknuepfungen: der Home-Ordner des Hosts (nur wenn er einen meldet) und policy.envRoots (jeweils
+ * aufgeloest). Ohne Host ist der Home-Ordner des Prozesses keine erlaubte Wurzel.
+ */
 async function allowedBases(rt: Runtime): Promise<string[]> {
-  return Promise.all([homedir(), ...rt.config.policy.envRoots.map(expandHome)].map(real));
+  const home = hostHome(rt.host);
+  const roots = rt.config.policy.envRoots.map((r) => expandHome(r, rt.host));
+  return Promise.all([...(home ? [home] : []), ...roots].map(real));
 }
 
 async function readLinks(rt: Runtime): Promise<Record<string, string>> {
@@ -139,7 +152,13 @@ function checkName(name: string): void {
 export async function setLink(rt: Runtime, name: string, rawPath: string): Promise<LinkResult> {
   checkName(name);
   if (typeof rawPath !== "string" || rawPath.trim() === "") throw new InventoryError("Der Pfad fehlt.");
-  const expanded = expandHome(rawPath.trim());
+  let expanded: string;
+  try {
+    expanded = expandHome(rawPath.trim(), rt.host);
+  } catch (err) {
+    // The only thing expanding can refuse is a `~` without a home folder (a `HostCapabilityError`).
+    throw new InventoryError((err as Error).message);
+  }
   const pathProblem = localPathProblem(expanded);
   if (pathProblem) throw new InventoryError(pathProblem);
   if (!isAbsolute(expanded)) throw new InventoryError("Der Pfad muss absolut sein (oder mit ~ beginnen).");
@@ -208,7 +227,7 @@ export async function scanLocal(rt: Runtime): Promise<ScanSuggestion[]> {
   const links = await readLinks(rt);
   const found = new Map<string, ScanSuggestion>();
   for (const rootRaw of rt.config.policy.envRoots) {
-    const root = await real(expandHome(rootRaw));
+    const root = await real(expandHome(rootRaw, rt.host));
     if (!(await isDir(root))) continue;
     for await (const dir of gitDirs(root, 0)) {
       const remote = await gitOrigin(rt, dir);

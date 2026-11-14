@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   ConnectionStore,
@@ -8,8 +7,7 @@ import {
   WorkerSecretsClient,
   InventoryStore,
   ProviderRegistry,
-  SecretVault,
-  expandHome,
+  type SecretVault,
   SessionVault,
   githubAppProvider,
   loadConfig,
@@ -27,7 +25,7 @@ import type { BrowserDriver } from "@secret-desk/automation";
 import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
-import { nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
+import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
 import { IssuanceQueue } from "./issuances.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-store.js";
 
@@ -62,16 +60,21 @@ export interface RuntimeOptions {
   fetch?: FetchLike;
   /**
    * What the runtime may reach on the machine that runs it (see `RuntimeHost`): environment variables by name, `op`, the
-   * allow-listed template commands, `git`. Omitted or `null` means no host: every path that needs one is unavailable
-   * (an `env` or `op` connection source, the team token from the environment, the team start-up settings, the remote browser
-   * address from the environment, template commands, Git remote checks) and nothing reads the process environment or starts
-   * a process. There is no fallback to the process; the local edition passes `nodeRuntimeHost()` (or uses `createLocalRuntime`).
+   * allow-listed template commands, `git`, the home folder, the default vault, a local or remote browser. Omitted or `null`
+   * means no host: every path that needs one is unavailable (an `env` or `op` connection source, the team token and start-up
+   * settings from the environment, the browser address from the environment, template commands, Git remote checks, `~` paths and
+   * default locations in the home folder, the default vault, any browser) and nothing reads the process environment or the home
+   * folder or starts a process. There is no fallback to the process; the local edition passes `nodeRuntimeHost()` (or uses
+   * `createLocalRuntime`).
    */
   host?: RuntimeHost | null;
   session?: SessionVault;
   /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
   watchInventory?: boolean;
-  /** Eigener Tresor (Tests); sonst nach config.vault. */
+  /**
+   * The vault. Left out: the host's `openVault` opens the default one when the configuration has the vault on; a runtime without
+   * that capability has no vault. `null`: no vault at all. An embedder without a host passes its own vault here (for example a `SecretVault` with its own store and key source).
+   */
   vault?: SecretVault | null;
   /**
    * Long-running processes (the portal): keep the browser sign-in memory in `sign-in-state.json` next to the repository links file
@@ -125,7 +128,15 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   const host = options.host ?? undefined;
   if (readHostEnv(host, "SECRET_DESK_TEAM_TOKEN") && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
 
-  const vault = options.vault === undefined ? (config.vault.enabled ? new SecretVault({ ...(config.vault.file ? { file: expandHome(config.vault.file) } : {}), ...(config.vault.keyFile ? { keyFile: expandHome(config.vault.keyFile) } : {}) }) : undefined) : (options.vault ?? undefined);
+  // The default vault (a file plus the key source of the OS, which reads the environment and starts the OS key tools) is part of the
+  // host: without `host.openVault` there is no default vault, and an embedder passes `vault` itself.
+  const expand = (p: string): string => expandHomeFor(host, p);
+  const vault =
+    options.vault === undefined
+      ? config.vault.enabled && host?.openVault
+        ? host.openVault({ ...(config.vault.file ? { file: expand(config.vault.file) } : {}), ...(config.vault.keyFile ? { keyFile: expand(config.vault.keyFile) } : {}) })
+        : undefined
+      : (options.vault ?? undefined);
   const connections = new ConnectionStore({
     specs,
     ...(vault ? { vault } : {}),
@@ -163,7 +174,15 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   }
 
   const evidence = new FileEvidenceStore(resolve(dirname(path), config.evidenceDir));
-  const dataDir = dirname(resolve(expandHome(config.linksFile ?? join(homedir(), ".secret-desk", "repo-links.json"))));
+  // The folder of the state files (sign-in memory, live check) is next to the repository links file. Only needed when persisting;
+  // without a home folder there is no default location, so the links file must be named.
+  let dataDir: string | undefined;
+  if (options.persistSignIn) {
+    const home = hostHome(host);
+    const linksFile = config.linksFile ? expand(config.linksFile) : home ? join(home, ".secret-desk", "repo-links.json") : undefined;
+    if (!linksFile) throw new HostCapabilityError("homeDir", "persistSignIn braucht einen Ablageort: linksFile in der Konfiguration angeben oder einen Host mit Home-Ordner uebergeben.");
+    dataDir = dirname(resolve(linksFile));
+  }
   const automation = new AutomationManager({
     config,
     configDir: dirname(path),
@@ -171,7 +190,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     providers,
     evidence,
     ...(host ? { host } : {}),
-    ...(options.persistSignIn ? { signInStateFile: join(dataDir, "sign-in-state.json"), liveCheckStateFile: join(dataDir, "live-check-state.json") } : {}),
+    ...(dataDir ? { signInStateFile: join(dataDir, "sign-in-state.json"), liveCheckStateFile: join(dataDir, "live-check-state.json") } : {}),
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
     ...(options.automationAccess ? { access: options.automationAccess } : {}),
