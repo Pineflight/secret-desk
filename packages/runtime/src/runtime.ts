@@ -81,7 +81,11 @@ export interface RuntimeOptions {
    * (`linksFile`, default `~/.secret-desk/`). Without it the memory lives in the process only.
    */
   persistSignIn?: boolean;
-  /** Nur Tests: ersetzt den echten Browser durch einen Treiber ohne Fenster. */
+  /**
+   * Replaces the browser with the driver the function returns (tests use a window-less one). This is a public option: with it a
+   * browser is available whatever the host offers, the caller owns what the driver does, and the reachability probe (`status()`)
+   * of a configured remote address still runs.
+   */
   automationDriver?: () => BrowserDriver | Promise<BrowserDriver>;
   /** Nur Tests: anderer Ordner (oder null = keiner) statt der mitgelieferten Rezepte. */
   bundledRecipes?: string | null;

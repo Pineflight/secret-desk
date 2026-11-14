@@ -79,7 +79,7 @@ import {
 import type { z } from "zod";
 import type { Approval } from "./approvals.js";
 import type { AutomationInfo, AutomationRunState } from "./automation.js";
-import { linkedFolder } from "./repos.js";
+import { linkedFolder, usableEnvRoots } from "./repos.js";
 import { FACADES, facadeConnectionForRecipe } from "./facade.js";
 import { paramStatus } from "./params.js";
 import { issuanceDeps, type Runtime } from "./runtime.js";
@@ -1052,10 +1052,12 @@ export async function exportEnv(
     const wantsCommands = actor.kind === "human" && Boolean(input.runCommands);
     // The command runs in `commandDir` and prefers that folder's own node_modules/.bin: before anything starts, the folder must lie
     // (by real path) inside policy.envRoots or be the linked folder of the repository (itself checked against the allowed bases).
+    // Empty and relative envRoots entries do not count (see `usableEnvRoots`). The check is check-then-use: it assumes an attacker
+    // cannot write to the allowed roots or the linked folder while the command starts.
     let commandsAllowed = false;
     if (wantsCommands && host?.runCommand) {
       const realDir = await realpathLoose(commandDir);
-      for (const root of [...roots, ...(folder ? [folder] : [])]) {
+      for (const root of [...usableEnvRoots(rt), ...(folder ? [folder] : [])]) {
         if (isPathInsideOrSame(await realpathLoose(root), realDir)) commandsAllowed = true;
       }
     }

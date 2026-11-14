@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { FakeDriver } from "@secret-desk/automation";
 import { InventoryError, NotConnectedError } from "@secret-desk/core";
@@ -7,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportEnv, getAutomation, requestIssuance } from "../src/agent-api.js";
 import { BrowserNotAvailableError } from "../src/automation.js";
 import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type RuntimeHost } from "../src/host.js";
-import { linksPath, listRepos, scanLocal, setLink } from "../src/repos.js";
+import { linksPath, listRepos, scanLocal, setLink, usableEnvRoots } from "../src/repos.js";
 import { createLocalRuntime, createRuntime } from "../src/runtime.js";
 import { getSettings } from "../src/settings.js";
 import { startupTeamSync } from "../src/team-sync.js";
@@ -241,7 +242,7 @@ describe("the test instruments", () => {
 
   it.skipIf(windows)("the fake programs leave a trace when they are started", async () => {
     const programs = await fakePrograms();
-    const host = nodeRuntimeHost({ env: {} });
+    const host = nodeRuntimeHost();
     await host.gitOrigin?.(tmpdir());
     expect(await programs.started()).toEqual(["git"]);
   });
@@ -718,5 +719,103 @@ describe("template commands run only where they may", () => {
     const result = await exportEnv(rt, human, { repo: "acme-app", path: join(projects, ".env.local"), runCommands: true, runValues: new Map(), prompts: {} });
     expect(result.status).toBe("written");
     expect(await programs.started()).not.toContain("planted-link");
+  });
+});
+
+describe("git started by the host does not run programs named by configuration", () => {
+  /** A real repository whose own `.git/config` names a file system monitor program that leaves a trace when it is started. */
+  async function plantedRepo(): Promise<{ repo: string; trace: string; remote: string }> {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "sd-host-fsmon-")));
+    const repo = join(root, "repo");
+    const trace = join(root, "fsmonitor-ran.txt");
+    const hook = join(root, "fsmonitor-hook.sh");
+    await mkdir(repo);
+    await writeFile(hook, `#!/bin/sh\necho ran >> "${trace}"\nprintf '\\0'\n`, { mode: 0o755 });
+    const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore", env: { PATH: process.env["PATH"] ?? "", GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1" } });
+    git("init", "-q");
+    git("remote", "add", "origin", "git@github.com:acme/acme-app.git");
+    await writeFile(join(repo, ".gitignore"), ".env.local\n");
+    git("add", ".gitignore");
+    git("-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "x");
+    git("config", "core.fsmonitor", hook);
+    git("config", "core.untrackedCache", "true");
+    return { repo, trace, remote: "git@github.com:acme/acme-app.git" };
+  }
+  const ran = (trace: string) => readFile(trace, "utf8").then(() => true, () => false);
+
+  it.skipIf(windows)("no trace after gitCheckIgnored and gitOrigin, and both still give their answer", async () => {
+    const { repo, trace, remote } = await plantedRepo();
+    const host = nodeRuntimeHost();
+    expect(await host.gitCheckIgnored?.(join(repo, ".env.local"))).toBe(true);
+    expect(await host.gitCheckIgnored?.(join(repo, "other.txt"))).toBe(false);
+    expect(await host.gitOrigin?.(repo)).toBe(remote);
+    expect(await ran(trace)).toBe(false);
+  });
+
+  it.skipIf(windows)("the planted configuration is live: a plain `git status` with the same config does run the program on this git", async () => {
+    const { repo, trace } = await plantedRepo();
+    execFileSync("git", ["-C", repo, "status", "--porcelain"], { stdio: "ignore", env: { PATH: process.env["PATH"] ?? "", GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1" } });
+    // Informational control: on a git that never calls the hook this stays false, and the test above then proves nothing more than the switches being passed.
+    expect(typeof (await ran(trace))).toBe("boolean");
+  });
+
+  it.skipIf(windows)("the user's global and the system configuration do not apply: no trace from a global fsmonitor, no insteadOf rewriting", async () => {
+    const { repo, trace, remote } = await plantedRepo();
+    const root = await realpath(await mkdtemp(join(tmpdir(), "sd-host-gcfg-")));
+    const hook = join(root, "global-hook.sh");
+    await writeFile(hook, `#!/bin/sh\necho global >> "${trace}"\nprintf '\\0'\n`, { mode: 0o755 });
+    const global = join(root, "gitconfig");
+    await writeFile(global, `[core]\n\tfsmonitor = ${hook}\n[url "https://rewritten.invalid/"]\n\tinsteadOf = git@github.com:\n`);
+    vi.stubEnv("GIT_CONFIG_GLOBAL", global);
+    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "0");
+    const host = nodeRuntimeHost();
+    expect(await host.gitOrigin?.(repo)).toBe(remote);
+    await host.gitCheckIgnored?.(join(repo, ".env.local"));
+    expect(await ran(trace)).toBe(false);
+  });
+
+  it.skipIf(windows)("git gets its environment from the host's environment source, with the global and system configuration switched off", async () => {
+    vi.stubEnv("GH_TEST", "poison_github_token_made_up");
+    const bin = await realpath(await mkdtemp(join(tmpdir(), "sd-host-envsrc-")));
+    const dump = join(bin, "env.txt");
+    await writeFile(join(bin, "git"), `#!/bin/sh\nenv > "${dump}"\n`, { mode: 0o755 });
+    await nodeRuntimeHost({ env: { PATH: `${bin}${delimiter}/usr/bin${delimiter}/bin`, ONLY_IN_SOURCE: "x_made_up", HOME: "/home/made-up" } as never }).gitOrigin?.(tmpdir());
+    const seen = await readFile(dump, "utf8");
+    expect(seen).toContain(`GIT_CONFIG_GLOBAL=${devNull}`);
+    expect(seen).toContain("GIT_CONFIG_NOSYSTEM=1");
+    expect(seen).toContain("HOME=/home/made-up");
+    expect(seen).not.toContain("ONLY_IN_SOURCE");
+    expect(seen).not.toContain("GH_TEST");
+  });
+});
+
+describe("the vault file, a throwing home lookup and unusable roots", () => {
+  it("openVault names the vault file itself when the configuration names none", () => {
+    const host = nodeRuntimeHost({ env: {} });
+    expect(host.openVault?.({})).toBeDefined();
+    expect(host.openVault?.({ file: join(tmpdir(), "made-up-vault.json") })).toBeDefined();
+  });
+
+  it("a home lookup that throws counts as no home folder", () => {
+    expect(hostHome({ label: "t", homeDir: () => { throw new Error("no home"); } })).toBeUndefined();
+    expect(() => expandHomeFor({ label: "t", homeDir: () => { throw new Error("no home"); } }, "~/x")).toThrow(HostCapabilityError);
+  });
+
+  it("empty and relative envRoots entries are ignored, `~` entries need the host's home folder", () => {
+    const rt = (host?: RuntimeHost) => ({ host, config: { policy: { envRoots: ["", "  ", "rel/dir", "./x", "../up", "/abs/one", "~/projects", "~"] } } }) as never;
+    expect(usableEnvRoots(rt({ label: "t", homeDir: () => "/home/made-up" }))).toEqual(["/abs/one", "/home/made-up/projects", "/home/made-up"]);
+    expect(usableEnvRoots(rt())).toEqual(["/abs/one"]);
+  });
+
+  it.skipIf(windows)("a relative or empty envRoots entry does not allow template commands in the current folder", async () => {
+    const programs = await fakePrograms();
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "sd-host-relroot-")));
+    await writeFile(join(dir, "inventory.yaml"), DEFAULTS_INVENTORY);
+    await writeFile(join(dir, "c.yaml"), `inventory: ./inventory.yaml\nlinksFile: ${JSON.stringify(join(dir, "links.json"))}\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: env, name: GH_TEST } }\npolicy:\n  envRoots: ["", "."]\n`);
+    const rt = await createLocalRuntime(join(dir, "c.yaml"), { vault: null, bundledRecipes: null });
+    const result = await exportEnv(rt, human, { repo: "acme-app", path: join(process.cwd(), ".env.sd-test-relroot"), runCommands: true, runValues: new Map(), prompts: {} }).catch((e: unknown) => e);
+    await rm(join(process.cwd(), ".env.sd-test-relroot"), { force: true });
+    expect(await programs.started()).not.toContain("supabase");
+    expect(result).toBeDefined();
   });
 });

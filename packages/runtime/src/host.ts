@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
+import { devNull, homedir } from "node:os";
+import { join } from "node:path";
 import { PlaywrightDriver, chromeInstallHint, findChrome, type BrowserDriver } from "@secret-desk/automation";
 import { SecretVault, commandEnv, expandHome, gitCheckIgnored, nodeConnectionHost, runEnvCommand, type ConnectionHost, type EnvCommand, type ExecFn } from "@secret-desk/core";
 
@@ -52,7 +53,12 @@ export function readHostEnv(host: ConnectionHost | undefined | null, name: strin
 
 /** The home folder the host reports, or undefined (no host, no `homeDir`, or a non-text answer). */
 export function hostHome(host: RuntimeHost | undefined | null): string | undefined {
-  const home: unknown = host?.homeDir?.();
+  let home: unknown;
+  try {
+    home = host?.homeDir?.();
+  } catch {
+    return undefined; // a host whose home lookup throws has no home folder
+  }
   return typeof home === "string" && home !== "" ? home : undefined;
 }
 
@@ -76,15 +82,18 @@ export interface NodeRuntimeHostOptions {
   exec?: ExecFn;
 }
 
-/** The environment Git gets: system basics (like template commands) plus the Git configuration switches of the embedder. */
-function gitEnv(): Record<string, string> {
-  const out = commandEnv();
-  for (const name of ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"]) {
-    const value = process.env[name];
-    if (value !== undefined) out[name] = value;
-  }
-  return { ...out, GIT_TERMINAL_PROMPT: "0" };
+/**
+ * The environment Git gets, built from the host's own environment source: system basics (like template commands), no provider
+ * tokens, no prompts, and neither the system nor the user's global Git configuration (they can name programs to run). A
+ * repository's own `.git/config` still applies; the `-c` switches below turn off the settings that would run a program for the
+ * two commands the host starts.
+ */
+function gitEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return { ...commandEnv(env), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" };
 }
+
+/** `-c` switches for every Git call of the host: no file system monitor hook, no untracked cache. */
+const GIT_SAFE_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
 
 /**
  * The host of the local, single-user edition: the process environment, the `op` tool, the allow-listed template commands,
@@ -92,19 +101,21 @@ function gitEnv(): Record<string, string> {
  * it up on its own.
  */
 export function nodeRuntimeHost(options: NodeRuntimeHostOptions = {}): RuntimeHost {
+  const env = options.env ?? process.env;
   return {
-    ...nodeConnectionHost(options.env ?? process.env, options.exec),
+    ...nodeConnectionHost(env, options.exec),
     runCommand: (command, cwd) => runEnvCommand(command, cwd),
     gitOrigin: (dir) =>
       new Promise((res) => {
-        execFile("git", ["-C", dir, "remote", "get-url", "--", "origin"], { timeout: 5000, windowsHide: true, env: gitEnv() }, (err, out) => {
+        execFile("git", [...GIT_SAFE_CONFIG, "-C", dir, "remote", "get-url", "--", "origin"], { timeout: 5000, windowsHide: true, env: gitEnv(env) }, (err, out) => {
           const url = err ? "" : String(out).trim();
           res(url || null);
         });
       }),
-    gitCheckIgnored: (path) => gitCheckIgnored(path, gitEnv()),
+    gitCheckIgnored: (path) => gitCheckIgnored(path, gitEnv(env)),
     homeDir: () => homedir(),
-    openVault: (vaultOptions) => new SecretVault(vaultOptions),
+    // The vault file is named explicitly from the host's home folder when the configuration names none.
+    openVault: (vaultOptions) => new SecretVault({ ...vaultOptions, file: vaultOptions.file ?? join(homedir(), ".secret-desk", "vault.json") }),
     launchLocalBrowser: (o) => new PlaywrightDriver({ ...(o.chromePath ? { chromePath: o.chromePath } : {}), profileDir: o.profileDir, ...(o.slowMoMs !== undefined ? { slowMoMs: o.slowMoMs } : {}) }),
     connectRemoteBrowser: (o) => new PlaywrightDriver({ cdpEndpoint: o.cdpEndpoint, ...(o.slowMoMs !== undefined ? { slowMoMs: o.slowMoMs } : {}) }),
     findChrome: (preferred) => {
