@@ -7,6 +7,7 @@ import {
   SecretValue,
   type Check,
   type DiscardResult,
+  type DiscardWhy,
   type IssuanceDeps,
   type PendingIssuance,
   type RevokeOutcome,
@@ -174,6 +175,8 @@ interface Owed {
   acknowledgeWritten: boolean;
   /** The places a write was started for, for the evidence note when the delete finally works. */
   places: string[];
+  /** Why the review is discarded, for the note of the first try in the report (default: its time ran out). */
+  why?: DiscardWhy;
 }
 
 /**
@@ -230,12 +233,12 @@ export class IssuanceQueue {
   }
 
   /** Takes an item out of the queue: its value is unreachable through it from here on. The provider-side delete is owed. */
-  #retire(p: PendingIssuance): void {
+  #retire(p: PendingIssuance, why?: DiscardWhy): void {
     this.#values.delete(p.id);
     // The references the queue and the report hold are replaced too; a caller's own reference to the object is its own.
     p.value = new SecretValue("");
     for (const c of p.companions) c.value = new SecretValue("");
-    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0, acknowledgeWritten: false, places: [] });
+    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0, acknowledgeWritten: false, places: [], ...(why ? { why } : {}) });
   }
 
   /**
@@ -319,14 +322,30 @@ export class IssuanceQueue {
    * Internal: the value of a review that `add` could not keep. Nothing is written for it, so it takes the path of an expired review
    * that a sweep tries for the first time: `discardIssuance`, and through it the revoke gate (`revokeNewValue`), which decides.
    * A refusal or a failed delete is handled and reported exactly as in the sweep (evidence note, the record dropped or flagged,
-   * `onNeedsDecision`, the retries and `onRevokeAbandoned`). The references the queue holds are dropped. Never throws.
+   * `onNeedsDecision`, the retries and `onRevokeAbandoned`); the report says the review could not be stored, not that it timed out.
+   * The references the queue holds are dropped. Never throws.
+   *
+   * The limit: while the delete is owed, the debt lives in this process only (the store never got the record, or fails now). If
+   * a failure while settling (the store refusing the update of a refused record, for example) leaves the delete owed and
+   * unrecorded, `onRevokeAbandoned` is told with the value-free record: the queue gives up recording and trying on its own, and
+   * the value stays valid at the provider until someone deletes it there or it expires. (`onRevokeAbandoned` and not
+   * `onNeedsDecision`, which means a write was started and a person must decide about a value that may be in use.) The next sweep
+   * of this process still retries; a process that dies before that loses the debt.
    */
   async discardUnkept(pending: PendingIssuance, deps: IssuanceDeps): Promise<void> {
     try {
-      this.#retire(pending);
+      this.#retire(pending, "unkept");
       await this.#settle(pending.id, this.#owed.get(pending.id)!, deps, this.#t(), []);
     } catch {
-      /* the caller rethrows the error of `add`; what is still owed is tried again by the next sweep */
+      // Still owed means the failure came before the debt was settled or recorded: tell the embedder, once.
+      const owed = this.#owed.get(pending.id);
+      if (owed) {
+        try {
+          this.#onAbandoned?.(owed.record);
+        } catch {
+          /* a callback that throws changes nothing */
+        }
+      }
     }
   }
 
@@ -484,7 +503,7 @@ export class IssuanceQueue {
       if (owed.pending && state === "open") {
         // The first try goes through `discardIssuance`, which asks the gate itself and also writes the evidence note. Anything
         // but a clean answer is a failed try. The delete result is kept apart from the report store inside it.
-        const discard = await discardIssuance(owed.pending, deps, { by: "system", why: "expired" }).catch(() => undefined);
+        const discard = await discardIssuance(owed.pending, deps, { by: "system", why: owed.why ?? "expired" }).catch(() => undefined);
         owed.pending = undefined;
         if (discard === undefined) outcome = { status: "failed" };
         else if (discard.refused !== undefined) {

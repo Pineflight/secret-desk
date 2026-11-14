@@ -590,6 +590,9 @@ export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps,
   }
 }
 
+/** Why an issued value is discarded: a person rejected it, its time ran out, the entry changed, or the queue could not keep it (the store refused the record). */
+export type DiscardWhy = "rejected" | "expired" | "stale" | "unkept";
+
 export interface DiscardResult {
   revokedNew: boolean;
   /** Set when the gate refused to call the provider. */
@@ -600,7 +603,7 @@ export interface DiscardResult {
 export async function discardIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string; acknowledgeWritten?: boolean },
+  reason: { by: string; principalId?: string; why: DiscardWhy; note?: string; acknowledgeWritten?: boolean },
 ): Promise<DiscardResult> {
   // Waehrend der Bestaetigung (oder danach) darf der Wert nicht widerrufen werden: er wird gerade geschrieben bzw. ist im Einsatz.
   if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -610,7 +613,7 @@ export async function discardIssuance(
 async function discardIssuanceNow(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string; acknowledgeWritten?: boolean },
+  reason: { by: string; principalId?: string; why: DiscardWhy; note?: string; acknowledgeWritten?: boolean },
 ): Promise<DiscardResult> {
   // Marked before the first await: a second discard (also a parallel one) throws instead of revoking again.
   if (discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -640,7 +643,7 @@ async function discardIssuanceNow(
     at: now.toISOString(),
     ticks: [],
     decision: "rejected",
-    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
+    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : reason.why === "unkept" ? "Pruefung konnte nicht gespeichert werden" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
   };
   // The delete above has happened (or was refused) whatever the report store does: a failing store must not look like a failed
   // delete, or the caller would revoke an already revoked identifier a second time.

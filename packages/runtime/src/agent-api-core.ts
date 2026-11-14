@@ -636,14 +636,15 @@ const issuanceSubject = (p: PendingIssuance): NonNullable<AuthorizationRequest["
  * Puts a prepared review into the queue. When the queue cannot keep it (`add` throws: the store refused the record) and the value was
  * issued at a provider, that value is now known to nobody: it takes the path of an expired review (`discardIssuance`, through the
  * revoke gate, which decides; a refusal or a failed delete is reported and retried as in the sweep), then the original error is
- * rethrown. A manual value was never issued anywhere: it is only dropped.
+ * rethrown. A manual value was never issued anywhere: the references the item holds are released (a copy of the string that the
+ * caller itself kept is its own; strings cannot be erased).
  */
 async function keepOrDiscard(rt: RuntimeCore, pending: PendingIssuance): Promise<void> {
   try {
     rt.issuances.add(pending);
   } catch (err) {
     if (pending.report.kind === "issued") await rt.issuances.discardUnkept(pending, issuanceDeps(rt));
-    else pending.value = new SecretValue(""); // a manual value has no companions
+    else pending.value = new SecretValue(""); // references released; a manual value has no companions
     throw err;
   }
 }

@@ -68,6 +68,7 @@ describe("IssuanceQueue.add: the record first, then the value", () => {
   });
 
   it("when the record cannot be removed either, the original error is still the one thrown", () => {
+    // Defensive only: a `Map.set` that throws cannot happen, so this simulates a failure that has no real cause today.
     const stuck = new MemoryPendingStore();
     const store: PendingStore = { put: (r) => stuck.put(r), get: (id) => stuck.get(id), list: () => stuck.list(), delete: () => { throw new Error("delete fails too"); } };
     const q = new IssuanceQueue({ store });
@@ -98,12 +99,39 @@ describe("IssuanceQueue.add: the record first, then the value", () => {
   it("discardUnkept never throws, even when the store fails while it settles", async () => {
     const mem = new MemoryPendingStore();
     const store: PendingStore = { put: (r) => mem.put(r), get: (id) => mem.get(id), list: () => mem.list(), delete: () => { throw new Error("delete fails"); } };
-    const q = new IssuanceQueue({ store });
+    const onRevokeAbandoned = vi.fn();
+    const q = new IssuanceQueue({ store, onRevokeAbandoned });
     const revoke = vi.fn(async () => undefined);
     const deps = { inventory: { data: { secrets: [] }, getSecret: () => ({ id: "s", provider: "prov", places: [] }) }, providers: { get: () => ({ revoke }) }, connections: {}, owner: "o" } as never;
     await expect(q.discardUnkept(pendingOf("e", { issuedSecret: { id: "s", provider: "prov" } as unknown as SecretEntry }), deps)).resolves.toBeUndefined();
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(q.get("e")).toBeUndefined();
+    // The value was revoked: nothing is owed any more, so nobody is told that a value stays valid.
+    expect(onRevokeAbandoned).not.toHaveBeenCalled();
+  });
+
+  // The gate refuses (another entry holds the identifier) and the store then refuses the update of the record: the debt is owed in memory only.
+  const refusedDeps = { inventory: { data: { secrets: [{ id: "holder", externalId: "ext-new" }] }, getSecret: () => ({ id: "s", provider: "prov", places: [] }) }, providers: { get: () => ({ revoke: vi.fn() }) }, connections: {}, owner: "o" } as never;
+  const brokenStore = (): PendingStore => {
+    const mem = new MemoryPendingStore();
+    return { put: (r) => mem.put(r), get: (id) => mem.get(id), list: () => mem.list(), delete: () => { throw new Error("delete fails"); } };
+  };
+
+  it("when a failure leaves the delete owed and unrecorded, discardUnkept tells onRevokeAbandoned with the value-free record, once", async () => {
+    const onRevokeAbandoned = vi.fn();
+    const q = new IssuanceQueue({ store: brokenStore(), onRevokeAbandoned });
+    await expect(q.discardUnkept(pendingOf("f", { issuedSecret: { id: "s", provider: "prov" } as unknown as SecretEntry }), refusedDeps)).resolves.toBeUndefined();
+    expect(onRevokeAbandoned).toHaveBeenCalledTimes(1);
+    const told = onRevokeAbandoned.mock.calls[0]![0] as PendingRecord;
+    expect(told).toMatchObject({ id: "f", secretId: "s", externalId: "ext-new" });
+    expect(JSON.stringify(told)).not.toContain("made-up-issued-value");
+  });
+
+  it("a callback that throws changes nothing, and so does a queue without one", async () => {
+    const throwing = new IssuanceQueue({ store: brokenStore(), onRevokeAbandoned: () => { throw new Error("callback fails"); } });
+    await expect(throwing.discardUnkept(pendingOf("g", { issuedSecret: { id: "s", provider: "prov" } as unknown as SecretEntry }), refusedDeps)).resolves.toBeUndefined();
+    const silent = new IssuanceQueue({ store: brokenStore() });
+    await expect(silent.discardUnkept(pendingOf("h", { issuedSecret: { id: "s", provider: "prov" } as unknown as SecretEntry }), refusedDeps)).resolves.toBeUndefined();
   });
 });
 
@@ -160,13 +188,43 @@ async function build(options: { store?: PendingStore; revoke?: () => Promise<voi
 
 describe("requestIssuance: a value issued at a provider that the queue could not keep", () => {
   it("is handed to the revoke gate, nothing stays held, and the caller gets the store's error", async () => {
-    const { rt, revoke, issue } = await build();
+    const { rt, revoke, issue, evidence } = await build();
     await expect(requestIssuance(rt, human, "auto-acme-app")).rejects.toThrow(FAULT);
     expect(issue).toHaveBeenCalledTimes(1);
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(revoke.mock.calls[0]).toMatchObject([{ externalId: "ext-new" }]);
     expect(await listIssuances(rt)).toEqual([]);
     expect(rt.issuances.orphans()).toEqual([]);
+    // The report says what happened: the review could not be stored, not that its time ran out.
+    const reports = await evidence.list("auto-acme-app");
+    const note = (await evidence.get("auto-acme-app", reports[0]!.id))?.confirmation?.note;
+    expect(note).toBe("Pruefung konnte nicht gespeichert werden");
+    expect(note).not.toContain("Zeit abgelaufen");
+  });
+
+  it("when the first delete fails and a later sweep succeeds, the report carries the late-revoke note", async () => {
+    let calls = 0;
+    const { rt, revoke, clock, evidence } = await build({ revoke: async () => { calls += 1; if (calls === 1) throw new Error("provider down"); } });
+    await expect(requestIssuance(rt, human, "auto-acme-app")).rejects.toThrow(FAULT);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    clock.t += 3_600_000;
+    expect(await rt.sweep(new Date(clock.t))).toBeNull();
+    expect(revoke).toHaveBeenCalledTimes(2);
+    const reports = await evidence.list("auto-acme-app");
+    const report = await evidence.get("auto-acme-app", reports[0]!.id);
+    expect(report?.checks.map((c) => c.id)).toContain("revoke-late");
+  });
+
+  it("when a store failure leaves the delete owed and unrecorded, the embedder is told through onRevokeAbandoned", async () => {
+    const onRevokeAbandoned = vi.fn();
+    const mem = new MemoryPendingStore();
+    const store: PendingStore = { put: () => { throw new Error(FAULT); }, get: (id) => mem.get(id), list: () => mem.list(), delete: () => { throw new Error("delete fails"); } };
+    const { rt, revoke } = await build({ store, inventory: inventoryText(HOLDER), onRevokeAbandoned });
+    await expect(requestIssuance(rt, human, "auto-acme-app")).rejects.toThrow(FAULT);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(onRevokeAbandoned).toHaveBeenCalledTimes(1);
+    expect(onRevokeAbandoned.mock.calls[0]).toMatchObject([{ secretId: "auto-acme-app", externalId: "ext-new" }]);
+    expect(await listIssuances(rt)).toEqual([]);
   });
 
   it("when the gate refuses (another entry holds the value), the refusal is reported in the evidence and nothing is revoked", async () => {
@@ -223,7 +281,15 @@ describe("resolveApproval (issue): a value issued at a provider that the queue c
 describe("submitManualValue: nothing was issued at a provider", () => {
   it("drops the value without asking any provider, holds nothing and rethrows the error", async () => {
     const { rt, revoke } = await build();
+    // Capture the item the queue was handed (a double for `add`), to see what the caller does with its value.
+    let handed: PendingIssuance | undefined;
+    vi.spyOn(rt.issuances, "add").mockImplementation((p) => {
+      handed = p;
+      throw new Error(FAULT);
+    });
     await expect(submitManualValue(rt, human, "manual-acme-app", "made-up-manual-value-0001")).rejects.toThrow(FAULT);
+    // The reference the item held is released (replaced by an empty value); a copy of the string the caller itself kept is its own.
+    expect(handed?.value.reveal()).toBe("");
     expect(revoke).not.toHaveBeenCalled();
     expect(await listIssuances(rt)).toEqual([]);
     expect(rt.issuances.orphans()).toEqual([]);
