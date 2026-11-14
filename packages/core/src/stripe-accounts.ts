@@ -1,4 +1,4 @@
-import type { ConnectionStore } from "./connections.js";
+import type { ConnectionStoreCore } from "./connections-core.js";
 import type { StageKind } from "./stages.js";
 
 /**
@@ -38,7 +38,7 @@ export function stripeKeyMode(key: string): StripeAccountMode | undefined {
 /** Entry that holds the display label (the account name) of a connection. It is a name, not a secret. */
 const labelEntry = (id: string): string => `${id}#label`;
 
-export async function readConnectionLabel(store: ConnectionStore, id: string): Promise<string | undefined> {
+export async function readConnectionLabel(store: ConnectionStoreCore, id: string): Promise<string | undefined> {
   try {
     const v = store.session.get(labelEntry(id)) ?? (await store.vault?.get(labelEntry(id))) ?? undefined;
     const text = v?.reveal().trim();
@@ -48,14 +48,14 @@ export async function readConnectionLabel(store: ConnectionStore, id: string): P
   }
 }
 
-export async function writeConnectionLabel(store: ConnectionStore, id: string, label: string): Promise<void> {
+export async function writeConnectionLabel(store: ConnectionStoreCore, id: string, label: string): Promise<void> {
   const text = label.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 100);
   if (!text) return;
   if (store.vault) await store.vault.set(labelEntry(id), text, null);
   else store.session.set(labelEntry(id), text, null);
 }
 
-export async function deleteConnectionLabel(store: ConnectionStore, id: string): Promise<void> {
+export async function deleteConnectionLabel(store: ConnectionStoreCore, id: string): Promise<void> {
   store.session.delete(labelEntry(id));
   await store.vault?.delete(labelEntry(id)).catch(() => undefined);
 }
@@ -68,7 +68,7 @@ export interface StripeAccountInfo {
 }
 
 /** Connected Stripe accounts (any mode that holds a key), by account id. Offline: reads only the store. */
-export async function listStripeAccounts(store: ConnectionStore): Promise<StripeAccountInfo[]> {
+export async function listStripeAccounts(store: ConnectionStoreCore): Promise<StripeAccountInfo[]> {
   const found = new Map<string, StripeAccountInfo>();
   for (const id of await store.ids("stripe:")) {
     const p = parseStripeConnectionId(id);

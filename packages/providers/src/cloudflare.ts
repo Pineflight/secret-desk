@@ -1,4 +1,4 @@
-import { ParamsInvalidError, SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type VerifyContext } from "@secret-desk/core";
+import { ParamsInvalidError, SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type VerifyContext } from "@secret-desk/core/portable";
 import { asList, getJson, needParam, readFailure, str, unknownKind } from "./discover.js";
 import { check, daysApart, day, isRecord, probeWithConnection, probeWithValue, sameSet, step, steps } from "./checks.js";
 import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireString, requireStringArray, revokeIdempotent, seg } from "./http.js";

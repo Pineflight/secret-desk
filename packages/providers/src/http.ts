@@ -1,4 +1,4 @@
-import { redact, type ConnectionStore, type SecretValue } from "@secret-desk/core";
+import { redact, type ConnectionStoreCore, type SecretValue } from "@secret-desk/core/portable";
 
 /** Fehler eines Anbieters. Die Meldung ist gekuerzt und von bekannten Werten bereinigt. */
 export class ProviderError extends Error {
@@ -60,7 +60,7 @@ export async function callJson<T = unknown>(
 
 export interface CallContext {
   fetch: FetchFn;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
 }
 
 /** Wie callJson, mit Bearer-Token der Verbindung. NotConnectedError wird nicht abgefangen. */

@@ -1,4 +1,4 @@
-import type { DiscoveredOption, DiscoverContext, ParamSpec, Provider } from "@secret-desk/core";
+import type { DiscoveredOption, DiscoverContext, ParamSpec, Provider } from "@secret-desk/core/portable";
 import { asList, getJson, str, unknownKind } from "./discover.js";
 import { ProviderError, seg } from "./http.js";
 import { isRecord } from "./checks.js";

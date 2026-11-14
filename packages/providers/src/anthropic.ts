@@ -1,4 +1,4 @@
-import { NotConnectedError, ParamsInvalidError, type Check, type ConnectionStore, type DiscoverContext, type DiscoveredOption, type IssueContext, type ParamSpec, type Provider, type RevokeContext, type VerifyContext, ttlDaysProblems } from "@secret-desk/core";
+import { NotConnectedError, ParamsInvalidError, type Check, type ConnectionStoreCore, type DiscoverContext, type DiscoveredOption, type IssueContext, type ParamSpec, type Provider, type RevokeContext, type VerifyContext, ttlDaysProblems } from "@secret-desk/core/portable";
 import { asList, str, unknownKind } from "./discover.js";
 import { check, isRecord, probe, step } from "./checks.js";
 import { callJson, expiryFrom, ProviderError, revokeIdempotent, seg } from "./http.js";
@@ -36,7 +36,7 @@ export const isAnthropicAdminKey = (value: string): boolean => value.trim().star
 export const isAnthropicApiKey = (value: string): boolean => ANTHROPIC_API_PREFIXES.some((prefix) => value.trim().startsWith(prefix));
 
 type FetchFn = typeof fetch;
-type Ctx = { connections: ConnectionStore; fetch: FetchFn };
+type Ctx = { connections: ConnectionStoreCore; fetch: FetchFn };
 
 const adminHeaders = (token: string): Record<string, string> => ({ "x-api-key": token, "anthropic-version": VERSION, Accept: "application/json" });
 

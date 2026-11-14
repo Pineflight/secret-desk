@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import type { StageKind } from "./stages.js";
 import { isWorkerPlace, type Place, type SecretEntry, type VariableEntry } from "./types.js";
 
@@ -17,7 +17,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function hashOf(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+  return sha256Hex(canonicalJson(value));
 }
 
 const placeLabel = (p: Place): string => isWorkerPlace(p) ? `Cloudflare Worker ${p.script} (${p.accountId})${p.name ? ` als ${p.name}` : ""}` : `${p.repo} (${p.scope === "environment" ? `environment ${p.environment ?? "?"}` : p.scope === "organization" ? "organization" : "repository"})${p.name ? ` als ${p.name}` : ""}`;

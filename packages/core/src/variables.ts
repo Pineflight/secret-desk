@@ -1,8 +1,8 @@
-import type { GitHubClient, GitHubTarget } from "./github.js";
-import { placeToTarget } from "./github.js";
-import { GitHubError } from "./github.js";
+import type { GitHubClient, GitHubTarget } from "./github-core.js";
+import { placeToTarget } from "./github-core.js";
+import { GitHubError } from "./github-core.js";
 import { looksSecret } from "./guards.js";
-import type { InventoryStore } from "./inventory.js";
+import type { InventoryStoreCore } from "./inventory-store.js";
 import { isWorkerPlace, type GitHubPlace, type Place, type VariableEntry } from "./types.js";
 
 export type DriftState = "in-sync" | "missing" | "different" | "unknown-expected" | "unreachable";
@@ -106,7 +106,7 @@ export async function applyVariable(
 }
 
 /** Uebernimmt den Ist-Wert aus GitHub als Sollwert, wenn er an allen erreichbaren Zielen gleich ist. */
-export async function adoptVariable(github: GitHubClient, owner: string, inventory: InventoryStore, id: string): Promise<VariableEntry> {
+export async function adoptVariable(github: GitHubClient, owner: string, inventory: InventoryStoreCore, id: string): Promise<VariableEntry> {
   const variable = inventory.getVariable(id);
   if (!variable) throw new VariableError(`Variable nicht gefunden: ${id}`);
   const drift = await inspectVariable(github, owner, variable);

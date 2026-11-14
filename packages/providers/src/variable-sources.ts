@@ -1,4 +1,4 @@
-import type { DiscoveredOption, DiscoverContext } from "@secret-desk/core";
+import type { DiscoveredOption, DiscoverContext } from "@secret-desk/core/portable";
 import { asList, getJson, str } from "./discover.js";
 import { ProviderError } from "./http.js";
 import { readRevenueCatField } from "./revenuecat.js";

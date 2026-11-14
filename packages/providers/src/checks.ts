@@ -1,4 +1,4 @@
-import type { Check, CheckStatus, VerifyContext } from "@secret-desk/core";
+import type { Check, CheckStatus, VerifyContext } from "@secret-desk/core/portable";
 import { ProviderError, safeText, TIMEOUT_MS } from "./http.js";
 
 /** Antwort einer Pruefabfrage: Statuscode wird nie zum Fehler, nur Netzprobleme werfen. */

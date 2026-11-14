@@ -14,14 +14,47 @@ import * as vaultCore from "../src/vault-core.js";
 import * as connectionsCore from "../src/connections-core.js";
 import * as variableSources from "../src/variable-sources.js";
 import * as githubCore from "../src/github-core.js";
+import * as provider from "../src/provider.js";
+import * as workerSecrets from "../src/worker-secrets.js";
+import * as params from "../src/params.js";
+import * as status from "../src/status.js";
+import * as preflight from "../src/preflight.js";
+import * as placeIo from "../src/place-io.js";
+import * as snapshot from "../src/snapshot.js";
+import * as verification from "../src/verification.js";
+import * as issuance from "../src/issuance.js";
+import * as rotation from "../src/rotate.js";
+import * as configCore from "../src/config-core.js";
+import * as sha256 from "../src/sha256.js";
+import * as variables from "../src/variables.js";
+import * as patch from "../src/patch.js";
+import * as team from "../src/team.js";
+import * as guards from "../src/guards.js";
+import * as vendors from "../src/vendors.js";
+import * as stripeAccounts from "../src/stripe-accounts.js";
+import * as envExportErrors from "../src/env-export-errors.js";
+import * as rootEntry from "../src/index.js";
+import * as githubFacade from "../src/github.js";
+import * as inventoryFacade from "../src/inventory.js";
+import * as connectionsFacade from "../src/connections.js";
+import * as configFacade from "../src/config.js";
+import * as envExportFacade from "../src/env-export.js";
 
 // These modules run in runtimes without Node built-ins. This test is a tripwire, not a proof: it catches the common
 // ways Node APIs sneak in (imports, process, Buffer, require, Node types) but cannot see everything (for example
 // indirect access through a variable). Real portability is only proven by running the code in such a runtime.
-const MODULE_ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "connections-core.ts", "github-core.ts"];
+const MODULE_ROOTS = [
+  "vault-core.ts", "evidence.ts", "secret.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "connections-core.ts", "github-core.ts",
+  "provider.ts", "worker-secrets.ts", "params.ts", "status.ts", "preflight.ts", "place-io.ts", "snapshot.ts", "verification.ts", "issuance.ts", "rotate.ts",
+  "config-core.ts", "sha256.ts", "variables.ts", "patch.ts", "team.ts", "guards.ts", "vendors.ts", "stripe-accounts.ts", "env-export-errors.ts",
+];
 // The portable entry point is a root too: it may not reach anything the modules above do not already reach.
 const ROOTS = [...MODULE_ROOTS, "portable.ts"];
-const EXPECTED_CLOSURE = ["base64.ts", "connections-core.ts", "evidence.ts", "git-names.ts", "github-core.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "place-key.ts", "reserved-names.ts", "secret.ts", "stages.ts", "types.ts", "variable-sources.ts", "vault-core.ts"];
+const EXPECTED_CLOSURE = [
+  "base64.ts", "config-core.ts", "connections-core.ts", "env-export-errors.ts", "evidence.ts", "git-names.ts", "github-core.ts", "guards.ts", "inventory-backend.ts", "inventory-errors.ts",
+  "inventory-store.ts", "issuance.ts", "params.ts", "patch.ts", "place-io.ts", "place-key.ts", "preflight.ts", "provider.ts", "reserved-names.ts", "rotate.ts", "secret.ts", "sha256.ts",
+  "snapshot.ts", "stages.ts", "status.ts", "stripe-accounts.ts", "team.ts", "types.ts", "variable-sources.ts", "variables.ts", "vault-core.ts", "vendors.ts", "verification.ts", "worker-secrets.ts",
+];
 // The contract suites (`@secret-desk/core/testing`) are a separate root: they may reach the portable modules they test,
 // but they must not be reached from the root or from `portable.ts`, and they import no test framework.
 const TESTING_ROOTS = ["testing/index.ts"];
@@ -31,7 +64,7 @@ const TESTING_CLOSURE = [
 ];
 // npm packages that are pure JavaScript (no Node built-ins, no native or WASM code). Anything else, notably
 // `libsodium-wrappers`, fails the guard.
-const PURE_PACKAGES = ["yaml", "zod"];
+const PURE_PACKAGES = ["yaml", "zod", "@noble/hashes"];
 const NODE_BUILTINS = ["assert", "buffer", "child_process", "crypto", "events", "fs", "http", "https", "net", "os", "path", "stream", "tls", "url", "util", "zlib"];
 
 async function sourceOf(name: string): Promise<string> {
@@ -132,6 +165,8 @@ describe("portable modules stay free of Node APIs", () => {
     const modules: Record<string, Record<string, unknown>> = {
       secret, stages, types, "inventory-store": inventoryStore, "inventory-errors": inventoryErrors, "inventory-backend": inventoryBackend,
       evidence, "vault-core": vaultCore, "connections-core": connectionsCore, "variable-sources": variableSources, "github-core": githubCore,
+      provider, "worker-secrets": workerSecrets, params, status, preflight, "place-io": placeIo, snapshot, verification, issuance, rotation, "config-core": configCore, sha256,
+      variables, patch, team, guards, vendors, "stripe-accounts": stripeAccounts, "env-export-errors": envExportErrors,
     };
     for (const [mod, ns] of Object.entries(modules)) {
       for (const [key, value] of Object.entries(ns)) expect(portable[key], `${mod}.${key}`).toBe(value);

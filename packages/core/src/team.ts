@@ -1,5 +1,5 @@
 import { parse, stringify } from "yaml";
-import { InventoryStore } from "./inventory.js";
+import { InventoryStoreCore } from "./inventory-store.js";
 import { InventorySchema, type Inventory } from "./types.js";
 
 /**
@@ -40,7 +40,7 @@ export function exportTeamBundle(inventory: Inventory): string {
 export const MAX_TEAM_FILE_BYTES = 1024 * 1024;
 
 export function parseTeamBundle(text: string): Inventory {
-  if (Buffer.byteLength(text, "utf8") > MAX_TEAM_FILE_BYTES) throw new TeamBundleError("Team-Datei ist groesser als 1 MiB: wird nicht gelesen.");
+  if (new TextEncoder().encode(text).length > MAX_TEAM_FILE_BYTES) throw new TeamBundleError("Team-Datei ist groesser als 1 MiB: wird nicht gelesen.");
   let raw: unknown;
   try {
     raw = parse(text, { schema: "core" });
@@ -66,13 +66,13 @@ export interface MergeResult {
  * (externalId, rotatedAt, verifiedAt, verifiedBy) von Secrets mit gleicher Id, denn der Export entfernt sie bewusst.
  * Beides ist atomar: erst ein Probelauf auf einer Kopie, nur bei Erfolg wird der echte Speicher veraendert.
  */
-export function mergeTeamBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "replace" = "merge"): MergeResult {
-  const probe = InventoryStore.fromText(store.toString());
+export function mergeTeamBundle(store: InventoryStoreCore, bundle: Inventory, mode: "merge" | "replace" = "merge"): MergeResult {
+  const probe = InventoryStoreCore.fromText(store.toString());
   applyBundle(probe, bundle, mode); // wirft bei einem Konflikt, bevor der echte Speicher angefasst wird
   return applyBundle(store, bundle, mode);
 }
 
-function applyBundle(store: InventoryStore, bundle: Inventory, mode: "merge" | "replace"): MergeResult {
+function applyBundle(store: InventoryStoreCore, bundle: Inventory, mode: "merge" | "replace"): MergeResult {
   if (mode === "replace") {
     const secrets = bundle.secrets.map((s) => {
       const old = store.getSecret(s.id);

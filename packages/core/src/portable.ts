@@ -15,3 +15,24 @@ export * from "./connections-core.js";
 export * from "./variable-sources.js";
 // The GitHub client: the caller injects the sealer (`seal`) and the App JWT signer (`sign`); there are no defaults.
 export * from "./github-core.js";
+// The pure domain logic on top of those: providers' contract, parameters, checks, snapshots, issuance and revoke, the
+// configuration schema. Digests come from `sha256.ts` (no `node:crypto`), ids from `globalThis.crypto`.
+export * from "./provider.js";
+export * from "./worker-secrets.js";
+export * from "./params.js";
+export * from "./status.js";
+export * from "./preflight.js";
+export * from "./place-io.js";
+export * from "./snapshot.js";
+export * from "./verification.js";
+export * from "./issuance.js";
+export * from "./rotate.js";
+export * from "./config-core.js";
+export * from "./sha256.js";
+export * from "./variables.js";
+export * from "./patch.js";
+export * from "./team.js";
+export * from "./guards.js";
+export * from "./vendors.js";
+export * from "./stripe-accounts.js";
+export * from "./env-export-errors.js";

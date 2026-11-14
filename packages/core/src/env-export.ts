@@ -14,19 +14,10 @@ import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
 
-export class EnvExportError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EnvExportError";
-  }
-}
+import { EnvExportError, PromptsRequiredError } from "./env-export-errors.js";
 
-export class PromptsRequiredError extends EnvExportError {
-  constructor(readonly keys: string[]) {
-    super(`Eingabe noetig fuer: ${keys.join(", ")}`);
-    this.name = "PromptsRequiredError";
-  }
-}
+// The two error classes live in `env-export-errors.ts` (portable); re-exported here with the same class identity.
+export { EnvExportError, PromptsRequiredError };
 
 export interface EnvBuildDeps {
   inventory: InventoryStore;

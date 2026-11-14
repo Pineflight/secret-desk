@@ -1,4 +1,4 @@
-import { GitHubError, placeToTarget, type GitHubClient } from "./github.js";
+import { GitHubError, placeToTarget, type GitHubClient } from "./github-core.js";
 import type { SecretValue } from "./secret.js";
 import { placeKey, type LiveSnapshot } from "./status.js";
 import { isWorkerPlace, type Place } from "./types.js";

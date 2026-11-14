@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import type { SecretValue } from "./secret.js";
 import type { Stage } from "./types.js";
 
@@ -80,7 +80,7 @@ export interface VerificationReport {
 }
 
 export function fingerprintOf(value: SecretValue): string {
-  return createHash("sha256").update(value.reveal()).digest("hex").slice(0, 12);
+  return sha256Hex(value.reveal()).slice(0, 12);
 }
 
 export type OverallStatus = "pass" | "warn" | "fail";

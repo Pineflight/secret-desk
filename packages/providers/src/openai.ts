@@ -1,4 +1,4 @@
-import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type Provider } from "@secret-desk/core";
+import { SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type Provider } from "@secret-desk/core/portable";
 import { asList, getJson, str, unknownKind } from "./discover.js";
 import { check, isRecord, probeWithValue, step } from "./checks.js";
 import { badResponse, callWithToken, expiryFrom, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg } from "./http.js";
