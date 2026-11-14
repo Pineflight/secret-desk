@@ -71,7 +71,7 @@ export function vaultStoreContract(framework: ContractFramework, name: string, m
 
     test("is binary safe: Base64 of every byte value, and unusual ids, come back exactly", async (store) => {
       const all = allBytesBase64();
-      const ids = ["über-key", "a/b", "dot.dot", "with space", "emoji-\u{1F511}"];
+      const ids = ["\u00FCber-key", "a/b", "dot.dot", "with space", "emoji-\u{1F511}"];
       const entries: Record<string, VaultEntry> = {};
       for (const id of ids) entries[id] = entry({ iv: all, tag: all, ct: all + all });
       await store.write(doc(entries));
@@ -120,10 +120,10 @@ export function vaultStoreContract(framework: ContractFramework, name: string, m
       const vault = new Vault({ store, keySource });
       expect(await vault.list()).toEqual([]);
       expect(await vault.get("acme-app")).toBeNull();
-      await vault.set("acme-app", "example-value-ünï-\u{1F511}", "2027-01-21", new Date("2026-03-01T10:00:00Z"));
+      await vault.set("acme-app", "example-value-\u00FCn\u00EF-\u{1F511}", "2027-01-21", new Date("2026-03-01T10:00:00Z"));
       await vault.set("acme-app-staging", "other-example-value");
       expect(await vault.has("acme-app")).toBe(true);
-      expect((await vault.get("acme-app"))!.reveal()).toBe("example-value-ünï-\u{1F511}");
+      expect((await vault.get("acme-app"))!.reveal()).toBe("example-value-\u00FCn\u00EF-\u{1F511}");
       expect((await vault.get("acme-app-staging"))!.reveal()).toBe("other-example-value");
       const info = (await vault.info("acme-app"))!;
       expect(info.savedAt).toBe("2026-03-01T10:00:00.000Z");
