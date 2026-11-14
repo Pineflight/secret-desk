@@ -297,7 +297,7 @@ export async function buildRuntime<I extends InventoryStoreCore, A extends Autom
   const now = options.now ?? ((): Date => new Date());
   const automation = (options.automation ? await options.automation({ config, providers, inventory, evidence, host, now }) : (options.now ? noAutomationFor(now) : noAutomation)) as A;
 
-  const approvals = new ApprovalQueue();
+  const approvals = new ApprovalQueue(now);
   const teamSyncMemo: RuntimeCore["teamSyncMemo"] = { lastCheck: null, lastError: null };
   // The inventory follows its file. When it was changed from outside, state derived from the old content is dropped:
   // open approvals whose entry changed become stale, and the cached team-sync comparison is no longer valid.
