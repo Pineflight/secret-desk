@@ -1,6 +1,7 @@
 import {
   discardIssuance,
   hasWriteStarted,
+  writtenPlacesOf,
   issuanceStateOf,
   revokeNewValue,
   SecretValue,
@@ -121,7 +122,14 @@ const targetOf = (record: PendingRecord, pending?: PendingIssuance): RevokeTarge
 });
 
 /** The outcome of an attempt to delete the new value of a record at the provider. A refusal says why nothing was called. */
-export type OrphanResult = RevokeOutcome | { status: "refused"; reason: "held-here" | "unknown" };
+export type OrphanResult = RevokeOutcome | { status: "refused"; reason: "held-here" | "unknown" | "not-expired" };
+
+/** The line an acknowledged revoke leaves in the report: these places hold a value that was revoked at the provider. */
+const revokedWrittenCheck = (places: readonly string[]): Check => ({
+  id: "revoked-written",
+  label: `Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war. Diese Orte halten einen widerrufenen Wert: ${places.join(", ") || "unbekannt"}`,
+  status: "warn",
+});
 
 /**
  * Asks the gate about a record, from metadata alone (a record has no store effects here; `IssuanceQueue.revokeOrphan` adds them).
@@ -159,6 +167,10 @@ interface Owed {
   pending: PendingIssuance | undefined;
   tries: number;
   nextTry: number;
+  /** A person acknowledged that the value may be in use (a reject with `acknowledgeWritten`): the retries keep that, or the gate would refuse them. */
+  acknowledgeWritten: boolean;
+  /** The places a write was started for, for the evidence note when the delete finally works. */
+  places: string[];
 }
 
 /**
@@ -220,7 +232,7 @@ export class IssuanceQueue {
     // The references the queue and the report hold are replaced too; a caller's own reference to the object is its own.
     p.value = new SecretValue("");
     for (const c of p.companions) c.value = new SecretValue("");
-    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0 });
+    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0, acknowledgeWritten: false, places: [] });
   }
 
   /**
@@ -308,11 +320,12 @@ export class IssuanceQueue {
    * deletes that are tried again (same spacing and limit as an expired review). The record stays in the store until the delete
    * worked. A refusal of the gate is not owed: it is a decision, not a failure.
    */
-  oweIfNeeded(pending: PendingIssuance, result: DiscardResult): void {
+  oweIfNeeded(pending: PendingIssuance, result: DiscardResult, options: { acknowledgeWritten?: boolean } = {}): void {
     const record = recordOf(pending);
     if (result.revokedNew || result.refused !== undefined || !record.externalId) return;
     this.#store.put(record);
-    this.#owed.set(pending.id, { record, pending: undefined, tries: 1, nextTry: this.#t() + REVOKE_RETRY_MS });
+    // The acknowledgement of a person's reject stays with the owed entry: without it the retry would be refused as `write-started`.
+    this.#owed.set(pending.id, { record, pending: undefined, tries: 1, nextTry: this.#t() + REVOKE_RETRY_MS, acknowledgeWritten: options.acknowledgeWritten === true, places: writtenPlacesOf(pending) });
   }
 
   /**
@@ -371,10 +384,15 @@ export class IssuanceQueue {
     const record = this.#store.get(id);
     if (!record) return { status: "refused", reason: "unknown" };
     if (this.#values.has(id) || this.#owed.has(id)) return { status: "refused", reason: "held-here" };
+    // With two runtimes on one store, a record without a value here may be a live review of the other one: only a record whose
+    // deadline and grace have passed, or one flagged for a person's decision, is an orphan.
+    if (record.needsDecision !== true && Date.parse(record.expiresAt) + CLAIM_GRACE_MS > this.#t()) return { status: "refused", reason: "not-expired" };
     const outcome = await this.#revokeNew(record, deps, undefined, options.acceptPartial === true);
     if (outcome.status === "revoked") {
       this.#store.delete(id);
       await noteEvidence(deps, record, { id: "orphan-revoked", label: "Neuer Wert beim Anbieter widerrufen (verwaister Eintrag)", status: "pass" });
+      // A person decided about a value a write was started for: the report says the places that may hold it now hold a revoked value.
+      if (options.acceptPartial === true && record.writeStarted === true) await noteEvidence(deps, record, revokedWrittenCheck([]));
     }
     return outcome;
   }
@@ -429,7 +447,7 @@ export class IssuanceQueue {
         } else if (owed.record.externalId) outcome = { status: discard.revokedNew ? "revoked" : "failed" };
       } else {
         // A write was started (or it is a retry): the gate alone decides, from the record.
-        outcome = await this.#revokeNew(owed.record, deps, owed.pending).catch((): RevokeOutcome => ({ status: "failed" }));
+        outcome = await this.#revokeNew(owed.record, deps, owed.pending, owed.acknowledgeWritten).catch((): RevokeOutcome => ({ status: "failed" }));
       }
       if (outcome === undefined) return done();
       if (outcome.status === "refused") {
@@ -439,6 +457,7 @@ export class IssuanceQueue {
       }
       if (outcome.status === "revoked") {
         if (owed.tries > 0) await noteEvidence(deps, owed.record, { id: "revoke-late", label: "Neuer Wert beim Anbieter widerrufen (spaeterer Versuch)", status: "pass" });
+        if (owed.acknowledgeWritten) await noteEvidence(deps, owed.record, revokedWrittenCheck(owed.places));
         return done();
       }
       owed.tries += 1;

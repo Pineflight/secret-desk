@@ -600,10 +600,20 @@ async function discardIssuanceNow(
   const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
   const externalId = rotatedInPlace ? undefined : pending.report.externalId;
   // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
-  const outcome: RevokeOutcome | undefined = externalId
-    ? await revokeNewValue({ secretId: pending.secretId, provider: pending.issuedSecret?.provider ?? pending.report.provider, externalId, companionIds: pending.companions.map((c) => c.entryId), pending, ...(pending.issuedSecret ? { issuedSecret: pending.issuedSecret } : {}) }, deps, { acknowledgeWritten: reason.acknowledgeWritten === true })
-    : undefined;
+  // A value the provider issued but named no identifier for cannot be deleted: the gate says so (`no-id`) and the report must too.
+  const issuedWithoutId = pending.report.kind === "issued" && pending.report.externalId === undefined;
+  const outcome: RevokeOutcome | undefined =
+    externalId || issuedWithoutId
+      ? await revokeNewValue({ secretId: pending.secretId, provider: pending.issuedSecret?.provider ?? pending.report.provider, externalId, companionIds: pending.companions.map((c) => c.entryId), pending, ...(pending.issuedSecret ? { issuedSecret: pending.issuedSecret } : {}) }, deps, { acknowledgeWritten: reason.acknowledgeWritten === true })
+      : undefined;
   const revokedNew = outcome?.status === "revoked";
+  if (outcome?.status === "refused" && outcome.reason === "no-id") {
+    pending.report.checks.push({ id: "revoke-no-id", label: "Neuer Wert konnte beim Anbieter nicht geloescht werden: der Anbieter hat keine Kennung genannt", status: "warn", detail: "Von Hand beim Anbieter loeschen oder verfallen lassen." });
+  }
+  // A person decided about a value a write was started for and the revoke worked: say which places now hold a revoked value.
+  if (revokedNew && reason.acknowledgeWritten === true && writeStarted.has(pending)) {
+    pending.report.checks.push({ id: "revoked-written", label: `Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war. Diese Orte halten einen widerrufenen Wert: ${writtenPlacesOf(pending).join(", ")}`, status: "warn" });
+  }
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,

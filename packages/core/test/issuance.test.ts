@@ -320,6 +320,35 @@ describe("commit, write started and the gate", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("a person's acknowledged reject that worked says which places hold a revoked value; an unacknowledged one is refused", async () => {
+    const { deps, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    await commitIssuance(p, failingPuts(deps), { by: "alice", ticks: ["c1", "c2"] });
+    const decided = await discardIssuance(p, deps, { by: "alice", why: "rejected", acknowledgeWritten: true });
+    expect(decided).toEqual({ revokedNew: true });
+    expect(revoke).toHaveBeenCalledTimes(1);
+    const note = p.report.checks.find((c) => c.id === "revoked-written")!;
+    expect(note).toMatchObject({ status: "warn" });
+    expect(note.label).toContain("acme-app");
+    expect(note.label).toContain("widerrufenen Wert");
+    // Nothing written, nothing to say.
+    const clean = await prepareIssuance("cf-deploy-acme-app", deps);
+    await discardIssuance(clean, deps, { by: "alice", why: "rejected", acknowledgeWritten: true });
+    expect(clean.report.checks.some((c) => c.id === "revoked-written")).toBe(false);
+  });
+
+  it("a value the provider issued without naming an identifier cannot be deleted: the gate says no-id and the report says why; a pasted value says nothing", async () => {
+    const { deps } = await setup();
+    const providers = new ProviderRegistry().register({ id: "cloudflare-token", label: "Cloudflare", kind: "automatic", issue: async () => ({ value: new SecretValue("NEUER-TOKEN-WERT-123") }), revoke: vi.fn(async () => undefined), reviewChecklist: () => ["only"] });
+    const own = { ...deps, providers };
+    const issued = await prepareIssuance("cf-deploy-acme-app", own);
+    expect(await discardIssuance(issued, own, { by: "system", why: "expired" })).toEqual({ revokedNew: false, refused: "no-id" });
+    expect(issued.report.checks.find((c) => c.id === "revoke-no-id")?.label).toContain("keine Kennung");
+    const pasted = await prepareIssuance("stripe-webhook-acme-docs-staging", deps, { manualValue: new SecretValue("whsec_handeingabe_123456") });
+    expect(await discardIssuance(pasted, deps, { by: "system", why: "expired" })).toEqual({ revokedNew: false });
+    expect(pasted.report.checks.some((c) => c.id === "revoke-no-id")).toBe(false);
+  });
+
   it("when the provider names no identifier for the new value, a successful commit clears the identifier of the value it just revoked", async () => {
     const { deps, inventory } = await setup();
     const providers = new ProviderRegistry().register({ id: "cloudflare-token", label: "Cloudflare", kind: "automatic", issue: async () => ({ value: new SecretValue("NEUER-TOKEN-WERT-123") }), revoke: vi.fn(async () => undefined), reviewChecklist: () => ["only"] });

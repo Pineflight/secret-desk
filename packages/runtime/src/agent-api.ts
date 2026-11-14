@@ -819,7 +819,7 @@ export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note
       result = await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}), ...(options.acknowledgeWritten === true ? { acknowledgeWritten: true } : {}) });
     } finally {
       rt.issuances.delete(id);
-      rt.issuances.oweIfNeeded(pending, result);
+      rt.issuances.oweIfNeeded(pending, result, { acknowledgeWritten: options.acknowledgeWritten === true });
     }
     return result;
   } finally {

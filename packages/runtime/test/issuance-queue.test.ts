@@ -597,6 +597,63 @@ describe("IssuanceQueue: the gate in the queue's sequences", () => {
     expect(q.orphans().map((r) => r.id)).toEqual(["a"]);
   });
 
+  it("with two queues on one store, a record without a value here may be the other's live review: refused as not-expired until deadline plus grace, or when flagged", async () => {
+    const { c, now } = clock(T0);
+    const store = new MemoryPendingStore();
+    const owner = new IssuanceQueue({ store, now });
+    const other = new IssuanceQueue({ store, now });
+    owner.add(withValue("live", "2026-11-14T10:05:00.000Z", { externalId: "ext-new" }));
+    const revoke = vi.fn(async () => undefined);
+    expect(await other.revokeOrphan("live", depsOf({ revoke }))).toEqual({ status: "refused", reason: "not-expired" });
+    // Past the deadline but inside the grace of a claimed review: still not an orphan.
+    c.t = at("2026-11-14T10:06:00.000Z");
+    expect(await other.revokeOrphan("live", depsOf({ revoke }))).toEqual({ status: "refused", reason: "not-expired" });
+    expect(revoke).not.toHaveBeenCalled();
+    expect(store.get("live")).toBeDefined();
+    c.t = at("2026-11-14T10:05:00.000Z") + CLAIM_GRACE_MS;
+    expect(await other.revokeOrphan("live", depsOf({ revoke }))).toEqual({ status: "revoked" });
+    // A record flagged for a person's decision is an orphan whatever its deadline says.
+    store.put(record({ id: "flagged", expiresAt: "2999-01-01T00:00:00.000Z", needsDecision: true, writeStarted: true }));
+    expect(await other.revokeOrphan("flagged", depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(await other.revokeOrphan("flagged", depsOf({ revoke }), { acceptPartial: true })).toEqual({ status: "revoked" });
+  });
+
+  it("an acknowledged revoke that worked leaves a note that the places hold a revoked value; one that failed keeps the acknowledgement for its retries", async () => {
+    const { c, now } = clock(T0);
+    const store = new MemoryPendingStore();
+    const evidence = new MemoryEvidenceStore();
+    const q = new IssuanceQueue({ store, now });
+    const p = withValue("a", "2999-01-01T00:00:00.000Z", { externalId: "ext-new" });
+    await evidence.save(p.report);
+    hold.states.set(p, "partial");
+    q.add(p);
+    q.delete("a");
+    // A person's reject (acknowledged) whose delete the provider did not confirm: owed, with the acknowledgement.
+    q.oweIfNeeded(p, { revokedNew: false }, { acknowledgeWritten: true });
+    const down = vi.fn(async () => { throw new Error("down"); });
+    c.t += REVOKE_RETRY_MS;
+    expect(await q.sweep(depsOf({ revoke: down, evidence }))).toEqual([]);
+    expect(down).toHaveBeenCalledTimes(1);
+    c.t += REVOKE_RETRY_MS * 3;
+    const up = vi.fn(async () => undefined);
+    expect(await q.sweep(depsOf({ revoke: up, evidence }))).toEqual(["a"]);
+    expect(up).toHaveBeenCalledTimes(1);
+    expect((await evidence.get("s", "a"))?.checks.find((x) => x.id === "revoked-written")?.label).toContain("widerrufenen Wert");
+    // Without the acknowledgement the same retry is refused as write-started.
+    const q2 = new IssuanceQueue({ now });
+    q2.oweIfNeeded(p, { revokedNew: false });
+    c.t += REVOKE_RETRY_MS * 10;
+    expect(await q2.sweep(depsOf({ revoke: up, evidence }))).toEqual([]);
+    expect(up).toHaveBeenCalledTimes(1);
+    // An explicit orphan revoke under acceptPartial says so too.
+    const store3 = new MemoryPendingStore();
+    store3.put(record({ id: "died", writeStarted: true }));
+    await evidence.save({ ...p.report, id: "died" });
+    const q3 = new IssuanceQueue({ store: store3, now });
+    expect(await q3.revokeOrphan("died", depsOf({ revoke: up, evidence }), { acceptPartial: true })).toEqual({ status: "revoked" });
+    expect((await evidence.get("s", "died"))?.checks.map((x) => x.id)).toContain("revoked-written");
+  });
+
   it("a sweep keeps the record of a commit that is still in flight, and a person-decided orphan can be revoked later", async () => {
     const { c, now } = clock(T0);
     const store = new MemoryPendingStore();
