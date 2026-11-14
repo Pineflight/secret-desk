@@ -364,7 +364,8 @@ describe("the local edition", () => {
     expect(await nodeRuntimeHost().gitOrigin?.(tmpdir())).toBeNull();
   });
 
-  it("the Node host hands git a filtered environment: system basics and the Git switches, never provider tokens", async () => {
+  // The fake git is an extensionless shell script, which Windows cannot start; git-env.test.ts covers the environment there.
+  it.skipIf(windows)("the Node host hands git a filtered environment: system basics and the Git switches, never provider tokens", async () => {
     vi.stubEnv("GH_TEST", "poison_github_token_made_up");
     vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
     vi.stubEnv("GIT_TERMINAL_PROMPT", "1");

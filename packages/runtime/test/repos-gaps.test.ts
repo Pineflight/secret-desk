@@ -10,7 +10,8 @@ import { createLocalRuntime } from "../src/runtime.js";
 // Git without user or system configuration, as in repos.test.ts.
 const SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
 beforeAll(() => {
-  process.env["GIT_CONFIG_GLOBAL"] = devNull;
+  // Git on Windows refuses os.devNull (`\\.\nul`); the device name NUL works.
+  process.env["GIT_CONFIG_GLOBAL"] = process.platform === "win32" ? "NUL" : devNull;
   process.env["GIT_CONFIG_NOSYSTEM"] = "1";
 });
 afterAll(() => {
@@ -76,9 +77,13 @@ describe("link file handling", () => {
     const { rt, linksFile, dir } = await setup();
     await mkdir(join(dir, "state"));
     const outside = await realpath(await mkdtemp(join(tmpdir(), "sd-outside-")));
+    // The temp folder of a Windows runner lies below the user folder, which is an allowed root; point the home elsewhere, as repos.test.ts does.
+    vi.stubEnv("HOME", join(outside, "..", "sd-home-unrelated"));
+    vi.stubEnv("USERPROFILE", join(outside, "..", "sd-home-unrelated"));
     await writeFile(linksFile, JSON.stringify({ version: 1, links: { gone: join(dir, "projects", "missing"), outside, relative: "some/relative" } }));
     expect(await linkedFolder(rt, "gone")).toBeNull();
     expect(await linkedFolder(rt, "outside")).toBeNull();
+    vi.unstubAllEnvs();
     expect(await linkedFolder(rt, "relative")).toBeNull();
     expect(await linkedFolder(rt, "unknown")).toBeNull();
     const row = (await listRepos(rt)).repos.find((r) => r.name === "gone");

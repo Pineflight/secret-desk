@@ -161,7 +161,8 @@ describe("readWorkflowFiles", () => {
     expect(await readWorkflowFiles(rt, "acme-app", { github: false })).toEqual({ files: [], source: "local" });
   });
 
-  it.skipIf(process.getuid?.() === 0)("local: a file that cannot be read is left out", async () => {
+  // chmod 000 has no effect on Windows, so the file stays readable there.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("local: a file that cannot be read is left out", async () => {
     const { rt, workflows } = await linked({ "a.yml": "a: 1\n", "b.yml": "b: 1\n" });
     const { chmod } = await import("node:fs/promises");
     await chmod(join(workflows, "a.yml"), 0o000);

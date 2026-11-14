@@ -70,8 +70,9 @@ describe("getSettings", () => {
     const { rt } = await setup("vault:\n  file: ~/sd-test/vault.json\n  keyFile: ~/sd-test/vault.key\n", false);
     const s = getSettings(rt);
     expect(s.vault.enabled).toBe(true);
-    expect(s.vault.file).toBe("~/sd-test/vault.json");
-    expect(s.vault.keySourceLabel).toContain("~/sd-test/vault.key");
+    // The label shows the path in the style of the platform (`~\sd-test\...` on Windows).
+    expect(s.vault.file).toBe(join("~", "sd-test", "vault.json"));
+    expect(s.vault.keySourceLabel).toContain(join("~", "sd-test", "vault.key"));
   });
   it("contains neither token values nor variable names of the sources", async () => {
     const { rt } = await setup("connections:\n  cloudflare: { type: env, name: CF_GEHEIM_NAME }\n");

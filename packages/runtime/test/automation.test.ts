@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { FakeDriver } from "@secret-desk/automation";
 import { IssuanceError } from "@secret-desk/core";
@@ -129,7 +129,7 @@ describe("recipes and providers", () => {
     expect(p).toMatchObject({ id: "sample-token-browser", label: "Beispiel (Browser)", kind: "automatic" });
     expect(rt.automation.isBrowserProvider(p)).toBe(true);
     expect(rt.automation.recipes).toMatchObject([{ id: "sample-token", providerId: "sample-token-browser", status: "nicht gegen die echte Seite geprueft" }]);
-    expect(rt.automation.problems.map((x) => x.file.split("/").pop())).toEqual(["kaputt.yaml"]);
+    expect(rt.automation.problems.map((x) => basename(x.file))).toEqual(["kaputt.yaml"]);
     expect(listProviders(rt).find((x) => x.id === "sample-token-browser")).toMatchObject({ browser: true });
     expect(listProviders(rt).find((x) => x.id === "random-hex")).toMatchObject({ browser: false, readOnly: false });
     expect(listProviders(rt).find((x) => x.id === "sample-token-browser")).toMatchObject({ readOnly: false });

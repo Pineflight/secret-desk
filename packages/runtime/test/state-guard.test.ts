@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -100,7 +100,7 @@ export function stateFindings(source: string): { name: string; why: string }[] {
 const findingsOf = async (dir: string): Promise<string[]> => {
   const offenders: string[] = [];
   for (const file of await sourceFiles(dir)) {
-    const base = file.slice(file.lastIndexOf("/") + 1);
+    const base = basename(file);
     for (const f of stateFindings(await readFile(file, "utf8"))) if (!(`${base}:${f.name}` in EXCEPTIONS)) offenders.push(`${file.slice(dir.length)}: ${f.name}: ${f.why}`);
   }
   return offenders;
@@ -120,7 +120,7 @@ describe("no mutable state in module scope", () => {
   it("every exception is still there (a stale entry hides nothing)", async () => {
     const seen = new Set<string>();
     for (const file of await sourceFiles(CORE_SRC)) {
-      const base = file.slice(file.lastIndexOf("/") + 1);
+      const base = basename(file);
       for (const f of stateFindings(await readFile(file, "utf8"))) seen.add(`${base}:${f.name}`);
     }
     expect([...seen].filter((k) => k in EXCEPTIONS).sort()).toEqual(Object.keys(EXCEPTIONS).sort());

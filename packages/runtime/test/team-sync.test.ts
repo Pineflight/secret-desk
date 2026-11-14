@@ -548,7 +548,7 @@ describe("first start: configuration and wizard", () => {
   });
 
   it("explains an unwritable directory instead of crashing", async () => {
-    if (process.getuid?.() === 0) return;
+    if (process.platform === "win32" || process.getuid?.() === 0) return; // chmod 500 does not make a folder read-only on Windows
     const dir = await mkdtemp(join(tmpdir(), "sd-ro-"));
     await mkdir(join(dir, "ro"));
     await chmod(join(dir, "ro"), 0o500);
