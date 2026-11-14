@@ -30,6 +30,7 @@ import {
   AutomationError,
   authorize,
   LiveCheckBusyError,
+  IssuanceGoneError,
   PolicyError,
   checkConnection,
   getConnectionResources,
@@ -544,6 +545,8 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
 }
 
 function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
+  // A review that is gone (expired, dealt with, or lost with a restart) is not a refusal: 404, and the way on is to issue it again.
+  if (e instanceof IssuanceGoneError) return json({ error: e.message, code: e.code }, 404);
   if (e instanceof PolicyError) return err(403, e.message);
   // Parameter fehlen oder sind ungueltig: vor jedem Netzaufruf, mit Klartext und den betroffenen Schluesseln.
   if (e instanceof ParamsInvalidError) return json({ error: e.message, code: e.code, problems: e.problems }, 400);

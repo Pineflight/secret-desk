@@ -91,6 +91,10 @@ describe("reading single records", () => {
   it("answers unknown reviews, reports and approvals with a clear refusal", async () => {
     const { deps } = await routerFixture();
     expect((await call(deps, "GET", "reviews/nope")).json["error"]).toMatch(/nicht gefunden/);
+    // A review that is gone is a normal outcome (issue again), not a refusal: 404 with its own code, never 403.
+    const gone = await call(deps, "GET", "reviews/nope");
+    expect(gone.status).toBe(404);
+    expect(gone.json["code"]).toBe("issuance-gone");
     expect((await call(deps, "GET", "evidence/a/b")).json["error"]).toMatch(/nicht gefunden/);
     expect((await call(deps, "GET", "approvals/nope")).json["error"]).toMatch(/nicht gefunden/);
   });
