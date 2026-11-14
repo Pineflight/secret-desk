@@ -87,21 +87,22 @@ describe("rotateSecret", () => {
   });
 
   describe("when no target takes the new value", () => {
-    it("the new token is revoked at the provider again", async () => {
+    // A write that reported failure may have been applied, so only a person who acknowledged that has the new token revoked.
+    it("the new token is revoked at the provider again, for a person who acknowledged the written places", async () => {
       const { deps, revoke } = setup({ putSecret: failAll, provider: {} });
-      const result = await rotateSecret("s1", { ...deps, providerConfig: { grafana: { allowedHosts: [] } } });
+      const result = await rotateSecret("s1", { ...deps, providerConfig: { grafana: { allowedHosts: [] } } }, { acknowledgeWritten: true });
       expect(result).toMatchObject({ ok: false, partial: false, newTokenRevoked: true });
       expect(revoke.mock.calls[0]![0]).toMatchObject({ externalId: "new-id", providerConfig: { grafana: { allowedHosts: [] } } });
     });
     it("a token that cannot be revoked stays and is named", async () => {
       const { deps } = setup({ putSecret: failAll, provider: { revoke: async () => { throw new Error("no"); } } });
-      const result = await rotateSecret("s1", deps);
+      const result = await rotateSecret("s1", deps, { acknowledgeWritten: true });
       expect(result.orphanExternalId).toBe("new-id");
       expect(result.warnings![0]).toContain("konnte beim Anbieter nicht widerrufen werden");
     });
     it("a provider that cannot revoke leaves the token and names it", async () => {
       const { deps } = setup({ putSecret: failAll, provider: { revoke: undefined } });
-      const result = await rotateSecret("s1", deps);
+      const result = await rotateSecret("s1", deps, { acknowledgeWritten: true });
       expect(result.orphanExternalId).toBe("new-id");
       expect(result.warnings![0]).toContain("bleibt beim Anbieter bestehen");
     });
@@ -121,7 +122,7 @@ describe("rotateSecret", () => {
     });
     it("without an id the hint stays general", async () => {
       const result = await rotateSecret("s1", setup({ putSecret: partial, provider: { issue: async () => ({ value: new SecretValue("v") }) } }).deps);
-      expect(result.warnings).toEqual(["Der neue Token ist nur in einem Teil der Ziele geschrieben: Ziele erneut schreiben oder ihn beim Anbieter von Hand widerrufen."]);
+      expect(result.warnings).toEqual(["Der neue Token ist nur in einem Teil der Ziele geschrieben: die anderen Ziele (api/repo) halten noch den alten Wert, der gueltig bleibt. Das Secret erneut rotieren."]);
     });
   });
 });

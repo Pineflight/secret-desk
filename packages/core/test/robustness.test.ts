@@ -144,13 +144,18 @@ describe("M4/H8: rotation error paths", () => {
     expect(puts).toHaveLength(0);
     expect(revoke).not.toHaveBeenCalled();
   });
-  it("all targets fail: freshly issued token is revoked", async () => {
+  it("all targets fail: the new token is not revoked on its own (a failed write may have landed), a person's acknowledgement revokes it", async () => {
     const { deps, revoke } = await make({ failRepos: ["acme-app", "acme-app-landing"] });
     const r = await rotateSecret("cf-deploy-acme-app", deps);
     expect(r.ok).toBe(false);
-    expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
-    expect(r.newTokenRevoked).toBe(true);
-    expect(r.orphanExternalId).toBeUndefined();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(r.newTokenRevoked).toBeUndefined();
+    expect(r.orphanExternalId).toBe("new-id");
+    const acknowledged = await make({ failRepos: ["acme-app", "acme-app-landing"] });
+    const a = await rotateSecret("cf-deploy-acme-app", acknowledged.deps, { acknowledgeWritten: true });
+    expect(acknowledged.revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
+    expect(a.newTokenRevoked).toBe(true);
+    expect(a.orphanExternalId).toBeUndefined();
   });
   it("all targets fail and revoke fails: externalId in the result and in the warning", async () => {
     const { deps } = await make({ failRepos: ["acme-app", "acme-app-landing"], revokeImpl: async () => { throw new Error("nope"); } });

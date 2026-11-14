@@ -15,6 +15,7 @@ import {
   revokeIssuedTokens,
   runEnvCommand,
   supabaseStartCommand,
+  unrevokedNotices,
   writeEnvFile,
 } from "../src/index.js";
 import type { EnvTemplate, Provider } from "../src/index.js";
@@ -92,13 +93,14 @@ const template = (inventory: InventoryStore, id: string): EnvTemplate => invento
 describe("revokeIssuedTokens", () => {
   it("names tokens that cannot be revoked: unknown secret, no id, no revoke at the provider, a refusing provider", async () => {
     const { deps } = world(`secrets:\n${SECRET}  - { id: manual-one, name: MANUAL_ONE, stage: dev, service: x, provider: manual, expiry: none }\n`, { revoke: async () => { throw new Error("no"); } });
-    const failed = await revokeIssuedTokens([{ secretId: "gone" }, { secretId: "dev-token" }, { secretId: "manual-one", externalId: "e1" }, { secretId: "dev-token", externalId: "e2" }], deps);
-    expect(failed).toEqual(["gone (ohne Kennung)", "dev-token (ohne Kennung)", "manual-one (e1)", "dev-token (e2)"]);
+    const outcomes = await revokeIssuedTokens([{ secretId: "gone" }, { secretId: "dev-token" }, { secretId: "manual-one", externalId: "e1" }, { secretId: "dev-token", externalId: "e2" }], deps);
+    expect(outcomes.map((o) => o.result)).toEqual(["no-id", "no-id", "no-revoke", "failed"]);
+    expect(unrevokedNotices(outcomes)).toEqual(["Nicht widerrufen (beim Anbieter von Hand entfernen): gone (ohne Kennung), dev-token (ohne Kennung), manual-one (e1), dev-token (e2)."]);
   });
 
   it("revokes through the provider with the provider configuration, and the global fetch by default", async () => {
     const { deps, revoke } = world(`secrets:\n${SECRET}`);
-    expect(await revokeIssuedTokens([{ secretId: "dev-token", externalId: "e1" }], { ...deps, providerConfig: { grafana: { allowedHosts: [] } } })).toEqual([]);
+    expect(await revokeIssuedTokens([{ secretId: "dev-token", externalId: "e1" }], { ...deps, providerConfig: { grafana: { allowedHosts: [] } } })).toEqual([{ secretId: "dev-token", externalId: "e1", result: "revoked" }]);
     expect(revoke.mock.calls[0]![0]).toMatchObject({ externalId: "e1", providerConfig: { grafana: { allowedHosts: [] } }, fetch });
   });
 });
@@ -129,12 +131,12 @@ describe("buildEnvFile checks before it issues anything", () => {
   it("an issue entry on an allowed stage is issued, with the provider configuration and the global fetch", async () => {
     const b = build(`secrets:\n${SECRET}envTemplates:\n${tpl("t", "{ key: A, from: { type: issue, secret: dev-token } }")}`, "t", { allowedIssueStages: ["dev"], providerConfig: { grafana: { allowedHosts: [] } } });
     const r = await b.run();
-    expect(r.issuedTokens).toEqual([{ secretId: "dev-token", externalId: "ext-1" }]);
+    expect(r.issuedTokens).toEqual([{ secretId: "dev-token", provider: "issuer", externalId: "ext-1" }]);
     expect((b.issue.mock.calls[0] as unknown as [{ providerConfig: unknown; fetch: unknown }])[0]).toMatchObject({ providerConfig: { grafana: { allowedHosts: [] } }, fetch });
   });
   it("an issued token without an external id is recorded without one", async () => {
     const w = world(`secrets:\n${SECRET}envTemplates:\n${tpl("t", "{ key: A, from: { type: issue, secret: dev-token } }")}`, { issue: async () => ({ value: new SecretValue("v") }) });
-    expect((await buildEnvFile(template(w.inventory, "t"), w.deps)).issuedTokens).toEqual([{ secretId: "dev-token" }]);
+    expect((await buildEnvFile(template(w.inventory, "t"), w.deps)).issuedTokens).toEqual([{ secretId: "dev-token", provider: "issuer" }]);
   });
 
   describe("ref entries", () => {
@@ -204,7 +206,7 @@ describe("buildEnvFile failure after a token was issued", () => {
   it("revokes what was issued; what cannot be revoked is appended to the error", async () => {
     const w = world(`secrets:\n${SECRET}envTemplates:\n${tpl("t", TWO)}`, { revoke: async () => { throw new Error("no"); } });
     failSecond(w, new Error("provider down"));
-    await expect(buildEnvFile(template(w.inventory, "t"), w.deps)).rejects.toThrow(/provider down Nicht widerrufen \(beim Anbieter von Hand entfernen\): dev-token \(ext-1\)\./);
+    await expect(buildEnvFile(template(w.inventory, "t"), w.deps)).rejects.toThrow(/provider down\nNicht widerrufen \(beim Anbieter von Hand entfernen\): dev-token \(ext-1\)\./);
   });
 
   it("revokes quietly when everything can be revoked", async () => {

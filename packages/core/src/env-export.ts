@@ -8,6 +8,7 @@ import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
+import { revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
@@ -66,33 +67,100 @@ export interface EnvBuildResult {
   /** Keys written as a commented, empty line (optional prompt without input, command without the CLI). No values. */
   skipped: string[];
   issuedSecretIds: string[];
-  /** Fuer jeden ausgestellten Wert die Kennung beim Anbieter (falls er eine nennt). Zum Widerrufen, wenn die Datei nicht geschrieben wird. */
-  issuedTokens: { secretId: string; externalId?: string }[];
+  /**
+   * Fuer jeden ausgestellten Wert die Kennung beim Anbieter (falls er eine nennt) und der Anbieter des Eintrags zu dem Zeitpunkt.
+   * Zum Widerrufen ueber das Tor `revokeNewValue`, wenn die Datei nicht geschrieben wird.
+   */
+  issuedTokens: IssuedToken[];
+}
+
+export interface IssuedToken {
+  secretId: string;
+  externalId?: string;
+  /** The provider of the entry when the value was issued. Absent: the entry's provider at revoke time. */
+  provider?: string;
+}
+
+/** What became of one issued value: deleted at the provider, a failed delete, or the gate's reason for not calling the provider. */
+export interface IssuedTokenOutcome {
+  secretId: string;
+  externalId?: string;
+  result: "revoked" | "failed" | RevokeRefusal;
+  /**
+   * The issued identifier is the entry's current one: the provider rotated in place, so it replaced the value at the provider when it
+   * issued. That cannot be undone and there is nothing to revoke, whatever the gate said.
+   */
+  inPlace?: true;
+  /** The file write had started when the outcome was made: the new value may be in the file. */
+  writeStarted?: true;
 }
 
 /**
- * Widerruft ausgestellte Werte beim Anbieter (best effort). Liefert die Eintraege, die sich nicht widerrufen liessen,
- * als "secretId (Kennung)" - ohne Kennung oder ohne revoke bleibt nur der Hinweis.
+ * Asks the provider to delete values an export issued, but only through the gate (`revokeNewValue`): never when the identifier is
+ * the current one of the entry or of another entry of this export (a provider that rotates in place hands back the identifier the
+ * entry already has, and a delete would remove the token that is in use), and never when `writeStarted` says the file write began
+ * (the value may be in the file). Returns one outcome per value; `unrevokedNotices` turns them into the sentences for the caller.
  */
-export async function revokeIssuedTokens(
-  tokens: EnvBuildResult["issuedTokens"],
-  deps: Pick<EnvBuildDeps, "inventory" | "providers" | "connections" | "fetch" | "providerConfig">,
-): Promise<string[]> {
-  const failed: string[] = [];
+export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: RevokeGateDeps, options: { writeStarted?: boolean } = {}): Promise<IssuedTokenOutcome[]> {
+  const out: IssuedTokenOutcome[] = [];
   for (const t of tokens) {
-    const secret = deps.inventory.getSecret(t.secretId);
-    const provider = secret ? deps.providers.get(secret.provider) : undefined;
-    if (!secret || !t.externalId || !provider?.revoke) {
-      failed.push(`${t.secretId} (${t.externalId ?? "ohne Kennung"})`);
-      continue;
-    }
-    try {
-      await provider.revoke({ externalId: t.externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
-    } catch {
-      failed.push(`${t.secretId} (${t.externalId})`);
-    }
+    const outcome = await revokeNewValue(
+      {
+        secretId: t.secretId,
+        provider: t.provider ?? deps.inventory.getSecret(t.secretId)?.provider ?? "",
+        externalId: t.externalId,
+        companionIds: tokens.filter((o) => o.secretId !== t.secretId).map((o) => o.secretId),
+        writeStarted: options.writeStarted === true,
+      },
+      deps,
+    );
+    // "In place" is read from the inventory: the identifier the provider returned is the one the entry records as current.
+    const inPlace = t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId;
+    out.push({
+      secretId: t.secretId,
+      ...(t.externalId ? { externalId: t.externalId } : {}),
+      result: outcome.status === "refused" ? outcome.reason : outcome.status,
+      ...(inPlace ? { inPlace: true as const } : {}),
+      ...(options.writeStarted === true ? { writeStarted: true as const } : {}),
+    });
   }
-  return failed;
+  return out;
+}
+
+/**
+ * The sentences a failed export owes the person for values that are still valid at the provider (none when all were deleted).
+ * Four kinds. In place (the issued identifier is the entry's current one): the provider replaced the value when it issued, the new
+ * value was lost with the export, every place still holds the old value, which no longer works; nothing can or may be revoked, the
+ * secret must be rotated again. Then: to delete by hand (the provider failed or cannot delete), in use by another entry (do not
+ * delete), and written (the file may hold the value).
+ */
+export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): string[] {
+  const list = (pick: (o: IssuedTokenOutcome) => boolean): string => outcomes.filter(pick).map((o) => `${o.secretId} (${o.externalId ?? "ohne Kennung"})`).join(", ");
+  const rest = (o: IssuedTokenOutcome): boolean => o.inPlace !== true && o.result !== "revoked";
+  const inPlaceLost = list((o) => o.inPlace === true && o.writeStarted !== true);
+  const inPlaceWritten = list((o) => o.inPlace === true && o.writeStarted === true);
+  const inUse = list((o) => rest(o) && o.result === "value-in-use");
+  const written = list((o) => rest(o) && o.result === "write-started");
+  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started");
+  const notices: string[] = [];
+  if (inPlaceLost) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert ging mit dem fehlgeschlagenen Export verloren und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceLost}.`);
+  if (inPlaceWritten) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert steht hoechstens in der Datei, deren Schreiben begonnen hatte, und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceWritten}.`);
+  if (byHand) notices.push(`Nicht widerrufen (beim Anbieter von Hand entfernen): ${byHand}.`);
+  if (inUse) notices.push(`Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle eines Eintrags ist und der Token in Gebrauch ist (nicht loeschen): ${inUse}.`);
+  if (written) notices.push(`Nicht widerrufen, weil das Schreiben der Datei begonnen hatte und sie den Wert enthalten kann: der Token bleibt beim Anbieter gueltig (von Hand entfernen, wenn die Datei nicht gebraucht wird): ${written}.`);
+  return notices;
+}
+
+/** Adds the sentences of `unrevokedNotices` to the message of the error a failed export throws, one per line. */
+export function addUnrevokedNotices(err: unknown, outcomes: readonly IssuedTokenOutcome[]): void {
+  if (err instanceof Error) for (const notice of unrevokedNotices(outcomes)) err.message += `\n${notice}`;
+}
+
+/** Forgets the values a template put into the values of the run: its export failed before a file was written, so nothing may read them. */
+export function forgetRunValues(runValues: Map<string, string> | undefined, templateId: string): void {
+  // Keys are `<templateId>:<KEY>` and the marker `<templateId>:`; a KEY is an environment name and has no colon, so the template id
+  // is everything before the last one and must match exactly (a template `a` does not own the keys of a template `a:b`).
+  for (const key of [...(runValues?.keys() ?? [])]) if (key.slice(0, key.lastIndexOf(":")) === templateId) runValues!.delete(key);
 }
 
 export function generateValue(kind: "hex" | "base64" | "base64url" | "uuid", bytes: number): string {
@@ -382,7 +450,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         });
         value = result.value.reveal();
         issued.push(secret.id);
-        issuedTokens.push({ secretId: secret.id, ...(result.externalId ? { externalId: result.externalId } : {}) });
+        issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}) });
       }
       if (entry.description) lines.push(`# ${commentText(entry.description)}`);
       sources[entry.key] = from.type;
@@ -396,9 +464,10 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
       deps.runValues?.set(`${template.id}:${entry.key}`, value);
     }
   } catch (err) {
-    // Ein spaeterer Schritt ist gescheitert: schon ausgestellte Werte nicht beim Anbieter verwaist zuruecklassen.
-    const failed = await revokeIssuedTokens(issuedTokens, deps);
-    if (err instanceof Error && failed.length > 0) err.message += ` Nicht widerrufen (beim Anbieter von Hand entfernen): ${failed.join(", ")}.`;
+    // Ein spaeterer Schritt ist gescheitert: schon ausgestellte Werte nicht beim Anbieter verwaist zuruecklassen, aber nur ueber das
+    // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
+    addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps));
+    forgetRunValues(deps.runValues, template.id);
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");
@@ -423,17 +492,13 @@ export function gitCheckIgnored(path: string, env?: Record<string, string>): Pro
   });
 }
 
-/** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
-export async function writeEnvFile(
-  path: string,
-  text: string,
-  options: {
-    overwrite?: boolean;
-    allowedRoots?: string[];
-    /** How to ask whether Git ignores the written file. Default: `gitCheckIgnored` (starts `git`). A caller without that capability passes a function that answers null. */
-    checkIgnored?: (path: string) => Promise<boolean | null>;
-  } = {},
-): Promise<WriteEnvResult> {
+/**
+ * Every check of the target that needs no value: the path is usable, lies inside the allowed roots, is not a folder, does not exist
+ * (unless `overwrite`), and the nearest existing folder above it is a folder. Returns the resolved path. `exportEnv` runs it BEFORE
+ * the first value is issued (a provider that rotates in place replaces the value at the provider when it issues, so an export that
+ * was bound to fail must not issue); `writeEnvFile` runs it again (defence in depth: the file system can change in between).
+ */
+export async function checkEnvTarget(path: string, options: { overwrite?: boolean; allowedRoots?: string[] } = {}): Promise<string> {
   const problem = localPathProblem(path);
   if (problem) throw new EnvExportError(problem);
   const target = resolve(path);
@@ -447,9 +512,41 @@ export async function writeEnvFile(
     }
     if (!ok) throw new EnvExportError(`Pfad liegt ausserhalb der erlaubten Ordner: ${target}`);
   }
-  const exists = await stat(target).then(() => true, () => false);
-  if (exists && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
+  const info = await stat(target).catch(() => null);
+  if (info?.isDirectory()) throw new EnvExportError(`Der Pfad ist ein Ordner, keine Datei: ${target}`);
+  if (info && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
+  // The nearest folder that exists must be a folder, or the folder for the file cannot be made.
+  let up = dirname(target);
+  let parent = await stat(up).catch(() => null);
+  // The file system root always exists, so this ends.
+  while (!parent) {
+    up = dirname(up);
+    parent = await stat(up).catch(() => null);
+  }
+  if (!parent.isDirectory()) throw new EnvExportError(`Ein Teil des Pfades ist kein Ordner: ${up}`);
+  return target;
+}
+
+/** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
+export async function writeEnvFile(
+  path: string,
+  text: string,
+  options: {
+    overwrite?: boolean;
+    allowedRoots?: string[];
+    /** How to ask whether Git ignores the written file. Default: `gitCheckIgnored` (starts `git`). A caller without that capability passes a function that answers null. */
+    checkIgnored?: (path: string) => Promise<boolean | null>;
+    /**
+     * Called once, right before the file is created or written, and only when every step before it passed (path, allowed roots,
+     * existing file, folder). From then on the text may be in the file whatever happens next: a caller that issued values for it must not
+     * revoke them any more (see `revokeIssuedTokens`, `writeStarted`).
+     */
+    onWriteStart?: () => void;
+  } = {},
+): Promise<WriteEnvResult> {
+  const target = await checkEnvTarget(path, options);
   await mkdir(dirname(target), { recursive: true });
+  options.onWriteStart?.();
   await writePrivateFile(target, text);
   return { path: target, gitIgnored: await (options.checkIgnored ?? gitCheckIgnored)(target) };
 }
