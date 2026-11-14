@@ -1,5 +1,6 @@
 import {
   CLOUDFLARE_CONNECTION,
+  type ConnectionHost,
   ConnectionStoreCore,
   type ConnectionStoreCoreOptions,
   TEAM_SYNC_CONNECTION,
@@ -22,8 +23,8 @@ import {
 import { createPortableRegistry } from "@secret-desk/providers/portable";
 import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
-import { noAutomation, type AutomationPort } from "./automation-port.js";
-import { createAppTokenProvider, createGitHubClient, type GitHubClientClass, type GitHubCryptoDefaults } from "./github-crypto-core.js";
+import { noAutomation, noAutomationFor, type AutomationPort } from "./automation-port.js";
+import { createAppTokenProvider, createGitHubClientOn, type GitHubClientClass, type GitHubCryptoDefaults } from "./github-crypto-core.js";
 import { expandHomeFor, readHostEnv, type RuntimeHost } from "./host-core.js";
 import { InstanceState } from "./instance-state.js";
 import { IssuanceQueue, type PendingRecord, type PendingStore } from "./issuances.js";
@@ -74,7 +75,7 @@ export interface PortableRuntimeOptions<A extends AutomationPort = AutomationPor
    * Seals a value for the GitHub secret store (the same `SecretSealer` the portable GitHub client takes). Without it, a runtime
    * with a host seals with the libsodium default of the core, and a runtime without a host cannot seal: writing a GitHub secret
    * (`putSecret` and the write probe) is refused with a `HostCapabilityError` before any request is made, the public key
-   * request included. (`createPortableRuntime` has no libsodium: there the default comes from `githubDefaults`.)
+   * request included. (`createPortableRuntime` has no libsodium and no default: an embedder injects `seal`.)
    */
   seal?: SecretSealer;
   /**
@@ -82,27 +83,9 @@ export interface PortableRuntimeOptions<A extends AutomationPort = AutomationPor
    * enters this process and is not read. The signer must sign for the GitHub App named by `github.auth.appId` of the configuration
    * (the issuer comes from the configuration; GitHub refuses a signer of another App). Without it, a runtime with a host signs with the key of the `github-app-key`
    * connection, and a runtime without a host refuses to build an App token with a `HostCapabilityError`.
-   * (`createPortableRuntime` has no Node crypto: there the default comes from `githubDefaults`.)
+   * (`createPortableRuntime` has no Node crypto and no default: an embedder injects `sign`.)
    */
   sign?: AppJwtSigner;
-  /**
-   * Meant for the Node entry (`createRuntime`), not for a portable embedder: what to use for sealing and for signing with a stored
-   * private key when `seal` and `sign` are not given (the local edition hands in libsodium and the Node crypto module). Without a
-   * default the operation is refused with a `HostCapabilityError`. An embedder injects `seal` and `sign` instead.
-   */
-  githubDefaults?: GitHubCryptoDefaults;
-  /**
-   * Meant for the Node entry (`createRuntime`), not for a portable embedder: the class of the GitHub client the runtime builds (it
-   * derives its own subclass from it). Left out: the portable client of the core. The local edition passes the Node facade of the
-   * core, so the client is an instance of the class it has always had.
-   */
-  githubClientClass?: GitHubClientClass;
-  /**
-   * Meant for the Node entry (`createRuntime`), not for a portable embedder: makes the connection store from the parts the builder
-   * collected (sources, session, vault, host). Left out: a `ConnectionStoreCore`. The local edition passes a function that builds
-   * the Node `ConnectionStore`, so the store is an instance of the class it has always had.
-   */
-  createConnections?: (options: ConnectionStoreCoreOptions) => ConnectionStoreCore;
   session?: SessionVault;
   /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
   watchInventory?: boolean;
@@ -216,14 +199,41 @@ export function assertAuthorizeTimeout(value: unknown): void {
 }
 
 /**
- * Builds everything the CLI, the portal, the MCP server or an embedder needs from parts that need no Node API. Reads no value.
- * The result carries the type of the inventory and of the automation it was given.
+ * @internal Not exported from the portable entry or the package root. What only the Node entry (`createRuntime`) hands to the builder:
+ * the defaults for sealing and for signing with a stored key, the class of the GitHub client and the factory of the connection store.
+ * They are a separate argument, so no option of the public builder can carry them, not even from an untyped caller.
  */
-export async function createPortableRuntime<I extends InventoryStoreCore = InventoryStoreCore, A extends AutomationPort = AutomationPort>(
+export interface NodeParts {
+  /** What to seal and to sign with when `seal` and `sign` are not given. Copied and frozen by the builder. */
+  githubDefaults?: GitHubCryptoDefaults;
+  /** The class of the GitHub client (the builder derives its own subclass from it). Default: the portable client of the core. */
+  githubClientClass?: GitHubClientClass;
+  /** Makes the connection store from the collected parts. `host` is always given: the host, or `null` for no host. Default: `ConnectionStoreCore`. */
+  createConnections?: (options: Omit<ConnectionStoreCoreOptions, "host"> & { host: ConnectionHost | null }) => ConnectionStoreCore;
+}
+
+/**
+ * Builds everything the CLI, the portal, the MCP server or an embedder needs from parts that need no Node API. Reads no value.
+ * The result carries the type of the inventory and of the automation it was given. Only the options named in
+ * `PortableRuntimeOptions` are read: any other key of an untyped caller is ignored.
+ */
+export function createPortableRuntime<I extends InventoryStoreCore = InventoryStoreCore, A extends AutomationPort = AutomationPort>(
   source: PortableRuntimeSource<I>,
   options: PortableRuntimeOptions<A> = {},
 ): Promise<RuntimeCore & { inventory: I; automation: A }> {
+  const { fetch, host, seal, sign, session, watchInventory, vault, authorize, authorizeTimeoutMs, onAuthorizeFault, now, pendingStore, onRevokeAbandoned, onNeedsDecision, providers, automation } = options;
+  return buildRuntime(source, { fetch, host, seal, sign, session, watchInventory, vault, authorize, authorizeTimeoutMs, onAuthorizeFault, now, pendingStore, onRevokeAbandoned, onNeedsDecision, providers, automation }, {});
+}
+
+/** @internal The builder behind `createPortableRuntime` and `createRuntime`: the second argument is the same, the third is the Node parts. */
+export async function buildRuntime<I extends InventoryStoreCore, A extends AutomationPort>(
+  source: PortableRuntimeSource<I>,
+  options: PortableRuntimeOptions<A>,
+  node: NodeParts,
+): Promise<RuntimeCore & { inventory: I; automation: A }> {
   assertAuthorizeTimeout(options.authorizeTimeoutMs);
+  // Approvals take their ids from here: fail at build time, with a clear error, not at the first request.
+  if (typeof globalThis.crypto?.randomUUID !== "function") throw new Error("This JavaScript runtime has no globalThis.crypto.randomUUID, which the runtime needs for the ids of approvals.");
   const { config, inventory, evidence } = source;
 
   const specs: Record<string, SourceSpec> = { ...config.connections };
@@ -235,7 +245,8 @@ export async function createPortableRuntime<I extends InventoryStoreCore = Inven
 
   // Headless: the token of the team repository comes from the environment of the host only (never shown). Without a host nothing is read.
   const host = options.host ?? undefined;
-  const crypto = { host, seal: options.seal, sign: options.sign, defaults: options.githubDefaults };
+  // The defaults are copied and frozen: whoever built them cannot change what the runtime seals and signs with afterwards.
+  const crypto = { host, seal: options.seal, sign: options.sign, defaults: node.githubDefaults ? Object.freeze({ ...node.githubDefaults }) : undefined };
   if (readHostEnv(host, "SECRET_DESK_TEAM_TOKEN") && !specs[TEAM_SYNC_CONNECTION]) specs[TEAM_SYNC_CONNECTION] = { type: "env", name: "SECRET_DESK_TEAM_TOKEN" };
 
   // The default vault (a file plus the key source of the OS, which reads the environment and starts the OS key tools) is part of the
@@ -254,7 +265,8 @@ export async function createPortableRuntime<I extends InventoryStoreCore = Inven
     ...(options.session ? { session: options.session } : {}),
     ...(host ? { host } : {}),
   };
-  const connections = options.createConnections ? options.createConnections(connectionParts) : new ConnectionStoreCore(connectionParts);
+  // A factory is always told explicitly: `host: null` is "no host", never "use the process".
+  const connections = node.createConnections ? node.createConnections({ ...connectionParts, host: host ?? null }) : new ConnectionStoreCore(connectionParts);
   const f = options.fetch ?? fetch;
 
   let auth: TokenProvider;
@@ -283,7 +295,7 @@ export async function createPortableRuntime<I extends InventoryStoreCore = Inven
   }
 
   const now = options.now ?? ((): Date => new Date());
-  const automation = (options.automation ? await options.automation({ config, providers, inventory, evidence, host, now }) : noAutomation) as A;
+  const automation = (options.automation ? await options.automation({ config, providers, inventory, evidence, host, now }) : (options.now ? noAutomationFor(now) : noAutomation)) as A;
 
   const approvals = new ApprovalQueue();
   const teamSyncMemo: RuntimeCore["teamSyncMemo"] = { lastCheck: null, lastError: null };
@@ -302,7 +314,7 @@ export async function createPortableRuntime<I extends InventoryStoreCore = Inven
     config,
     ...(source.configPath !== undefined ? { configPath: source.configPath } : {}),
     inventory,
-    github: createGitHubClient(crypto, { auth, fetch: f }, options.githubClientClass),
+    github: createGitHubClientOn(node.githubClientClass, crypto, { auth, fetch: f }),
     workers: new WorkerSecretsClient({ auth: () => connections.token(CLOUDFLARE_CONNECTION), fetch: f }),
     connections,
     providers,

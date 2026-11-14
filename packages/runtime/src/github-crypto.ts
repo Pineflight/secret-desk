@@ -3,7 +3,7 @@ import { GitHubClient as NodeGitHubClient, sealForGitHub, type AppJwtSigner, typ
 import {
   assertCanSeal as assertCanSealCore,
   createAppTokenProvider as createAppTokenProviderCore,
-  createGitHubClient as createGitHubClientCore,
+  createGitHubClientOn,
   type GitHubCrypto as GitHubCryptoCore,
   type GitHubCryptoDefaults,
 } from "./github-crypto-core.js";
@@ -57,7 +57,7 @@ export function assertCanSeal(crypto: GitHubCrypto): void {
 
 /** A GitHub client whose sealing follows the rules of `GitHubCrypto`; everything else is the client of the core. */
 export function createGitHubClient(crypto: GitHubCrypto, options: GitHubClientOptions): GitHubClient {
-  return createGitHubClientCore(withNodeDefaults(crypto), options, NodeGitHubClient);
+  return createGitHubClientOn(NodeGitHubClient, withNodeDefaults(crypto), options);
 }
 
 /**

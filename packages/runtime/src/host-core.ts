@@ -41,7 +41,12 @@ export interface RuntimeHost extends ConnectionHost {
   readonly [HOME_PATHS]?: HostPaths;
 }
 
-/** The key of the path rules of a host (`RuntimeHost[HOME_PATHS]`). */
+/**
+ * The key of the path rules of a host (`RuntimeHost[HOME_PATHS]`). It is a registry symbol (`Symbol.for`) on purpose: two loaded
+ * copies of this package (a bundle that contains it twice, a host built by one copy and used by another) still find each other's
+ * member, which a plain `Symbol()` would not. The host is trusted by definition: it is code handed in by the embedder, so what its
+ * path rules return is taken as the answer of the machine (the result of `join` is checked to be text, nothing more).
+ */
 export const HOME_PATHS: unique symbol = Symbol.for("secret-desk.runtime.homePaths");
 
 /** The path rules a host brings for `~` paths: the style of its platform and the join of its path module. */
@@ -105,18 +110,34 @@ function posixJoin(base: string, rest: string): string {
   return `${absolute ? "/" : ""}${tail}${joined.endsWith("/") ? "/" : ""}`;
 }
 
+const JOIN_REFUSAL = "Der Pfad beginnt mit ~, aber der Host konnte ihn nicht mit dem Home-Ordner verbinden.";
+
 /**
  * Expands a leading `~` with the host's home folder. Anything else is returned unchanged. A `~` path without a home folder is
- * refused with a `HostCapabilityError` (never expanded to the home of the process). `~` and `~/x` are home paths on every host;
- * `~\x` only when the path rules of the host (`HOME_PATHS`) have the style `"win32"`. The path is joined by the host's `join`,
- * by default with POSIX rules.
+ * refused with a `HostCapabilityError` (never expanded to the home of the process). `~` and `~/x` are home paths on every host.
+ * `~\x` depends on the path style of the host (`HOME_PATHS`): `"win32"` expands it, `"posix"` leaves it alone (it is a file name
+ * there), and a host that does not say (no path rules, or a style that is neither) is refused with a `HostCapabilityError`
+ * (fail closed: the function does not guess which way the path is meant). The path is joined by the host's `join` (by default
+ * with POSIX rules); a `join` that throws or does not return text is refused the same way.
  */
 export function expandHomeFor(host: RuntimeHost | undefined | null, p: string): string {
   const slash = p === "~" || p.startsWith("~/");
-  if (!slash && !(p.startsWith("~\\") && host?.[HOME_PATHS]?.style === "win32")) return p;
+  const backslash = p.startsWith("~\\");
+  if (!slash && !backslash) return p;
+  const paths = host?.[HOME_PATHS];
+  if (backslash) {
+    if (paths?.style !== "win32" && paths?.style !== "posix") throw new HostCapabilityError("pathStyle", "Der Pfad beginnt mit ~\\, aber dieser Host sagt nicht, ob er Windows- oder POSIX-Pfade nutzt. Einen absoluten Pfad angeben.");
+    if (paths.style === "posix") return p;
+  }
   const home = hostHome(host);
   if (!home) throw new HostCapabilityError("homeDir", "Der Pfad beginnt mit ~, aber diese Umgebung stellt keinen Home-Ordner bereit. Einen absoluten Pfad angeben.");
   if (p === "~") return home;
-  const paths = host?.[HOME_PATHS];
-  return paths ? paths.join(home, p.slice(2)) : posixJoin(home, p.slice(2));
+  let joined: unknown;
+  try {
+    joined = typeof paths?.join === "function" ? paths.join(home, p.slice(2)) : posixJoin(home, p.slice(2));
+  } catch {
+    throw new HostCapabilityError("homeDir", JOIN_REFUSAL);
+  }
+  if (typeof joined !== "string") throw new HostCapabilityError("homeDir", JOIN_REFUSAL);
+  return joined;
 }

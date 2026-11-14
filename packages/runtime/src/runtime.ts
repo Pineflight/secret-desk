@@ -6,10 +6,11 @@ import type { BrowserDriver } from "@secret-desk/automation";
 import { AutomationManager } from "./automation.js";
 import { NODE_GITHUB_DEFAULTS } from "./github-crypto.js";
 import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, type NodeRuntimeHostOptions } from "./host.js";
-import { assertAuthorizeTimeout, createPortableRuntime, type PortableRuntimeOptions, type RuntimeCore } from "./runtime-core.js";
+import { assertAuthorizeTimeout, buildRuntime, type PortableRuntimeOptions, type RuntimeCore } from "./runtime-core.js";
 
 // The runtime of the local edition: the Node module on top of the portable builder in `runtime-core.ts`. It loads the configuration,
-// opens the inventory file and the evidence folder, creates the browser automation and hands all of it to `createPortableRuntime`.
+// opens the inventory file and the evidence folder, creates the browser automation and hands all of it to the internal builder, with
+// the Node parts (the Node facades and the defaults for sealing and signing) that the public `createPortableRuntime` does not take.
 export { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, issuanceDeps } from "./runtime-core.js";
 
 /** The runtime of the local edition: the portable runtime with the file inventory and the browser automation. */
@@ -20,7 +21,7 @@ export interface Runtime extends RuntimeCore {
   automation: AutomationManager;
 }
 
-export interface RuntimeOptions extends Omit<PortableRuntimeOptions, "vault" | "providers" | "automation" | "githubDefaults" | "githubClientClass" | "createConnections"> {
+export interface RuntimeOptions extends Omit<PortableRuntimeOptions, "vault" | "providers" | "automation"> {
   /**
    * The vault. Left out: the host's `openVault` opens the default one when the configuration has the vault on; a runtime without
    * that capability has no vault. `null`: no vault at all. An embedder without a host passes its own vault here (for example a `SecretVault` with its own store and key source).
@@ -52,18 +53,26 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   const inventory = await InventoryStore.open(resolve(dirname(path), config.inventory));
   const evidence = new FileEvidenceStore(resolve(dirname(path), config.evidenceDir));
   const host = options.host ?? undefined;
-  const { persistSignIn, automationDriver, bundledRecipes, automationAccess, ...shared } = options;
+  const { persistSignIn, automationDriver, bundledRecipes, automationAccess } = options;
 
-  const core = await createPortableRuntime(
+  const core = await buildRuntime(
     { config, configPath: path, inventory, evidence },
     {
-      ...shared,
-      // A runtime with a host seals with libsodium and signs with the Node crypto module unless something was injected.
-      ...(host ? { githubDefaults: NODE_GITHUB_DEFAULTS } : {}),
-      // The client is an instance of the Node facade of the core, as it always was.
-      githubClientClass: GitHubClient,
-      // The store is the Node facade of the core, with the same options as before; `host: null` means no host.
-      createConnections: (parts) => new ConnectionStore({ ...parts, host: parts.host ?? null }),
+      // The options are named one by one: a key of an untyped caller that is not one of them (the Node parts below, for example) goes nowhere.
+      host: options.host,
+      fetch: options.fetch,
+      seal: options.seal,
+      sign: options.sign,
+      session: options.session,
+      watchInventory: options.watchInventory,
+      vault: options.vault,
+      authorize: options.authorize,
+      authorizeTimeoutMs: options.authorizeTimeoutMs,
+      onAuthorizeFault: options.onAuthorizeFault,
+      now: options.now,
+      pendingStore: options.pendingStore,
+      onRevokeAbandoned: options.onRevokeAbandoned,
+      onNeedsDecision: options.onNeedsDecision,
       providers: createDefaultRegistry,
       automation: async ({ providers }) => {
         // The folder of the state files (sign-in memory, live check) is next to the repository links file. Only needed when persisting;
@@ -91,6 +100,14 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
         await manager.load();
         return manager;
       },
+    },
+    {
+      // A runtime with a host seals with libsodium and signs with the Node crypto module unless something was injected.
+      ...(host ? { githubDefaults: NODE_GITHUB_DEFAULTS } : {}),
+      // The client is an instance of the Node facade of the core, as it always was.
+      githubClientClass: GitHubClient,
+      // The store is the Node facade of the core, with the same options as before. The builder always says `host` (null: no host).
+      createConnections: (parts) => new ConnectionStore(parts),
     },
   );
   // The builder was given the file inventory, the manager and a configuration path, so the result has exactly these types.

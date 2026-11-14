@@ -235,9 +235,11 @@ function refuse(): never {
 /**
  * The port of a runtime without browser automation (the default of `createPortableRuntime`): no browser provider and no recipe,
  * the status is idle, and starting, running or cancelling anything is refused with an `AutomationUnavailableError`. Nothing is
- * stored, so it holds no state and is shared safely.
+ * stored, so it holds no state. Its clock is `now`: the builder passes the clock injected into the runtime, so a deadline the
+ * automation reports follows it.
  */
-export const noAutomation: AutomationPort = Object.freeze({
+export function noAutomationFor(now: () => Date): AutomationPort {
+  return Object.freeze({
   enabled: false,
   loginTimeoutMinutes: 0,
   signInCheckHours: 0,
@@ -245,7 +247,7 @@ export const noAutomation: AutomationPort = Object.freeze({
   accessTiming: Object.freeze({}),
   viewerUrl: null,
   recipes: Object.freeze([]),
-  now: () => new Date(),
+  now,
   info: idleInfo,
   status: async () => idleInfo(),
   recipe: () => undefined,
@@ -267,4 +269,8 @@ export const noAutomation: AutomationPort = Object.freeze({
   liveCheckReports: () => [],
   recordLiveCheck: () => undefined,
   flushLiveCheck: async () => undefined,
-});
+  });
+}
+
+/** `noAutomationFor` with the system clock: the port a runtime gets when it was built without an injected clock. */
+export const noAutomation: AutomationPort = noAutomationFor(() => new Date());

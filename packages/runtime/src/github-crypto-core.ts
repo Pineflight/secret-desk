@@ -48,12 +48,18 @@ const sealUnavailable: SecretSealer = async () => {
 
 /** Throws a `HostCapabilityError` when values cannot be sealed (no injected sealer and no default). Sends nothing. */
 export function assertCanSeal(crypto: GitHubCrypto): void {
-  if (!crypto.seal && !crypto.defaults?.seal) throw sealRefusal();
+  if (sealerOf(crypto) === undefined) throw sealRefusal();
 }
 
-/** The sealer for a client: the injected one, else the default of the host, else one that refuses. */
+/** The sealer that is really there: the injected one, else the default. Anything that is not a function (an untyped caller) counts as absent. */
+function sealerOf(crypto: GitHubCrypto): SecretSealer | undefined {
+  if (typeof crypto.seal === "function") return crypto.seal;
+  return typeof crypto.defaults?.seal === "function" ? crypto.defaults.seal : undefined;
+}
+
+/** The sealer for a client: the one that is there, else one that refuses. Decided the same way as `assertCanSeal`. */
 function sealerFor(crypto: GitHubCrypto): SecretSealer {
-  return crypto.seal ?? crypto.defaults?.seal ?? sealUnavailable;
+  return sealerOf(crypto) ?? sealUnavailable;
 }
 
 /** A class whose instances are GitHub clients: the portable client of the core, or a subclass of it (the Node facade of the core). */
@@ -78,10 +84,21 @@ function runtimeClientClass(Base: GitHubClientClass): new (crypto: GitHubCrypto,
   };
 }
 
-/** A GitHub client whose sealing follows `sealerFor`; everything else is the client `Base` (default: the portable client of the core). */
-export function createGitHubClient(crypto: GitHubCrypto, options: GitHubClientOptions, Base: GitHubClientClass = GitHubClient): GitHubClient {
-  const Client = runtimeClientClass(Base);
-  return new Client(crypto, { ...options, seal: sealerFor(crypto) });
+/** A GitHub client whose sealing follows `sealerFor`; everything else is the portable client of the core. */
+export function createGitHubClient(crypto: GitHubCrypto, options: GitHubClientOptions): GitHubClient {
+  return createGitHubClientOn(undefined, crypto, options);
+}
+
+/**
+ * @internal Not exported from the portable entry. Like `createGitHubClient`, on the client class `Base` (the Node entry passes the Node
+ * facade of the core). A class whose instances carry their own `putSecret` is refused: it would shadow the check that makes a runtime
+ * that cannot seal send no request.
+ */
+export function createGitHubClientOn(Base: GitHubClientClass | undefined, crypto: GitHubCrypto, options: GitHubClientOptions): GitHubClient {
+  const Client = runtimeClientClass(Base ?? GitHubClient);
+  const client = new Client(crypto, { ...options, seal: sealerFor(crypto) });
+  if (Object.hasOwn(client, "putSecret")) throw new Error("The GitHub client class defines putSecret on its instances, which would bypass the seal check of the runtime.");
+  return client;
 }
 
 /**
