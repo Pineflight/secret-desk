@@ -11,7 +11,7 @@ vi.mock("@secret-desk/core", async (importActual) => ({ ...(await importActual<t
 const findChrome = vi.fn<(preferred?: string) => string | undefined>();
 vi.mock("../src/chrome.js", async (importActual) => ({ ...(await importActual<typeof import("../src/chrome.js")>()), findChrome: (preferred?: string) => findChrome(preferred) }));
 
-const { PlaywrightDriver, DEFAULT_PROFILE_DIR, ChromeNotFoundError, playwrightAvailable } = await import("../src/index.js");
+const { PlaywrightDriver, defaultProfileDir, ChromeNotFoundError, playwrightAvailable } = await import("../src/index.js");
 
 interface LocatorState {
   optionValues: string[];
@@ -117,8 +117,8 @@ describe("PlaywrightDriver local launch", () => {
     launchPersistentContext.mockResolvedValue(b.context);
     findChrome.mockReturnValue("/opt/chrome");
     await new PlaywrightDriver({ headless: true }).open();
-    expect(ensurePrivateDir).toHaveBeenCalledWith(DEFAULT_PROFILE_DIR);
-    expect(launchPersistentContext).toHaveBeenCalledWith(DEFAULT_PROFILE_DIR, expect.objectContaining({ headless: true, slowMo: 0 }));
+    expect(ensurePrivateDir).toHaveBeenCalledWith(defaultProfileDir());
+    expect(launchPersistentContext).toHaveBeenCalledWith(defaultProfileDir(), expect.objectContaining({ headless: true, slowMo: 0 }));
     expect(b.context.setDefaultTimeout).toHaveBeenCalledWith(15_000);
     expect(b.context.newPage).toHaveBeenCalledOnce();
   });

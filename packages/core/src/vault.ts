@@ -209,19 +209,22 @@ export interface KeySourceOptions {
  */
 export function defaultKeySource(env: NodeJS.ProcessEnv = process.env, platform: Platform = process.platform, exec?: VaultExec, options: KeySourceOptions = {}): NodeKeySource {
   if (env["SECRET_DESK_VAULT_KEY"]) return envKeySource(env);
-  if (platform === "win32") return windowsDpapiKeySource({ keyFile: options.keyFile ?? `${options.vaultFile ?? DEFAULT_VAULT_FILE}.key`, ...(exec ? { exec } : {}) });
+  if (platform === "win32") return windowsDpapiKeySource({ keyFile: options.keyFile ?? `${options.vaultFile ?? defaultVaultFile()}.key`, ...(exec ? { exec } : {}) });
   if (options.keyFile) return fileKeySource(options.keyFile, platform);
   if (platform === "darwin") return macKeychainKeySource(exec);
   if (platform === "linux") return secretToolKeySource(exec);
   return envKeySource(env);
 }
 
-export const DEFAULT_VAULT_FILE = join(homedir(), ".secret-desk", "vault.json");
+/** The default vault file in the home folder of the process. Looked up when called, never when the module is imported. */
+export function defaultVaultFile(): string {
+  return join(homedir(), ".secret-desk", "vault.json");
+}
 
 /** The vault of the local edition: a JSON file (or any `VaultStore`) plus the OS key source. */
 export class SecretVault extends Vault {
   constructor(options: { file?: string; keySource?: KeySource; keyFile?: string; store?: VaultStore } = {}) {
-    const file = options.file ?? DEFAULT_VAULT_FILE;
+    const file = options.file ?? defaultVaultFile();
     super({
       store: options.store ?? new FileVaultStore(file),
       keySource: options.keySource ?? defaultKeySource(process.env, process.platform, undefined, { vaultFile: file, ...(options.keyFile ? { keyFile: options.keyFile } : {}) }),
