@@ -51,6 +51,61 @@ export function hostFindings(source: string): string[] {
   return checks.filter(([, re]) => re.test(code)).map(([name]) => name);
 }
 
+/**
+ * The other library packages are scanned with the same checks. A file there may reach the machine only when it is named here
+ * with the exact findings it is allowed and a one-line reason. Nothing is allowed by a pattern: a new file, or a new kind of
+ * finding in a listed file, fails the test until it is listed with a reason (or, better, goes through the host capability).
+ * `providers` has no entry: it makes outbound requests through the injected `fetch` only.
+ */
+const PACKAGE_ALLOW_LIST: Record<string, { findings: string[]; reason: string }> = {
+  "core/connections.ts": { findings: ["process.env", "child_process", "execFile / spawn / fork"], reason: "Node facade of the connection store: the local edition's default host (process environment, `op read`)." },
+  "core/env-export.ts": { findings: ["process.env", "child_process", "execFile / spawn / fork"], reason: "Node implementation of the allow-listed template commands (`runEnvCommand`) and the git ignore check, reached only through the Node host." },
+  "core/platform.ts": { findings: ["node:os", "homedir"], reason: "Operating-system helpers of the Node facades (`expandHome` defaults to the home folder of the process)." },
+  "core/vault.ts": { findings: ["process.env", "node:os", "homedir", "child_process", "execFile / spawn / fork", "defaultKeySource"], reason: "Node vault: default vault file in the home folder and the OS key stores (Keychain, secret-tool, DPAPI); defines `defaultKeySource`." },
+  "automation/cdp.ts": { findings: ["process.env"], reason: "`cdpEndpointFrom` defaults its `env` parameter to the process environment for the CLI; the runtime always passes its host's environment." },
+  "automation/chrome.ts": { findings: ["process.env", "findChrome / chromeInstallHint / chromeCandidates"], reason: "Defines the local Chrome lookup (platform and environment defaults); the runtime reaches it only through the Node host." },
+  "automation/playwright-driver.ts": { findings: ["node:os", "homedir", "PlaywrightDriver", "findChrome / chromeInstallHint / chromeCandidates"], reason: "Defines the local Playwright driver: default profile folder in the home folder and the Chrome lookup; the runtime reaches it only through the Node host." },
+};
+const SCANNED_PACKAGES = ["core", "automation", "providers"];
+
+describe("the other library packages reach the machine only where they are named", () => {
+  it("every finding in core, automation and providers is covered by a named allow-list entry", async () => {
+    const offenders: string[] = [];
+    const seen = new Set<string>();
+    for (const pkg of SCANNED_PACKAGES) {
+      const root = fileURLToPath(new URL(`../../${pkg}/src/`, import.meta.url));
+      const files = await sourceFiles(root);
+      expect(files.length).toBeGreaterThan(5);
+      for (const file of files) {
+        const name = `${pkg}/${file.slice(root.length)}`;
+        const allowed = PACKAGE_ALLOW_LIST[name];
+        if (allowed) seen.add(name);
+        for (const finding of hostFindings(await readFile(file, "utf8"))) {
+          if (!allowed?.findings.includes(finding)) offenders.push(`${name}: ${finding}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    // An entry that no longer matches a file, or allows a finding the file no longer has, is removed: the list stays narrow.
+    expect([...seen].sort()).toEqual(Object.keys(PACKAGE_ALLOW_LIST).sort());
+  });
+
+  it("every allow-list entry is exact: it lists no finding the file does not have, and has a reason", async () => {
+    for (const [name, entry] of Object.entries(PACKAGE_ALLOW_LIST)) {
+      const [pkg, ...rest] = name.split("/");
+      const text = await readFile(fileURLToPath(new URL(`../../${pkg}/src/${rest.join("/")}`, import.meta.url)), "utf8");
+      expect(hostFindings(text).sort(), name).toEqual([...entry.findings].sort());
+      expect(entry.reason.length, name).toBeGreaterThan(20);
+      expect(entry.reason.includes("\n"), name).toBe(false);
+    }
+  });
+
+  it("does not allow-list a file of the providers package or a pattern", () => {
+    expect(Object.keys(PACKAGE_ALLOW_LIST).some((n) => n.startsWith("providers/"))).toBe(false);
+    expect(Object.keys(PACKAGE_ALLOW_LIST).every((n) => /^[a-z]+\/[\w./-]+\.ts$/.test(n))).toBe(true);
+  });
+});
+
 describe("the runtime reaches the machine only through the host module", () => {
   it("no source file outside the host modules reads the environment or the home folder, starts a process or uses a host-only name", async () => {
     const files = await sourceFiles();
