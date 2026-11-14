@@ -29,6 +29,13 @@
       "status": "allowed"
     },
     {
+      "name": "@noble/hashes",
+      "version": "2.4.0",
+      "license": "MIT",
+      "source": "https://github.com/paulmillr/noble-hashes",
+      "status": "allowed"
+    },
+    {
       "name": "@swc/helpers",
       "version": "0.5.23",
       "license": "Apache-2.0",
