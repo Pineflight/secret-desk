@@ -184,6 +184,8 @@ export interface AuthorizeFault {
   reason: "threw" | "returned-value" | "timeout" | "not-a-function" | "invalid-actor";
   /** Class name of the foreign error, only for `threw`. */
   errorName?: string;
+  /** The fixed routine name, only when the fault came from a routine the process runs on its own (a scheduled refusal), never for a person's request. */
+  routine?: SystemRoutine;
 }
 
 /**
@@ -207,9 +209,9 @@ export async function authorize(rt: Runtime, request: AuthorizationRequest & { a
 }
 
 /** Fails closed: every fault is one generic refusal, reported (class name only) to the optional callback. */
-function refuseAction(rt: Runtime, action: AuthorizedAction, reason: AuthorizeFault["reason"], error?: unknown): never {
+function refuseAction(rt: Runtime, action: AuthorizedAction, reason: AuthorizeFault["reason"], error?: unknown, routine?: SystemRoutine): never {
   try {
-    rt.onAuthorizeFault?.({ action, reason, ...(reason === "threw" ? { errorName: error instanceof Error ? error.constructor.name : typeof error } : {}) });
+    rt.onAuthorizeFault?.({ action, reason, ...(routine ? { routine } : {}), ...(reason === "threw" ? { errorName: error instanceof Error ? error.constructor.name : typeof error } : {}) });
   } catch {
     // A faulty callback must not change the outcome.
   }
@@ -235,7 +237,7 @@ export async function authorizeSystem(rt: Runtime, routine: SystemRoutine, actio
 async function askHook(rt: Runtime, request: AuthorizationRequest): Promise<void> {
   const hook = rt.authorize;
   if (hook === undefined) return;
-  const refuse = (reason: AuthorizeFault["reason"], error?: unknown): never => refuseAction(rt, request.action, reason, error);
+  const refuse = (reason: AuthorizeFault["reason"], error?: unknown): never => refuseAction(rt, request.action, reason, error, request.actor.kind === "system" ? request.actor.name : undefined);
   if (typeof hook !== "function") return refuse("not-a-function");
   const timedOut = Symbol("timeout");
   let timer: ReturnType<typeof setTimeout> | undefined;
