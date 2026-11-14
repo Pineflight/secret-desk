@@ -26,7 +26,8 @@ import type { Authorize, AuthorizeFault } from "./agent-api.js";
 import { ApprovalQueue } from "./approvals.js";
 import { AutomationManager } from "./automation.js";
 import { HostCapabilityError, expandHomeFor, hostHome, nodeRuntimeHost, readHostEnv, type NodeRuntimeHostOptions, type RuntimeHost } from "./host.js";
-import { IssuanceQueue } from "./issuances.js";
+import { InstanceState } from "./instance-state.js";
+import { IssuanceQueue, type PendingStore } from "./issuances.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-store.js";
 
 export interface Runtime {
@@ -54,6 +55,20 @@ export interface Runtime {
   onAuthorizeFault?: (fault: AuthorizeFault) => void;
   /** Nur Arbeitsspeicher: Ergebnis der letzten Abfrage des Team-Repositories. */
   teamSyncMemo: { lastCheck: unknown | null; lastError: string | null };
+  /** The clock every deadline of this runtime is checked against (`RuntimeOptions.now`; default: the system clock). */
+  now: () => Date;
+  /**
+   * What this runtime holds while it waits for a person (one-time codes, approvals, credentials in transit). It belongs to this
+   * instance alone: two runtimes in one process share no waiter and no answer.
+   */
+  instance: InstanceState;
+  /**
+   * Removes everything that has expired (pending reviews, whose new values are also deleted at the provider, and waits for an
+   * answer) and returns the earliest deadline that remains, or null when nothing is waiting. For an embedder to call from a timer
+   * or an alarm and to re-arm with the result. Correctness never depends on it: every access checks its deadline itself, so a
+   * missed sweep never extends the life of a value. It is not behind the authorisation hook on purpose.
+   */
+  sweep(now?: Date): Promise<Date | null>;
 }
 
 export interface RuntimeOptions {
@@ -104,6 +119,13 @@ export interface RuntimeOptions {
    * never its message and never a value. A throwing callback changes nothing.
    */
   onAuthorizeFault?: (fault: AuthorizeFault) => void;
+  /** The clock for every deadline (pending reviews, waits for an answer, browser runs). Default: the system clock. Tests and embedders inject their own. */
+  now?: () => Date;
+  /**
+   * Where issued, unconfirmed values are kept (default: memory of this runtime). A store must never persist the value; it may
+   * persist the identifier and the deadline. See `PendingStore`.
+   */
+  pendingStore?: PendingStore;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -198,6 +220,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     ...(options.automationDriver ? { driverFactory: options.automationDriver } : {}),
     ...(options.bundledRecipes !== undefined ? { bundledDir: options.bundledRecipes } : {}),
     ...(options.automationAccess ? { access: options.automationAccess } : {}),
+    ...(options.now ? { now: options.now } : {}),
   });
   await automation.load();
 
@@ -211,7 +234,11 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   });
   if (options.watchInventory) inventory.watch();
 
-  return {
+  const now = options.now ?? ((): Date => new Date());
+  const issuances = new IssuanceQueue({ now, ...(options.pendingStore ? { store: options.pendingStore } : {}) });
+  const instance = new InstanceState();
+
+  const rt: Runtime = {
     config,
     configPath: path,
     inventory,
@@ -220,7 +247,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     connections,
     providers,
     approvals,
-    issuances: new IssuanceQueue(),
+    issuances,
     evidence,
     automation,
     owner: config.github.owner,
@@ -230,7 +257,19 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
     ...(options.authorizeTimeoutMs !== undefined ? { authorizeTimeoutMs: options.authorizeTimeoutMs } : {}),
     ...(options.onAuthorizeFault ? { onAuthorizeFault: options.onAuthorizeFault } : {}),
     teamSyncMemo,
+    now,
+    instance,
+    sweep: async (at) => {
+      // Deliberately not asked of the authorisation hook: clean-up only discards values and answers, so a hook can never extend a life.
+      const when = at ?? rt.now();
+      await rt.issuances.sweep(issuanceDeps(rt), when);
+      const reviews = rt.issuances.nextDeadline()?.getTime() ?? null;
+      const waits = instance.sweepWaiters(when);
+      const next = reviews === null ? waits : waits === null ? reviews : Math.min(reviews, waits);
+      return next === null ? null : new Date(next);
+    },
   };
+  return rt;
 }
 
 /**
@@ -244,7 +283,7 @@ export async function createLocalRuntime(configPath: string, options: Omit<Runti
 
 /** Abhaengigkeiten fuer die Funktionen des Kerns, die Ausstellung und Bestaetigung steuern. */
 export function issuanceDeps(rt: Runtime): IssuanceDeps {
-  return { inventory: rt.inventory, github: rt.github, workers: rt.workers, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence, providerConfig: rt.config.providers };
+  return { inventory: rt.inventory, github: rt.github, workers: rt.workers, providers: rt.providers, connections: rt.connections, owner: rt.owner, fetch: rt.fetch, evidence: rt.evidence, providerConfig: rt.config.providers, now: rt.now };
 }
 
 export async function readOptional(path: string): Promise<string | null> {

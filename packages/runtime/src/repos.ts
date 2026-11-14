@@ -10,7 +10,7 @@ import type { Runtime } from "./runtime.js";
  */
 
 const NAME_RE = /^[A-Za-z0-9._-]{1,100}$/;
-const SKIP_DIRS = new Set(["node_modules", "dist", "build", "target", "vendor"]);
+const SKIP_DIRS: ReadonlySet<string> = new Set(["node_modules", "dist", "build", "target", "vendor"]);
 
 export interface RepoLinkStatus {
   /** Absoluter Pfad. Fuer Agenten leer (null), sie sehen nur, dass ein Ordner verknuepft ist. */

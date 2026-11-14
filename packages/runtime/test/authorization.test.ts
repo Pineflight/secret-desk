@@ -776,7 +776,7 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([view.id]);
   });
 
-  it("a claim taken while the sweep awaits an earlier discard is honoured, and so is an item that vanished", async () => {
+  it("a claimed item is left to its operation while the sweep awaits an earlier discard, and so is an item that vanished", async () => {
     const { rt } = await setup();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -786,16 +786,24 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     rt.providers.register({ id: "slow-revoking", label: "Slow", kind: "automatic", issue: async () => ({ value: new SecretValue("slow-issued-value-0123456789"), externalId: "slow-ext" }), revoke });
     rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.provider = "slow-revoking";
     for (let i = 0; i < 3; i++) await prepared(rt);
-    for (const p of rt.issuances.list()) p.expiresAt = "2000-01-01T00:00:00.000Z";
-    const [first, second, third] = rt.issuances.list().map((p) => p.id) as [string, string, string];
-    const sweeping = rt.issuances.sweep(issuanceDeps(rt));
-    // The sweep is now waiting for the first discard: take a claim on the second item and remove the third.
+    const items = rt.issuances.list();
+    const [first, second, third] = items.map((p) => p.id) as [string, string, string];
+    // An operation took the second item while it was still valid; then all three run out.
     expect(rt.issuances.claim(second)).toBe(true);
+    for (const p of items) p.expiresAt = "2000-01-01T00:00:00.000Z";
+    const sweeping = rt.issuances.sweep(issuanceDeps(rt));
+    // The sweep is now waiting for the first discard: remove the third item.
     rt.issuances.delete(third);
     release();
     expect(await sweeping).toEqual([first]);
     expect(revoke).toHaveBeenCalledTimes(1);
-    expect(rt.issuances.get(second)).toBeDefined();
+    // The claimed item is hidden (it is past its deadline) but not touched; once its operation lets go, the next sweep settles it.
+    expect(rt.issuances.get(second)).toBeUndefined();
+    rt.issuances.release(second);
+    expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([second]);
+    expect(revoke).toHaveBeenCalledTimes(2);
+    // An expired item cannot be claimed any more.
+    expect(rt.issuances.claim(second)).toBe(false);
   });
 });
 

@@ -22,6 +22,7 @@ import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry } from "./automation.js";
 import { checkConnection, stripeKeyCarriesAccount, type ConnectionCheckResult } from "./connection-check.js";
 import { getConnectionResources } from "./params.js";
+import { waitDeadline } from "./instance-state.js";
 import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 
@@ -325,14 +326,8 @@ export interface FacadeInfo {
 const stateKey = (id: string): string => `facade:${id}`;
 const checkKey = (id: string): string => `facade-check:${id}`;
 
-/** One pending one-time code request per facade run. */
-const codeWaiters = new Map<string, { resolve: (code: string) => void; reject: (err: Error) => void }>();
-
-/** One pending authorization (OAuth consent) question per facade run. */
-const confirmWaiters = new Map<string, { resolve: (accepted: boolean) => void; reject: (err: Error) => void }>();
-
-/** One pending identity-verification question ("Verification required", "Confirm access") per facade run. */
-const accessWaiters = new Map<string, { run: AbortSignal; resolve: (answer: SudoAnswer) => void; reject: (err: Error) => void }>();
+// The waiters for a code, an approval or a consent live in the runtime (`rt.instance`), not here: two runtimes in one process
+// must not share them, and every wait has a deadline (see instance-state.ts).
 
 const MAX_TEXT = 400;
 
@@ -586,7 +581,7 @@ export function startFacadeSignIn(rt: Runtime, actor: Actor, id: string, body: R
   const minutes = rt.automation.loginTimeoutMinutes;
   let signal: AbortSignal;
   try {
-    signal = rt.automation.begin(key, id, { text: "Opening the sign-in page.", kind: "signin", needs: null, phase: "opening", timeline: [], timeoutAt: new Date(Date.now() + minutes * 60_000).toISOString() });
+    signal = rt.automation.begin(key, id, { text: "Opening the sign-in page.", kind: "signin", needs: null, phase: "opening", timeline: [], timeoutAt: new Date(rt.now().getTime() + minutes * 60_000).toISOString() });
   } catch (err) {
     creds.username = "";
     creds.password = "";
@@ -608,8 +603,8 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
   } finally {
     creds.username = "";
     creds.password = "";
-    codeWaiters.delete(key);
-    confirmWaiters.delete(key);
+    rt.instance.codeWaiters.delete(key);
+    rt.instance.confirmWaiters.delete(key);
   }
 }
 
@@ -619,7 +614,7 @@ async function runSignIn(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe:
  * Returns the address the sign-in landed on.
  */
 async function driveSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredentials, key: string, signal: AbortSignal, minutes: number, method: LoginMethodId, t: Tracker): Promise<string | undefined> {
-  const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(Date.now() + minutes * 60_000).toISOString();
+  const timeoutAt = rt.automation.state(key).timeoutAt ?? new Date(rt.now().getTime() + minutes * 60_000).toISOString();
   const driver = await rt.automation.newDriver();
   const result = await signIn(
     recipe,
@@ -629,12 +624,12 @@ async function driveSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredentials,
       onEvent: (e) => mapSignInEvent(t, rt, e, timeoutAt),
       requestCode: () =>
         new Promise<string>((resolve, reject) => {
-          codeWaiters.set(key, { resolve, reject });
+          rt.instance.codeWaiters.set(key, { resolve, reject, deadline: Date.parse(timeoutAt) });
           signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
         }),
       requestConfirm: () =>
         new Promise<boolean>((resolve, reject) => {
-          confirmWaiters.set(key, { resolve, reject });
+          rt.instance.confirmWaiters.set(key, { resolve, reject, deadline: Date.parse(timeoutAt) });
           signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
         }),
     },
@@ -687,7 +682,7 @@ export function startRecipeSignIn(rt: Runtime, actor: Actor, recipeId: string, b
   const minutes = rt.automation.loginTimeoutMinutes;
   let signal: AbortSignal;
   try {
-    signal = rt.automation.begin(key, recipeId, { text: "Opening the sign-in page.", kind: "signin", needs: null, phase: "opening", timeline: [], timeoutAt: new Date(Date.now() + minutes * 60_000).toISOString() });
+    signal = rt.automation.begin(key, recipeId, { text: "Opening the sign-in page.", kind: "signin", needs: null, phase: "opening", timeline: [], timeoutAt: new Date(rt.now().getTime() + minutes * 60_000).toISOString() });
   } catch (err) {
     creds.username = "";
     creds.password = "";
@@ -709,8 +704,8 @@ async function runRecipeSignIn(rt: Runtime, recipe: Recipe, creds: LoginCredenti
   } finally {
     creds.username = "";
     creds.password = "";
-    codeWaiters.delete(key);
-    confirmWaiters.delete(key);
+    rt.instance.codeWaiters.delete(key);
+    rt.instance.confirmWaiters.delete(key);
   }
 }
 
@@ -757,7 +752,7 @@ export function startFacadeConnect(rt: Runtime, actor: Actor, id: string, body: 
 
 function finishFailed(rt: Runtime, key: string, t: Tracker, f: Failure): void {
   const cancelled = f.code === "cancelled";
-  accessWaiters.delete(key);
+  rt.instance.accessWaiters.delete(key);
   rt.automation.end(key, {
     status: cancelled ? "cancelled" : "failed",
     text: f.messageEn,
@@ -789,7 +784,7 @@ async function runConnect(rt: Runtime, actor: Actor, d: FacadeDescriptor, recipe
     await runConnectSteps(rt, actor, d, recipe, key, signal, t, projectGiven, inputs, signedInUrl);
   } finally {
     // Success, failure or cancel: no question of this run stays answerable.
-    if (accessWaiters.get(key)?.run === signal) accessWaiters.delete(key);
+    if (rt.instance.accessWaiters.get(key, rt.now())?.run === signal) rt.instance.accessWaiters.delete(key);
   }
 }
 
@@ -842,14 +837,15 @@ async function runConnectSteps(rt: Runtime, actor: Actor, d: FacadeDescriptor, r
             });
             return new Promise<SudoAnswer>((resolve, reject) => {
               const onAbort = (): void => {
-                accessWaiters.delete(key);
+                rt.instance.accessWaiters.delete(key);
                 reject(new Error("cancelled"));
               };
               if (signal.aborted) return onAbort();
               signal.addEventListener("abort", onAbort, { once: true });
               // The waiter belongs to this run (its signal); answered, it drops the listener so questions do not pile them up.
-              accessWaiters.set(key, {
+              rt.instance.accessWaiters.set(key, {
                 run: signal,
+                deadline: waitDeadline(rt.now(), rt.automation.state(key).timeoutAt),
                 resolve: (answer) => {
                   signal.removeEventListener("abort", onAbort);
                   resolve(answer);
@@ -971,13 +967,13 @@ export function submitFacadeCode(rt: Runtime, actor: Actor, id: string, body: Re
 }
 
 function submitCodeAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
-  const waiter = codeWaiters.get(key);
+  const waiter = rt.instance.codeWaiters.get(key, rt.now());
   const state = rt.automation.state(key);
   if (!waiter || state.needs !== "mfa-code") throw new IssuanceError("The provider is not waiting for a one-time code.");
   const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
   if (typeof body["code"] === "string") body["code"] = "";
   if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
-  codeWaiters.delete(key);
+  rt.instance.codeWaiters.delete(key);
   waiter.resolve(code);
   return rt.automation.state(key);
 }
@@ -987,13 +983,13 @@ export function submitFacadeAccess(rt: Runtime, actor: Actor, id: string, body: 
   requireHuman(actor, "Verify your identity");
   if (!facadeById(id)) throw new InventoryError(`Unknown provider: ${id}`);
   const key = stateKey(id);
-  const waiter = accessWaiters.get(key);
+  const waiter = rt.instance.accessWaiters.get(key, rt.now());
   const ask = rt.automation.state(key).ask;
   const current = rt.automation.runSignal(key);
   // Only the run that asked can be answered: a waiter of an ended or replaced run is refused.
   if (!waiter || waiter.run !== current || current?.aborted || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("The provider is not waiting for a verification.");
   const answer = sudoAnswerFrom(body, ask.methods);
-  accessWaiters.delete(key);
+  rt.instance.accessWaiters.delete(key);
   waiter.resolve(answer);
   return rt.automation.state(key);
 }
@@ -1006,10 +1002,10 @@ export function submitFacadeConfirm(rt: Runtime, actor: Actor, id: string, body:
 }
 
 function submitConfirmAt(rt: Runtime, key: string, body: Record<string, unknown>): AutomationRunState {
-  const waiter = confirmWaiters.get(key);
+  const waiter = rt.instance.confirmWaiters.get(key, rt.now());
   if (!waiter || rt.automation.state(key).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
   if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
-  confirmWaiters.delete(key);
+  rt.instance.confirmWaiters.delete(key);
   waiter.resolve(body["accept"]);
   return rt.automation.state(key);
 }
@@ -1023,12 +1019,9 @@ export function cancelFacade(rt: Runtime, actor: Actor, id: string): AutomationR
 function cancelAt(rt: Runtime, key: string): AutomationRunState {
   const cur = rt.automation.state(key);
   if (cur.status !== "running" && cur.status !== "waiting-human") throw new IssuanceError("No sign-in is running.");
-  codeWaiters.get(key)?.reject(new Error("cancelled"));
-  codeWaiters.delete(key);
-  accessWaiters.get(key)?.reject(new Error("cancelled"));
-  accessWaiters.delete(key);
-  confirmWaiters.get(key)?.reject(new Error("cancelled"));
-  confirmWaiters.delete(key);
+  rt.instance.codeWaiters.cancel(key);
+  rt.instance.accessWaiters.cancel(key);
+  rt.instance.confirmWaiters.cancel(key);
   return rt.automation.cancel(key);
 }
 

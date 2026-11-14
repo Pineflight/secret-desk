@@ -1,7 +1,7 @@
-import { secretApprovalSnapshot, variableApprovalSnapshot, type InventoryStore, type PendingIssuance, type SecretEntry, type VariableEntry } from "@secret-desk/core";
+import { SecretValue, secretApprovalSnapshot, variableApprovalSnapshot, type InventoryStore, type PendingIssuance, type SecretEntry, type VariableEntry } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
 import { ApprovalQueue } from "../src/approvals.js";
-import { IssuanceQueue } from "../src/issuances.js";
+import { IssuanceQueue, MemoryPendingStore, type PendingStore } from "../src/issuances.js";
 
 const secret = (id: string, params: Record<string, unknown> = {}): SecretEntry => ({ id, name: "TOKEN", stage: "shared", service: "svc", provider: "manual", expiry: "none", params, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as SecretEntry;
 const variable = (id: string, value: string): VariableEntry => ({ id, name: "VAR", stage: "shared", value, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as VariableEntry;
@@ -105,5 +105,118 @@ describe("IssuanceQueue", () => {
     const q = new IssuanceQueue();
     q.add(pending("long-gone", "2000-01-01T00:00:00Z", "2000-01-02T00:00:00Z"));
     expect(await q.sweep({} as never)).toEqual(["long-gone"]);
+  });
+});
+
+describe("IssuanceQueue deadline on every access (injected clock, no sweep, no timer)", () => {
+  const withValue = (id: string, expiresAt: string, createdAt = "2026-11-14T10:00:00.000Z"): PendingIssuance =>
+    ({ id, secretId: "s", createdAt, expiresAt, value: new SecretValue("made-up-issued-value-1"), companions: [{ entryId: "c", kind: "secret", value: new SecretValue("made-up-companion-value-1"), snapshot: "x" }], report: { externalId: undefined }, issuedSecret: secret("s") }) as unknown as PendingIssuance;
+  const clock = (iso: string) => {
+    const c = { t: Date.parse(iso) };
+    return { c, now: () => new Date(c.t) };
+  };
+
+  it("get and list answer from the deadline: valid before it, absent at it, and the value is dropped on that access", () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    const p = withValue("a", "2026-11-14T10:15:00.000Z");
+    q.add(p);
+    expect(q.get("a")).toBe(p);
+    expect(q.list()).toEqual([p]);
+    c.t = Date.parse("2026-11-14T10:14:59.999Z");
+    expect(q.get("a")).toBe(p);
+    c.t = Date.parse("2026-11-14T10:15:00.000Z");
+    expect(q.get("a")).toBeUndefined();
+    // Removed for good (also from the store), and nobody who still holds the object can read the value any more.
+    expect(q.list()).toEqual([]);
+    expect(p.value.reveal()).toBe("");
+    expect(p.companions[0]!.value.reveal()).toBe("");
+  });
+
+  it("list drops expired items on the spot and keeps the rest newest first", () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    const old = withValue("old", "2026-11-14T10:20:00.000Z", "2026-11-14T09:00:00.000Z");
+    const recent = withValue("recent", "2026-11-14T10:30:00.000Z", "2026-11-14T09:30:00.000Z");
+    const dying = withValue("dying", "2026-11-14T10:05:00.000Z", "2026-11-14T09:45:00.000Z");
+    for (const p of [old, dying, recent]) q.add(p);
+    c.t = Date.parse("2026-11-14T10:06:00.000Z");
+    expect(q.list().map((p) => p.id)).toEqual(["recent", "old"]);
+    expect(dying.value.reveal()).toBe("");
+    expect(old.value.reveal()).not.toBe("");
+  });
+
+  it("an expired item cannot be claimed, and a claimed one that expires is hidden but left to its operation", async () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    const gone = withValue("gone", "2026-11-14T10:01:00.000Z");
+    const held = withValue("held", "2026-11-14T10:01:00.000Z");
+    q.add(gone);
+    q.add(held);
+    expect(q.claim("held")).toBe(true);
+    expect(q.claim("held")).toBe(false);
+    c.t = Date.parse("2026-11-14T10:02:00.000Z");
+    expect(q.claim("gone")).toBe(false);
+    expect(q.get("held")).toBeUndefined();
+    expect(q.list()).toEqual([]);
+    // Not dropped while its operation runs; nothing is owed for it yet.
+    expect(held.value.reveal()).not.toBe("");
+    expect(q.nextDeadline()).toBeNull();
+    q.release("held");
+    expect(await q.sweep({} as never)).toEqual(["gone", "held"]);
+    expect(held.value.reveal()).toBe("");
+  });
+
+  it("a read leaves the provider-side delete owed, and the next sweep does it once", async () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    q.add(withValue("a", "2026-11-14T10:01:00.000Z"));
+    c.t = Date.parse("2026-11-14T10:02:00.000Z");
+    expect(q.get("a")).toBeUndefined();
+    expect(await q.sweep({} as never)).toEqual(["a"]);
+    expect(await q.sweep({} as never)).toEqual([]);
+  });
+
+  it("sweep takes an explicit time and does not touch what is still valid at that time", async () => {
+    const { now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    q.add(withValue("a", "2026-11-14T10:10:00.000Z"));
+    q.add(withValue("b", "2026-11-14T10:20:00.000Z"));
+    expect(await q.sweep({} as never, new Date("2026-11-14T10:15:00.000Z"))).toEqual(["a"]);
+    expect(q.nextDeadline()).toEqual(new Date("2026-11-14T10:20:00.000Z"));
+    expect(q.get("b")?.id).toBe("b");
+  });
+
+  it("nextDeadline is the earliest deadline of what waits, and null when nothing does", () => {
+    const { now } = clock("2026-11-14T10:00:00.000Z");
+    const q = new IssuanceQueue({ now });
+    expect(q.nextDeadline()).toBeNull();
+    q.add(withValue("late", "2026-11-14T10:30:00.000Z"));
+    q.add(withValue("early", "2026-11-14T10:10:00.000Z"));
+    expect(q.nextDeadline()).toEqual(new Date("2026-11-14T10:10:00.000Z"));
+  });
+
+  it("works on a store of the embedder: put, get, list and delete are all it needs, and it may have lost the value", () => {
+    const { c, now } = clock("2026-11-14T10:00:00.000Z");
+    const inner = new MemoryPendingStore();
+    const calls: string[] = [];
+    const store: PendingStore = {
+      put: (p) => (calls.push(`put ${p.id}`), inner.put(p)),
+      get: (id) => (calls.push(`get ${id}`), inner.get(id)),
+      list: () => (calls.push("list"), inner.list()),
+      delete: (id) => (calls.push(`delete ${id}`), inner.delete(id)),
+    };
+    const q = new IssuanceQueue({ store, now });
+    const p = withValue("a", "2026-11-14T10:05:00.000Z");
+    q.add(p);
+    expect(q.get("a")).toBe(p);
+    q.delete("a");
+    // The embedder's process was evicted and the store no longer has it: that is "gone", not a fault.
+    expect(q.get("a")).toBeUndefined();
+    expect(q.list()).toEqual([]);
+    q.add(withValue("b", "2026-11-14T10:05:00.000Z"));
+    c.t = Date.parse("2026-11-14T10:06:00.000Z");
+    expect(q.get("b")).toBeUndefined();
+    expect(calls).toEqual(["put a", "get a", "delete a", "get a", "list", "put b", "get b", "delete b"]);
   });
 });

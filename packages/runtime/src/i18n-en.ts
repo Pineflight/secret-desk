@@ -1194,7 +1194,8 @@ function paramEntries(): [string, string][] {
   return out;
 }
 
-const exact = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
+/** Built once at import and only read afterwards. */
+const exact: ReadonlyMap<string, string> = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
 
 function applyTemplate(template: string, groups: string[], depth: number): string {
   return template.replace(/\$(\d)/g, (_m, d: string) => {
