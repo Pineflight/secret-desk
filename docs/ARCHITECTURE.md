@@ -96,6 +96,29 @@ What a backend must guarantee: `read()` and `stamp()` never throw and agree (a c
 
 The rule: a module is added to `portable.ts` only if it is portable, and then it is added to the guard. `portable-modules.test.ts` takes `portable.ts` as a root, follows its relative value imports, expects exactly the known set of files, fails on Node built-ins, `process`, `Buffer`, `require` and on any npm import other than the allowlisted pure packages (`yaml`, `zod`), and checks that `portable.ts` exports every runtime name of those modules.
 
+### Running the store contracts on another implementation
+
+The contract suites for the three storage seams are importable from `@secret-desk/core/testing` (`packages/core/src/testing/`): `inventoryBackendContract`, `vaultStoreContract` and `evidenceStoreContract`. The repository runs them against the memory and file implementations (`inventory-contract.test.ts`, `vault-store-contract.test.ts`, `evidence-contract.test.ts`); an implementation elsewhere (for example on a SQL database in a runtime without Node built-ins) runs the same suites against its own store instead of restating the contracts. The subpath is not re-exported from the package root or from `./portable`, so application bundles never contain test code.
+
+Each suite takes the test framework as its first argument, `{ describe, it, expect }` (Vitest or anything Jest-compatible), so the package imports no framework and has no peer dependency; the same code runs under Node and inside a Workers test pool. The factory builds a fresh store per test and may be async. It returns the store plus an optional `cleanup`, which runs after the test, also when it failed.
+
+```ts
+import { describe, expect, it } from "vitest";
+import { evidenceStoreContract, inventoryBackendContract, vaultStoreContract } from "@secret-desk/core/testing";
+
+const framework = { describe, it, expect };
+vaultStoreContract(framework, "SqlVaultStore", async () => ({ store: new SqlVaultStore(await freshDatabase()), cleanup: dropDatabase }));
+evidenceStoreContract(framework, "SqlEvidenceStore", async () => ({ store: new SqlEvidenceStore(await freshDatabase()) }));
+inventoryBackendContract(framework, "SqlInventoryBackend", async (initial) => {
+  const db = await freshDatabase(initial); // `initial`: the text already stored, null = nothing stored yet
+  return { backend: new SqlInventoryBackend(db), writeExternally: (text) => db.replaceRow(text), stored: () => db.readRow() };
+});
+```
+
+The inventory harness needs two things the backend interface does not offer: `writeExternally(text)` (another writer replaces the stored text; the revision and the stamp must change) and `stored()` (the text stored right now, `null` = nothing). The suite moves the clock itself by replacing `Date.now` for the length of one test, which is what the store reads, so no fake-timer library is needed.
+
+A store that can only be used inside a special context passes `{ run }` as the last argument: `run(body)` wraps the body of every test (the factory is called inside `body`), so the runner can enter that context (for example an isolated object) and call `body` there. Every test builds its own store through the factory; nothing is shared between tests through module state. The suites are covered by the repository's own tests and guarded by `portable-modules.test.ts` as a separate root (no Node built-ins, no `Buffer`, no test-framework import).
+
 ### Host capabilities
 
 `ConnectionStoreCore` (`connections-core.ts`, portable, covered by `portable-modules.test.ts`) holds the token lookup: session value, vault, then the configured source. What the hosting process lets a configuration reach is an explicit `ConnectionHost` (`label`, optional `env(name)` and `readReference(ref)`). Without `env`, an `env` source is not available; without `readReference`, an `op` source is not available. Both cases throw a `NotConnectedError` that tells the user to enter a token under Connections, and `status()` reports the same reason without throwing. Session and vault values are looked up first and work either way. `ConnectionStore` (`connections.ts`) is the Node facade of the local edition: it keeps the options `env` and `exec`, builds `nodeConnectionHost(env, exec)` (process environment and `op read <ref>`) from them, and accepts `host` to override it; `host: null` means no host at all. Omitting `host` on `ConnectionStore` grants the process environment and `op`: that default is for the local edition only. A runtime that shares one process between several users uses `ConnectionStoreCore` or `host: null` so a configuration cannot read the host's environment or run its tools.
