@@ -142,8 +142,8 @@ export class ConnectionStoreCore {
     const host = this.#host;
     if (spec.type === "env") {
       if (!host?.env) throw new NotConnectedError(id, SOURCE_UNAVAILABLE);
-      const v = host.env(spec.name);
-      if (!v) throw new NotConnectedError(id, `Umgebungsvariable ${spec.name} ist nicht gesetzt.`);
+      const v: unknown = host.env(spec.name);
+      if (typeof v !== "string" || !v) throw new NotConnectedError(id, `Umgebungsvariable ${spec.name} ist nicht gesetzt.`);
       return new SecretValue(v);
     }
     if (!host?.readReference) throw new NotConnectedError(id, SOURCE_UNAVAILABLE);
@@ -186,7 +186,8 @@ export class ConnectionStoreCore {
     if (spec.type === "env") {
       const host = this.#host;
       if (!host?.env) return { id, connected: false, source: "env", hint: SOURCE_UNAVAILABLE };
-      const ok = Boolean(host.env(spec.name));
+      const value: unknown = host.env(spec.name);
+      const ok = typeof value === "string" && value !== "";
       return { id, connected: ok, source: "env", ...(ok ? {} : { hint: `${spec.name} fehlt` }) };
     }
     if (spec.type === "session") return { id, connected: false, source: "session", hint: "Token fuer diese Sitzung eingeben" };

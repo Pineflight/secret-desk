@@ -11,12 +11,29 @@ const defaultExec: ExecFn = (file, args) =>
     execFile(file, args, { timeout: 15_000, maxBuffer: 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 
-/** The host capability of the local edition: the process environment and the `op` command line tool. */
+/** A 1Password reference always starts with this scheme; anything else is never handed to `op`. */
+const OP_REFERENCE_PREFIX = "op://";
+
+/**
+ * The host capability of the local edition: the process environment and the `op` command line tool.
+ *
+ * `env` answers only for an own property of the environment object whose value is a string: names such as `toString`,
+ * `constructor` or `__proto__` find inherited members on a plain object and count as not set. `readReference` refuses
+ * anything that does not start with `op://` before a process is started (the error does not repeat the reference) and
+ * passes `--` before the reference, so it can never be read as an option.
+ */
 export function nodeConnectionHost(env: NodeJS.ProcessEnv = process.env, exec: ExecFn = defaultExec): ConnectionHost {
   return {
     label: "local process",
-    env: (name) => env[name],
-    readReference: (ref) => exec("op", ["read", ref]),
+    env: (name) => {
+      if (!Object.prototype.hasOwnProperty.call(env, name)) return undefined;
+      const value: unknown = env[name];
+      return typeof value === "string" ? value : undefined;
+    },
+    readReference: (ref) => {
+      if (typeof ref !== "string" || !ref.startsWith(OP_REFERENCE_PREFIX)) return Promise.reject(new Error("The reference is not a 1Password reference (op://...)."));
+      return exec("op", ["read", "--", ref]);
+    },
   };
 }
 
