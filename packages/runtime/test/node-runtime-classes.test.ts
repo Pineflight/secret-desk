@@ -1,10 +1,11 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConnectionStore, FileEvidenceStore, GitHubClient, InventoryStore, ProviderRegistry, SecretVault, WorkerSecretsClient } from "@secret-desk/core";
+import { ConnectionStore, FileEvidenceStore, GitHubClient, InventoryStore, ProviderRegistry, SecretValue, SecretVault, WorkerSecretsClient } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 import { createPortableRegistry } from "@secret-desk/providers/portable";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { HostCapabilityError } from "../src/host.js";
 import { ApprovalQueue } from "../src/approvals.js";
 import { AutomationManager } from "../src/automation.js";
 import { nodeRuntimeHost } from "../src/host.js";
@@ -53,6 +54,38 @@ describe("the Node runtime keeps the classes it always had", () => {
     const rt = await createRuntime(await config(), { bundledRecipes: null });
     expectNodeClasses(rt, false);
     expect(rt.host).toBeUndefined();
+  });
+
+  it("createRuntime without a host takes none of the Node-only keys from an untyped caller: nothing is sealed, signed or read", async () => {
+    vi.stubEnv("GH_TEST", "made-up-env-token");
+    try {
+      const calls: string[] = [];
+      const fetchMock = (async (url: string | URL | Request) => {
+        calls.push(String(url));
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch;
+      const seal = vi.fn(async () => "x");
+      const createConnections = vi.fn();
+      class Facade extends GitHubClient {}
+      const untyped = { bundledRecipes: null, vault: null, fetch: fetchMock, githubDefaults: { seal, signWithKey: vi.fn() }, githubClientClass: Facade, createConnections } as never;
+      const rt = await createRuntime(await config(), untyped);
+      expect(rt.host).toBeUndefined();
+      expect(rt.connections).toBeInstanceOf(ConnectionStore);
+      expect(rt.github).not.toBeInstanceOf(Facade);
+      expect(await rt.github.putSecret({ owner: "acme", repo: "acme-app", scope: "repository" }, "X", new SecretValue("made-up-plaintext-value")).catch((e: unknown) => e)).toBeInstanceOf(HostCapabilityError);
+      await expect(rt.connections.token("github")).rejects.toThrow(); // the environment is not read, although GH_TEST is set
+      expect(seal).not.toHaveBeenCalled();
+      expect(createConnections).not.toHaveBeenCalled();
+      expect(calls).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("the internal builder is not on the package root", async () => {
+    const root = await import("../src/index.js");
+    for (const name of ["buildRuntime", "createPortableRuntime", "createGitHubClientOn", "NODE_GITHUB_DEFAULTS"]) expect(root, name).not.toHaveProperty(name);
+    expect(root.createRuntime).toBe(createRuntime);
   });
 
   it("the store of a runtime without a host reads no environment variable (host: null, as before)", async () => {

@@ -1,4 +1,5 @@
 import {
+  ConnectionStoreCore,
   GitHubClient,
   InventoryStoreCore,
   MemoryEvidenceStore,
@@ -11,6 +12,8 @@ import {
   parseConfig,
   secretApprovalSnapshot,
   type AppJwtSigner,
+  type ConnectionHost,
+  type ConnectionStoreCoreOptions,
   type PendingIssuance,
   type SecretEntry,
   type SecretSealer,
@@ -32,6 +35,7 @@ import {
   type PortableAutomationContext,
   type RuntimeHost,
 } from "../src/portable.js";
+import { buildRuntime } from "../src/runtime-core.js";
 
 // A runtime built from memory parts only: the configuration text, a memory inventory backend, the memory evidence store. No file, no
 // process, no Node host. Everything here is made up.
@@ -216,10 +220,10 @@ describe("createPortableRuntime from memory parts only", () => {
     const { fetchMock } = makeFetch();
     const fromDefaults = vi.fn<SecretSealer>(async () => SEALED);
     const injected = vi.fn<SecretSealer>(async () => SEALED);
-    const withDefault = await createPortableRuntime(source, { session, fetch: fetchMock, githubDefaults: { seal: fromDefaults } });
+    const withDefault = await buildRuntime(source, { session, fetch: fetchMock }, { githubDefaults: { seal: fromDefaults } });
     await withDefault.github.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT));
     expect(fromDefaults).toHaveBeenCalledOnce();
-    const both = await createPortableRuntime(parts().source, { session, fetch: fetchMock, githubDefaults: { seal: fromDefaults }, seal: injected });
+    const both = await buildRuntime(parts().source, { session, fetch: fetchMock, seal: injected }, { githubDefaults: { seal: fromDefaults } });
     await both.github.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT));
     expect(injected).toHaveBeenCalledOnce();
     expect(fromDefaults).toHaveBeenCalledOnce();
@@ -254,7 +258,7 @@ describe("createPortableRuntime from memory parts only", () => {
       expect(key.reveal()).toBe("made-up-private-key");
       return signer;
     });
-    const rt = await createPortableRuntime(parts(APP_CONFIG).source, { session, fetch: fetchMock, githubDefaults: { signWithKey } });
+    const rt = await buildRuntime(parts(APP_CONFIG).source, { session, fetch: fetchMock }, { githubDefaults: { signWithKey } });
     await rt.github.getRepo("acme", "acme-app");
     expect(signWithKey).toHaveBeenCalledOnce();
     expect(signer).toHaveBeenCalledOnce();
@@ -395,7 +399,7 @@ describe("createPortableRuntime from memory parts only", () => {
     expect(deps.providerConfig).toBe(rt.config.providers);
   });
 
-  it("builds its GitHub client from the class it is given, so what that class defines is found first", async () => {
+  it("the internal builder builds its GitHub client from the class it is given, so what that class defines is found first", async () => {
     const plain = await createPortableRuntime(parts().source, {});
     expect(plain.github).toBeInstanceOf(GitHubClient);
     class FacadeClient extends GitHubClient {
@@ -403,9 +407,104 @@ describe("createPortableRuntime from memory parts only", () => {
         return { private: true } as never;
       }
     }
-    const rt = await createPortableRuntime(parts().source, { githubClientClass: FacadeClient });
+    const rt = await buildRuntime(parts().source, {}, { githubClientClass: FacadeClient });
     expect(rt.github).toBeInstanceOf(FacadeClient);
     expect(await rt.github.getRepo("acme", "acme-app")).toEqual({ private: true });
+  });
+
+  it("the internal builder refuses a client class whose instances carry their own putSecret (it would bypass the seal check)", async () => {
+    class Shadowing extends GitHubClient {
+      constructor(options: ConstructorParameters<typeof GitHubClient>[0]) {
+        super(options);
+        (this as { putSecret: unknown }).putSecret = async () => "created";
+      }
+    }
+    await expect(buildRuntime(parts().source, {}, { githubClientClass: Shadowing })).rejects.toThrow(/putSecret on its instances/);
+  });
+
+  it("the internal builder copies and freezes the defaults it is given", async () => {
+    const session = new SessionVault();
+    session.set(GITHUB_CONNECTION, "made-up-token");
+    const { fetchMock } = makeFetch();
+    const first = vi.fn<SecretSealer>(async () => SEALED);
+    const second = vi.fn<SecretSealer>(async () => SEALED);
+    const defaults = { seal: first };
+    const rt = await buildRuntime(parts().source, { session, fetch: fetchMock }, { githubDefaults: defaults });
+    defaults.seal = second; // changed after the build: the runtime does not see it
+    await rt.github.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT));
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  it("the internal builder tells a connection factory `host: null` when there is no host, and the host when there is one", async () => {
+    const seen: unknown[] = [];
+    const make = vi.fn((o: Omit<ConnectionStoreCoreOptions, "host"> & { host: ConnectionHost | null }) => {
+      seen.push(o.host);
+      const { host, ...rest } = o;
+      return new ConnectionStoreCore(host ? { ...rest, host } : rest);
+    });
+    await buildRuntime(parts().source, {}, { createConnections: make });
+    const host: RuntimeHost = { label: "t" };
+    await buildRuntime(parts().source, { host }, { createConnections: make });
+    expect(seen).toEqual([null, host]);
+    expect(Object.hasOwn(make.mock.calls[0]![0], "host")).toBe(true);
+  });
+
+  it("the public builder takes none of the Node-only keys, not even from an untyped caller: nothing is sealed, signed or read without a host", async () => {
+    const session = new SessionVault();
+    session.set(GITHUB_CONNECTION, "made-up-token");
+    const { calls, fetchMock } = makeFetch();
+    const seal = vi.fn<SecretSealer>(async () => SEALED);
+    const signWithKey = vi.fn();
+    class Facade extends GitHubClient {}
+    const createConnections = vi.fn();
+    const untyped = { session, fetch: fetchMock, githubDefaults: { seal, signWithKey }, githubClientClass: Facade, createConnections } as never;
+    const rt = await createPortableRuntime(parts().source, untyped);
+    const err = await rt.github.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HostCapabilityError);
+    expect(rt.github).not.toBeInstanceOf(Facade);
+    expect(seal).not.toHaveBeenCalled();
+    expect(createConnections).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+    // The same for an App configuration: the key is not read and nothing signs.
+    const app = await createPortableRuntime(parts(APP_CONFIG).source, untyped);
+    const readKey = vi.spyOn(app.connections, "token");
+    expect(await app.github.getRepo("acme", "acme-app").catch((e: unknown) => e)).toBeInstanceOf(HostCapabilityError);
+    expect(readKey).not.toHaveBeenCalled();
+    expect(signWithKey).not.toHaveBeenCalled();
+  });
+
+  it("a seal that is not a function counts as not injected, in the check and in the client, so nothing is sent", async () => {
+    const session = new SessionVault();
+    session.set(GITHUB_CONNECTION, "made-up-token");
+    for (const bad of ["not a function", 0, {}, null]) {
+      const { calls, fetchMock } = makeFetch();
+      const rt = await createPortableRuntime(parts().source, { session, fetch: fetchMock, seal: bad as never });
+      expect(await rt.github.putSecret(target, "X_NAME", new SecretValue(PLAINTEXT)).catch((e: unknown) => e)).toBeInstanceOf(HostCapabilityError);
+      await expect(rt.github.seal("made-up-public-key", PLAINTEXT)).rejects.toBeInstanceOf(HostCapabilityError);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("the injected clock is the clock of the automation port too, and without one the shared port is used", async () => {
+    const at = new Date("2026-11-14T10:00:00Z");
+    const rt = await createPortableRuntime(parts().source, { now: () => at });
+    expect(rt.automation).not.toBe(noAutomation);
+    expect(rt.automation.now()).toBe(at);
+    expect(rt.automation.enabled).toBe(false);
+    expect((await createPortableRuntime(parts().source, {})).automation).toBe(noAutomation);
+  });
+
+  it("fails at build time, with a clear error, when the JavaScript runtime has no randomUUID", async () => {
+    vi.stubGlobal("crypto", undefined);
+    try {
+      await expect(createPortableRuntime(parts().source, {})).rejects.toThrow(/globalThis\.crypto\.randomUUID/);
+      vi.stubGlobal("crypto", { getRandomValues: () => undefined });
+      await expect(createPortableRuntime(parts().source, {})).rejects.toThrow(/randomUUID/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    await expect(createPortableRuntime(parts().source, {})).resolves.toBeDefined();
   });
 
   it("uses the global fetch when none is given", async () => {

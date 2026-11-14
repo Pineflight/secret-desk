@@ -11,10 +11,21 @@ import { describe, expect, it } from "vitest";
 // reads text, so it cannot see a name built at run time, a regular expression literal that looks like a comment opener, or what
 // a called function does. A determined caller defeats it; the behavioural test is what shows that nothing is reached.
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-// `host-core.ts` is the interface of the host without any Node API: it names host members (`findChrome`, `gitCheckIgnored`) that the
-// scanner would flag, although a name in a type declaration reaches nothing. `portable-modules.test.ts` guards that file instead
-// (no Node built-in, no `process`, no `Buffer`), as part of the portable entry.
-const HOST_MODULES = ["host.ts", "host-core.ts"];
+const HOST_MODULES = ["host.ts"];
+// `host-core.ts` is the interface of the host without any Node API, and it is scanned like every other file. The scanner flags the
+// name of one host member there (`findChrome`, a name in a type declaration that reaches nothing), so the file has a named entry with
+// the exact count; every other kind of reach (`Deno.`, `Bun.`, an alias of `process`, `getBuiltinModule`, `createRequire`, `homedir`,
+// `execFile(`, `spawn(`, `new SecretVault`, `defaultKeySource` ...) in it fails the test. `portable-modules.test.ts` additionally keeps
+// the Node built-ins out of it, as part of the portable entry.
+const RUNTIME_ALLOW_LIST: Record<string, { counts: Record<string, number>; reason: string }> = {
+  "host-core.ts": { counts: { "findChrome / chromeInstallHint / chromeCandidates": 1 }, reason: "The `RuntimeHost` interface names the host member `findChrome` in a type declaration; nothing is looked up there." },
+};
+
+/** What a runtime source file reaches beyond what its entry in `RUNTIME_ALLOW_LIST` allows, one text per kind of finding. */
+export function runtimeOffenders(name: string, source: string): string[] {
+  const allowed = RUNTIME_ALLOW_LIST[name]?.counts ?? {};
+  return Object.entries(hostFindingCounts(source)).filter(([finding, count]) => count > (allowed[finding] ?? 0)).map(([finding, count]) => `${name}: ${finding} x${count} (allowed ${allowed[finding] ?? 0})`);
+}
 
 async function sourceFiles(dir = SRC): Promise<string[]> {
   const out: string[] = [];
@@ -165,9 +176,35 @@ describe("the runtime reaches the machine only through the host module", () => {
     for (const file of files) {
       const name = file.slice(SRC.length);
       if (HOST_MODULES.includes(name)) continue;
-      for (const finding of hostFindings(await readFile(file, "utf8"))) offenders.push(`${name}: ${finding}`);
+      offenders.push(...runtimeOffenders(name, await readFile(file, "utf8")));
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("host-core.ts is scanned: its allow-list entry is exact, and any other kind of reach in it is found", async () => {
+    const source = await readFile(join(SRC, "host-core.ts"), "utf8");
+    const entry = RUNTIME_ALLOW_LIST["host-core.ts"]!;
+    expect(hostFindingCounts(source)).toEqual(entry.counts);
+    expect(entry.reason.length).toBeGreaterThan(20);
+    expect(runtimeOffenders("host-core.ts", source)).toEqual([]);
+    for (const [added, finding] of [
+      ["const e = Deno.env;", "Bun / Deno"],
+      ["const e = Bun.env;", "Bun / Deno"],
+      ["const p = process;\n", "aliased process"],
+      ["const e = process.env.X;", "process.env"],
+      ["const b = process.getBuiltinModule('fs');", "process.binding / getBuiltinModule"],
+      ["const r = createRequire(import.meta.url);", "node:module / createRequire"],
+      ["const h = homedir();", "homedir"],
+      ["execFile('git', []);", "execFile / spawn / fork"],
+      ["spawn('git', []);", "execFile / spawn / fork"],
+      ["const v = new SecretVault({});", "new SecretVault"],
+      ["const k = defaultKeySource(env);", "defaultKeySource"],
+      ["const c = findChrome(x);", "findChrome / chromeInstallHint / chromeCandidates"],
+    ] as const) {
+      expect(runtimeOffenders("host-core.ts", `${source}\n${added}\n`).join("\n"), added).toContain(finding);
+    }
+    // A file that is not listed has no allowance at all.
+    expect(runtimeOffenders("other.ts", "const c = findChrome(x);")).toHaveLength(1);
   });
 
   it("the host module exists and is the one place that does it (so the guard is looking at the right file)", async () => {

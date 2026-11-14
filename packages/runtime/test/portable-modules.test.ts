@@ -170,7 +170,10 @@ describe("the runtime's portable entry stays free of Node APIs", () => {
       expect(portableEntry, name).toHaveProperty(name);
     }
     // What needs Node stays off the entry.
-    for (const name of ["createRuntime", "createLocalRuntime", "nodeRuntimeHost", "AutomationManager", "NODE_GITHUB_DEFAULTS", "withNodeDefaults"]) expect(portableEntry, name).not.toHaveProperty(name);
+    for (const name of ["createRuntime", "createLocalRuntime", "nodeRuntimeHost", "nodeHomePaths", "AutomationManager", "NODE_GITHUB_DEFAULTS", "withNodeDefaults"]) expect(portableEntry, name).not.toHaveProperty(name);
+    // The internal builder and the base-class variant of the GitHub client are for the Node entry only: not on this entry.
+    for (const name of ["buildRuntime", "createGitHubClientOn", "githubDefaults", "githubClientClass", "createConnections"]) expect(portableEntry, name).not.toHaveProperty(name);
+    expect(portableEntry.noAutomationFor).toBeTypeOf("function");
   });
 
   it("the import scanners tell value imports from type imports and see dynamic imports", () => {

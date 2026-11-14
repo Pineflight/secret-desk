@@ -90,16 +90,49 @@ describe("expandHomeFor under the Node host returns or throws exactly what the i
   it("no host at all, a host without a home folder, a home folder that is no text and one that throws: the same refusal as before", () => {
     const hosts: (RuntimeHost | undefined | null)[] = [undefined, null, { label: "t" }, { label: "t", ...nodeHomePaths("posix") }, { label: "t", ...nodeHomePaths("win32") }, { label: "t", homeDir: () => 7 as never }, { label: "t", homeDir: () => { throw new Error("no home"); } }];
     for (const host of hosts) {
-      const style: Style = host?.[HOME_PATHS]?.style === "win32" ? "win32" : "posix";
-      for (const p of TABLE) expect(outcome(() => expandHomeFor(host, p)), `${String(host && Object.keys(host))} ${p}`).toEqual(outcome(() => oldExpandHomeFor(host, p, style)));
+      const known = host?.[HOME_PATHS]?.style;
+      const style: Style = known === "win32" ? "win32" : "posix";
+      for (const p of TABLE) {
+        // The one deliberate difference to main: a `~\` path with no path rules at all is refused (see the next test).
+        if (known === undefined && p.startsWith("~\\")) continue;
+        expect(outcome(() => expandHomeFor(host, p)), `${String(host && Object.keys(host))} ${p}`).toEqual(outcome(() => oldExpandHomeFor(host, p, style)));
+      }
     }
   });
 
-  it("a host that brings neither `pathStyle` nor `joinPath` behaves like the POSIX flavour of main", () => {
+  it("a host without path rules behaves like the POSIX flavour of main, except that `~\\` is refused instead of returned unchanged (fail closed)", () => {
     for (const home of HOMES) {
       const host = hostFor(home, "none");
-      for (const p of inputs.slice(0, 1500)) expect(outcome(() => expandHomeFor(host, p)), `home=${JSON.stringify(home)} p=${JSON.stringify(p)}`).toEqual(outcome(() => oldExpandHomeFor(host, p, "posix")));
+      for (const p of inputs.slice(0, 1500)) {
+        if (p.startsWith("~\\")) {
+          expect(outcome(() => expandHomeFor(host, p)), `home=${JSON.stringify(home)} p=${JSON.stringify(p)}`).toMatchObject({ error: "HostCapabilityError", capability: "pathStyle" });
+        } else {
+          expect(outcome(() => expandHomeFor(host, p)), `home=${JSON.stringify(home)} p=${JSON.stringify(p)}`).toEqual(outcome(() => oldExpandHomeFor(host, p, "posix")));
+        }
+      }
     }
+    for (const host of [undefined, null, { label: "t" }, { label: "t", homeDir: () => "/home/made-up" }]) expect(() => expandHomeFor(host, "~\\x")).toThrow(HostCapabilityError);
+  });
+
+  it("a style that is neither `posix` nor `win32` counts as unknown", () => {
+    for (const style of ["WIN32", "", "linux", 7, null, undefined]) {
+      const host = { label: "t", homeDir: () => "/home/made-up", [HOME_PATHS]: { style: style as never, join: posix.join } } as RuntimeHost;
+      expect(() => expandHomeFor(host, "~\\x"), String(style)).toThrow(HostCapabilityError);
+      expect(expandHomeFor(host, "~/x"), String(style)).toBe("/home/made-up/x"); // `~/` does not depend on the style
+    }
+    expect(() => expandHomeFor({ label: "t", [HOME_PATHS]: {} as never }, "~\\x")).toThrow(HostCapabilityError);
+  });
+
+  it("a join that throws, or does not return text, is refused with a HostCapabilityError; a host without a join member gets the POSIX default", () => {
+    const withJoin = (join: unknown): RuntimeHost => ({ label: "t", homeDir: () => "/home/made-up", [HOME_PATHS]: { style: "posix", join: join as never } });
+    expect(() => expandHomeFor(withJoin(() => { throw new Error("boom"); }), "~/x")).toThrow(HostCapabilityError);
+    for (const bad of [undefined, null, 7, {}, ["/x"]]) {
+      const outcomeOfBad = outcome(() => expandHomeFor(withJoin(() => bad), "~/x"));
+      expect(outcomeOfBad, String(bad)).toMatchObject({ error: "HostCapabilityError", capability: "homeDir" });
+    }
+    expect(expandHomeFor(withJoin("not a function"), "~/x/../y")).toBe("/home/made-up/y");
+    expect(expandHomeFor(withJoin((b: string, r: string) => `${b}|${r}`), "~/x")).toBe("/home/made-up|x");
+    expect(expandHomeFor(withJoin(() => { throw new Error("never asked"); }), "~")).toBe("/home/made-up"); // `~` alone needs no join
   });
 
   it("the real Node host of this machine agrees with the flavour of this machine", () => {
@@ -111,8 +144,7 @@ describe("expandHomeFor under the Node host returns or throws exactly what the i
     }
   });
 
-  it("`~\\` is a plain name unless the host says its path style is win32, and a win32 host without a home folder refuses it", () => {
-    expect(expandHomeFor({ label: "t", homeDir: () => "/home/made-up" }, "~\\x")).toBe("~\\x");
+  it("`~\\` is a plain name on a host that says it is POSIX, a home path on one that says win32, and a win32 host without a home folder refuses it", () => {
     expect(expandHomeFor({ label: "t", homeDir: () => "/home/made-up", ...nodeHomePaths("linux") }, "~\\x")).toBe("~\\x");
     expect(expandHomeFor({ label: "t", homeDir: () => "C:\\Users\\u", ...nodeHomePaths("win32") }, "~\\x")).toBe("C:\\Users\\u\\x");
     expect(() => expandHomeFor({ label: "t", ...nodeHomePaths("win32") }, "~\\x")).toThrow(HostCapabilityError);

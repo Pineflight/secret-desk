@@ -2,7 +2,7 @@ import { ProviderRegistry, parseConfig, MemoryEvidenceStore } from "@secret-desk
 import { describe, expect, it, vi } from "vitest";
 import * as automationModule from "../src/automation.js";
 import { AutomationManager, type AutomationPort as PortFromAutomation } from "../src/automation.js";
-import { AutomationUnavailableError, noAutomation, type AutomationPort } from "../src/automation-port.js";
+import { AutomationUnavailableError, noAutomation, noAutomationFor, type AutomationPort } from "../src/automation-port.js";
 import { LIVE_CHECK_NOTIFY_CONNECTION } from "../src/live-check-notify.js";
 import * as liveCheckStore from "../src/live-check-store.js";
 
@@ -51,6 +51,16 @@ describe("noAutomation", () => {
     const err = await noAutomation.run("k", {} as never, async () => 1).catch((e: unknown) => e);
     expect(err).toMatchObject({ name: "AutomationUnavailableError", kind: "automation-unavailable", message: "Browser automation is not available in this runtime." });
     expect(err).toBeInstanceOf(Error);
+  });
+
+  it("noAutomationFor follows the clock it is given, and is otherwise the same idle port", () => {
+    const at = new Date("2026-11-14T10:00:00Z");
+    const port = noAutomationFor(() => at);
+    expect(port.now()).toBe(at);
+    expect(port).not.toBe(noAutomation);
+    expect(Object.isFrozen(port)).toBe(true);
+    expect(port.info()).toEqual(noAutomation.info());
+    expect(() => port.begin("k", "p", { text: "t" })).toThrow(AutomationUnavailableError);
   });
 
   it("holds no state and cannot be changed", () => {

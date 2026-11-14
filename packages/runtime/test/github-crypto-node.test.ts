@@ -124,6 +124,19 @@ describe("the core module on its own", () => {
     expect(signWithKey).toHaveBeenCalledOnce();
   });
 
+  it("the portable createGitHubClient builds the portable client: no sealer and no default refuses before any request, an injected one is used", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/public-key")) return new Response(JSON.stringify({ key_id: "k", key: "made-up-public-key" }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(null, { status: 201 });
+    }) as unknown as typeof fetch;
+    const options = { auth: async () => new SecretValue("made-up-token"), fetch: fetchMock };
+    await expect(coreCrypto.createGitHubClient({}, options).putSecret(target, "X", new SecretValue("made-up-plaintext-value"))).rejects.toBeInstanceOf(HostCapabilityError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const seal = vi.fn<SecretSealer>(async () => "bWFkZQ==");
+    expect(await coreCrypto.createGitHubClient({ seal }, options).putSecret(target, "X", new SecretValue("made-up-plaintext-value"))).toBe("created");
+    expect(seal).toHaveBeenCalledOnce();
+  });
+
   it("a default sealer counts as the capability to seal; an empty description does not", () => {
     expect(() => coreCrypto.assertCanSeal({ defaults: { seal: async () => "x" } })).not.toThrow();
     expect(() => coreCrypto.assertCanSeal({ defaults: {} })).toThrow(HostCapabilityError);
