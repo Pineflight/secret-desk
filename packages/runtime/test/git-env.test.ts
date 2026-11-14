@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitCheckIgnored } from "@secret-desk/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { gitEnv } from "../src/host.js";
 
 describe("gitEnv per platform", () => {
@@ -23,6 +23,24 @@ describe("gitEnv per platform", () => {
       expect(env["GIT_CONFIG_GLOBAL"]).toBe(devNull);
       expect(env["GIT_CONFIG_NOSYSTEM"]).toBe("1");
       expect(Object.keys(env).sort()).toEqual(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "PATH", "SystemRoot"]);
+    }
+  });
+});
+
+describe("the Git environment built from the real process environment, on every system (names only)", () => {
+  // A fake git cannot stand in on Windows: Node starts programs there without a shell, which finds only .exe and .com files (a .cmd
+  // wrapper is not found, and a .cmd given by name is refused). So the environment the host hands to git is asserted here, at the
+  // point where it is built, from the real environment of the system the test runs on; the real-Git test below proves git accepts it.
+  it("keeps the system basics of this platform, the Git switches and nothing else", () => {
+    vi.stubEnv("GH_TEST", "poison_made_up");
+    try {
+      const names = Object.keys(gitEnv(process.env)).map((n) => (process.platform === "win32" ? n.toLowerCase() : n));
+      for (const must of ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS"]) expect(names).toContain(process.platform === "win32" ? must.toLowerCase() : must);
+      expect(names).not.toContain(process.platform === "win32" ? "gh_test" : "GH_TEST");
+      const basics = process.platform === "win32" ? ["systemroot", "path", "pathext", "comspec", "userprofile"] : ["PATH"];
+      for (const basic of basics) expect(names).toContain(basic);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });
