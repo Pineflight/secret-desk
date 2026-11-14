@@ -14,11 +14,7 @@ import {
   type BrowserDriver,
   type BrowserProvider,
   type HumanWait,
-  type LoginMethodInfo,
-  type LoginNeed,
   type Recipe,
-  type SudoMethod,
-  type SudoProblem,
 } from "@secret-desk/automation";
 import {
   GitHubError,
@@ -36,137 +32,16 @@ import {
   type ProviderRegistry,
 } from "@secret-desk/core";
 import { ANTHROPIC_KEY_RECIPE, withAnthropicAdmin } from "@secret-desk/providers";
+import type { AutomationBrowserInfo, AutomationInfo, AutomationPort, AutomationRecipeInfo, AutomationRunState, AutomationStatus } from "./automation-port.js";
 import { HostCapabilityError, expandHomeFor, readHostEnv, type RuntimeHost } from "./host.js";
 import { LiveCheckStore, type LiveCheckReport } from "./live-check-store.js";
 import { SignInStore, type SessionLifetime, type SignInCheck, type SignInSource } from "./sign-in-store.js";
 
 export type { SessionLifetime, SignInCheck, SignInSource };
 
-/**
- * What the portal has to ask the human right now in a run that signs in and confirms through the portal (team token). Never holds
- * a credential: the answer goes to its own route and is not kept.
- */
-export type RunAsk =
-  /** The browser is signed out: the sign-in method, email and password. */
-  | { type: "credentials"; methods: LoginMethodInfo[] }
-  /** The provider asks to confirm access ("Confirm access"): choose the way. */
-  | { type: "access"; stage: "choose"; methods: SudoMethod[]; attempt: number; maxAttempts: number; problem?: SudoProblem }
-  /** GitHub Mobile waits for the tap; `number` is what the page shows ("" if unknown). */
-  | { type: "access"; stage: "mobile"; number: string }
-  /** A code or password was sent and is being checked. */
-  | { type: "access"; stage: "checking"; method: SudoMethod };
-
-export type AutomationStatus = "idle" | "running" | "waiting-human" | "done" | "failed" | "cancelled";
-
-/** Zustand eines Browser-Laufs. Enthaelt nie einen Wert: nur Status, Text, Adress-Host, Schrittzaehler und ids. */
-export interface AutomationRunState {
-  secretId: string;
-  providerId: string;
-  status: AutomationStatus;
-  text: string;
-  /** Nur der Host der Seite, auf der der Mensch etwas tun soll. */
-  host: string | null;
-  step: { index: number; total: number } | null;
-  startedAt: string;
-  updatedAt: string;
-  /** Pruefung, die der Lauf erzeugt hat (nur bei done). */
-  issuanceId?: string;
-  /** Name, unter dem beim Anbieter schon ein Token angelegt sein kann (bei failed/cancelled). */
-  createdName?: string;
-  /** Guided sign-in (facade) runs only, see facade.ts: */
-  kind?: "signin" | "connect";
-  /** What the provider waits for from the human right now. */
-  needs?: LoginNeed | null;
-  /** The number an approval shows, or the scopes an authorization asks for (consent). Never a credential. */
-  detail?: string;
-  /** Current phase of the run. */
-  phase?: string;
-  /** Phases reached so far, with their state, oldest first. */
-  timeline?: FacadeTimelineEntry[];
-  /** When the run gives up waiting (ISO time). */
-  timeoutAt?: string | null;
-  /** Why the run failed: a code, plus the text in both interface languages. Never contains a value. */
-  failure?: { code: string; message: string; messageEn: string };
-  /**
-   * Issuance runs only: set when the run ended because the browser is signed out at the provider and the run could not ask for the
-   * sign-in (`failure.code` is then `needs-sign-in`). The recipe whose guided sign-in the portal starts (`POST recipes/:id/sign-in`,
-   * a recipe with several portals also takes `host`). Never a credential.
-   */
-  signInRecipeId?: string;
-  /** The outcome of a finished connect run. */
-  result?: unknown;
-  /** Runs that sign in and confirm through the portal: the question the human has to answer (null when none). */
-  ask?: RunAsk | null;
-}
-
-export interface FacadeTimelineEntry {
-  phase: string;
-  state: "active" | "done" | "failed";
-  at: string;
-}
-
-export interface AutomationRecipeInfo {
-  id: string;
-  providerId: string;
-  label: string;
-  /** The recipe's host; with several `hosts` the first one (a label only, see `hosts`). */
-  host: string;
-  /** A recipe with several hosts: the parameter that picks one, and the host of each value. Empty `hosts` for a single-host recipe. */
-  hostBy: string | null;
-  hosts: { value: string; host: string }[];
-  /** Aus dem Kommentar "# STATUS: ..." der Rezeptdatei. */
-  status: string;
-  file: string;
-  /** SHA-256 (hex) der Rezeptdatei. */
-  sha256: string;
-  /** Weitere erlaubte Hosts. */
-  allowHosts: string[];
-  /** Mitgeliefert (true) oder extern (false). */
-  bundled: boolean;
-  /** The recipe has a guided sign-in (`login.form`), so the portal can check the browser session for its host. */
-  canCheckSignIn: boolean;
-  /** The ways to sign in at this recipe's portal (the provider's own form first); empty without a guided sign-in. */
-  signInMethods: LoginMethodInfo[];
-  /** The email sign-in has no password (the provider sends a one-time code). */
-  signInPasswordless: boolean;
-}
-
-/** Which browser runs the recipes. In remote mode the endpoint is shown without credentials, query or fragment. */
-export interface AutomationBrowserInfo {
-  mode: "local" | "remote";
-  endpoint: string | null;
-  /** Remote mode: whether the endpoint answered (null = not checked or local mode). */
-  reachable: boolean | null;
-  /** Remote mode: browser product and version, when reachable. */
-  browser: string | null;
-  /** Remote mode: why the endpoint is invalid or not reachable. */
-  detail: string | null;
-  /** Remote mode: where a human sees the remote browser (noVNC), if configured. */
-  viewerUrl: string | null;
-}
-
-export interface AutomationInfo {
-  enabled: boolean;
-  browser: AutomationBrowserInfo;
-  chrome: { found: boolean; path: string | null; hint: string | null };
-  profileDir: string;
-  loginTimeoutMinutes: number;
-  /** Hours a sign-in check counts as current (`automation.signInFreshHours`). */
-  signInFreshHours: number;
-  /** Hours between the scheduled sign-in checks (`automation.signInCheckHours`, 0 = off). */
-  signInCheckHours: number;
-  /** Days before a renewal at which a signed-out browser is flagged (`automation.renewalWarnDays`, 0 = off). */
-  renewalWarnDays: number;
-  /** Last known browser sign-in state per recipe host. */
-  signInChecks: SignInCheck[];
-  /** How long sign-ins lasted per recipe host (only hosts with at least one measurement). */
-  signInLifetimes: SessionLifetime[];
-  recipes: AutomationRecipeInfo[];
-  /** Ob Rezepte aus eigenen Ordnern geladen werden (automation.allowExternalRecipes). */
-  allowExternalRecipes: boolean;
-  problems: { file: string; message: string }[];
-  runs: AutomationRunState[];
-}
+// The shapes of the run state and the status, and the port that code outside this file talks to, live in `automation-port.ts` (no
+// Node API, part of the portable entry). They are re-exported here, so every import of `automation.js` keeps working.
+export type { AutomationBrowserInfo, AutomationInfo, AutomationPort, AutomationRecipeInfo, AutomationRunState, AutomationStatus, FacadeTimelineEntry, RunAsk } from "./automation-port.js";
 
 /** Fehler eines Browser-Laufs, der dem Menschen im Portal gezeigt wird (Abbruch, Zeitlimit, Schritt gescheitert, kein Chrome). */
 export class AutomationError extends Error {
@@ -270,7 +145,7 @@ const passThrough = (e: unknown): boolean => e instanceof ParamsInvalidError || 
  * Verwaltet die Browser-Anbieter und den Zustand der Laeufe. Pro Prozess laeuft hoechstens ein Lauf (es gibt ein Browserprofil
  * und ein Fenster). Der Zustand liegt hier, nicht im Browser des Portals: Ein Neuladen der Seite verwaist den Lauf nicht.
  */
-export class AutomationManager {
+export class AutomationManager implements AutomationPort {
   readonly enabled: boolean;
   readonly profileDir: string;
   readonly loginTimeoutMinutes: number;
@@ -512,6 +387,13 @@ export class AutomationManager {
 
   isBrowserProvider(p: Provider | undefined): p is BrowserProvider {
     return isBrowser(p) && this.#providers.has(p.id);
+  }
+
+  /** The portal host a multi-host browser provider uses for the parameters of an entry (its recipe's `hostBy` parameter), else null. */
+  browserHostOf(provider: unknown, params: Record<string, unknown>): string | null {
+    const recipeId = (provider as { automation?: { recipeId?: string } } | undefined)?.automation?.recipeId;
+    const recipe = recipeId ? this.recipe(recipeId) : undefined;
+    return recipe?.hosts ? hostForParams(recipe, params) : null;
   }
 
   #waiting(secretId: string, w: HumanWait): void {

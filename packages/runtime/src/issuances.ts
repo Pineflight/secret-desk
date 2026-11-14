@@ -12,7 +12,7 @@ import {
   type RevokeOutcome,
   type RevokeRefusal,
   type RevokeTarget,
-} from "@secret-desk/core";
+} from "@secret-desk/core/portable";
 
 /*
  * The rule behind everything that revokes in this file: revoking a value that is in use is worse than leaving an unconfirmed value
