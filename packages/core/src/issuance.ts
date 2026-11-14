@@ -452,10 +452,16 @@ async function commitIssuanceOnce(
   let revokedOld = false;
   // A rotation keeps the provider id: the "old" value is the same object and must not be deleted.
   // Outside the revoke gate (`revokeNewValue`) on purpose: this revokes the OLD value, after every place holds the new one and
-  // the person confirmed; the gate is for a NEW value that may be in use.
-  if (pending.oldExternalId && pending.oldExternalId !== pending.report.externalId && provider?.revoke) {
+  // the person confirmed; the gate is for a NEW value that may be in use. It has two guards of its own: the identifier must
+  // differ from the new one, and no entry outside this commit may still hold it (companions copy identifiers, so an entry
+  // that was not part of this issuance can carry the same identifier and still use that value).
+  const oldId = pending.oldExternalId;
+  const oldHolder = oldId && oldId !== pending.report.externalId ? entryHoldingId(deps.inventory, oldId, [secret.id, ...companionEntries.map((c) => c.entry.id)]) : undefined;
+  if (oldHolder && provider?.revoke) {
+    pending.report.checks.push({ id: "revoke-old", label: `Alten Wert nicht widerrufen: seine Kennung ist noch die aktuelle von Eintrag ${oldHolder}`, status: "warn", detail: "Der Wert wird dort noch gebraucht. Beim Anbieter erst loeschen, wenn dieser Eintrag erneuert ist." });
+  } else if (oldId && oldId !== pending.report.externalId && provider?.revoke) {
     try {
-      await provider.revoke({ externalId: pending.oldExternalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+      await provider.revoke({ externalId: oldId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
       revokedOld = true;
       pending.report.checks.push({ id: "revoke-old", label: "Alter Wert beim Anbieter widerrufen", status: "pass" });
     } catch (err) {
@@ -512,6 +518,17 @@ async function commitIssuanceOnce(
   return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
 }
 
+/**
+ * The id of an entry, other than those in `except`, whose current identifier is `id`, or undefined. Companions copy identifiers,
+ * so the identifier of a value can be the current one of an entry that is not part of the flow asking.
+ */
+export function entryHoldingId(inventory: InventoryStore, id: string, except: readonly string[]): string | undefined {
+  return inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
+}
+
+/** What the gate reads: the inventory and what it takes to call a provider. No places, no GitHub: it never writes. */
+export type RevokeGateDeps = Pick<IssuanceDeps, "inventory" | "providers" | "connections" | "fetch" | "providerConfig">;
+
 /** Why the gate did not call the provider. The first reason is a decision for a person; the others mean the record is stale. */
 export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke";
 
@@ -544,10 +561,12 @@ export interface RevokeTarget {
  *    same provider identifier may have been confirmed).
  *  - `secret-gone`, `provider-changed`: for a record alone (no issued entry) the entry must still exist with the same provider.
  *  - `no-id`, `no-revoke`: there is nothing to call.
- * The gate knows only the inventory, not uses outside it. Outside the gate on purpose: the old-value revoke after a confirmed
- * commit and the undo inside `prepareIssuance` (see the comments there), and the separate rotate and env-export flows.
+ * The gate knows only the inventory, not uses outside it. The rotate flow and the environment export call it too (the new value
+ * of a rotation whose writes all failed, the values of an export that failed), with `writeStarted` set by the caller: the
+ * first when it sent any write, the second when it began to write the file. Outside the gate on purpose: the old-value revokes
+ * (after a confirmed commit and after a rotation, each with its own guards) and the undo inside `prepareIssuance`.
  */
-export async function revokeNewValue(target: RevokeTarget, deps: IssuanceDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
+export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
   const id = target.externalId;
   if (!id) return { status: "refused", reason: "no-id" };
   const current = deps.inventory.getSecret(target.secretId);

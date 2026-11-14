@@ -53,6 +53,8 @@ import {
   type EnvCommand,
   type EnvTemplate,
   revokeIssuedTokens,
+  addUnrevokedNotices,
+  forgetRunValues,
   commitIssuance,
   computeStatus,
   discardIssuance,
@@ -1123,14 +1125,18 @@ export async function exportEnv(
       ...(commandsAllowed && host?.runCommand ? { runCommand: (command: EnvCommand) => host.runCommand!(command, commandDir) } : {}),
     });
     let written;
+    // A write of the file counts as started from the moment `writeEnvFile` is about to create it (all its checks passed): the values
+    // may be in the file from then on, whatever fails afterwards (the Git check, for example). No command receives an issued value.
+    let writeStarted = false;
     try {
       // Without the host's `gitCheckIgnored` no process is started: the answer is "cannot be checked" (null), which becomes a warning below.
       const checkIgnored = host?.gitCheckIgnored ? (path: string) => host.gitCheckIgnored!(path) : async () => null;
-      written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots, checkIgnored });
+      written = await writeEnvFile(target, built.text, { overwrite: actor.kind === "human" && (input.overwrite ?? false), allowedRoots: roots, checkIgnored, onWriteStart: () => { writeStarted = true; } });
     } catch (err) {
-      // Datei nicht geschrieben: frisch ausgestellte Dev-Tokens nicht beim Anbieter verwaist lassen.
-      const left = await revokeIssuedTokens(built.issuedTokens, envDeps);
-      if (err instanceof Error && left.length > 0) err.message += ` Nicht widerrufen (beim Anbieter von Hand entfernen): ${left.join(", ")}.`;
+      // Datei nicht (vollstaendig) geschrieben: frisch ausgestellte Dev-Tokens nicht beim Anbieter verwaist lassen, aber nur ueber das Tor
+      // (nie eine Kennung, die im Inventar noch gilt, nie nach Beginn des Schreibens), und was bleibt, steht in der Fehlermeldung.
+      addUnrevokedNotices(err, await revokeIssuedTokens(built.issuedTokens, envDeps, { writeStarted }));
+      if (!writeStarted && actor.kind === "human") forgetRunValues(input.runValues, template.id);
       throw err;
     }
     const warnings: string[] = [];
