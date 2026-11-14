@@ -1,3 +1,5 @@
+import { base64ToBytes } from "./base64.js";
+
 /**
  * Schutz fuer Variablen: Sie sind in GitHub im Klartext lesbar und stehen im Inventar. Ein Geheimnis darf dort
  * nicht landen. Die Pruefung ist eine Heuristik: block = sieht eindeutig geheim aus, warn = der Mensch muss
@@ -26,11 +28,22 @@ const BLOCK_PREFIXES: readonly (readonly [RegExp, string])[] = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "privater Schluessel"],
 ];
 
+/**
+ * The text of a Base64 or Base64URL segment, decoded as `Buffer.from(segment, "base64url").toString("utf8")` does:
+ * characters outside both alphabets are skipped, decoding ends at the first `=`, a single dangling character is dropped
+ * and a leading byte order mark stays in the text (so `JSON.parse` refuses it).
+ */
+function lenientBase64Text(segment: string): string {
+  let clean = segment.split("=")[0]!.replace(/[^A-Za-z0-9+/_-]/g, "");
+  if (clean.length % 4 === 1) clean = clean.slice(0, -1);
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(base64ToBytes(clean));
+}
+
 function jwtRole(value: string): string | null {
   const parts = value.split(".");
   if (parts.length !== 3 || !value.startsWith("eyJ")) return null;
   try {
-    const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as { role?: string };
+    const payload = JSON.parse(lenientBase64Text(parts[1]!)) as { role?: string };
     return payload.role ?? "";
   } catch {
     return null;

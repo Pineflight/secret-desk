@@ -1,15 +1,14 @@
 import { ParamsInvalidError, effectiveParams, integrationDefaultsOf, ttlDaysProblems } from "./params.js";
 import { assertPreflight, entryParamsState, preflightEntry } from "./preflight.js";
-import { randomUUID } from "node:crypto";
-import type { ConnectionStore } from "./connections.js";
-import type { ProviderConfig } from "./config.js";
+import type { ConnectionStoreCore } from "./connections-core.js";
+import type { ProviderConfig } from "./config-core.js";
 import { hashOf, issuanceSnapshot } from "./snapshot.js";
 import { isWorkerPlace, type SecretEntry, type VariableEntry } from "./types.js";
 import type { EvidenceStore } from "./evidence.js";
-import { GitHubClient, placeToTarget, type FetchLike } from "./github.js";
+import { placeToTarget, type GitHubClient, type FetchLike } from "./github-core.js";
 import { checkPlaceWritable, listPlaceSecrets, putPlaceSecret, type PlaceClients } from "./place-io.js";
 import type { WorkerSecretsClient } from "./worker-secrets.js";
-import type { InventoryStore } from "./inventory.js";
+import type { InventoryStoreCore } from "./inventory-store.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
@@ -17,12 +16,12 @@ import type { SecretValue } from "./secret.js";
 import { fingerprintOf, overallStatus, type ActorRef, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
 
 export interface IssuanceDeps {
-  inventory: InventoryStore;
+  inventory: InventoryStoreCore;
   github: GitHubClient;
   /** Writes Cloudflare Worker secrets; without it Worker places fail the target check with a clear message. */
   workers?: WorkerSecretsClient;
   providers: ProviderRegistry;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   owner: string;
   fetch?: FetchLike;
   now?: () => Date;
@@ -72,7 +71,7 @@ const clientsOf = (deps: Pick<IssuanceDeps, "github" | "workers" | "owner">): Pl
 const companionSnapshot = (e: SecretEntry | VariableEntry): string => hashOf({ places: e.places, stage: e.stage });
 
 /** A companion target is a secret entry or a variable entry; ids are unique across both. */
-function companionEntry(inventory: InventoryStore, id: string): { entry: SecretEntry | VariableEntry; kind: "secret" | "variable" } | undefined {
+function companionEntry(inventory: InventoryStoreCore, id: string): { entry: SecretEntry | VariableEntry; kind: "secret" | "variable" } | undefined {
   const secret = inventory.getSecret(id);
   if (secret) return { entry: secret, kind: "secret" };
   const variable = inventory.getVariable(id);
@@ -246,7 +245,7 @@ export async function prepareIssuance(
   if (kind0 === "live") checklist.push({ id: `c${checklist.length + 1}`, text: "Ich weiss, dass dieser Wert die Produktion betrifft." });
 
   const report: VerificationReport = {
-    id: randomUUID(),
+    id: globalThis.crypto.randomUUID(),
     secretId,
     secretName: secret.name,
     createdAt: now.toISOString(),
@@ -522,7 +521,7 @@ async function commitIssuanceOnce(
  * The id of an entry, other than those in `except`, whose current identifier is `id`, or undefined. Companions copy identifiers,
  * so the identifier of a value can be the current one of an entry that is not part of the flow asking.
  */
-export function entryHoldingId(inventory: InventoryStore, id: string, except: readonly string[]): string | undefined {
+export function entryHoldingId(inventory: InventoryStoreCore, id: string, except: readonly string[]): string | undefined {
   return inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
 }
 

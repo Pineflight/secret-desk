@@ -1,4 +1,4 @@
-import type { FetchLike, TokenProvider } from "./github.js";
+import type { FetchLike, TokenProvider } from "./github-core.js";
 import type { SecretValue } from "./secret.js";
 import type { WorkerPlace } from "./types.js";
 

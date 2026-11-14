@@ -1,13 +1,12 @@
-import { randomUUID } from "node:crypto";
 import type { EvidenceStore } from "./evidence.js";
 import { fingerprintOf, type VerificationReport } from "./verification.js";
 import { assertEntryParams, effectiveParams, integrationDefaultsOf, validateEntryParams, type ParamProblem } from "./params.js";
-import type { ConnectionStore } from "./connections.js";
-import type { ProviderConfig } from "./config.js";
-import { placeToTarget, type GitHubClient, type FetchLike } from "./github.js";
+import type { ConnectionStoreCore } from "./connections-core.js";
+import type { ProviderConfig } from "./config-core.js";
+import { placeToTarget, type GitHubClient, type FetchLike } from "./github-core.js";
 import { putPlaceSecret } from "./place-io.js";
 import { WorkerSecretsClient } from "./worker-secrets.js";
-import type { InventoryStore } from "./inventory.js";
+import type { InventoryStoreCore } from "./inventory-store.js";
 import { entryHoldingId, revokeNewValue, type RevokeOutcome } from "./issuance.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
@@ -22,12 +21,12 @@ export type RotationEvent =
   | { type: "recorded"; secretId: string; expires: string | null };
 
 export interface RotateDeps {
-  inventory: InventoryStore;
+  inventory: InventoryStoreCore;
   github: GitHubClient;
   /** Writes Cloudflare Worker secrets; without it Worker places fail with a clear message. */
   workers?: WorkerSecretsClient;
   providers: ProviderRegistry;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   owner: string;
   fetch?: FetchLike;
   now?: () => Date;
@@ -232,7 +231,7 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     // A new token that stays valid at the provider exists only in this result: say so in the evidence too, when there is a store.
     if (result.orphanExternalId && !inPlace && deps.evidence) {
       const report: VerificationReport = {
-        id: randomUUID(),
+        id: globalThis.crypto.randomUUID(),
         secretId,
         secretName: secret.name,
         createdAt: now.toISOString(),

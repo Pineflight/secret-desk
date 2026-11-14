@@ -1,7 +1,7 @@
-import type { ConnectionStore } from "./connections.js";
-import type { ProviderConfig } from "./config.js";
-import type { FetchLike } from "./github.js";
-import type { InventoryStore } from "./inventory.js";
+import type { ConnectionStoreCore } from "./connections-core.js";
+import type { ProviderConfig } from "./config-core.js";
+import type { FetchLike } from "./github-core.js";
+import type { InventoryStoreCore } from "./inventory-store.js";
 import {
   PreflightError,
   UnknownDiscoverKindError,
@@ -15,21 +15,21 @@ import {
   type ParamProblem,
   type PreflightFinding,
 } from "./params.js";
-import { NotConnectedError } from "./connections.js";
+import { NotConnectedError } from "./connections-core.js";
 import type { Provider, ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { githubPlacesOf, type SecretEntry } from "./types.js";
 
 export interface ParamsDeps {
-  inventory: InventoryStore;
+  inventory: InventoryStoreCore;
   providers: ProviderRegistry;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch?: FetchLike;
   providerConfig?: ProviderConfig;
 }
 
 /** Parameter eines Eintrags: Wirksame Werte (mit Standardwerten der Integration) und Befunde. Rein, ohne Netzaufruf. */
-export function entryParamsState(inventory: InventoryStore, provider: Provider | undefined, secret: Pick<SecretEntry, "params">): { effective: Record<string, unknown>; defaults: Record<string, unknown>; problems: ParamProblem[] } {
+export function entryParamsState(inventory: InventoryStoreCore, provider: Provider | undefined, secret: Pick<SecretEntry, "params">): { effective: Record<string, unknown>; defaults: Record<string, unknown>; problems: ParamProblem[] } {
   const defaults = provider ? (integrationDefaultsOf(inventory, provider) ?? {}) : {};
   if (!provider) return { effective: secret.params, defaults, problems: [] };
   return { effective: effectiveParams(provider, secret.params, defaults), defaults, problems: validateEntryParams(provider, secret, defaults) };
@@ -93,7 +93,7 @@ export interface DiscoveryResult {
 }
 
 /** Hinweis fuer Vorschlaege aus einem Eintrag: Repositories der Ziele, Stage und deren Art. */
-export function hintFor(inventory: InventoryStore, secret: Pick<SecretEntry, "places" | "stage">): DiscoverHint {
+export function hintFor(inventory: InventoryStoreCore, secret: Pick<SecretEntry, "places" | "stage">): DiscoverHint {
   return { repos: [...new Set(githubPlacesOf(secret.places).map((p) => p.repo))], stage: secret.stage, stageKind: stageKind(inventory.stages, secret.stage), ...(inventory.data.resourceMap ? { resourceMap: inventory.data.resourceMap } : {}) };
 }
 

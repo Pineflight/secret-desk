@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InventoryError } from "./inventory.js";
+import { InventoryError } from "./inventory-errors.js";
 import { VariableSourceSchema } from "./variable-sources.js";
 import { DateString, ExpiryKindSchema, SecretFields, Tag, VariableSchema, WebUrl } from "./types.js";
 

@@ -1,7 +1,7 @@
 import type { SecretValue } from "./secret.js";
-import type { ConnectionStore } from "./connections.js";
-import type { ProviderConfig } from "./config.js";
-import type { FetchLike } from "./github.js";
+import type { ConnectionStoreCore } from "./connections-core.js";
+import type { ProviderConfig } from "./config-core.js";
+import type { FetchLike } from "./github-core.js";
 import type { StageKind } from "./stages.js";
 import type { SecretEntry, Stage } from "./types.js";
 import type { Check } from "./verification.js";
@@ -13,7 +13,7 @@ export interface IssueContext {
   stage: Stage;
   /** Art der Stage (live/test/dev/shared). Fehlt sie, gilt die Art der Standard-Stage gleichen Namens. */
   stageKind?: StageKind;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch: FetchLike;
   now: Date;
   /** Name, unter dem der Token beim Anbieter erscheint. */
@@ -52,7 +52,7 @@ export interface RevokeContext {
   externalId: string;
   secret: SecretEntry;
   params: Record<string, unknown>;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch: FetchLike;
   providerConfig?: ProviderConfig;
 }
@@ -67,7 +67,7 @@ export interface VerifyContext {
   value: SecretValue;
   externalId?: string;
   expiresAt?: string | null;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch: FetchLike;
   now: Date;
   providerConfig?: ProviderConfig;
@@ -75,7 +75,7 @@ export interface VerifyContext {
 
 /** Kontext fuer lesende Abfragen beim Anbieter (Entdeckung, Vorabcheck). Nur das gespeicherte Token der Integration, nie Schreibzugriffe. */
 export interface DiscoverContext {
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch: FetchLike;
   /** Bereits gewaehlte Parameter (zum Beispiel accountId, um Zonen einzuschraenken). */
   params: Record<string, unknown>;
@@ -89,7 +89,7 @@ export interface PreflightContext {
   params: Record<string, unknown>;
   stage: Stage;
   stageKind?: StageKind;
-  connections: ConnectionStore;
+  connections: ConnectionStoreCore;
   fetch: FetchLike;
   providerConfig?: ProviderConfig;
 }
