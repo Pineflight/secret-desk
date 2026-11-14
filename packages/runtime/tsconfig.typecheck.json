@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "include": ["src", "test/agent-api-types.check.ts", "test/automation-types.check.ts"]
+}

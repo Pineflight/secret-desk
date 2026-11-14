@@ -7,6 +7,7 @@ import {
   SecretValue,
   type Check,
   type DiscardResult,
+  type DiscardWhy,
   type IssuanceDeps,
   type PendingIssuance,
   type RevokeOutcome,
@@ -51,7 +52,10 @@ export interface PendingRecord {
  * The store only ever sees a `PendingRecord`: the value itself is held by the queue, in memory, in a map the store cannot reach.
  * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. The queue
  * updates the record (`put`) with `writeStarted: true` BEFORE the first write of a commit is sent; when that update throws, the
- * commit does not write. A record whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is
+ * commit does not write. A new review's record is put BEFORE the queue takes the value (`IssuanceQueue.add`): a `put` that throws
+ * (a cap, a refused shape, a storage fault) means the queue holds nothing for that review, and the caller then hands the value
+ * that was issued at the provider to the revoke gate; a store may therefore refuse a record without leaving a value behind. A
+ * record whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is
  * an explicit call of the embedder (`IssuanceQueue.revokeOrphan`), which the gate refuses whenever the value may be in use. A
  * persistent store should remove the record in the same step in which the embedder's inventory takes the new identifier;
  * whatever order remains, a leftover record is harmless.
@@ -171,6 +175,8 @@ interface Owed {
   acknowledgeWritten: boolean;
   /** The places a write was started for, for the evidence note when the delete finally works. */
   places: string[];
+  /** Why the review is discarded, for the note of the first try in the report (default: its time ran out). */
+  why?: DiscardWhy;
 }
 
 /**
@@ -227,12 +233,12 @@ export class IssuanceQueue {
   }
 
   /** Takes an item out of the queue: its value is unreachable through it from here on. The provider-side delete is owed. */
-  #retire(p: PendingIssuance): void {
+  #retire(p: PendingIssuance, why?: DiscardWhy): void {
     this.#values.delete(p.id);
     // The references the queue and the report hold are replaced too; a caller's own reference to the object is its own.
     p.value = new SecretValue("");
     for (const c of p.companions) c.value = new SecretValue("");
-    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0, acknowledgeWritten: false, places: [] });
+    this.#owed.set(p.id, { record: recordOf(p), pending: p, tries: 0, nextTry: 0, acknowledgeWritten: false, places: [], ...(why ? { why } : {}) });
   }
 
   /**
@@ -283,14 +289,73 @@ export class IssuanceQueue {
     this.#claims.delete(id);
   }
 
+  /**
+   * Internal: hands a freshly prepared review to the queue. The record is put into the store first, and only once it is stored does
+   * the queue take the value into memory; if anything after the `put` throws, the record is removed again and the error is rethrown.
+   * So a store whose `put` throws (a cap, a refused shape, a storage fault) leaves no value held and the error reaches the caller,
+   * and a value is never held without a record that a later sweep or orphan revoke could report.
+   * Called only by the runtime's own request paths (`requestIssuance`, `submitManualValue` and the approval of an issue request in
+   * `agent-api-core.ts`), once, right after `prepareIssuance` returned the item. It is public because those functions live in another
+   * module of this package, not because an embedder should call it: an item added here without the preparation steps skips the
+   * report, the checks and the deadline that `prepareIssuance` sets, and a second `add` of the same id replaces the first.
+   * Embedders use the route functions and `Runtime.sweep` instead.
+   *
+   * The rule for a caller whose `add` threw: a value that was issued at a provider is now known to nobody, so the caller hands it to
+   * `discardUnkept` (the same path the sweep takes for an expired review, through the revoke gate) and rethrows the error.
+   */
   add(pending: PendingIssuance): void {
-    this.#values.set(pending.id, pending);
-    this.#store.put(recordOf(pending));
+    const record = recordOf(pending);
+    this.#store.put(record);
+    try {
+      this.#values.set(pending.id, pending);
+    } catch (err) {
+      try {
+        this.#store.delete(record.id);
+      } catch {
+        /* the original error is the one to report */
+      }
+      throw err;
+    }
   }
 
   /**
-   * Records, in the store, that a write of this review is about to start. A commit calls this before it sends its first write
-   * (`commitIssuance`'s `beforeWrite`); when it throws (the store could not take the update) the commit writes nothing.
+   * Internal: the value of a review that `add` could not keep. Nothing is written for it, so it takes the path of an expired review
+   * that a sweep tries for the first time: `discardIssuance`, and through it the revoke gate (`revokeNewValue`), which decides.
+   * A refusal or a failed delete is handled and reported exactly as in the sweep (evidence note, the record dropped or flagged,
+   * `onNeedsDecision`, the retries and `onRevokeAbandoned`); the report says the review could not be stored, not that it timed out.
+   * The references the queue holds are dropped. Never throws.
+   *
+   * The limit: while the delete is owed, the debt lives in this process only (the store never got the record, or fails now). If
+   * a failure while settling (the store refusing the update of a refused record, for example) leaves the delete owed and
+   * unrecorded, `onRevokeAbandoned` is told with the value-free record: the queue gives up recording and trying on its own, and
+   * the value stays valid at the provider until someone deletes it there or it expires. (`onRevokeAbandoned` and not
+   * `onNeedsDecision`, which means a write was started and a person must decide about a value that may be in use.) The next sweep
+   * of this process still retries; a process that dies before that loses the debt.
+   */
+  async discardUnkept(pending: PendingIssuance, deps: IssuanceDeps): Promise<void> {
+    try {
+      this.#retire(pending, "unkept");
+      await this.#settle(pending.id, this.#owed.get(pending.id)!, deps, this.#t(), []);
+    } catch {
+      // Still owed means the failure came before the debt was settled or recorded: tell the embedder, once.
+      const owed = this.#owed.get(pending.id);
+      if (owed) {
+        try {
+          this.#onAbandoned?.(owed.record);
+        } catch {
+          /* a callback that throws changes nothing */
+        }
+      }
+    }
+  }
+
+  /**
+   * Internal: records, in the store, that a write of this review is about to start. Called only by the confirm path of the runtime
+   * (`confirmIssuance` in `agent-api-core.ts`, as `commitIssuance`'s `beforeWrite`), before the commit sends its first write.
+   * It exists so that the fact "a write was started" is in the store, where the revoke gate, a later sweep and an orphan revoke can
+   * see it even if the process dies in the middle of the commit. When it throws (the store could not take the update) the commit
+   * writes nothing. Nothing else may call it: once a write counts as started the gate refuses to revoke that value without a
+   * person's decision, so a call from outside would keep a value from being deleted at the provider.
    */
   markWriteStarted(id: string): void {
     const pending = this.#values.get(id);
@@ -438,7 +503,7 @@ export class IssuanceQueue {
       if (owed.pending && state === "open") {
         // The first try goes through `discardIssuance`, which asks the gate itself and also writes the evidence note. Anything
         // but a clean answer is a failed try. The delete result is kept apart from the report store inside it.
-        const discard = await discardIssuance(owed.pending, deps, { by: "system", why: "expired" }).catch(() => undefined);
+        const discard = await discardIssuance(owed.pending, deps, { by: "system", why: owed.why ?? "expired" }).catch(() => undefined);
         owed.pending = undefined;
         if (discard === undefined) outcome = { status: "failed" };
         else if (discard.refused !== undefined) {

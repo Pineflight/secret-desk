@@ -283,6 +283,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Alter Wert beim Anbieter widerrufen", "Old value revoked at the provider"],
   [" (neuer Wert beim Anbieter NICHT widerrufen)", " (new value at the provider NOT revoked)"],
   ["Zeit abgelaufen", "Time expired"],
+  ["Pruefung konnte nicht gespeichert werden", "The review could not be stored"],
   ["Abgelehnt", "Rejected"],
   ["Ziel gehoert nicht zu diesem Secret", "Target does not belong to this secret"],
   ["Von Hand", "Manual"],
