@@ -57,7 +57,7 @@ async function setup(handler: Handler, opts: { tokens?: Record<string, string> }
   const dir = await mkdtemp(join(tmpdir(), "sd-conncheck-"));
   await writeFile(join(dir, "inventory.yaml"), INVENTORY);
   await writeFile(join(dir, "secret-desk.config.yaml"), `inventory: ./inventory.yaml\ngithub:\n  owner: acme\n  auth: { type: pat, source: { type: session } }\n`);
-  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, env: {} as NodeJS.ProcessEnv, fetch: fetchMock, bundledRecipes: null });
+  const rt = await createRuntime(join(dir, "secret-desk.config.yaml"), { vault: null, host: { label: "test" }, fetch: fetchMock, bundledRecipes: null });
   for (const [id, tok] of Object.entries({ github: TOKEN, ...(opts.tokens ?? {}) })) rt.connections.session.set(id, tok, null);
   return { rt, calls };
 }
