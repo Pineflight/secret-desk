@@ -283,14 +283,27 @@ export class IssuanceQueue {
     this.#claims.delete(id);
   }
 
+  /**
+   * @internal Hands a freshly prepared review to the queue: the value is held in memory and its record is put into the store.
+   * Called only by the runtime's own request paths (`requestIssuance`, `submitManualValue` and the approval of an issue request in
+   * `agent-api-core.ts`), once, right after `prepareIssuance` returned the item. It is public because those functions live in another
+   * module of this package, not because an embedder should call it: an item added here without the preparation steps skips the
+   * report, the checks and the deadline that `prepareIssuance` sets, and a second `add` of the same id replaces the first.
+   * Embedders use the route functions and `Runtime.sweep` instead. The error of a store whose `put` throws reaches the caller; the
+   * value is already held in memory at that point (it expires through the queue's deadline like any other review).
+   */
   add(pending: PendingIssuance): void {
     this.#values.set(pending.id, pending);
     this.#store.put(recordOf(pending));
   }
 
   /**
-   * Records, in the store, that a write of this review is about to start. A commit calls this before it sends its first write
-   * (`commitIssuance`'s `beforeWrite`); when it throws (the store could not take the update) the commit writes nothing.
+   * @internal Records, in the store, that a write of this review is about to start. Called only by the confirm path of the runtime
+   * (`confirmIssuance` in `agent-api-core.ts`, as `commitIssuance`'s `beforeWrite`), before the commit sends its first write.
+   * It exists so that the fact "a write was started" is in the store, where the revoke gate, a later sweep and an orphan revoke can
+   * see it even if the process dies in the middle of the commit. When it throws (the store could not take the update) the commit
+   * writes nothing. Nothing else may call it: once a write counts as started the gate refuses to revoke that value without a
+   * person's decision, so a call from outside would keep a value from being deleted at the provider.
    */
   markWriteStarted(id: string): void {
     const pending = this.#values.get(id);
