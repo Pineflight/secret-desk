@@ -230,6 +230,8 @@ export function supabaseStartCommand(cwd: string): string {
  * stack, never the output.
  */
 export function runEnvCommand(command: EnvCommand, cwd: string, options: { timeoutMs?: number } = {}): Promise<Map<string, string>> {
+  // Only the names in COMMANDS exist: nothing a configuration or a request supplies can select another program.
+  if (!Object.prototype.hasOwnProperty.call(COMMANDS, command)) return Promise.reject(new EnvExportError("Unknown template command."));
   const spec = COMMANDS[command];
   const program = programFor(spec.program, cwd);
   return new Promise((res, rej) => {
@@ -400,7 +402,8 @@ export interface WriteEnvResult {
   gitIgnored: boolean | null;
 }
 
-function checkIgnored(path: string): Promise<boolean | null> {
+/** Asks Git whether it ignores `path` (starts `git`): true, false, or null when it cannot be checked. */
+export function gitCheckIgnored(path: string): Promise<boolean | null> {
   return new Promise((res) => {
     execFile("git", ["check-ignore", "-q", path], { cwd: dirname(path), timeout: 5000, windowsHide: true }, (err) => {
       if (!err) return res(true);
@@ -411,7 +414,16 @@ function checkIgnored(path: string): Promise<boolean | null> {
 }
 
 /** Schreibt die Datei mit Modus 600. Ueberschreibt nur mit overwrite, und nur innerhalb erlaubter Wurzeln. */
-export async function writeEnvFile(path: string, text: string, options: { overwrite?: boolean; allowedRoots?: string[] } = {}): Promise<WriteEnvResult> {
+export async function writeEnvFile(
+  path: string,
+  text: string,
+  options: {
+    overwrite?: boolean;
+    allowedRoots?: string[];
+    /** How to ask whether Git ignores the written file. Default: `gitCheckIgnored` (starts `git`). A caller without that capability passes a function that answers null. */
+    checkIgnored?: (path: string) => Promise<boolean | null>;
+  } = {},
+): Promise<WriteEnvResult> {
   const problem = localPathProblem(path);
   if (problem) throw new EnvExportError(problem);
   const target = resolve(path);
@@ -429,5 +441,5 @@ export async function writeEnvFile(path: string, text: string, options: { overwr
   if (exists && !options.overwrite) throw new EnvExportError(`Datei existiert schon: ${target}`);
   await mkdir(dirname(target), { recursive: true });
   await writePrivateFile(target, text);
-  return { path: target, gitIgnored: await checkIgnored(target) };
+  return { path: target, gitIgnored: await (options.checkIgnored ?? gitCheckIgnored)(target) };
 }
