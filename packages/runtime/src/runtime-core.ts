@@ -1,6 +1,7 @@
 import {
   CLOUDFLARE_CONNECTION,
   ConnectionStoreCore,
+  type ConnectionStoreCoreOptions,
   TEAM_SYNC_CONNECTION,
   WorkerSecretsClient,
   type AppJwtSigner,
@@ -85,15 +86,23 @@ export interface PortableRuntimeOptions<A extends AutomationPort = AutomationPor
    */
   sign?: AppJwtSigner;
   /**
-   * What to use for sealing and for signing with a stored private key when `seal` and `sign` are not given (the local edition
-   * hands in libsodium and the Node crypto module). Without a default the operation is refused with a `HostCapabilityError`.
+   * Meant for the Node entry (`createRuntime`), not for a portable embedder: what to use for sealing and for signing with a stored
+   * private key when `seal` and `sign` are not given (the local edition hands in libsodium and the Node crypto module). Without a
+   * default the operation is refused with a `HostCapabilityError`. An embedder injects `seal` and `sign` instead.
    */
   githubDefaults?: GitHubCryptoDefaults;
   /**
-   * The class of the GitHub client the runtime builds (the runtime derives its own subclass from it). Left out: the portable client
-   * of the core. The local edition passes the Node facade of the core, so the client is an instance of the class it has always had.
+   * Meant for the Node entry (`createRuntime`), not for a portable embedder: the class of the GitHub client the runtime builds (it
+   * derives its own subclass from it). Left out: the portable client of the core. The local edition passes the Node facade of the
+   * core, so the client is an instance of the class it has always had.
    */
   githubClientClass?: GitHubClientClass;
+  /**
+   * Meant for the Node entry (`createRuntime`), not for a portable embedder: makes the connection store from the parts the builder
+   * collected (sources, session, vault, host). Left out: a `ConnectionStoreCore`. The local edition passes a function that builds
+   * the Node `ConnectionStore`, so the store is an instance of the class it has always had.
+   */
+  createConnections?: (options: ConnectionStoreCoreOptions) => ConnectionStoreCore;
   session?: SessionVault;
   /** Long-running processes (the portal): also watch the inventory directory so changes made by the CLI show up without a read. */
   watchInventory?: boolean;
@@ -239,12 +248,13 @@ export async function createPortableRuntime<I extends InventoryStoreCore = Inven
         : undefined
       : (options.vault ?? undefined);
   // Without a host the store reads no environment variable and starts no process: an `env` or `op` source is unavailable.
-  const connections = new ConnectionStoreCore({
+  const connectionParts: ConnectionStoreCoreOptions = {
     specs,
     ...(vault ? { vault } : {}),
     ...(options.session ? { session: options.session } : {}),
     ...(host ? { host } : {}),
-  });
+  };
+  const connections = options.createConnections ? options.createConnections(connectionParts) : new ConnectionStoreCore(connectionParts);
   const f = options.fetch ?? fetch;
 
   let auth: TokenProvider;

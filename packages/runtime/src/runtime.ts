@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { FileEvidenceStore, GitHubClient, InventoryStore, loadConfig, patProvider, type SecretVault } from "@secret-desk/core";
+import { ConnectionStore, FileEvidenceStore, GitHubClient, InventoryStore, loadConfig, patProvider, type SecretVault } from "@secret-desk/core";
 import { createDefaultRegistry } from "@secret-desk/providers";
 import type { BrowserDriver } from "@secret-desk/automation";
 import { AutomationManager } from "./automation.js";
@@ -16,10 +16,11 @@ export { GITHUB_APP_KEY_CONNECTION, GITHUB_CONNECTION, issuanceDeps } from "./ru
 export interface Runtime extends RuntimeCore {
   configPath: string;
   inventory: InventoryStore;
+  connections: ConnectionStore;
   automation: AutomationManager;
 }
 
-export interface RuntimeOptions extends Omit<PortableRuntimeOptions, "vault" | "providers" | "automation" | "githubDefaults" | "githubClientClass"> {
+export interface RuntimeOptions extends Omit<PortableRuntimeOptions, "vault" | "providers" | "automation" | "githubDefaults" | "githubClientClass" | "createConnections"> {
   /**
    * The vault. Left out: the host's `openVault` opens the default one when the configuration has the vault on; a runtime without
    * that capability has no vault. `null`: no vault at all. An embedder without a host passes its own vault here (for example a `SecretVault` with its own store and key source).
@@ -61,6 +62,8 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
       ...(host ? { githubDefaults: NODE_GITHUB_DEFAULTS } : {}),
       // The client is an instance of the Node facade of the core, as it always was.
       githubClientClass: GitHubClient,
+      // The store is the Node facade of the core, with the same options as before; `host: null` means no host.
+      createConnections: (parts) => new ConnectionStore({ ...parts, host: parts.host ?? null }),
       providers: createDefaultRegistry,
       automation: async ({ providers }) => {
         // The folder of the state files (sign-in memory, live check) is next to the repository links file. Only needed when persisting;

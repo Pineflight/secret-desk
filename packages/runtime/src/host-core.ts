@@ -33,6 +33,23 @@ export interface RuntimeHost extends ConnectionHost {
   connectRemoteBrowser?(options: { cdpEndpoint: string; slowMoMs?: number }): BrowserDriver | Promise<BrowserDriver>;
   /** Looks for a local Chrome (`preferred` = the configured path). Only called when `launchLocalBrowser` exists. */
   findChrome?(preferred?: string): { path: string | null; hint: string | null };
+  /**
+   * How `~` paths work on the machine the host runs on (see `HostPaths`). Absent: POSIX, the portable default. The Node host fills
+   * it from the platform of the process. It is keyed by a symbol, so it is not one of the named capabilities above and a copy of the
+   * host made with `{ ...host }` keeps it.
+   */
+  readonly [HOME_PATHS]?: HostPaths;
+}
+
+/** The key of the path rules of a host (`RuntimeHost[HOME_PATHS]`). */
+export const HOME_PATHS: unique symbol = Symbol.for("secret-desk.runtime.homePaths");
+
+/** The path rules a host brings for `~` paths: the style of its platform and the join of its path module. */
+export interface HostPaths {
+  /** `"win32"`: `~\` is a home path as well. Anything else: only `~` and `~/`. */
+  style: "posix" | "win32";
+  /** Joins the home folder and the rest of a `~` path the way the path module of the host's platform does (`path.join`). */
+  join(base: string, rest: string): string;
 }
 
 /** A path of the runtime needs a capability the host does not offer (for example `~` without a home folder). */
@@ -65,65 +82,41 @@ export function hostHome(host: RuntimeHost | undefined | null): string | undefin
   return typeof home === "string" && home !== "" ? home : undefined;
 }
 
-/** A Windows home folder (a drive letter or a UNC share): paths below it are joined with the Windows rules. */
-const WINDOWS_HOME = /^(?:[A-Za-z]:(?:[\\/]|$)|[\\/]{2}[^\\/])/;
-
 /**
- * Joins a folder and a relative path and normalises the result the way `path.join` does (collapsed separators, resolved `.` and
- * `..`, a kept trailing separator), without the path module: the rules of Windows when the folder is a Windows folder, else the
- * rules of POSIX.
+ * `path.posix.join(base, rest)` without the path module: the default of a host that brings no `joinPath`. Empty parts are skipped,
+ * separators collapse, `.` and `..` resolve (a `..` above the root of an absolute path is dropped, above a relative one it is kept)
+ * and a trailing separator stays.
  */
-function joinBelow(home: string, rest: string): string {
-  const win = WINDOWS_HOME.test(home);
-  const joined = rest === "" ? home : `${home}${win ? "\\" : "/"}${rest}`;
-  const sep = win ? "\\" : "/";
-  let prefix = "";
-  let body = joined;
-  if (win) {
-    // A drive letter and/or the root separator, or the device root of a UNC share (`\\server\share`).
-    const unc = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/.exec(joined);
-    if (unc) {
-      prefix = `\\\\${unc[1]}\\${unc[2]}\\`;
-      body = joined.slice(unc[0].length);
-    } else {
-      const drive = /^([A-Za-z]:)?([\\/])?/.exec(joined)!;
-      prefix = `${drive[1] ?? ""}${drive[2] ? "\\" : ""}`;
-      body = joined.slice(drive[0].length);
-    }
-  } else if (joined.startsWith("/")) {
-    prefix = "/";
-  }
-  const rooted = prefix.endsWith(sep);
-  const trailing = joined.endsWith("/") || (win && joined.endsWith("\\"));
+function posixJoin(base: string, rest: string): string {
+  const joined = rest === "" ? base : `${base}/${rest}`;
+  const absolute = joined.startsWith("/");
   const segments: string[] = [];
-  for (const part of body.split(win ? /[\\/]+/ : /\/+/)) {
+  for (const part of joined.split("/")) {
     if (part === "" || part === ".") continue;
     if (part === "..") {
       if (segments.length > 0 && segments[segments.length - 1] !== "..") segments.pop();
-      else if (!rooted) segments.push("..");
+      else if (!absolute) segments.push("..");
     } else {
       segments.push(part);
     }
   }
-  const tail = segments.join(sep);
-  if (tail === "") return prefix !== "" ? prefix : trailing ? `.${sep}` : ".";
-  return `${prefix}${tail}${trailing ? sep : ""}`;
+  const tail = segments.join("/");
+  if (tail === "") return absolute ? "/" : joined.endsWith("/") ? "./" : ".";
+  return `${absolute ? "/" : ""}${tail}${joined.endsWith("/") ? "/" : ""}`;
 }
 
 /**
  * Expands a leading `~` with the host's home folder. Anything else is returned unchanged. A `~` path without a home folder is
- * refused with a `HostCapabilityError` (never expanded to the home of the process). `~\` is read as the home folder only when the
- * home folder is a Windows folder.
+ * refused with a `HostCapabilityError` (never expanded to the home of the process). `~` and `~/x` are home paths on every host;
+ * `~\x` only when the path rules of the host (`HOME_PATHS`) have the style `"win32"`. The path is joined by the host's `join`,
+ * by default with POSIX rules.
  */
 export function expandHomeFor(host: RuntimeHost | undefined | null, p: string): string {
   const slash = p === "~" || p.startsWith("~/");
-  const backslash = p.startsWith("~\\");
-  if (!slash && !backslash) return p;
+  if (!slash && !(p.startsWith("~\\") && host?.[HOME_PATHS]?.style === "win32")) return p;
   const home = hostHome(host);
-  if (!home) {
-    if (backslash) return p; // only a Windows host knows `~\`; without a home folder it is just a name
-    throw new HostCapabilityError("homeDir", "Der Pfad beginnt mit ~, aber diese Umgebung stellt keinen Home-Ordner bereit. Einen absoluten Pfad angeben.");
-  }
-  if (backslash && !WINDOWS_HOME.test(home)) return p;
-  return p === "~" ? home : joinBelow(home, p.slice(2));
+  if (!home) throw new HostCapabilityError("homeDir", "Der Pfad beginnt mit ~, aber diese Umgebung stellt keinen Home-Ordner bereit. Einen absoluten Pfad angeben.");
+  if (p === "~") return home;
+  const paths = host?.[HOME_PATHS];
+  return paths ? paths.join(home, p.slice(2)) : posixJoin(home, p.slice(2));
 }
