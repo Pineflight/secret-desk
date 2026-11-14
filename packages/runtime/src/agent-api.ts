@@ -28,6 +28,9 @@ import {
   SecretHumanPatchSchema,
   SecretValue,
   StaleIssuanceError,
+  hasWriteStarted,
+  writtenPlacesOf,
+  type DiscardResult,
   VariableAgentCreateSchema,
   parseInput,
   parseStripeConnectionId,
@@ -766,19 +769,41 @@ export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, inp
     await rt.issuances.sweep(issuanceDeps(rt));
     // The hook may have taken a while: only go on with the very same item.
     if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
-    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)!, hardBound: rt.issuances.hardBound(id)! });
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)!, hardBound: rt.issuances.hardBound(id)!, beforeWrite: () => rt.issuances.markWriteStarted(id) });
     if (result.ok) rt.issuances.delete(id);
     return result;
   } catch (err) {
-    // Der neue Wert ist beim Anbieter schon widerrufen: die Pruefung ist nicht mehr zu retten.
-    if (err instanceof StaleIssuanceError) rt.issuances.delete(id);
+    // The review is stale and cannot be saved. The commit asked the gate to revoke the new value: when the gate refused because a
+    // write was started earlier (a partial attempt), the record stays for a person; otherwise the review goes, and a delete the
+    // provider did not confirm is owed.
+    if (err instanceof StaleIssuanceError) {
+      if (err.revokeRefused === "write-started") await rt.issuances.keepForDecision(pending, issuanceDeps(rt));
+      else {
+        rt.issuances.delete(id);
+        rt.issuances.oweIfNeeded(pending, { revokedNew: err.revokedNew, ...(err.revokeRefused ? { refused: err.revokeRefused } : {}) });
+      }
+    }
     throw err;
   } finally {
     rt.issuances.release(id);
   }
 }
 
-export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string): Promise<{ revokedNew: boolean }> {
+/**
+ * Rejecting a review a write was started for would revoke a value that may be in use at the places named here. It is refused
+ * unless the call carries the acknowledgement (`acknowledgeWritten`): only a person who has seen the places can supply it.
+ */
+export class IssuanceWrittenError extends PolicyError {
+  readonly code = "write-started";
+  readonly places: readonly string[];
+  constructor(places: readonly string[]) {
+    super(`Ein Schreibvorgang wurde begonnen: der neue Wert ist an diesen Orten oder koennte dort sein: ${places.join(", ")}. Ablehnen widerruft ihn beim Anbieter und kann Dienste abschalten, die ihn nutzen.`);
+    this.name = "IssuanceWrittenError";
+    this.places = [...places];
+  }
+}
+
+export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string, options: { acknowledgeWritten?: boolean } = {}): Promise<DiscardResult> {
   requireHuman(actor, "Ablehnen");
   const pending = rt.issuances.get(id);
   if (!pending) throw new IssuanceGoneError(id);
@@ -786,10 +811,16 @@ export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note
   try {
     await authorize(rt, { actor, action: "issuance.reject", subject: issuanceSubject(pending) });
     if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
-    rt.issuances.delete(id);
-    const result = await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}) });
-    // A delete the provider did not confirm is tried again by the sweep, like the delete of an expired review.
-    rt.issuances.oweIfNeeded(pending, result.revokedNew);
+    if (hasWriteStarted(pending) && options.acknowledgeWritten !== true) throw new IssuanceWrittenError(writtenPlacesOf(pending));
+    // The queue entry goes only after the discard settled; a delete the provider did not confirm (or an error out of the discard)
+    // is owed, and tried again by the sweep like the delete of an expired review.
+    let result: DiscardResult = { revokedNew: false };
+    try {
+      result = await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}), ...(options.acknowledgeWritten === true ? { acknowledgeWritten: true } : {}) });
+    } finally {
+      rt.issuances.delete(id);
+      rt.issuances.oweIfNeeded(pending, result);
+    }
     return result;
   } finally {
     rt.issuances.release(id);

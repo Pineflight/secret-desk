@@ -6,7 +6,12 @@ import { CLAIM_GRACE_MS, IssuanceQueue, MAX_REVOKE_TRIES, MemoryPendingStore, RE
 const hold = vi.hoisted(() => ({ states: new WeakMap<object, string>() }));
 vi.mock("@secret-desk/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@secret-desk/core")>();
-  return { ...actual, issuanceStateOf: (p: object) => hold.states.get(p) ?? actual.issuanceStateOf(p as never) };
+  return {
+    ...actual,
+    issuanceStateOf: (p: object) => hold.states.get(p) ?? actual.issuanceStateOf(p as never),
+    // A scripted "partial" item is one a write was started for.
+    hasWriteStarted: (p: object) => ["partial", "committing"].includes(hold.states.get(p) ?? "") || actual.hasWriteStarted(p as never),
+  };
 });
 
 const T0 = "2026-11-14T10:00:00.000Z";
@@ -216,7 +221,7 @@ describe("IssuanceQueue: the sweep deletes only what this process knows to be un
     expect(q.orphans()).toEqual([expect.objectContaining({ id: "a", needsDecision: true })]);
     expect(q.nextDeadline()).toBeNull();
     // Only an explicit call that says a person decided can delete it.
-    expect(await q.revokeOrphan("a", depsOf({ revoke }))).toEqual({ status: "refused", reason: "needs-decision" });
+    expect(await q.revokeOrphan("a", depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
     expect(store.get("a")).toBeDefined();
     expect(revoke).not.toHaveBeenCalled();
     expect(await q.revokeOrphan("a", depsOf({ revoke }), { acceptPartial: true })).toEqual({ status: "revoked" });
@@ -332,7 +337,7 @@ describe("IssuanceQueue: a delete the provider does not confirm", () => {
     const { c, now } = clock(T0);
     const store = new MemoryPendingStore();
     const q = new IssuanceQueue({ store, now });
-    q.add(withValue("a", "2026-11-14T10:05:00.000Z"));
+    q.add(withValue("a", "2026-11-14T10:05:00.000Z", { externalId: "ext-new" }));
     c.t = at("2026-11-14T10:06:00.000Z");
     // Deps that make the discard throw.
     expect(await q.sweep({} as never)).toEqual([]);
@@ -385,10 +390,11 @@ describe("IssuanceQueue: a delete the provider does not confirm", () => {
     const p = withValue("a", "2026-11-14T10:05:00.000Z", { externalId: "ext-new" });
     q.add(p);
     q.delete("a");
-    q.oweIfNeeded(p, true);
-    q.oweIfNeeded(withValue("b", "2026-11-14T10:05:00.000Z"), false);
+    q.oweIfNeeded(p, { revokedNew: true });
+    q.oweIfNeeded(p, { revokedNew: false, refused: "value-in-use" });
+    q.oweIfNeeded(withValue("b", "2026-11-14T10:05:00.000Z"), { revokedNew: false });
     expect(store.list()).toEqual([]);
-    q.oweIfNeeded(p, false);
+    q.oweIfNeeded(p, { revokedNew: false });
     expect(store.get("a")).toBeDefined();
     expect(q.orphans()).toEqual([]);
     expect(q.nextDeadline()).toEqual(new Date(c.t + REVOKE_RETRY_MS));
@@ -411,9 +417,9 @@ describe("IssuanceQueue: the store sees metadata only, and orphans are revoked o
     q.add(withValue("renewed", "2026-11-14T10:05:00.000Z", { noIssued: true }));
     q.add(withValue("same", "2026-11-14T10:05:00.000Z", { externalId: "ext-1", oldExternalId: "ext-1" }));
     expect(puts).toEqual([
-      { id: "a", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z", externalId: "ext-new" },
-      { id: "renewed", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z" },
-      { id: "same", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z" },
+      { id: "a", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z", externalId: "ext-new", companionIds: ["c"] },
+      { id: "renewed", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z", companionIds: ["c"] },
+      { id: "same", secretId: "s", provider: "prov", createdAt: T0, expiresAt: "2026-11-14T10:05:00.000Z", companionIds: ["c"] },
     ]);
     expect(JSON.stringify(inner.list())).not.toMatch(/made-up|"value"|report/);
     expect(q.orphans()).toEqual([]);
@@ -483,7 +489,7 @@ describe("IssuanceQueue: the store sees metadata only, and orphans are revoked o
     expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "ext-new" }));
     expect(store.get("a")).toBeUndefined();
     expect((await evidence.get("s", "a"))?.checks.map((x) => x.id)).toContain("orphan-revoked");
-    expect(await q.revokeOrphan("renewed", depsOf({ revoke }))).toEqual({ status: "nothing" });
+    expect(await q.revokeOrphan("renewed", depsOf({ revoke }))).toEqual({ status: "refused", reason: "no-id" });
     expect(store.list()).toEqual([]);
     expect(await q.revokeOrphan("a", depsOf({ revoke }))).toEqual({ status: "refused", reason: "unknown" });
   });
@@ -500,10 +506,113 @@ describe("IssuanceQueue: the store sees metadata only, and orphans are revoked o
 
   it("revokeOrphanRecord names the case that applied", async () => {
     const revoke = vi.fn(async () => undefined);
-    expect(await revokeOrphanRecord(record({ externalId: undefined }), depsOf({ revoke }))).toEqual({ status: "nothing" });
+    expect(await revokeOrphanRecord(record({ externalId: undefined }), depsOf({ revoke }))).toEqual({ status: "refused", reason: "no-id" });
     expect(await revokeOrphanRecord(record(), depsOf({ revoke }))).toEqual({ status: "revoked" });
-    expect(await revokeOrphanRecord(record(), depsOf())).toEqual({ status: "failed" });
-    expect(await revokeOrphanRecord(record({ needsDecision: true }), depsOf({ revoke }))).toEqual({ status: "refused", reason: "needs-decision" });
+    expect(await revokeOrphanRecord(record(), depsOf())).toEqual({ status: "refused", reason: "no-revoke" });
+    expect(await revokeOrphanRecord(record({ writeStarted: true }), depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(await revokeOrphanRecord(record({ needsDecision: true }), depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(await revokeOrphanRecord(record({ writeStarted: true }), depsOf({ revoke }), { acceptPartial: true })).toEqual({ status: "revoked" });
+    expect(revoke).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("IssuanceQueue: the gate in the queue's sequences", () => {
+  it("a record left by a process that died mid-commit (the store holds writeStarted) is refused without acknowledgement, kept flagged, and told to onNeedsDecision", async () => {
+    const store = new MemoryPendingStore();
+    store.put(record({ id: "died", writeStarted: true }));
+    const told = vi.fn();
+    const q = new IssuanceQueue({ store, onNeedsDecision: told });
+    const revoke = vi.fn(async () => undefined);
+    expect(await q.revokeOrphan("died", depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(store.get("died")).toMatchObject({ writeStarted: true, needsDecision: true });
+    expect(told).toHaveBeenCalledWith(expect.objectContaining({ id: "died", needsDecision: true }));
+    expect(revoke).not.toHaveBeenCalled();
+    // A callback that throws changes nothing, and the explicit acknowledgement lifts the refusal.
+    const throwing = new IssuanceQueue({ store, onNeedsDecision: () => { throw new Error("broke"); } });
+    expect(await throwing.revokeOrphan("died", depsOf({ revoke }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(await throwing.revokeOrphan("died", depsOf({ revoke }), { acceptPartial: true })).toEqual({ status: "revoked" });
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(store.list()).toEqual([]);
+  });
+
+  it("an item a write was started for is never revoked by the sweep when it expires, and the expiry is reported", async () => {
+    const { c, now } = clock(T0);
+    const told = vi.fn();
+    const evidence = new MemoryEvidenceStore();
+    const q = new IssuanceQueue({ now, onNeedsDecision: told });
+    const p = withValue("a", "2026-11-14T10:05:00.000Z", { externalId: "ext-new" });
+    await evidence.save(p.report);
+    q.add(p);
+    // The commit records the fact before its first write, in the store, and a failing store update stops the commit.
+    q.markWriteStarted("a");
+    hold.states.set(p, "partial");
+    c.t = at("2026-11-14T10:06:00.000Z");
+    const revoke = vi.fn(async () => undefined);
+    expect(await q.sweep(depsOf({ revoke, evidence }))).toEqual([]);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(told).toHaveBeenCalledTimes(1);
+    expect((await evidence.get("s", "a"))?.checks.map((x) => x.id)).toContain("needs-decision");
+    expect(q.orphans()).toEqual([expect.objectContaining({ id: "a", writeStarted: true, needsDecision: true })]);
+  });
+
+  it("markWriteStarted updates the record, falls back to the held item, and throws when the store cannot take it or nothing is known", () => {
+    const store = new MemoryPendingStore();
+    const q = new IssuanceQueue({ store });
+    q.add(withValue("a", "2999-01-01T00:00:00Z", { externalId: "ext-new" }));
+    q.markWriteStarted("a");
+    expect(store.get("a")).toMatchObject({ writeStarted: true, externalId: "ext-new" });
+    store.delete("a");
+    q.markWriteStarted("a");
+    expect(store.get("a")).toMatchObject({ writeStarted: true });
+    expect(() => q.markWriteStarted("nope")).toThrow(/No record/);
+    const refusing = new IssuanceQueue({ store: { put: () => { throw new Error("store down"); }, get: () => undefined, list: () => [], delete: () => undefined } });
+    expect(() => refusing.markWriteStarted("a")).toThrow(/No record|store down/);
+    const failing = new IssuanceQueue({ store: { put: (r) => { if (r.writeStarted) throw new Error("store down"); }, get: () => undefined, list: () => [], delete: () => undefined } });
+    failing.add(withValue("b", "2999-01-01T00:00:00Z"));
+    expect(() => failing.markWriteStarted("b")).toThrow("store down");
+  });
+
+  it("two reviews with the same provider id, one confirmed: the other's expiry revokes nothing (value in use), and so does a stale discard of it", async () => {
+    const { c, now } = clock(T0);
+    const q = new IssuanceQueue({ now });
+    const other = withValue("other", "2026-11-14T10:05:00.000Z", { externalId: "ext-shared" });
+    q.add(other);
+    c.t = at("2026-11-14T10:06:00.000Z");
+    const revoke = vi.fn(async () => undefined);
+    // The confirmed review's identifier is the entry's current one.
+    expect(await q.sweep(depsOf({ revoke, secret: entry({ externalId: "ext-shared" }) }))).toEqual(["other"]);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(q.orphans()).toEqual([]);
+  });
+
+  it("a stale item a write was started for stays for a person (kept, flagged); any other stale item goes and a failed delete is owed", async () => {
+    const store = new MemoryPendingStore();
+    const q = new IssuanceQueue({ store });
+    const p = withValue("a", "2999-01-01T00:00:00Z", { externalId: "ext-new" });
+    q.add(p);
+    hold.states.set(p, "partial");
+    await q.keepForDecision(p, depsOf());
+    expect(q.get("a")).toBeUndefined();
+    expect(store.get("a")).toMatchObject({ writeStarted: true, needsDecision: true });
+    expect(q.orphans().map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("a sweep keeps the record of a commit that is still in flight, and a person-decided orphan can be revoked later", async () => {
+    const { c, now } = clock(T0);
+    const store = new MemoryPendingStore();
+    const q = new IssuanceQueue({ store, now });
+    const p = withValue("a", "2026-11-14T10:05:00.000Z", { externalId: "ext-new" });
+    q.add(p);
+    q.markWriteStarted("a");
+    hold.states.set(p, "committing");
+    c.t = at("2026-11-14T10:06:00.000Z");
+    const revoke = vi.fn(async () => undefined);
+    expect(await q.sweep(depsOf({ revoke }))).toEqual([]);
+    hold.states.set(p, "partial");
+    c.t += REVOKE_RETRY_MS;
+    expect(await q.sweep(depsOf({ revoke }))).toEqual([]);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await q.revokeOrphan("a", depsOf({ revoke }), { acceptPartial: true })).toEqual({ status: "revoked" });
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 });

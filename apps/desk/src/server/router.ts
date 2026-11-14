@@ -31,6 +31,7 @@ import {
   authorize,
   LiveCheckBusyError,
   IssuanceGoneError,
+  IssuanceWrittenError,
   PolicyError,
   checkConnection,
   getConnectionResources,
@@ -372,7 +373,7 @@ const humanOnly: [string, RegExp, Handler][] = [
   ["POST", /^recipes\/([^/]+)\/sign-in\/cancel$/, ({ rt, actor, params }) => cancelRecipeSignIn(rt, actor, decodeURIComponent(params[0]!))],
   ["POST", /^facades\/([^/]+)\/check$/, gated("automation.run", (c) => ({ connectionId: idParam(c) }), ({ rt, actor, params, body }) => checkFacadeSession(rt, actor, decodeURIComponent(params[0]!), optStr(body, "host") ? { host: optStr(body, "host")! } : {}))],
   ["POST", /^reviews\/([^/]+)\/confirm$/, ({ rt, actor, params, body }) => confirmIssuance(rt, actor, params[0]!, { ticks: Array.isArray(body.ticks) ? (body.ticks as string[]) : [], ...(optStr(body, "note") ? { note: optStr(body, "note")! } : {}), force: body.force === true })],
-  ["POST", /^reviews\/([^/]+)\/reject$/, ({ rt, actor, params, body }) => rejectIssuance(rt, actor, params[0]!, optStr(body, "note"))],
+  ["POST", /^reviews\/([^/]+)\/reject$/, ({ rt, actor, params, body }) => rejectIssuance(rt, actor, params[0]!, optStr(body, "note"), { acknowledgeWritten: body.acknowledgeWritten === true })],
   ["POST", /^secrets\/([^/]+)\/manual-value$/, ({ rt, actor, params, body }) => submitManualValue(rt, actor, params[0]!, str(body, "value"))],
   ["POST", /^approvals\/([^/]+)\/(approve|deny)$/, ({ rt, actor, params }) => resolveApproval(rt, actor, params[0]!, params[1] as "approve" | "deny")],
   // Writes the selected lines of a fresh plan to GitHub. The production confirmation is the existing checklist item "this affects production".
@@ -547,6 +548,8 @@ export async function route(req: Request, deps: RouterDeps): Promise<Response> {
 function mapError(e: unknown, json: JsonFn, err: ErrFn): Response {
   // A review that is gone (expired, dealt with, or lost with a restart) is not a refusal: 404, and the way on is to issue it again.
   if (e instanceof IssuanceGoneError) return json({ error: e.message, code: e.code }, 404);
+  // A reject that would revoke a value a write was started for: 409 with the places, until the body carries `acknowledgeWritten: true`.
+  if (e instanceof IssuanceWrittenError) return json({ error: e.message, code: e.code, places: e.places }, 409);
   if (e instanceof PolicyError) return err(403, e.message);
   // Parameter fehlen oder sind ungueltig: vor jedem Netzaufruf, mit Klartext und den betroffenen Schluesseln.
   if (e instanceof ParamsInvalidError) return json({ error: e.message, code: e.code, problems: e.problems }, 400);

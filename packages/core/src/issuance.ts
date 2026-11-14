@@ -91,11 +91,18 @@ export class IssuanceError extends Error {
   }
 }
 
-/** Der Eintrag hat sich seit der Pruefung geaendert: nichts wurde geschrieben, der neue Wert ist beim Anbieter widerrufen. */
+/**
+ * Der Eintrag hat sich seit der Pruefung geaendert: es wird nichts mehr geschrieben und der neue Wert wird beim Anbieter widerrufen,
+ * ausser das Tor (`revokeNewValue`) lehnt ab. `revokedNew` und `revokeRefused` sagen, was daraus wurde.
+ */
 export class StaleIssuanceError extends IssuanceError {
-  constructor() {
+  readonly revokedNew: boolean;
+  readonly revokeRefused: RevokeRefusal | undefined;
+  constructor(outcome: DiscardResult = { revokedNew: false }) {
     super("Eintrag wurde seit der Pruefung geaendert, bitte neu erzeugen");
     this.name = "StaleIssuanceError";
+    this.revokedNew = outcome.revokedNew;
+    this.revokeRefused = outcome.refused;
   }
 }
 
@@ -177,6 +184,8 @@ export async function prepareIssuance(
       // entry by accident, nor a secret a variable, which GitHub shows in clear text).
       if (!found || found.kind !== (c.kind ?? "secret")) {
         // The provider returned a value for an entry nobody named: undo what was created, write nothing.
+        // Outside the revoke gate (`revokeNewValue`) on purpose: no item exists yet, nothing was written anywhere, and the value
+        // was created a moment ago in this very call, so it cannot be in use.
         if (externalId && externalId !== secret.externalId && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
         throw new IssuanceError("Der Anbieter lieferte einen Begleitwert fuer einen nicht benannten Eintrag. Nichts wurde geschrieben.");
       }
@@ -291,19 +300,31 @@ const committing = new WeakSet<PendingIssuance>();
 const committed = new WeakSet<PendingIssuance>();
 /** Items that were discarded (rejected, expired or stale): a second discard or a later commit must not touch the provider again. */
 const discarded = new WeakSet<PendingIssuance>();
-/** Items a commit wrote the new value to at least one place of and then stopped: the new value is in use somewhere, so nothing may revoke it but a person. */
-const partial = new WeakSet<PendingIssuance>();
+/**
+ * Items for which a write to some place was ever started. Set before the first write is sent and never cleared: a write that
+ * throws or times out may still have been applied by the remote, so from then on the new value may be in use somewhere and
+ * nothing revokes it automatically (see `revokeNewValue`).
+ */
+const writeStarted = new WeakSet<PendingIssuance>();
+/** The places a write was started for (written or possibly written), for the person who has to decide. */
+const attemptedPlaces = new WeakMap<PendingIssuance, string[]>();
+
+/** Was a write of this item to any place ever started? */
+export const hasWriteStarted = (pending: PendingIssuance): boolean => writeStarted.has(pending);
+
+/** The places a write of this item was started for: the new value is there or may be there. */
+export const writtenPlacesOf = (pending: PendingIssuance): string[] => [...(attemptedPlaces.get(pending) ?? [])];
 
 /**
  * Where an item stands for whoever wants to clean it up. `committing`: a commit is in flight. `committed`: the new value is in use.
- * `partial`: a commit wrote some places and stopped; only a person decides what happens to the new value. `discarded`: done.
- * `open`: nothing was written, the new value may be deleted at the provider.
+ * `partial`: a write was started and the commit did not finish; only a person decides what happens to the new value.
+ * `discarded`: done. `open`: no write was ever started, the new value may be deleted at the provider.
  */
 export function issuanceStateOf(pending: PendingIssuance): "open" | "committing" | "committed" | "partial" | "discarded" {
   if (committing.has(pending)) return "committing";
   if (committed.has(pending)) return "committed";
   if (discarded.has(pending)) return "discarded";
-  return partial.has(pending) ? "partial" : "open";
+  return writeStarted.has(pending) ? "partial" : "open";
 }
 
 /**
@@ -314,7 +335,7 @@ export async function commitIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean; signal?: AbortSignal; hardBound?: number } = {},
+  options: { force?: boolean; signal?: AbortSignal; hardBound?: number; beforeWrite?: () => void | Promise<void> } = {},
 ): Promise<CommitResult> {
   // Atomar (vor dem ersten await) als "in Bearbeitung" markieren: ein zweiter, auch paralleler Aufruf wirft sofort.
   if (committing.has(pending) || committed.has(pending) || discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
@@ -334,7 +355,7 @@ async function commitIssuanceOnce(
   pending: PendingIssuance,
   deps: IssuanceDeps,
   confirmation: { by: string; principalId?: string; ticks: string[]; note?: string },
-  options: { force?: boolean; signal?: AbortSignal; hardBound?: number },
+  options: { force?: boolean; signal?: AbortSignal; hardBound?: number; beforeWrite?: () => void | Promise<void> },
 ): Promise<CommitResult> {
   const secret = deps.inventory.getSecret(pending.secretId);
   if (!secret) throw new IssuanceError(`Secret nicht gefunden: ${pending.secretId}`);
@@ -345,8 +366,7 @@ async function commitIssuanceOnce(
   // Bindung an den Stand der Pruefung: Wurden Ziele, Anbieter, Parameter, Stage oder Kennung inzwischen geaendert
   // (zum Beispiel durch einen Agenten oder einen importierten Pull Request), geht der Wert nirgends hin.
   if (issuanceSnapshot(secret, stageKind(deps.inventory.stages, secret.stage)) !== pending.snapshot) {
-    await discardIssuanceNow(pending, deps, { ...decider, why: "stale" });
-    throw new StaleIssuanceError();
+    throw new StaleIssuanceError(await discardIssuanceNow(pending, deps, { ...decider, why: "stale" }));
   }
   if (!options.force && overallStatus(pending.report.checks) === "fail") {
     throw new IssuanceError("Die automatische Pruefung ist fehlgeschlagen. Verwerfen oder Ursache beheben.");
@@ -360,8 +380,7 @@ async function commitIssuanceOnce(
     const found = companionEntry(deps.inventory, c.entryId);
     const entry = found?.entry;
     if (!entry || found.kind !== c.kind || companionSnapshot(entry) !== c.snapshot) {
-      await discardIssuanceNow(pending, deps, { ...decider, why: "stale" });
-      throw new StaleIssuanceError();
+      throw new StaleIssuanceError(await discardIssuanceNow(pending, deps, { ...decider, why: "stale" }));
     }
     companionEntries.push({ entry, kind: c.kind, value: c.value });
   }
@@ -379,6 +398,13 @@ async function commitIssuanceOnce(
       outcomes.push({ place: w.label, outcome: "failed", error: "Abgebrochen: die Anfrage ist abgelaufen." });
       continue;
     }
+    // From here a write is started, and nothing may be revoked automatically again: set before the first write is sent, never
+    // cleared. A caller that keeps the fact elsewhere (a store) records it first; when that fails, no write starts at all.
+    if (!writeStarted.has(pending)) {
+      await options.beforeWrite?.();
+      writeStarted.add(pending);
+    }
+    attemptedPlaces.set(pending, [...(attemptedPlaces.get(pending) ?? []), w.label]);
     try {
       const outcome =
         w.variable && !isWorkerPlace(w.place)
@@ -391,11 +417,11 @@ async function commitIssuanceOnce(
   }
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
   if (failed > 0) {
-    const holding = outcomes.filter((o) => o.outcome !== "failed").map((o) => o.place);
-    if (holding.length > 0) {
-      // The new value is in use at these places: from here on only a person decides about it (nothing revokes it automatically).
-      partial.add(pending);
-      pending.report.checks.push({ id: "partial-write", label: `Neuer Wert bereits geschrieben, nicht widerrufen: ${holding.join(", ")}`, status: "warn", detail: "Ein Mensch entscheidet: erneut bestaetigen oder ablehnen." });
+    // A write that failed may still have been applied by the remote (a time-out, a lost answer): every place a write was started
+    // for counts. From here only a person decides about the new value (nothing revokes it automatically).
+    const attempted = attemptedPlaces.get(pending) ?? [];
+    if (attempted.length > 0) {
+      pending.report.checks.push({ id: "partial-write", label: `Neuer Wert geschrieben oder moeglicherweise geschrieben, nicht widerrufen: ${attempted.join(", ")}`, status: "warn", detail: "Ein Mensch entscheidet: erneut bestaetigen oder ablehnen." });
       await deps.evidence?.save(pending.report).catch(() => undefined);
     }
     return { secretId: pending.secretId, reportId: pending.report.id, ok: false, partial: failed < outcomes.length, places: outcomes, revokedOld: false, expires: secret.expires };
@@ -404,7 +430,6 @@ async function commitIssuanceOnce(
   // Every place holds the new value now: it is in use, whatever happens to the checks, the inventory or the report below.
   // Nothing may revoke it any more (an evidence failure later must not leave the item looking unconfirmed).
   committed.add(pending);
-  partial.delete(pending);
 
   // Nachpruefung: Der Name steht jetzt in jedem Ziel und wurde eben geaendert.
   const since = Date.parse(pending.createdAt) - 5_000;
@@ -426,6 +451,8 @@ async function commitIssuanceOnce(
   const provider = deps.providers.get(secret.provider);
   let revokedOld = false;
   // A rotation keeps the provider id: the "old" value is the same object and must not be deleted.
+  // Outside the revoke gate (`revokeNewValue`) on purpose: this revokes the OLD value, after every place holds the new one and
+  // the person confirmed; the gate is for a NEW value that may be in use.
   if (pending.oldExternalId && pending.oldExternalId !== pending.report.externalId && provider?.revoke) {
     try {
       await provider.revoke({ externalId: pending.oldExternalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
@@ -447,7 +474,8 @@ async function commitIssuanceOnce(
       verifiedBy: confirmation.by,
       expires: pending.newExpires,
       ...(unknownExpiry ? { expiry: "unknown" as const } : {}),
-      ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
+      // No identifier for the new value: clear the old one instead of keeping the identifier of the value just revoked.
+      externalId: pending.report.externalId ?? null,
     });
     for (const { entry, kind, value } of companionEntries) {
       if (kind === "variable") {
@@ -461,7 +489,7 @@ async function commitIssuanceOnce(
         verifiedBy: confirmation.by,
         // An entry that never expires keeps no expiry date.
         ...((entry as SecretEntry).expiry === "none" ? {} : { expires: pending.newExpires }),
-        ...(pending.report.externalId ? { externalId: pending.report.externalId } : {}),
+        externalId: pending.report.externalId ?? null,
       });
     }
     await deps.inventory.save();
@@ -484,30 +512,77 @@ async function commitIssuanceOnce(
   return { secretId: pending.secretId, reportId: pending.report.id, ok: true, partial: false, places: outcomes, revokedOld, expires: pending.newExpires, ...(warnings.length ? { warnings } : {}) };
 }
 
+/** Why the gate did not call the provider. The first reason is a decision for a person; the others mean the record is stale. */
+export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke";
+
+export type RevokeOutcome = { status: "revoked" } | { status: "failed" } | { status: "refused"; reason: RevokeRefusal };
+
+/** What the gate needs to know about a new value: metadata only, from a pending item or from a record. */
+export interface RevokeTarget {
+  secretId: string;
+  /** The provider of the entry when the value was issued. */
+  provider: string;
+  /** The provider's identifier of the new value. Absent: nothing to delete (for example a renewal in place). */
+  externalId?: string | undefined;
+  /** Entries that received companion values from the same issuance. */
+  companionIds?: readonly string[] | undefined;
+  /** A write was started, according to a record (another process, an earlier life of this one). */
+  writeStarted?: boolean | undefined;
+  /** The pending item itself, when this process holds it: its in-memory fact counts too. */
+  pending?: PendingIssuance | undefined;
+  /** The entry as it was issued: the delete uses its provider and parameters. Without it the entry in the inventory is used. */
+  issuedSecret?: SecretEntry | undefined;
+}
+
 /**
- * Deletes a newly issued value at the provider. Needs no value: only the entry the value was issued for and the provider's
- * identifier of it (metadata). This is what an embedder calls for a record whose value is gone (a restarted process). Returns
- * true when the provider confirmed the delete, false when there is nothing to call or the call failed (the value then stays
- * valid at the provider; a caller may try again).
+ * THE gate: the only code that asks a provider to revoke or delete a newly issued value. Every site goes through it (commit's
+ * stale checks, discard, the sweep and its retries, a person's reject, an explicit orphan revoke). It refuses, without calling
+ * the provider, whenever the value may be in use:
+ *  - `write-started`: a write of this item to any place was ever started (a failed or timed-out write may still have been
+ *    applied). Only `acknowledgeWritten`, which a person's reject or an explicit orphan revoke supplies, lifts this.
+ *  - `value-in-use`: the identifier is the current one of the entry or of a companion entry, read now (another review of the
+ *    same provider identifier may have been confirmed).
+ *  - `secret-gone`, `provider-changed`: for a record alone (no issued entry) the entry must still exist with the same provider.
+ *  - `no-id`, `no-revoke`: there is nothing to call.
+ * The gate knows only the inventory, not uses outside it. Outside the gate on purpose: the old-value revoke after a confirmed
+ * commit and the undo inside `prepareIssuance` (see the comments there), and the separate rotate and env-export flows.
  */
-export async function revokeIssuedValue(secret: SecretEntry, externalId: string, deps: IssuanceDeps): Promise<boolean> {
+export async function revokeNewValue(target: RevokeTarget, deps: IssuanceDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
+  const id = target.externalId;
+  if (!id) return { status: "refused", reason: "no-id" };
+  const current = deps.inventory.getSecret(target.secretId);
+  const live = [current?.externalId, ...(target.companionIds ?? []).map((entry) => deps.inventory.getSecret(entry)?.externalId)];
+  if (live.includes(id)) return { status: "refused", reason: "value-in-use" };
+  const started = target.writeStarted === true || (target.pending !== undefined && writeStarted.has(target.pending));
+  if (started && !options.acknowledgeWritten) return { status: "refused", reason: "write-started" };
+  if (!target.issuedSecret) {
+    if (!current) return { status: "refused", reason: "secret-gone" };
+    if (current.provider !== target.provider) return { status: "refused", reason: "provider-changed" };
+  }
+  const secret = (target.issuedSecret ?? current)!;
   const provider = deps.providers.get(secret.provider);
-  if (!provider?.revoke) return false;
+  if (!provider?.revoke) return { status: "refused", reason: "no-revoke" };
   try {
-    await provider.revoke({ externalId, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
-    return true;
+    await provider.revoke({ externalId: id, secret, params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)), connections: deps.connections, fetch: deps.fetch ?? fetch, ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}) });
+    return { status: "revoked" };
   } catch {
     /* bleibt gueltig, steht im Bericht */
-    return false;
+    return { status: "failed" };
   }
+}
+
+export interface DiscardResult {
+  revokedNew: boolean;
+  /** Set when the gate refused to call the provider. */
+  refused?: RevokeRefusal;
 }
 
 /** Verwirft einen ausgestellten Wert: Der neue Wert wird beim Anbieter wieder geloescht, nichts wurde geschrieben. */
 export async function discardIssuance(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string },
-): Promise<{ revokedNew: boolean }> {
+  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string; acknowledgeWritten?: boolean },
+): Promise<DiscardResult> {
   // Waehrend der Bestaetigung (oder danach) darf der Wert nicht widerrufen werden: er wird gerade geschrieben bzw. ist im Einsatz.
   if (committing.has(pending) || committed.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
   return discardIssuanceNow(pending, deps, reason);
@@ -516,20 +591,19 @@ export async function discardIssuance(
 async function discardIssuanceNow(
   pending: PendingIssuance,
   deps: IssuanceDeps,
-  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string },
-): Promise<{ revokedNew: boolean }> {
+  reason: { by: string; principalId?: string; why: "rejected" | "expired" | "stale"; note?: string; acknowledgeWritten?: boolean },
+): Promise<DiscardResult> {
   // Marked before the first await: a second discard (also a parallel one) throws instead of revoking again.
   if (discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
   discarded.add(pending);
-  // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
-  const secret = pending.issuedSecret ?? deps.inventory.getSecret(pending.secretId);
-  const provider = secret ? deps.providers.get(secret.provider) : undefined;
-  let revokedNew = false;
   // Same id as before means the provider rotated in place: nothing new exists that could be deleted.
   const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
-  if (secret && pending.report.externalId && !rotatedInPlace && provider?.revoke) {
-    revokedNew = await revokeIssuedValue(secret, pending.report.externalId, deps);
-  }
+  const externalId = rotatedInPlace ? undefined : pending.report.externalId;
+  // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
+  const outcome: RevokeOutcome | undefined = externalId
+    ? await revokeNewValue({ secretId: pending.secretId, provider: pending.issuedSecret?.provider ?? pending.report.provider, externalId, companionIds: pending.companions.map((c) => c.entryId), pending, ...(pending.issuedSecret ? { issuedSecret: pending.issuedSecret } : {}) }, deps, { acknowledgeWritten: reason.acknowledgeWritten === true })
+    : undefined;
+  const revokedNew = outcome?.status === "revoked";
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,
@@ -539,6 +613,12 @@ async function discardIssuanceNow(
     decision: "rejected",
     note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
   };
-  await deps.evidence?.save(pending.report);
-  return { revokedNew };
+  // The delete above has happened (or was refused) whatever the report store does: a failing store must not look like a failed
+  // delete, or the caller would revoke an already revoked identifier a second time.
+  try {
+    await deps.evidence?.save(pending.report);
+  } catch {
+    /* the result below is what counts */
+  }
+  return { revokedNew, ...(outcome?.status === "refused" ? { refused: outcome.reason } : {}) };
 }

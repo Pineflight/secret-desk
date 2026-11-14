@@ -7,7 +7,7 @@ import { ConnectionStore } from "../src/connections.js";
 import { FileEvidenceStore } from "../src/evidence-file-store.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
-import { commitIssuance, discardIssuance, issuanceStateOf, prepareIssuance, revokeIssuedValue, IssuanceError, StaleIssuanceError } from "../src/issuance.js";
+import { commitIssuance, discardIssuance, hasWriteStarted, issuanceStateOf, prepareIssuance, revokeNewValue, writtenPlacesOf, IssuanceError, StaleIssuanceError, type RevokeTarget } from "../src/issuance.js";
 import { ProviderRegistry, type Provider } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
 import { renderEvidenceSvg } from "../src/verification.js";
@@ -210,15 +210,125 @@ describe("stage 2: commitIssuance", () => {
   });
 });
 
-describe("revokeIssuedValue", () => {
-  it("deletes a new value from metadata alone and says whether the provider confirmed", async () => {
-    const { deps, inventory, revoke } = await setup();
-    const secret = inventory.getSecret("cf-deploy-acme-app")!;
-    expect(await revokeIssuedValue(secret, "new-id", deps)).toBe(true);
+describe("revokeNewValue: the one gate for revoking a newly issued value", () => {
+  const target = (over: Partial<RevokeTarget> = {}): RevokeTarget => ({ secretId: "cf-deploy-acme-app", provider: "cloudflare-token", externalId: "new-id", ...over });
+
+  it("calls the provider from metadata alone when nothing speaks against it, and says whether the provider confirmed", async () => {
+    const { deps, revoke } = await setup();
+    expect(await revokeNewValue(target(), deps)).toEqual({ status: "revoked" });
     expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id" }));
     revoke.mockRejectedValueOnce(new Error("provider down"));
-    expect(await revokeIssuedValue(secret, "new-id", deps)).toBe(false);
-    expect(await revokeIssuedValue({ ...secret, provider: "no-such-provider" }, "new-id", deps)).toBe(false);
+    expect(await revokeNewValue(target(), deps)).toEqual({ status: "failed" });
+  });
+
+  it("refuses without calling the provider, with a typed reason", async () => {
+    const { deps, inventory, revoke } = await setup();
+    const refused = async (t: RevokeTarget, o?: { acknowledgeWritten?: boolean }) => revokeNewValue(t, deps, o);
+    expect(await refused(target({ externalId: undefined }))).toEqual({ status: "refused", reason: "no-id" });
+    // The identifier the entry holds now: the value was rolled out (also when another review of the same identifier was confirmed).
+    expect(await refused(target({ externalId: "old-token-id" }))).toEqual({ status: "refused", reason: "value-in-use" });
+    inventory.patchSecret("stripe-webhook-acme-docs-staging", { externalId: "companion-id" });
+    expect(await refused(target({ externalId: "companion-id", companionIds: ["stripe-webhook-acme-docs-staging"] }))).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(await refused(target({ writeStarted: true }))).toEqual({ status: "refused", reason: "write-started" });
+    expect(await refused(target({ secretId: "no-such-secret" }))).toEqual({ status: "refused", reason: "secret-gone" });
+    expect(await refused(target({ provider: "some-other-provider" }))).toEqual({ status: "refused", reason: "provider-changed" });
+    expect(await refused(target({ secretId: "stripe-webhook-acme-docs-staging", provider: "manual" }))).toEqual({ status: "refused", reason: "no-revoke" });
+    expect(revoke).not.toHaveBeenCalled();
+    // The acknowledgement a person's reject (or an explicit orphan revoke) supplies lifts exactly the write-started refusal.
+    expect(await refused(target({ writeStarted: true }), { acknowledgeWritten: true })).toEqual({ status: "revoked" });
+    expect(await refused(target({ externalId: "old-token-id", writeStarted: true }), { acknowledgeWritten: true })).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("with the entry as it was issued, the provider and parameters of back then are used and the record checks are not needed", async () => {
+    const { deps, inventory, revoke } = await setup();
+    const issued = { ...inventory.getSecret("cf-deploy-acme-app")!, params: { zone: "old" } };
+    expect(await revokeNewValue(target({ secretId: "no-such-secret", provider: "whatever", issuedSecret: issued }), deps)).toEqual({ status: "revoked" });
+    expect(revoke).toHaveBeenCalledWith(expect.objectContaining({ externalId: "new-id", params: expect.objectContaining({ zone: "old" }) }));
+  });
+
+  it("is the only caller of a provider's revoke for a new value: a failing report store does not turn a delete that happened into a failed one", async () => {
+    const { deps, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const failing = { ...deps, evidence: { ...deps.evidence, save: async () => { throw new Error("disk full"); } } as never };
+    expect(await discardIssuance(p, failing, { by: "system", why: "expired" })).toEqual({ revokedNew: true });
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("commit, write started and the gate", () => {
+  const failingPuts = (deps: Awaited<ReturnType<typeof setup>>["deps"]) =>
+    ({
+      ...deps,
+      github: Object.assign(Object.create(deps.github) as typeof deps.github, {
+        putSecret: async () => {
+          throw new Error("socket timed out");
+        },
+      }),
+    }) as typeof deps;
+
+  it("calls beforeWrite once, before the first write, and a beforeWrite that throws means nothing is written", async () => {
+    const { deps, writes } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const before = vi.fn(() => {
+      throw new Error("store down");
+    });
+    await expect(commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }, { beforeWrite: before })).rejects.toThrow("store down");
+    expect(writes.filter((w) => w.startsWith("PUT"))).toHaveLength(0);
+    expect(hasWriteStarted(p)).toBe(false);
+    expect(writtenPlacesOf(p)).toEqual([]);
+    expect(issuanceStateOf(p)).toBe("open");
+    const seen: number[] = [];
+    const ok = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }, { beforeWrite: () => void seen.push(writes.filter((w) => w.startsWith("PUT")).length) });
+    expect(ok.ok).toBe(true);
+    expect(seen).toEqual([0]);
+    expect(hasWriteStarted(p)).toBe(true);
+    expect(writtenPlacesOf(p)).toHaveLength(2);
+  });
+
+  it("a write that throws counts as started: the item is partial, the note names the places, nothing was applied for sure", async () => {
+    const { deps, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    const r = await commitIssuance(p, failingPuts(deps), { by: "alice", ticks: ["c1", "c2"] });
+    expect(r.ok).toBe(false);
+    expect(issuanceStateOf(p)).toBe("partial");
+    expect(writtenPlacesOf(p)).toHaveLength(2);
+    expect(p.report.checks.find((c) => c.id === "partial-write")?.label).toContain("moeglicherweise");
+    // Everything that would revoke it now refuses.
+    expect(await discardIssuance(p, deps, { by: "system", why: "expired" })).toEqual({ revokedNew: false, refused: "write-started" });
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("a stale entry after a write was started: the gate refuses, the error says so, nothing is revoked", async () => {
+    const { deps, inventory, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    await commitIssuance(p, failingPuts(deps), { by: "alice", ticks: ["c1", "c2"] });
+    inventory.setSecretParams("cf-deploy-acme-app", { extra: 1 }, []);
+    const err = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StaleIssuanceError);
+    expect(err).toMatchObject({ revokedNew: false, revokeRefused: "write-started" });
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("a stale entry before any write: revoked as before, and the error reports it", async () => {
+    const { deps, inventory, revoke } = await setup();
+    const p = await prepareIssuance("cf-deploy-acme-app", deps);
+    inventory.setSecretParams("cf-deploy-acme-app", { extra: 1 }, []);
+    const err = await commitIssuance(p, deps, { by: "alice", ticks: ["c1", "c2"] }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ revokedNew: true });
+    expect((err as StaleIssuanceError).revokeRefused).toBeUndefined();
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("when the provider names no identifier for the new value, a successful commit clears the identifier of the value it just revoked", async () => {
+    const { deps, inventory } = await setup();
+    const providers = new ProviderRegistry().register({ id: "cloudflare-token", label: "Cloudflare", kind: "automatic", issue: async () => ({ value: new SecretValue("NEUER-TOKEN-WERT-123") }), revoke: vi.fn(async () => undefined), reviewChecklist: () => ["only"] });
+    const own = { ...deps, providers };
+    const p = await prepareIssuance("cf-deploy-acme-app", own);
+    expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBe("old-token-id");
+    const r = await commitIssuance(p, own, { by: "alice", ticks: ["c1"] });
+    expect(r.ok).toBe(true);
+    expect(inventory.getSecret("cf-deploy-acme-app")!.externalId).toBeUndefined();
   });
 });
 

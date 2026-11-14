@@ -135,6 +135,12 @@ export interface RuntimeOptions {
    * someone deletes it. A throwing callback changes nothing.
    */
   onRevokeAbandoned?: (record: PendingRecord) => void;
+  /**
+   * Told (with a record: ids and times, never a value) when the revoke gate refused to revoke the new value of a review because a
+   * write of it was started (it may be in use at some place): a person has to decide, by rejecting with the acknowledgement or by
+   * `IssuanceQueue.revokeOrphan(..., { acceptPartial: true })`. Also told when such a review expires. A throwing callback changes nothing.
+   */
+  onNeedsDecision?: (record: PendingRecord) => void;
 }
 
 /** Verbindungs-Ids, die der Kern fest verwendet. */
@@ -244,7 +250,7 @@ export async function createRuntime(configPath: string, options: RuntimeOptions 
   if (options.watchInventory) inventory.watch();
 
   const now = options.now ?? ((): Date => new Date());
-  const issuances = new IssuanceQueue({ now, ...(options.pendingStore ? { store: options.pendingStore } : {}), ...(options.onRevokeAbandoned ? { onRevokeAbandoned: options.onRevokeAbandoned } : {}) });
+  const issuances = new IssuanceQueue({ now, ...(options.pendingStore ? { store: options.pendingStore } : {}), ...(options.onRevokeAbandoned ? { onRevokeAbandoned: options.onRevokeAbandoned } : {}), ...(options.onNeedsDecision ? { onNeedsDecision: options.onNeedsDecision } : {}) });
   const instance = new InstanceState();
 
   const rt: Runtime = {

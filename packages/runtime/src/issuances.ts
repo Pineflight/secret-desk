@@ -1,15 +1,33 @@
-import { discardIssuance, issuanceStateOf, revokeIssuedValue, SecretValue, type Check, type IssuanceDeps, type PendingIssuance } from "@secret-desk/core";
+import {
+  discardIssuance,
+  hasWriteStarted,
+  issuanceStateOf,
+  revokeNewValue,
+  SecretValue,
+  type Check,
+  type DiscardResult,
+  type IssuanceDeps,
+  type PendingIssuance,
+  type RevokeOutcome,
+  type RevokeRefusal,
+  type RevokeTarget,
+} from "@secret-desk/core";
 
 /*
  * The rule behind everything that revokes in this file: revoking a value that is in use is worse than leaving an unconfirmed value
  * valid until the provider expires it. When in doubt nothing is revoked, the record is kept and the case is reported.
+ *
+ * ONE gate decides: `revokeNewValue` in the core is the only code that asks a provider to revoke a newly issued value. Nothing in
+ * this file calls a provider; every site (the sweep and its retries, an explicit orphan revoke, a person's reject through
+ * `rejectIssuance`) goes through it, directly or through `discardIssuance`.
  */
 
 /**
  * What a `PendingStore` is given about a pending review: metadata only. Never the value, never a companion value, never the
  * report. `externalId` is the provider's identifier of the newly issued value and is present only when that value would have to
  * be deleted at the provider if the review is not confirmed (it is absent when the provider renewed the value in place).
- * `needsDecision` is set when a commit wrote the new value to some places and stopped: only a person decides about that value.
+ * `writeStarted` is the fact that a write of the value to some place was ever started (set before the first write is sent, never
+ * cleared); `needsDecision` is set once the gate refused to revoke because of it: only a person decides about such a value.
  */
 export interface PendingRecord {
   id: string;
@@ -19,6 +37,9 @@ export interface PendingRecord {
   createdAt: string;
   expiresAt: string;
   externalId?: string;
+  /** Entries that received companion values from the same issuance: a value in use there is not revoked either. */
+  companionIds?: string[];
+  writeStarted?: true;
   needsDecision?: true;
 }
 
@@ -27,10 +48,12 @@ export interface PendingRecord {
  * `RuntimeOptions.pendingStore` (for example one that survives an eviction of its process).
  *
  * The store only ever sees a `PendingRecord`: the value itself is held by the queue, in memory, in a map the store cannot reach.
- * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. A record
- * whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is an explicit call of the embedder
- * (`IssuanceQueue.revokeOrphan`), which refuses whenever the value might be in use. A persistent store should remove the record
- * in the same step in which the embedder's inventory takes the new identifier; whatever order remains, a leftover record is harmless.
+ * "A store never persists the value" is therefore true by construction, and a store may return copies of its records. The queue
+ * updates the record (`put`) with `writeStarted: true` BEFORE the first write of a commit is sent; when that update throws, the
+ * commit does not write. A record whose value is gone (see `IssuanceQueue.orphans`) is never revoked by a sweep: revoking it is
+ * an explicit call of the embedder (`IssuanceQueue.revokeOrphan`), which the gate refuses whenever the value may be in use. A
+ * persistent store should remove the record in the same step in which the embedder's inventory takes the new identifier;
+ * whatever order remains, a leftover record is harmless.
  */
 export interface PendingStore {
   put(record: PendingRecord): void;
@@ -82,30 +105,30 @@ const recordOf = (p: PendingIssuance): PendingRecord => {
     createdAt: p.createdAt,
     expiresAt: p.expiresAt,
     ...(p.report.externalId && !rotatedInPlace ? { externalId: p.report.externalId } : {}),
+    ...(p.companions.length > 0 ? { companionIds: p.companions.map((c) => c.entryId) } : {}),
+    ...(hasWriteStarted(p) ? { writeStarted: true as const } : {}),
   };
 };
 
+const targetOf = (record: PendingRecord, pending?: PendingIssuance): RevokeTarget => ({
+  secretId: record.secretId,
+  provider: record.provider,
+  externalId: record.externalId,
+  companionIds: record.companionIds,
+  writeStarted: record.writeStarted === true || record.needsDecision === true,
+  pending,
+  issuedSecret: pending?.issuedSecret,
+});
+
 /** The outcome of an attempt to delete the new value of a record at the provider. A refusal says why nothing was called. */
-export type OrphanResult =
-  | { status: "revoked" }
-  | { status: "nothing" }
-  | { status: "failed" }
-  | { status: "refused"; reason: "value-in-use" | "secret-gone" | "provider-changed" | "needs-decision" | "held-here" | "unknown" };
+export type OrphanResult = RevokeOutcome | { status: "refused"; reason: "held-here" | "unknown" };
 
 /**
- * Deletes the new value of a record at the provider, from metadata alone, and only when that cannot hit a value in use. Refused
- * without calling the provider when the record's identifier is the one the entry holds now (the value was rolled out), when the
- * entry no longer exists, when its provider is not the one the value was issued by, and (unless `acceptPartial`) when a commit
- * had written the value to some places. `nothing`: the record names no value to delete.
+ * Asks the gate about a record, from metadata alone (a record has no store effects here; `IssuanceQueue.revokeOrphan` adds them).
+ * `acceptPartial` is the acknowledgement that a person decided about a value a write was started for.
  */
-export async function revokeOrphanRecord(record: PendingRecord, deps: IssuanceDeps, options: { acceptPartial?: boolean } = {}): Promise<OrphanResult> {
-  if (!record.externalId) return { status: "nothing" };
-  const secret = deps.inventory.getSecret(record.secretId);
-  if (!secret) return { status: "refused", reason: "secret-gone" };
-  if (secret.provider !== record.provider) return { status: "refused", reason: "provider-changed" };
-  if (secret.externalId === record.externalId) return { status: "refused", reason: "value-in-use" };
-  if (record.needsDecision && !options.acceptPartial) return { status: "refused", reason: "needs-decision" };
-  return (await revokeIssuedValue(secret, record.externalId, deps)) ? { status: "revoked" } : { status: "failed" };
+export function revokeOrphanRecord(record: PendingRecord, deps: IssuanceDeps, options: { acceptPartial?: boolean } = {}): Promise<RevokeOutcome> {
+  return revokeNewValue(targetOf(record), deps, { acknowledgeWritten: options.acceptPartial === true });
 }
 
 /** Adds a line to the evidence report of a record, when there is one. Never throws: a note is best effort. */
@@ -126,6 +149,8 @@ export interface IssuanceQueueOptions {
   now?: () => Date;
   /** Told (a record, never a value) when the sweep stopped trying to delete a new value at the provider. The record stays. */
   onRevokeAbandoned?: (record: PendingRecord) => void;
+  /** Told (a record, never a value) when the gate refused to revoke because a write was started: a person has to decide. */
+  onNeedsDecision?: (record: PendingRecord) => void;
 }
 
 /** A delete at the provider that is still owed. `pending` is the retired item (value-free) until the first try has been made. */
@@ -148,13 +173,14 @@ interface Owed {
  * A claim is bounded too: a review claimed by an operation is hidden and left to it, but only until its deadline plus
  * `CLAIM_GRACE_MS`. Then the queue takes it back and aborts the operation's signal.
  *
- * The sweep only deletes what this process itself retired and knows to be unconfirmed. It does not touch an item a commit is
- * working on, and it never deletes a value a commit has written to a place (that value waits for a person's decision).
+ * The sweep deletes a new value at the provider only when no write of it was ever started and nothing else holds that
+ * identifier (the gate, `revokeNewValue`). It does not touch an item a commit is working on.
  */
 export class IssuanceQueue {
   readonly #store: PendingStore;
   readonly #now: () => Date;
   readonly #onAbandoned: ((record: PendingRecord) => void) | undefined;
+  readonly #onNeedsDecision: ((record: PendingRecord) => void) | undefined;
   /** The latest time this queue has seen. */
   #seen = 0;
   /** The values, by id. Private to the queue: a store never sees them. */
@@ -170,6 +196,7 @@ export class IssuanceQueue {
     this.#store = options.store ?? new MemoryPendingStore();
     this.#now = options.now ?? (() => new Date());
     this.#onAbandoned = options.onRevokeAbandoned;
+    this.#onNeedsDecision = options.onNeedsDecision;
   }
 
   /** The time to decide with: the given one or the clock, but never earlier than a time seen before. */
@@ -249,6 +276,17 @@ export class IssuanceQueue {
     this.#store.put(recordOf(pending));
   }
 
+  /**
+   * Records, in the store, that a write of this review is about to start. A commit calls this before it sends its first write
+   * (`commitIssuance`'s `beforeWrite`); when it throws (the store could not take the update) the commit writes nothing.
+   */
+  markWriteStarted(id: string): void {
+    const pending = this.#values.get(id);
+    const record = this.#store.get(id) ?? (pending ? recordOf(pending) : undefined);
+    if (!record) throw new Error("No record for this review: nothing was written.");
+    this.#store.put({ ...record, writeStarted: true });
+  }
+
   get(id: string): PendingIssuance | undefined {
     return this.#live(id);
   }
@@ -258,7 +296,7 @@ export class IssuanceQueue {
     return [...this.#values.values()].filter((p) => this.#look(p, at)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Forgets a review for good (confirmed, or rejected by a person): the value, the record and anything still owed for it. */
+  /** Forgets a review for good (confirmed, or settled by a person): the value, the record and anything still owed for it. */
   delete(id: string): void {
     this.#values.delete(id);
     this.#owed.delete(id);
@@ -266,53 +304,88 @@ export class IssuanceQueue {
   }
 
   /**
-   * A person rejected a review and the provider did not confirm the delete: put it on the list of deletes that are tried again
-   * (same spacing and limit as an expired review). The record stays in the store until the delete worked.
+   * A review was discarded and the provider did not confirm the delete (a person's reject, or a stale item): put it on the list of
+   * deletes that are tried again (same spacing and limit as an expired review). The record stays in the store until the delete
+   * worked. A refusal of the gate is not owed: it is a decision, not a failure.
    */
-  oweIfNeeded(pending: PendingIssuance, revokedNew: boolean): void {
+  oweIfNeeded(pending: PendingIssuance, result: DiscardResult): void {
     const record = recordOf(pending);
-    if (revokedNew || !record.externalId) return;
+    if (result.revokedNew || result.refused !== undefined || !record.externalId) return;
     this.#store.put(record);
     this.#owed.set(pending.id, { record, pending: undefined, tries: 1, nextTry: this.#t() + REVOKE_RETRY_MS });
   }
 
   /**
+   * A commit found the review stale after writes had started: the gate refused to revoke. Forget the value, keep the record,
+   * flag it for a person's decision and report it.
+   */
+  async keepForDecision(pending: PendingIssuance, deps: IssuanceDeps): Promise<void> {
+    this.#values.delete(pending.id);
+    this.#owed.delete(pending.id);
+    await this.#refused({ ...recordOf(pending), writeStarted: true }, "write-started", deps);
+  }
+
+  /**
    * Records the store holds whose value this queue does not have and that nothing here is trying to delete: left by a process
-   * that was evicted, by a confirm whose record removal was lost, by a commit that needs a person's decision (`needsDecision`),
-   * or by a delete the sweep gave up on. The sweep only lists them; `revokeOrphan` is the explicit call.
+   * that was evicted or died, by a confirm whose record removal was lost, by a commit that needs a person's decision
+   * (`needsDecision`), or by a delete the sweep gave up on. The sweep only lists them; `revokeOrphan` is the explicit call.
    */
   orphans(): PendingRecord[] {
     return this.#store.list().filter((r) => !this.#values.has(r.id) && !this.#owed.has(r.id));
   }
 
   /**
+   * What happens to a record the gate refused. A refusal because a write was started marks the record `needsDecision` (kept),
+   * adds an evidence note and tells `onNeedsDecision`. Any other reason means the record is stale: it is dropped.
+   */
+  async #refused(record: PendingRecord, reason: RevokeRefusal, deps: IssuanceDeps): Promise<void> {
+    if (reason === "write-started") {
+      const flagged: PendingRecord = { ...record, writeStarted: true, needsDecision: true };
+      this.#store.put(flagged);
+      await noteEvidence(deps, record, { id: "needs-decision", label: "Neuer Wert nicht widerrufen: ein Schreibvorgang wurde begonnen. Ein Mensch entscheidet.", status: "warn" });
+      try {
+        this.#onNeedsDecision?.(flagged);
+      } catch {
+        /* a callback that throws changes nothing */
+      }
+      return;
+    }
+    this.#store.delete(record.id);
+    if (reason !== "no-id") await noteEvidence(deps, record, { id: "revoke-refused", label: `Neuer Wert nicht widerrufen, Eintrag verworfen: ${reason}`, status: "warn" });
+  }
+
+  /** The gate, plus what the queue does with a refusal. */
+  async #revokeNew(record: PendingRecord, deps: IssuanceDeps, pending?: PendingIssuance, acknowledgeWritten = false): Promise<RevokeOutcome> {
+    const outcome = await revokeNewValue(targetOf(record, pending), deps, { acknowledgeWritten });
+    if (outcome.status === "refused") await this.#refused(record, outcome.reason, deps);
+    return outcome;
+  }
+
+  /**
    * The explicit call to delete the new value of an orphaned record at the provider, for the embedder (or a person) to make.
-   * Nothing is called when the delete could hit a value in use (see `revokeOrphanRecord`); a record that is plainly stale (the
-   * value is in use, the entry is gone or has another provider) is removed without calling the provider. A record that needs
-   * a person's decision stays unless `acceptPartial` says the person decided. A failed delete keeps the record.
+   * The gate decides (see `revokeNewValue`): nothing is called when the value may be in use. A record whose value is in use, whose
+   * entry is gone or has another provider is stale and removed; a record a write was started for stays flagged unless
+   * `acceptPartial` says a person decided. A failed delete keeps the record.
    */
   async revokeOrphan(id: string, deps: IssuanceDeps, options: { acceptPartial?: boolean } = {}): Promise<OrphanResult> {
     const record = this.#store.get(id);
     if (!record) return { status: "refused", reason: "unknown" };
     if (this.#values.has(id) || this.#owed.has(id)) return { status: "refused", reason: "held-here" };
-    const result = await revokeOrphanRecord(record, deps, options);
-    if (result.status === "refused" && result.reason !== "needs-decision") {
+    const outcome = await this.#revokeNew(record, deps, undefined, options.acceptPartial === true);
+    if (outcome.status === "revoked") {
       this.#store.delete(id);
-      await noteEvidence(deps, record, { id: "orphan-dropped", label: `Verwaister Eintrag verworfen, nichts widerrufen: ${result.reason}`, status: "warn" });
-    } else if (result.status === "revoked" || result.status === "nothing") {
-      this.#store.delete(id);
-      if (result.status === "revoked") await noteEvidence(deps, record, { id: "orphan-revoked", label: "Neuer Wert beim Anbieter widerrufen (verwaister Eintrag)", status: "pass" });
+      await noteEvidence(deps, record, { id: "orphan-revoked", label: "Neuer Wert beim Anbieter widerrufen (verwaister Eintrag)", status: "pass" });
     }
-    return result;
+    return outcome;
   }
 
   /**
    * Retires everything that expired (and every claim past its hard bound) and tries the deletes at the provider that are owed
-   * and due. Returns the ids that are settled: nothing is left to delete, or it was deleted, or a commit had rolled the value
-   * out and nothing may delete it. An id whose provider call failed is not in the list: the record stays and it is tried
-   * again after a longer wait, at most `MAX_REVOKE_TRIES` times in all (then `onRevokeAbandoned` is told and the record stays
-   * as an orphan). An item a commit is working on, or has written to a place, is not deleted. An item that is claimed within its
-   * bound is left to its operation.
+   * and due. Returns the ids that are settled: nothing is left to delete, or it was deleted, or the record was stale. An id whose
+   * provider call failed is not in the list: the record stays and it is tried again after a longer wait, at most
+   * `MAX_REVOKE_TRIES` times in all (then `onRevokeAbandoned` is told and the record stays as an orphan). An id the gate refused
+   * because a write was started is not in the list either: it waits for a person (`onNeedsDecision`). An item a commit is
+   * working on is not touched; an item that is claimed within its bound is left to its operation.
    */
   async sweep(deps: IssuanceDeps, now?: Date): Promise<string[]> {
     const at = this.#t(now?.getTime());
@@ -341,25 +414,31 @@ export class IssuanceQueue {
         owed.nextTry = at + REVOKE_RETRY_MS;
         return;
       }
-      if (state === "partial") {
-        // The new value is in use at some places: only a person decides. Kept, flagged, never revoked here.
-        this.#owed.delete(id);
-        this.#store.put({ ...owed.record, needsDecision: true });
-        return;
-      }
       if (state === "committed" || state === "discarded") return done();
 
-      let result: OrphanResult;
-      if (owed.pending) {
-        // The first try goes through the item itself: it also writes the evidence note. Anything but a clean answer is a failed try.
+      let outcome: RevokeOutcome | undefined;
+      if (owed.pending && state === "open") {
+        // The first try goes through `discardIssuance`, which asks the gate itself and also writes the evidence note. Anything
+        // but a clean answer is a failed try. The delete result is kept apart from the report store inside it.
         const discard = await discardIssuance(owed.pending, deps, { by: "system", why: "expired" }).catch(() => undefined);
         owed.pending = undefined;
-        result = discard === undefined ? { status: "failed" } : !owed.record.externalId ? { status: "nothing" } : { status: discard.revokedNew ? "revoked" : "failed" };
+        if (discard === undefined) outcome = { status: "failed" };
+        else if (discard.refused !== undefined) {
+          outcome = { status: "refused", reason: discard.refused };
+          await this.#refused(owed.record, discard.refused, deps);
+        } else if (owed.record.externalId) outcome = { status: discard.revokedNew ? "revoked" : "failed" };
       } else {
-        result = await revokeOrphanRecord(owed.record, deps).catch(() => ({ status: "failed" }) as OrphanResult);
+        // A write was started (or it is a retry): the gate alone decides, from the record.
+        outcome = await this.#revokeNew(owed.record, deps, owed.pending).catch((): RevokeOutcome => ({ status: "failed" }));
       }
-      if (result.status !== "failed") {
-        if (owed.tries > 0 && result.status === "revoked") await noteEvidence(deps, owed.record, { id: "revoke-late", label: "Neuer Wert beim Anbieter widerrufen (spaeterer Versuch)", status: "pass" });
+      if (outcome === undefined) return done();
+      if (outcome.status === "refused") {
+        this.#owed.delete(id);
+        if (outcome.reason !== "write-started") swept.push(id);
+        return;
+      }
+      if (outcome.status === "revoked") {
+        if (owed.tries > 0) await noteEvidence(deps, owed.record, { id: "revoke-late", label: "Neuer Wert beim Anbieter widerrufen (spaeterer Versuch)", status: "pass" });
         return done();
       }
       owed.tries += 1;
