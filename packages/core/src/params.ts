@@ -127,7 +127,7 @@ export class UnknownDiscoverKindError extends Error {
   }
 }
 
-const TYPE_MESSAGE: Record<ParamType, (key: string) => string> = {
+const TYPE_MESSAGE: Readonly<Record<ParamType, (key: string) => string>> = {
   string: (k) => `Parameter ${k} muss Text sein`,
   stringList: (k) => `Parameter ${k} muss eine nicht leere Liste von Texten sein`,
   enum: (k) => `Parameter ${k} muss Text sein`,
@@ -254,7 +254,7 @@ export function integrationDefaultsOf(inventory: { data: { integrationDefaults?:
 // ------------------------------------------------------------------------------------------ Vorschlaege
 
 /** Wie eine Entdeckungsart einen Vorschlag ableitet: name = Repository und Stage im Namen, repo = Repository im Namen, sole = einzige Option. */
-export const SUGGEST_MODES: Record<string, "name" | "repo" | "sole"> = {
+export const SUGGEST_MODES: Readonly<Record<string, "name" | "repo" | "sole">> = {
   "supabase.project": "name",
   "cloudflare.zone": "repo",
   "resend.domain": "repo",
@@ -263,7 +263,7 @@ export const SUGGEST_MODES: Record<string, "name" | "repo" | "sole"> = {
   "grafana.serviceAccount": "sole",
 };
 
-const STAGE_WORDS: Record<StageKind, string[]> = {
+const STAGE_WORDS: Readonly<Record<StageKind, readonly string[]>> = {
   live: ["production", "prod", "live"],
   test: ["staging", "stage", "test", "qa"],
   dev: ["dev", "development", "local"],

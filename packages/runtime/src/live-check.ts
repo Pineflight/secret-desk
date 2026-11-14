@@ -45,11 +45,9 @@ export class LiveCheckBusyError extends Error {
   }
 }
 
-const running = new WeakSet<Runtime>();
-
-/** Is a live check running in this process right now? */
+/** Is a live check running in this runtime right now? (The flag lives in the runtime instance, not in module scope.) */
 export function isLiveCheckRunning(rt: Runtime): boolean {
-  return running.has(rt);
+  return rt.instance.liveCheckRunning;
 }
 
 /** Does the live check have recipes to run in the browser? */
@@ -311,7 +309,7 @@ async function notify(rt: Runtime, report: LiveCheckReport, log: (line: string) 
 
 /** Throws {@link LiveCheckBusyError} when a check must not start now. */
 function assertCanStart(rt: Runtime): void {
-  if (running.has(rt)) throw new LiveCheckBusyError("running");
+  if (rt.instance.liveCheckRunning) throw new LiveCheckBusyError("running");
   if (hasRecipes(rt) && rt.automation.isBusy()) throw new LiveCheckBusyError("browser-busy");
 }
 
@@ -323,7 +321,7 @@ const names = (items: { id: string; result: string }[]): string => items.filter(
  */
 export async function runLiveCheck(rt: Runtime, options: LiveCheckOptions): Promise<LiveCheckReport> {
   assertCanStart(rt);
-  running.add(rt);
+  rt.instance.liveCheckRunning = true;
   const log = options.log ?? ((line: string) => console.log(line));
   try {
     const startedAt = rt.automation.now().toISOString();
@@ -340,7 +338,7 @@ export async function runLiveCheck(rt: Runtime, options: LiveCheckOptions): Prom
     await notify(rt, report, log);
     return report;
   } finally {
-    running.delete(rt);
+    rt.instance.liveCheckRunning = false;
   }
 }
 

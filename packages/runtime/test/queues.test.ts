@@ -1,7 +1,8 @@
-import { secretApprovalSnapshot, variableApprovalSnapshot, type InventoryStore, type PendingIssuance, type SecretEntry, type VariableEntry } from "@secret-desk/core";
+import { secretApprovalSnapshot, variableApprovalSnapshot, type InventoryStore, type SecretEntry, type VariableEntry } from "@secret-desk/core";
 import { describe, expect, it } from "vitest";
 import { ApprovalQueue } from "../src/approvals.js";
-import { IssuanceQueue } from "../src/issuances.js";
+
+// The queue of pending reviews has its own file: issuance-queue.test.ts.
 
 const secret = (id: string, params: Record<string, unknown> = {}): SecretEntry => ({ id, name: "TOKEN", stage: "shared", service: "svc", provider: "manual", expiry: "none", params, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as SecretEntry;
 const variable = (id: string, value: string): VariableEntry => ({ id, name: "VAR", stage: "shared", value, places: [{ repo: "acme-app", scope: "repository" }] }) as unknown as VariableEntry;
@@ -75,35 +76,5 @@ describe("ApprovalQueue", () => {
     expect([ok1, ok2, busy].map((a) => a.state)).toEqual(["pending", "pending", "pending"]);
     expect(done.state).toBe("approved");
     expect(bad1.result).toMatch(/Freigabe verworfen/);
-  });
-});
-
-describe("IssuanceQueue", () => {
-  const pending = (id: string, createdAt: string, expiresAt: string): PendingIssuance => ({ id, secretId: "s", createdAt, expiresAt, companions: [], report: { externalId: undefined }, issuedSecret: secret("s") }) as unknown as PendingIssuance;
-
-  it("add, get, list newest first and delete", () => {
-    const q = new IssuanceQueue();
-    q.add(pending("old", "2026-11-01T00:00:00Z", "2026-12-01T00:00:00Z"));
-    q.add(pending("new", "2026-11-02T00:00:00Z", "2026-12-01T00:00:00Z"));
-    expect(q.list().map((p) => p.id)).toEqual(["new", "old"]);
-    expect(q.get("old")?.id).toBe("old");
-    q.delete("old");
-    expect(q.get("old")).toBeUndefined();
-  });
-
-  it("sweep drops expired entries even when discarding them fails", async () => {
-    const q = new IssuanceQueue();
-    q.add(pending("expired", "2026-11-01T00:00:00Z", "2026-11-05T00:00:00Z"));
-    q.add(pending("fresh", "2026-11-02T00:00:00Z", "2026-11-20T00:00:00Z"));
-    // Deps without providers make the discard throw; the sweep must still forget the entry.
-    const ids = await q.sweep({} as never, new Date("2026-11-10T00:00:00Z"));
-    expect(ids).toEqual(["expired"]);
-    expect(q.list().map((p) => p.id)).toEqual(["fresh"]);
-  });
-
-  it("sweep without a clock uses the current time", async () => {
-    const q = new IssuanceQueue();
-    q.add(pending("long-gone", "2000-01-01T00:00:00Z", "2000-01-02T00:00:00Z"));
-    expect(await q.sweep({} as never)).toEqual(["long-gone"]);
   });
 });

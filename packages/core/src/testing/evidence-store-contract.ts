@@ -16,8 +16,8 @@ export type MakeEvidenceStore = () => Promise<EvidenceStoreHarness> | EvidenceSt
 
 const report = (over: Partial<VerificationReport> = {}): VerificationReport => ({ id: "rep-1", secretId: "api-key", createdAt: "2026-03-01T10:00:00Z", attachments: [], ...over }) as VerificationReport;
 const PNG = new Uint8Array([1, 2, 3]);
-const BAD_IDS = ["", "..", "a..b", "a/b", ".hidden", "trailing.", "nul", "CON", "com1", "lpt²", "nul.txt", "con.tar.gz"];
-const BAD_MIME_TYPES = ["constructor", "toString", "__proto__", "hasOwnProperty", "image/svg+xml", ""];
+const BAD_IDS: readonly string[] = ["", "..", "a..b", "a/b", ".hidden", "trailing.", "nul", "CON", "com1", "lpt²", "nul.txt", "con.tar.gz"];
+const BAD_MIME_TYPES: readonly string[] = ["constructor", "toString", "__proto__", "hasOwnProperty", "image/svg+xml", ""];
 
 /** Registers the evidence store contract as `describe("evidence store contract: <name>")`. */
 export function evidenceStoreContract(framework: ContractFramework, name: string, make: MakeEvidenceStore, options: ContractOptions = {}): void {

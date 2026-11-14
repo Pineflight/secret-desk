@@ -49,7 +49,7 @@ export interface WorkflowNeeds {
 /** Dateien, die als Workflow zaehlen. */
 export const isWorkflowFileName = (name: string): boolean => /^[^/\\]+\.ya?ml$/i.test(name);
 
-const IGNORED_SECRETS = new Set(["GITHUB_TOKEN"]);
+const IGNORED_SECRETS: ReadonlySet<string> = new Set(["GITHUB_TOKEN"]);
 const EXPR_RE = /\$\{\{([\s\S]*?)\}\}/g;
 // secrets.NAME, vars.NAME, secrets['NAME'], secrets["NAME"]; nicht nach einem Punkt oder Wortzeichen (foo.secrets.X, mysecrets.X)
 const REF_DOT = /(?<![.\w])(secrets|vars)\.([A-Za-z_][A-Za-z0-9_]*)/g;

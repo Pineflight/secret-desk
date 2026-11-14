@@ -8,7 +8,7 @@ export interface SecretLikeFinding {
   reason: string;
 }
 
-const BLOCK_PREFIXES: [RegExp, string][] = [
+const BLOCK_PREFIXES: readonly (readonly [RegExp, string])[] = [
   [/^sk_(live|test)_/, "Stripe Secret Key"],
   [/^rk_(live|test)_/, "Stripe Restricted Key"],
   [/^whsec_/, "Stripe Webhook-Secret"],

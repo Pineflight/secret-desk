@@ -22,7 +22,7 @@ export const Describable = {
   /** Weiterfuehrende Seite: Anbieter-Dashboard, Doku, Ticket. */
   link: WebUrl.optional(),
   tags: z.array(Tag).max(12).default([]),
-};
+} as const;
 export const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, "Name in GROSSBUCHSTABEN_MIT_UNTERSTRICH");
 export const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "Slug in kleinbuchstaben-mit-bindestrich");
 
@@ -86,7 +86,7 @@ export const SecretFields = {
     rotation: z.string().optional(),
     notes: z.string().optional(),
     places: z.array(PlaceSchema).default([]),
-};
+} as const;
 
 export const SecretSchema = z
   .object(SecretFields)

@@ -28,6 +28,9 @@ import {
   SecretHumanPatchSchema,
   SecretValue,
   StaleIssuanceError,
+  hasWriteStarted,
+  writtenPlacesOf,
+  type DiscardResult,
   VariableAgentCreateSchema,
   parseInput,
   parseStripeConnectionId,
@@ -105,6 +108,18 @@ export class PolicyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PolicyError";
+  }
+}
+
+/**
+ * The review is not there any more: it expired, was dealt with, or the process that held its value was restarted. This is a normal
+ * outcome, not a fault: the value is gone and the way on is to issue it again. A `PolicyError` for callers that handle that class.
+ */
+export class IssuanceGoneError extends PolicyError {
+  readonly code = "issuance-gone";
+  constructor(id: string) {
+    super(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+    this.name = "IssuanceGoneError";
   }
 }
 
@@ -485,7 +500,7 @@ export const AGENT_ENV_FILENAME = /^\.env(?:\.(?!(?:sh|bash|zsh|fish|ksh|csh|com
 const agentMayWriteEnvFile = (path: string): boolean => AGENT_ENV_FILENAME.test(posix.basename(path.replace(/\\/g, "/")));
 
 /** Parameter-Namen, ueber die ein Anbieter ein Netzwerkziel bekommen koennte. Agenten setzen sie nie; ein Mensch im Portal. */
-const NETWORK_PARAM_KEYS = new Set(["baseurl", "url", "endpoint", "host", "hostname", "origin", "webhookurl", "server"]);
+const NETWORK_PARAM_KEYS: ReadonlySet<string> = new Set(["baseurl", "url", "endpoint", "host", "hostname", "origin", "webhookurl", "server"]);
 
 const agentStages = (rt: Runtime): string[] => agentStageIds(rt.config, rt.inventory.stages);
 
@@ -723,52 +738,90 @@ export async function submitManualValue(rt: Runtime, actor: Actor, secretId: str
   return issuanceView(pending);
 }
 
-/** Lesend und ohne Nebenwirkung: Abgelaufene werden nur ausgeblendet. Verworfen (und beim Anbieter widerrufen) werden sie im Takt, nicht hier. */
-const alive = (p: { expiresAt: string }): boolean => Date.parse(p.expiresAt) > Date.now();
-
+/**
+ * Reading checks the deadline itself (the queue treats an expired review as absent and drops its value right there), whether or not
+ * a sweep ran. The call that deletes the new value at the provider is not made while reading: the next sweep does it.
+ */
 export async function listIssuances(rt: Runtime): Promise<IssuanceView[]> {
-  return rt.issuances.list().filter(alive).map(issuanceView);
+  return rt.issuances.list().map(issuanceView);
 }
 
 export async function getIssuance(rt: Runtime, id: string): Promise<IssuanceView> {
   const p = rt.issuances.get(id);
-  if (!p || !alive(p)) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+  if (!p) throw new IssuanceGoneError(id);
   return issuanceView(p);
 }
 
+/*
+ * Only a review that exists is authorised: for an id nobody knows the answer is "gone", with no hook call (a call per guessed id
+ * would write one audit entry per guess and could consume a per-action approval). Review ids are random, so they cannot be
+ * guessed; an authenticated person can tell "gone" from "not allowed", which is acceptable for the person who may confirm.
+ */
 export async function confirmIssuance(rt: Runtime, actor: Actor, id: string, input: { ticks: string[]; note?: string; force?: boolean }): Promise<CommitResult> {
   requireHuman(actor, "Bestaetigen");
-  await rt.issuances.sweep(issuanceDeps(rt));
   const pending = rt.issuances.get(id);
-  if (!pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+  if (!pending) throw new IssuanceGoneError(id);
   // Claimed before the first await: while the hook (or the commit) is pending, no second confirm or reject can start on this review.
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.confirm", subject: issuanceSubject(pending) });
+    // Clean-up of other expired reviews runs after the person was authorised, never before.
+    await rt.issuances.sweep(issuanceDeps(rt));
     // The hook may have taken a while: only go on with the very same item.
-    if (rt.issuances.get(id) !== pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
-    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force) });
+    if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
+    const result = await commitIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), ticks: input.ticks, ...(input.note ? { note: input.note } : {}) }, { force: Boolean(input.force), signal: rt.issuances.signal(id)!, hardBound: rt.issuances.hardBound(id)!, beforeWrite: () => rt.issuances.markWriteStarted(id) });
     if (result.ok) rt.issuances.delete(id);
     return result;
   } catch (err) {
-    // Der neue Wert ist beim Anbieter schon widerrufen: die Pruefung ist nicht mehr zu retten.
-    if (err instanceof StaleIssuanceError) rt.issuances.delete(id);
+    // The review is stale and cannot be saved. The commit asked the gate to revoke the new value: when the gate refused because a
+    // write was started earlier (a partial attempt), the record stays for a person; otherwise the review goes, and a delete the
+    // provider did not confirm is owed.
+    if (err instanceof StaleIssuanceError) {
+      if (err.revokeRefused === "write-started") await rt.issuances.keepForDecision(pending, issuanceDeps(rt));
+      else {
+        rt.issuances.delete(id);
+        rt.issuances.oweIfNeeded(pending, { revokedNew: err.revokedNew, ...(err.revokeRefused ? { refused: err.revokeRefused } : {}) });
+      }
+    }
     throw err;
   } finally {
     rt.issuances.release(id);
   }
 }
 
-export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string): Promise<{ revokedNew: boolean }> {
+/**
+ * Rejecting a review a write was started for would revoke a value that may be in use at the places named here. It is refused
+ * unless the call carries the acknowledgement (`acknowledgeWritten`): only a person who has seen the places can supply it.
+ */
+export class IssuanceWrittenError extends PolicyError {
+  readonly code = "write-started";
+  readonly places: readonly string[];
+  constructor(places: readonly string[]) {
+    super(`Ein Schreibvorgang wurde begonnen: der neue Wert ist an diesen Orten oder koennte dort sein: ${places.join(", ")}. Ablehnen widerruft ihn beim Anbieter und kann Dienste abschalten, die ihn nutzen.`);
+    this.name = "IssuanceWrittenError";
+    this.places = [...places];
+  }
+}
+
+export async function rejectIssuance(rt: Runtime, actor: Actor, id: string, note?: string, options: { acknowledgeWritten?: boolean } = {}): Promise<DiscardResult> {
   requireHuman(actor, "Ablehnen");
   const pending = rt.issuances.get(id);
-  if (!pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
+  if (!pending) throw new IssuanceGoneError(id);
   if (!rt.issuances.claim(id)) throw new PolicyError("Die Pruefung wird gerade bearbeitet oder ist schon erledigt.");
   try {
     await authorize(rt, { actor, action: "issuance.reject", subject: issuanceSubject(pending) });
-    if (rt.issuances.get(id) !== pending) throw new PolicyError(`Pruefung nicht gefunden oder abgelaufen: ${id}`);
-    rt.issuances.delete(id);
-    return await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}) });
+    if (rt.issuances.get(id) !== pending) throw new IssuanceGoneError(id);
+    if (hasWriteStarted(pending) && options.acknowledgeWritten !== true) throw new IssuanceWrittenError(writtenPlacesOf(pending));
+    // The queue entry goes only after the discard settled; a delete the provider did not confirm (or an error out of the discard)
+    // is owed, and tried again by the sweep like the delete of an expired review.
+    let result: DiscardResult = { revokedNew: false };
+    try {
+      result = await discardIssuance(pending, issuanceDeps(rt), { by: actor.name, ...(actor.principalId ? { principalId: actor.principalId } : {}), why: "rejected", ...(note ? { note } : {}), ...(options.acknowledgeWritten === true ? { acknowledgeWritten: true } : {}) });
+    } finally {
+      rt.issuances.delete(id);
+      rt.issuances.oweIfNeeded(pending, result, { acknowledgeWritten: options.acknowledgeWritten === true });
+    }
+    return result;
   } finally {
     rt.issuances.release(id);
   }

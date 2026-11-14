@@ -108,7 +108,7 @@ export function secretToolKeySource(exec: VaultExec = defaultExec): NodeKeySourc
   };
 }
 
-const PS_ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"];
+const PS_ARGS: readonly string[] = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"];
 const PS_HEAD = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Security; $e=[Text.Encoding]::UTF8.GetBytes('secret-desk-vault-key'); $s=[Security.Cryptography.DataProtectionScope]::CurrentUser";
 
 /**
@@ -119,7 +119,7 @@ const PS_HEAD = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Se
 export function windowsDpapiKeySource(options: { keyFile: string; exec?: VaultExec; powershell?: string }): NodeKeySource {
   const exec = options.exec ?? defaultExec;
   const ps = options.powershell ?? "powershell.exe";
-  const run = (script: string): Promise<string> => exec(ps, PS_ARGS, `${PS_HEAD}\n${script}\n`);
+  const run = (script: string): Promise<string> => exec(ps, [...PS_ARGS], `${PS_HEAD}\n${script}\n`);
   const fail = (why: string): VaultUnavailableError => new VaultUnavailableError(`${why} ${KEY_HELP}`);
   return {
     label: "Windows DPAPI (Benutzerkonto)",

@@ -17,7 +17,7 @@ export type MakeVaultStore = () => Promise<VaultStoreHarness> | VaultStoreHarnes
 
 /** An obviously fake key; the suite never needs a real one. */
 const FAKE_KEY = new Uint8Array(32).fill(7);
-const keySource: KeySource = { label: "contract-test-key", key: async () => FAKE_KEY };
+const keySource: Readonly<KeySource> = { label: "contract-test-key", key: async () => FAKE_KEY };
 
 /** All 256 byte values as Base64: covers `+`, `/` and `=`, so a store that mangles Base64 text shows up. */
 function allBytesBase64(): string {

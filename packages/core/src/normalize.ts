@@ -101,7 +101,7 @@ const CLOUDFLARE_ID_RE = /^[a-f0-9]{32}$/;
 const SITEKEY_RE = /^0x[A-Za-z0-9_-]{8,}$/;
 const REVENUECAT_PROJECT_RE = /^proj[A-Za-z0-9]+$/;
 const REVENUECAT_APP_RE = /^app[A-Za-z0-9]+$/;
-const SOURCE_RULES: Record<string, SourceRule> = {
+const SOURCE_RULES: Readonly<Record<string, SourceRule>> = {
   REVENUECAT_PROJECT_ID: { kind: "revenuecat.project", field: "id", fromValue: (v) => (REVENUECAT_PROJECT_RE.test(v) ? v : null), defaultKey: { connection: "revenuecat", key: "projectId" } },
   REVENUECAT_WEB_APP_ID: { kind: "revenuecat.app", field: "id", fromValue: (v) => (REVENUECAT_APP_RE.test(v) ? v : null) },
   SUPABASE_URL: { kind: "supabase.project", field: "url", fromValue: (v) => SUPABASE_URL_RE.exec(v)?.[1] ?? null },
@@ -155,16 +155,16 @@ function r2KeyIdOf(inv: Inventory, entry: SecretEntry): Record<string, string> {
   const hits = inv.secrets.filter((o) => o.name === R2_ID_NAME(infix) && o.id !== entry.id && o.stage === entry.stage && sameRepos(o));
   return hits.length === 1 ? { companionEntry: hits[0]!.id } : {};
 }
-const r2Credentials: ProviderSwitch = { provider: "cloudflare-r2-credentials", fixed: { value: "secretAccessKey" }, required: ["accountId", "access", "companionEntry"], reason: { code: "cloudflare-r2-credentials", text: T.switchR2 }, paramsText: T.paramsNeededGeneric, propose: r2KeyIdOf };
+const r2Credentials: Readonly<ProviderSwitch> = { provider: "cloudflare-r2-credentials", fixed: { value: "secretAccessKey" }, required: ["accountId", "access", "companionEntry"], reason: { code: "cloudflare-r2-credentials", text: T.switchR2 }, paramsText: T.paramsNeededGeneric, propose: r2KeyIdOf };
 
 /** Provider switch for a (normalized) secret name. */
 function switchOf(target: string): ProviderSwitch | undefined {
   return PROVIDER_SWITCHES[target] ?? (R2_SECRET_RE.test(target) ? r2Credentials : undefined);
 }
 const supabaseKey = (type: "secret" | "publishable"): ProviderSwitch => ({ provider: "supabase-api-key", fixed: { type }, required: ["projectRef"], reason: { code: "supabase-api-key", text: T.switchApiKey }, paramsText: T.paramsNeeded });
-const supabaseDbPassword: ProviderSwitch = { provider: "supabase-db-password", fixed: {}, required: ["projectRef"], reason: { code: "supabase-db-password", text: T.switchDbPassword }, paramsText: T.paramsNeeded };
-const grafanaToken: ProviderSwitch = { provider: "grafana-service-account-token", fixed: {}, required: ["baseUrl", "serviceAccountId"], reason: { code: "grafana-service-account-token", text: T.switchGrafana }, paramsText: T.paramsNeededGeneric };
-const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
+const supabaseDbPassword: Readonly<ProviderSwitch> = { provider: "supabase-db-password", fixed: {}, required: ["projectRef"], reason: { code: "supabase-db-password", text: T.switchDbPassword }, paramsText: T.paramsNeeded };
+const grafanaToken: Readonly<ProviderSwitch> = { provider: "grafana-service-account-token", fixed: {}, required: ["baseUrl", "serviceAccountId"], reason: { code: "grafana-service-account-token", text: T.switchGrafana }, paramsText: T.paramsNeededGeneric };
+const PROVIDER_SWITCHES: Readonly<Record<string, Readonly<ProviderSwitch>>> = {
   SUPABASE_SECRET_KEY: supabaseKey("secret"),
   SUPABASE_PUBLISHABLE_KEY: supabaseKey("publishable"),
   SUPABASE_DB_PASSWORD: supabaseDbPassword,
@@ -175,7 +175,7 @@ const PROVIDER_SWITCHES: Record<string, ProviderSwitch> = {
 };
 
 /** Anbieter ohne API: (Name oder Dienst) -> Grund. Sie bleiben von Hand und stehen deshalb in der Liste. */
-const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
+const MANUAL_ONLY: readonly Readonly<{ test: RegExp; code: string; text: string }>[] = [
   { test: /^SUPABASE_ACCESS_TOKEN$/, code: "supabase-pat", text: "Persoenliche Zugriffs-Tokens (PAT) erzeugt Supabase nur im Dashboard: nur von Hand" },
   { test: /REVENUECAT/i, code: "revenuecat", text: "RevenueCat hat keine API, die Schluessel erzeugt: nur von Hand" },
   { test: /PEECHO/i, code: "peecho", text: "Peecho hat keine API, die Schluessel erzeugt: nur von Hand, oder lesend ueber das Rezept peecho-api-keys (Anbieter peecho-api-keys-browser)" },
@@ -189,7 +189,7 @@ const MANUAL_ONLY: { test: RegExp; code: string; text: string }[] = [
   { test: R2_ID_RE, code: "cloudflare-r2-companion", text: T.switchR2IdOnly },
 ];
 /** Jeder andere Eintrag mit provider manual: in der Liste, damit sichtbar ist, was von Hand bleibt. */
-const MANUAL_FALLBACK = { code: "no-provider", text: "Fuer diesen Wert hat secret-desk keinen Anbieter: von Hand" };
+const MANUAL_FALLBACK: Readonly<{ code: string; text: string }> = { code: "no-provider", text: "Fuer diesen Wert hat secret-desk keinen Anbieter: von Hand" };
 
 const namingOf = (config: { naming?: Partial<NamingConfig> | undefined }): Partial<NamingConfig> => config.naming ?? {};
 

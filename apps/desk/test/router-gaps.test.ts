@@ -91,6 +91,10 @@ describe("reading single records", () => {
   it("answers unknown reviews, reports and approvals with a clear refusal", async () => {
     const { deps } = await routerFixture();
     expect((await call(deps, "GET", "reviews/nope")).json["error"]).toMatch(/nicht gefunden/);
+    // A review that is gone is a normal outcome (issue again), not a refusal: 404 with its own code, never 403.
+    const gone = await call(deps, "GET", "reviews/nope");
+    expect(gone.status).toBe(404);
+    expect(gone.json["code"]).toBe("issuance-gone");
     expect((await call(deps, "GET", "evidence/a/b")).json["error"]).toMatch(/nicht gefunden/);
     expect((await call(deps, "GET", "approvals/nope")).json["error"]).toMatch(/nicht gefunden/);
   });
@@ -177,10 +181,10 @@ describe("facade and recipe routes", () => {
     expect((await call(deps, "POST", "recipes/nope/sign-in/confirm", {})).json["error"]).toMatch(/Unknown recipe/);
     expect((await call(deps, "POST", "recipes/nope/check", { host: "h" })).status).toBe(400);
   });
-  it("answers an unknown review confirmation with a refusal", async () => {
+  it("answers an unknown review confirmation as gone (404), not as a refusal", async () => {
     const { deps } = await routerFixture();
-    expect((await call(deps, "POST", "reviews/x/confirm", { ticks: ["a"], note: "n", force: true })).status).toBe(403);
-    expect((await call(deps, "POST", "reviews/x/confirm", {})).status).toBe(403);
+    expect((await call(deps, "POST", "reviews/x/confirm", { ticks: ["a"], note: "n", force: true })).status).toBe(404);
+    expect((await call(deps, "POST", "reviews/x/confirm", {})).status).toBe(404);
   });
 });
 

@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SecretValue, prepareIssuance, type ActorRef } from "@secret-desk/core";
+import { SecretValue, StaleIssuanceError, hasWriteStarted, prepareIssuance, type ActorRef } from "@secret-desk/core";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it, vi } from "vitest";
 import {
+  IssuanceWrittenError,
   PolicyError,
   actorRef,
   addEnvEntry,
@@ -37,6 +38,7 @@ import {
 import { runGitHubSync } from "../src/github-sync.js";
 import { applyNormalizationChanges } from "../src/normalize.js";
 import { exportEnvContent } from "../src/env-content.js";
+import { CLAIM_GRACE_MS } from "../src/issuances.js";
 import { createLocalRuntime, issuanceDeps, type Runtime, type RuntimeOptions } from "../src/runtime.js";
 
 const INVENTORY = `version: 1
@@ -97,7 +99,7 @@ const agent = { kind: "agent", name: "claude" } as const;
 const aliceP = { kind: "human", name: "alice", principalId: "principal-a" } as const;
 const bobP = { kind: "human", name: "bob", principalId: "principal-b" } as const;
 
-async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions> = {}) {
+async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions> = {}, gate?: (method: string, url: string) => Promise<void>) {
   await sodium.ready;
   const kp = sodium.crypto_box_keypair();
   const pub = sodium.to_base64(kp.publicKey, sodium.base64_variants.ORIGINAL);
@@ -108,6 +110,7 @@ async function setup(hook?: Authorize | undefined, extra: Partial<RuntimeOptions
     const u = String(url).replace("https://api.github.com", "");
     const method = init?.method ?? "GET";
     calls.push(`${method} ${u}`);
+    await gate?.(method, u);
     if (method === "PUT" && typeof init?.body === "string") {
       const enc = (JSON.parse(init.body) as { encrypted_value?: string }).encrypted_value;
       if (enc) written.push(sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(enc, sodium.base64_variants.ORIGINAL), kp.publicKey, kp.privateKey)));
@@ -769,14 +772,15 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     expect(rt.issuances.claim("no-such-review")).toBe(false);
     const confirming = confirmIssuance(rt, human, view.id, { ticks: ticksOf(view) });
     await settle();
-    rt.issuances.get(view.id)!.expiresAt = "2000-01-01T00:00:00.000Z";
+    // Just expired: within the grace a claimed review is left to its operation.
+    rt.issuances.get(view.id)!.expiresAt = new Date(Date.now() - 1000).toISOString();
     expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([]);
     open();
     await expect(confirming).rejects.toThrow(/abgelaufen/);
     expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([view.id]);
   });
 
-  it("a claim taken while the sweep awaits an earlier discard is honoured, and so is an item that vanished", async () => {
+  it("a claimed item is left to its operation while the sweep awaits an earlier discard, and so is an item that vanished", async () => {
     const { rt } = await setup();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -786,16 +790,80 @@ describe("confirm and reject cannot overlap while the hook is pending", () => {
     rt.providers.register({ id: "slow-revoking", label: "Slow", kind: "automatic", issue: async () => ({ value: new SecretValue("slow-issued-value-0123456789"), externalId: "slow-ext" }), revoke });
     rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.provider = "slow-revoking";
     for (let i = 0; i < 3; i++) await prepared(rt);
-    for (const p of rt.issuances.list()) p.expiresAt = "2000-01-01T00:00:00.000Z";
-    const [first, second, third] = rt.issuances.list().map((p) => p.id) as [string, string, string];
-    const sweeping = rt.issuances.sweep(issuanceDeps(rt));
-    // The sweep is now waiting for the first discard: take a claim on the second item and remove the third.
+    const items = rt.issuances.list();
+    const [first, second, third] = items.map((p) => p.id) as [string, string, string];
+    // An operation took the second item while it was still valid; then all three run out.
     expect(rt.issuances.claim(second)).toBe(true);
+    for (const p of items) p.expiresAt = new Date(Date.now() - 1000).toISOString();
+    const sweeping = rt.issuances.sweep(issuanceDeps(rt));
+    // The sweep is now waiting for the first discard: remove the third item.
     rt.issuances.delete(third);
     release();
     expect(await sweeping).toEqual([first]);
     expect(revoke).toHaveBeenCalledTimes(1);
-    expect(rt.issuances.get(second)).toBeDefined();
+    // The claimed item is hidden (it is past its deadline) but not touched; once its operation lets go, the next sweep settles it.
+    expect(rt.issuances.get(second)).toBeUndefined();
+    rt.issuances.release(second);
+    expect(await rt.issuances.sweep(issuanceDeps(rt))).toEqual([second]);
+    expect(revoke).toHaveBeenCalledTimes(2);
+    // An expired item cannot be claimed any more.
+    expect(rt.issuances.claim(second)).toBe(false);
+  });
+
+  it("a commit that never settles is cut off at the hard bound: the value is gone and the late commit writes nothing", async () => {
+    let t = Date.parse("2026-11-14T10:00:00.000Z");
+    // The first write to GitHub hangs until the test lets it go; the review has two places to write, so a second write would follow.
+    let letGo!: () => void;
+    const hang = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    let armed = false;
+    let hung = false;
+    const { rt, calls } = await setup(undefined, { now: () => new Date(t) }, async (method) => {
+      if (armed && !hung && method === "PUT") {
+        hung = true;
+        await hang;
+      }
+    });
+    rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.places.push({ repo: "acme-docs", scope: "repository" } as never);
+    // The provider names the new value, so there is something to revoke: the gate must be what keeps it.
+    const revokeSpy = vi.fn(async () => undefined);
+    rt.providers.register({ id: "hang-revoking", label: "Hang", kind: "automatic", issue: async () => ({ value: new SecretValue("hang-issued-value-0123456789"), externalId: "hang-ext" }), revoke: revokeSpy });
+    rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.provider = "hang-revoking";
+    const view = await prepared(rt);
+    const pending = rt.issuances.get(view.id)!;
+    const deadline = Date.parse(pending.expiresAt);
+    armed = true;
+    const confirming = confirmIssuance(rt, human, view.id, { ticks: ticksOf(view) });
+    await settle();
+    expect(hung).toBe(true);
+    // Within the grace the claimed review is hidden but still held.
+    t = deadline + 60_000;
+    expect(rt.issuances.get(view.id)).toBeUndefined();
+    expect(rt.issuances.signal(view.id)?.aborted).toBe(false);
+    // Past deadline plus grace the queue takes it back whatever the operation is doing.
+    t = deadline + CLAIM_GRACE_MS;
+    expect(rt.issuances.list()).toEqual([]);
+    expect(rt.issuances.signal(view.id)).toBeUndefined();
+    expect(pending.value.reveal()).toBe("");
+    expect(rt.issuances.claim(view.id)).toBe(false);
+    // A sweep while the commit is still in flight keeps the record and revokes nothing (ordering one) ...
+    await rt.sweep();
+    expect(rt.issuances.orphans()).toEqual([]);
+    letGo();
+    // The write that was in flight went through; the second place was never written, and the commit reports it as failed.
+    expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
+    const result = await confirming;
+    expect(result.ok).toBe(false);
+    expect(result.places.map((p) => p.outcome)).toEqual(["updated", "failed"]);
+    expect(result.places[1]!.error).toMatch(/Abgebrochen/);
+    // ... and once it ended partial, the next sweep flags the record for a person's decision instead of revoking (ordering two).
+    t = deadline + CLAIM_GRACE_MS + 3_600_000;
+    await rt.sweep();
+    expect(rt.issuances.orphans()).toEqual([expect.objectContaining({ id: view.id, needsDecision: true, writeStarted: true })]);
+    expect(revokeSpy).not.toHaveBeenCalled();
+    const report = (await listEvidence(rt, "hmac-acme-app")).find((r) => r.id === view.id)!;
+    expect(report.checks.find((c) => c.id === "partial-write")?.label).toContain("nicht widerrufen");
   });
 });
 
@@ -1062,5 +1130,112 @@ describe("env export is asked before values are produced or written", () => {
     const written = await exportEnv(open.rt, human, { repo: "acme-docs", path: join(open.dir, ".env.authz") });
     expect(written).toMatchObject({ status: "written", keys: ["SITE_URL"] });
     expect(await readFile(join(open.dir, ".env.authz"), "utf8")).toContain("SITE_URL");
+  });
+});
+
+describe("the revoke gate: a value a write was started for is never revoked automatically", () => {
+  /** A runtime whose PUTs to GitHub throw (a time-out: the remote may have applied them) once `fail()` was called. */
+  async function gated(extra: Partial<RuntimeOptions> = {}, told?: (record: unknown) => void) {
+    let failing = false;
+    const world = await setup(undefined, { ...extra, ...(told ? { onNeedsDecision: told } : {}) }, async (method) => {
+      if (failing && method === "PUT") throw new Error("socket timed out");
+    });
+    const revokeSpy = vi.fn(async () => undefined);
+    world.rt.providers.register({ id: "gate-revoking", label: "Gate", kind: "automatic", issue: async () => ({ value: new SecretValue("gate-issued-value-0123456789"), externalId: "gate-ext" }), revoke: revokeSpy });
+    world.rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.provider = "gate-revoking";
+    return { ...world, revokeSpy, fail: () => { failing = true; } };
+  }
+
+  it("a single-place write that timed out: after expiry the sweep revokes nothing, the record is flagged and reported", async () => {
+    let t = Date.parse("2026-11-14T10:00:00.000Z");
+    const told = vi.fn();
+    const w = await gated({ now: () => new Date(t) }, told);
+    const view = await prepared(w.rt);
+    w.fail();
+    const result = await confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) });
+    expect(result.ok).toBe(false);
+    expect(hasWriteStarted(w.rt.issuances.get(view.id)!)).toBe(true);
+    t += 3_600_000;
+    await w.rt.sweep();
+    expect(w.revokeSpy).not.toHaveBeenCalled();
+    expect(w.rt.issuances.orphans()).toEqual([expect.objectContaining({ id: view.id, writeStarted: true, needsDecision: true })]);
+    expect(told).toHaveBeenCalledWith(expect.objectContaining({ id: view.id }));
+  });
+
+  it("rejecting such a review is refused with the places, until the call carries the acknowledgement", async () => {
+    const w = await gated();
+    const view = await prepared(w.rt);
+    w.fail();
+    await confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) });
+    const refused = await rejectIssuance(w.rt, human, view.id).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(IssuanceWrittenError);
+    expect((refused as IssuanceWrittenError).places.join(" ")).toContain("acme-app");
+    expect(w.revokeSpy).not.toHaveBeenCalled();
+    expect(w.rt.issuances.get(view.id)).toBeDefined();
+    const decided = await rejectIssuance(w.rt, human, view.id, "I looked at the places", { acknowledgeWritten: true });
+    expect(decided.revokedNew).toBe(true);
+    expect(w.revokeSpy).toHaveBeenCalledTimes(1);
+    expect(w.rt.issuances.get(view.id)).toBeUndefined();
+    expect(w.rt.issuances.orphans()).toEqual([]);
+  });
+
+  it("re-confirming a partial review whose entry went stale revokes nothing: the review stays for a person", async () => {
+    const w = await gated();
+    const view = await prepared(w.rt);
+    w.fail();
+    await confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) });
+    // A new place changes what the review showed (and, unlike a patch, keeps the provider this test set on the entry).
+    w.rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.places.push({ repo: "acme-other", scope: "repository" } as never);
+    await expect(confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) })).rejects.toBeInstanceOf(StaleIssuanceError);
+    expect(w.revokeSpy).not.toHaveBeenCalled();
+    expect(w.rt.issuances.get(view.id)).toBeUndefined();
+    expect(w.rt.issuances.orphans()).toEqual([expect.objectContaining({ id: view.id, needsDecision: true })]);
+  });
+
+  it("a stale review nothing was written for is revoked as before; a delete the provider refuses is owed", async () => {
+    const w = await gated();
+    const view = await prepared(w.rt);
+    // A new place changes what the review showed (and, unlike a patch, keeps the provider this test set on the entry).
+    w.rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!.places.push({ repo: "acme-other", scope: "repository" } as never);
+    w.revokeSpy.mockRejectedValueOnce(new Error("provider down"));
+    await expect(confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) })).rejects.toBeInstanceOf(StaleIssuanceError);
+    expect(w.revokeSpy).toHaveBeenCalledTimes(1);
+    expect(w.rt.issuances.get(view.id)).toBeUndefined();
+    // The failed delete is on the retry list (not an orphan), and a later sweep does it.
+    expect(w.rt.issuances.orphans()).toEqual([]);
+    expect(await w.rt.sweep(new Date(Date.now() + 3_600_000))).not.toBeUndefined();
+    expect(w.revokeSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("a stale review whose provider identifier the entry holds now (another review of it was confirmed) revokes nothing and owes nothing", async () => {
+    const w = await gated();
+    const view = await prepared(w.rt);
+    const entry = w.rt.inventory.data.secrets.find((s) => s.id === "hmac-acme-app")!;
+    entry.externalId = "gate-ext";
+    entry.places.push({ repo: "acme-other", scope: "repository" } as never);
+    await expect(confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) })).rejects.toBeInstanceOf(StaleIssuanceError);
+    expect(w.revokeSpy).not.toHaveBeenCalled();
+    expect(w.rt.issuances.get(view.id)).toBeUndefined();
+    expect(w.rt.issuances.orphans()).toEqual([]);
+    expect(await w.rt.sweep(new Date(Date.now() + 3_600_000))).toBeNull();
+    expect(w.revokeSpy).not.toHaveBeenCalled();
+  });
+
+  it("the fact is recorded in the store before the first write; when the store cannot take it, nothing is written", async () => {
+    const records = new Map<string, unknown>();
+    const refusing = {
+      put: (r: { id: string; writeStarted?: boolean }) => {
+        if (r.writeStarted) throw new Error("store down");
+        records.set(r.id, r);
+      },
+      get: (id: string) => records.get(id) as never,
+      list: () => [...records.values()] as never,
+      delete: (id: string) => void records.delete(id),
+    };
+    const w = await gated({ pendingStore: refusing });
+    const view = await prepared(w.rt);
+    await expect(confirmIssuance(w.rt, human, view.id, { ticks: ticksOf(view) })).rejects.toThrow("store down");
+    expect(writes(w.calls).filter((c) => c.startsWith("PUT"))).toEqual([]);
+    expect(hasWriteStarted(w.rt.issuances.get(view.id)!)).toBe(false);
   });
 });

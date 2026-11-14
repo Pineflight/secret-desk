@@ -37,7 +37,7 @@ export const DEFAULT_STAGES: readonly StageDef[] = [
 ];
 
 /** Standardfarbe je Art, wenn die Definition keine tone setzt. */
-export const KIND_TONES: Record<StageKind, StageTone> = { dev: "info", test: "ki", live: "stage-prod", shared: "neutral" };
+export const KIND_TONES: Readonly<Record<StageKind, StageTone>> = { dev: "info", test: "ki", live: "stage-prod", shared: "neutral" };
 
 /** Leere oder fehlende Liste = Standard-Stages (Rueckwaertskompatibilitaet). */
 export function effectiveStages(defs: readonly StageDef[] | undefined): StageDef[] {

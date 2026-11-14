@@ -5,6 +5,7 @@ import { join } from "node:path";
 import sodium from "libsodium-wrappers";
 import { describe, expect, it } from "vitest";
 import {
+  IssuanceGoneError,
   PolicyError,
   addEnvTemplate,
   addManualProvider,
@@ -437,16 +438,23 @@ describe("F2b/M7: confirmation and read access", () => {
     expect(calls.filter((c) => c.startsWith("PUT"))).toHaveLength(0);
     expect(rt.issuances.list()).toHaveLength(0);
   });
-  it("reading (listIssuances/getIssuance) discards and revokes nothing; a new issuance cleans up", async () => {
+  it("reading checks the deadline itself: the value is dropped on that access, and the provider-side delete waits for the next sweep", async () => {
     const { rt } = await setup();
     const r = await requestIssuance(rt, human, "hmac-acme-app");
     if (r.status !== "awaiting-review") throw new Error("erwartet");
-    rt.issuances.get(r.issuance.id)!.expiresAt = "2000-01-01T00:00:00.000Z";
+    const held = rt.issuances.get(r.issuance.id)!;
+    expect(held.value.reveal()).not.toBe("");
+    held.expiresAt = "2000-01-01T00:00:00.000Z";
     expect(await listIssuances(rt)).toEqual([]);
+    await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow(IssuanceGoneError);
     await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow(PolicyError);
-    expect(rt.issuances.list()).toHaveLength(1);
+    // Gone from the queue, and the value is gone from memory even for whoever still holds the object.
+    expect(rt.issuances.list()).toHaveLength(0);
+    expect(held.value.reveal()).toBe("");
+    expect((await listEvidence(rt, "hmac-acme-app")).find((x) => x.id === r.issuance.id)?.confirmation).toBeUndefined();
+    // No sweep ran so far: the next one (here the one of a new issuance) settles what is owed.
     await requestIssuance(rt, human, "hmac-acme-app");
-    expect(rt.issuances.get(r.issuance.id)).toBeUndefined();
+    expect((await listEvidence(rt, "hmac-acme-app")).find((x) => x.id === r.issuance.id)?.confirmation).toMatchObject({ decision: "rejected" });
   });
 });
 

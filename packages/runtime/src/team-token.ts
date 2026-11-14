@@ -21,6 +21,7 @@ import { GitHubClient, GitHubError, GitHubInputError, InventoryError, IssuanceEr
 import { requireHuman, type Actor } from "./agent-api.js";
 import type { AutomationRunState, FacadeTimelineEntry, RunAsk } from "./automation.js";
 import { credentialsFrom, methodFrom } from "./facade.js";
+import { WaitExpiredError, waitDeadline, type TeamTokenAnswers, type Waiter, type WaiterBook } from "./instance-state.js";
 import { sudoAnswerFrom } from "./sudo-answer.js";
 import type { Runtime } from "./runtime.js";
 import {
@@ -158,7 +159,7 @@ class Tracker {
     const last = this.#timeline.at(-1);
     if (last?.phase === phase && last.state === "active") return this.rt.automation.update(this.key, { ...patch, timeline: [...this.#timeline] });
     if (last?.state === "active") last.state = "done";
-    this.#timeline.push({ phase, state: "active", at: new Date().toISOString() });
+    this.#timeline.push({ phase, state: "active", at: this.rt.now().toISOString() });
     this.rt.automation.update(this.key, { phase, timeline: [...this.#timeline], ...patch });
   }
 
@@ -193,6 +194,8 @@ function failureOf(err: unknown, known: string[], cancelled: boolean): Failure {
     const code: TeamTokenFailureCode = err.kind === "abort" ? "cancelled" : err.kind === "timeout" ? "timeout" : err.kind === "host" ? "host" : err.kind === "step" ? "step" : "key";
     return { code, message: clean(err.message), ...(err.createdName ? { createdName: err.createdName } : {}) };
   }
+  // A question nobody answered in time ends the run like any other time-out.
+  if (err instanceof WaitExpiredError) return { code: "timeout", message: err.message };
   if (cancelled) return { code: "cancelled", message: "Cancelled." };
   const text = err instanceof Error && err.message ? clean(err.message.split("\n")[0]!) : "";
   return { code: "browser", message: text || "The browser could not be used." };
@@ -243,7 +246,7 @@ export function startTeamToken(rt: Runtime, actor: Actor, body: Record<string, u
   if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
   const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
   if (!recipe) throw new InventoryError(`The recipe ${TEAM_TOKEN_RECIPE} is not loaded.`);
-  const now = new Date();
+  const now = rt.now();
   const vars = teamTokenVars(recipe, req, now);
   rt.automation.forget(RUN_KEY);
   const minutes = rt.automation.loginTimeoutMinutes;
@@ -264,30 +267,41 @@ export function startTeamToken(rt: Runtime, actor: Actor, body: Record<string, u
 
 // ------------------------------------------------------------------------------------------ the human's answers
 
-/** What the portal can answer while a run waits. Only one team token run exists at a time, so one slot per question is enough. */
-interface Answers {
-  credentials: { creds: LoginCredentials; method: LoginMethodId };
-  access: SudoAnswer;
-  code: string;
-  confirm: boolean;
-}
-const waiting: { [K in keyof Answers]?: (answer: Answers[K]) => void } = {};
-
-/** Waits for the human's answer to one question. A cancelled run rejects it. */
-function waitFor<K extends keyof Answers>(slot: K, signal: AbortSignal): Promise<Answers[K]> {
-  return new Promise<Answers[K]>((resolve, reject) => {
+/**
+ * Waits for the human's answer to one question. Only one team token run exists at a time per runtime, so one slot per question in
+ * the runtime's own state (`rt.instance.teamToken`) is enough. A cancelled run rejects it, and so does the deadline of the run: an
+ * expired question can no longer be answered.
+ */
+function waitFor<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, signal: AbortSignal): Promise<TeamTokenAnswers[K]> {
+  const book = rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>;
+  return new Promise<TeamTokenAnswers[K]>((resolve, reject) => {
     const onAbort = (): void => {
-      delete waiting[slot];
+      book.delete(RUN_KEY, signal);
       reject(new Error("cancelled"));
     };
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
-    (waiting as Record<string, unknown>)[slot] = (answer: Answers[K]): void => {
-      signal.removeEventListener("abort", onAbort);
-      delete waiting[slot];
-      resolve(answer);
-    };
+    book.set(RUN_KEY, {
+      run: signal,
+      deadline: waitDeadline(rt.now(), slot),
+      resolve: (answer) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(answer);
+      },
+      reject: (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    });
   });
+}
+
+/** The question of this kind that can still be answered, or undefined (nothing asked, or its deadline passed). */
+const open = <K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K): Waiter<TeamTokenAnswers[K]> | undefined => (rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>).answerable(RUN_KEY, rt.now(), rt.automation.runSignal(RUN_KEY));
+
+/** Delivers the answer to the waiting run, once. */
+function deliver<K extends keyof TeamTokenAnswers>(rt: Runtime, slot: K, value: TeamTokenAnswers[K]): void {
+  (rt.instance.teamToken[slot] as WaiterBook<TeamTokenAnswers[K]>).take(RUN_KEY, rt.now())?.resolve(value);
 }
 
 /** The question the run asks right now, or null. */
@@ -319,7 +333,7 @@ function portalHooks(rt: Runtime, recipe: Recipe, t: Tracker, signal: AbortSigna
   return {
     signIn: async (driver: BrowserDriver): Promise<void> => {
       t.phase("signin", { status: "waiting-human", needs: null, detail: "", ask: { type: "credentials", methods: loginMethodsOf(recipe) }, text: "Sign in to GitHub: choose the way and enter your details." });
-      const { creds, method } = await waitFor("credentials", signal);
+      const { creds, method } = await waitFor(rt, "credentials", signal);
       known.push(creds.username, creds.password);
       update({ ask: null, status: "running", text: "Signing in to GitHub." });
       await signIn(
@@ -328,8 +342,8 @@ function portalHooks(rt: Runtime, recipe: Recipe, t: Tracker, signal: AbortSigna
         driver,
         {
           onEvent: onLogin,
-          requestCode: () => waitFor("code", signal),
-          requestConfirm: () => waitFor("confirm", signal),
+          requestCode: () => waitFor(rt, "code", signal),
+          requestConfirm: () => waitFor(rt, "confirm", signal),
         },
         { timeoutMinutes: rt.automation.loginTimeoutMinutes, signal, method, keepOpen: true },
       );
@@ -344,7 +358,7 @@ function portalHooks(rt: Runtime, recipe: Recipe, t: Tracker, signal: AbortSigna
         };
         if (phased) t.phase("confirm", patch);
         else update(patch);
-        return waitFor("access", signal);
+        return waitFor(rt, "access", signal);
       },
       onEvent: onAccess,
     },
@@ -355,9 +369,8 @@ function portalHooks(rt: Runtime, recipe: Recipe, t: Tracker, signal: AbortSigna
 export function submitTeamTokenAccess(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Confirm access at GitHub");
   const ask = asked(rt);
-  if (!waiting.access || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("GitHub is not waiting for a confirmation.");
-  const answer = sudoAnswerFrom(body, ask.methods);
-  waiting.access(answer);
+  if (!open(rt, "access") || ask?.type !== "access" || ask.stage !== "choose") throw new IssuanceError("GitHub is not waiting for a confirmation.");
+  deliver(rt, "access", sudoAnswerFrom(body, ask.methods));
   return rt.automation.state(RUN_KEY);
 }
 
@@ -365,30 +378,30 @@ export function submitTeamTokenAccess(rt: Runtime, actor: Actor, body: Record<st
 export function submitTeamTokenCredentials(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Sign in at GitHub");
   const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
-  if (!recipe || !waiting.credentials || asked(rt)?.type !== "credentials") throw new IssuanceError("GitHub is not waiting for a sign-in.");
+  if (!recipe || !open(rt, "credentials") || asked(rt)?.type !== "credentials") throw new IssuanceError("GitHub is not waiting for a sign-in.");
   const method = methodFrom(recipe, body);
   const creds = credentialsFrom(body);
-  waiting.credentials({ creds, method });
+  deliver(rt, "credentials", { creds, method });
   return rt.automation.state(RUN_KEY);
 }
 
 /** The one-time code of the GitHub sign-in. */
 export function submitTeamTokenCode(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Enter a one-time code");
-  if (!waiting.code || rt.automation.state(RUN_KEY).needs !== "mfa-code") throw new IssuanceError("GitHub is not waiting for a one-time code.");
+  if (!open(rt, "code") || rt.automation.state(RUN_KEY).needs !== "mfa-code") throw new IssuanceError("GitHub is not waiting for a one-time code.");
   const code = typeof body["code"] === "string" ? body["code"].replace(/\s+/g, "") : "";
   if (typeof body["code"] === "string") body["code"] = "";
   if (!/^[A-Za-z0-9-]{4,16}$/.test(code)) throw new InventoryError("The code is not valid (4 to 16 letters, digits or dashes).");
-  waiting.code(code);
+  deliver(rt, "code", code);
   return rt.automation.state(RUN_KEY);
 }
 
 /** The human confirmed or declined the authorization the identity provider asks for. */
 export function submitTeamTokenConfirm(rt: Runtime, actor: Actor, body: Record<string, unknown>): AutomationRunState {
   requireHuman(actor, "Confirm the authorization");
-  if (!waiting.confirm || rt.automation.state(RUN_KEY).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
+  if (!open(rt, "confirm") || rt.automation.state(RUN_KEY).needs !== "consent") throw new IssuanceError("The provider is not waiting for an authorization.");
   if (typeof body["accept"] !== "boolean") throw new InventoryError("Say whether the authorization is accepted.");
-  waiting.confirm(body["accept"]);
+  deliver(rt, "confirm", body["accept"]);
   return rt.automation.state(RUN_KEY);
 }
 
@@ -534,7 +547,7 @@ export async function checkTeamTokenSession(rt: Runtime, actor: Actor): Promise<
   if (!rt.automation.enabled) throw new InventoryError("Browser automation is off (automation.enabled in the configuration).");
   const recipe = rt.automation.recipe(TEAM_TOKEN_RECIPE);
   if (!recipe) throw new InventoryError(`The recipe ${TEAM_TOKEN_RECIPE} is not loaded.`);
-  const checkedAt = (): string => new Date().toISOString();
+  const checkedAt = (): string => rt.now().toISOString();
   if (rt.automation.isBusy()) return { signedIn: false, checkedAt: checkedAt(), failure: { code: "busy", message: "A browser run is already in progress. Wait for it or cancel it first." } };
   const expect = recipe.login?.expect.url ? new RegExp(recipe.login.expect.url) : null;
   rt.automation.begin(CHECK_KEY, TEAM_TOKEN_RECIPE, { text: "Checking the browser session.", needs: null });

@@ -311,10 +311,15 @@ describe("issuing", () => {
     const pending = rt.issuances.get(r.issuance.id)!;
     pending.expiresAt = new Date(Date.now() - 1000).toISOString();
     await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow(/abgelaufen/);
+    // Expired is gone for good: it cannot be brought back by moving the deadline, and it cannot be rejected either.
     pending.expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await expect(getIssuance(rt, r.issuance.id)).rejects.toThrow(/abgelaufen/);
+    await expect(rejectIssuance(rt, human, r.issuance.id)).rejects.toThrow(/abgelaufen/);
     await expect(rejectIssuance(rt, human, "nope")).rejects.toThrow(/Pruefung nicht gefunden/);
-    await expect(rejectIssuance(rt, agent, r.issuance.id)).rejects.toThrow(PolicyError);
-    const res = await rejectIssuance(rt, human, r.issuance.id, "not needed");
+    const second = await requestIssuance(rt, human, "dev-hex");
+    if (second.status !== "awaiting-review") throw new Error("expected a review");
+    await expect(rejectIssuance(rt, agent, second.issuance.id)).rejects.toThrow(PolicyError);
+    const res = await rejectIssuance(rt, human, second.issuance.id, "not needed");
     expect(res).toHaveProperty("revokedNew");
     const again = await requestIssuance(rt, human, "dev-hex");
     if (again.status !== "awaiting-review") throw new Error("expected a review");

@@ -265,6 +265,15 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["nicht pruefbar", "not checkable"],
   ["Ich weiss, dass dieser Wert die Produktion betrifft.", "I know this value affects production."],
   ["Die Anfrage ist abgelaufen. Neu ausstellen.", "The request has expired. Issue it again."],
+  ["Abgebrochen: die Anfrage ist abgelaufen.", "Cancelled: the request has expired."],
+  ["Ein Mensch entscheidet: erneut bestaetigen oder ablehnen.", "A person decides: confirm again or reject."],
+  ["Neuer Wert nicht widerrufen: ein Schreibvorgang wurde begonnen. Ein Mensch entscheidet.", "New value not revoked: a write was started. A person decides."],
+  ["Neuer Wert konnte beim Anbieter nicht geloescht werden: der Anbieter hat keine Kennung genannt", "The new value could not be deleted at the provider: the provider named no identifier"],
+  ["Der Pruefbericht konnte nicht gespeichert werden. Der neue Wert ist geschrieben.", "The review report could not be saved. The new value is written."],
+  ["Neuer Wert beim Anbieter widerrufen (verwaister Eintrag)", "New value revoked at the provider (orphaned record)"],
+  ["Neuer Wert beim Anbieter widerrufen (spaeterer Versuch)", "New value revoked at the provider (later try)"],
+  ["Neuer Wert beim Anbieter NICHT widerrufen: der Anbieter hat die Loeschung wiederholt nicht bestaetigt", "New value NOT revoked at the provider: the provider repeatedly did not confirm the deletion"],
+  ["Von Hand beim Anbieter loeschen oder verfallen lassen.", "Delete it by hand at the provider or let it expire."],
   ["Die automatische Pruefung ist fehlgeschlagen. Verwerfen oder Ursache beheben.", "The automatic check failed. Discard it or fix the cause."],
   ["Name nicht gefunden", "Name not found"],
   ["Alter Wert beim Anbieter widerrufen", "Old value revoked at the provider"],
@@ -1074,6 +1083,11 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^(.+) darf nur ein Mensch\.$/, "$1 is for humans only."],
   [/^Stage (.+?) braucht eine Freigabe im Portal \(Reiter Freigaben\)\.$/, "Stage $1 needs an approval in the portal (Approvals tab)."],
   [/^Pruefung nicht gefunden oder abgelaufen: (.+)$/, "Review not found or expired: $1"],
+  [/^Neuer Wert bereits geschrieben, nicht widerrufen: (.+)$/, "New value already written, not revoked: $1"],
+  [/^Neuer Wert geschrieben oder moeglicherweise geschrieben, nicht widerrufen: (.+)$/, "New value written or possibly written, not revoked: $1"],
+  [/^Neuer Wert nicht widerrufen, Eintrag verworfen: (.+)$/, "New value not revoked, record dropped: $1"],
+  [/^Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war\. Diese Orte halten einen widerrufenen Wert: (.+)$/, "New value revoked although a write had been started. These places hold a revoked value: $1"],
+  [/^Ein Schreibvorgang wurde begonnen: der neue Wert ist an diesen Orten oder koennte dort sein: (.+)\. Ablehnen widerruft ihn beim Anbieter und kann Dienste abschalten, die ihn nutzen\.$/, "A write was started: the new value is at these places or could be: $1. Rejecting revokes it at the provider and can switch off services that use it."],
   [/^Anfrage nicht gefunden: (.+)$/, "Request not found: $1"],
   [/^Anfrage ist schon erledigt: (.+)$/, "Request is already done: $1"],
   [/^Pruefung (.+?) wartet auf Bestaetigung$/, "Review $1 is waiting for confirmation"],
@@ -1194,7 +1208,8 @@ function paramEntries(): [string, string][] {
   return out;
 }
 
-const exact = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
+/** Built once at import and only read afterwards. */
+const exact: ReadonlyMap<string, string> = new Map<string, string>([...EXACT_ENTRIES, ...paramEntries()]);
 
 function applyTemplate(template: string, groups: string[], depth: number): string {
   return template.replace(/\$(\d)/g, (_m, d: string) => {

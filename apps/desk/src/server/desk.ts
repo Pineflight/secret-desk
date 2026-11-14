@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureConfigFile, exportTeamBundle } from "@secret-desk/core";
-import { createLocalRuntime, issuanceDeps, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime } from "@secret-desk/runtime";
+import { createLocalRuntime, startLiveCheckScheduler, startSignInScheduler, startupTeamSync, type Runtime } from "@secret-desk/runtime";
 import { PortalSession, allowedHosts, extraHostsFromEnv, loadOrCreateAgentToken, loadOrCreateLaunchSecret } from "./security";
 
 export interface Desk {
@@ -58,7 +58,8 @@ async function init(): Promise<Desk> {
   const launchUrl = desk.session.launchUrl(rt.config.server.port);
   if (launchUrl) console.log(`\nsecret-desk: Portal oeffnen unter\n  ${launchUrl}\n(Die Adresse enthaelt ein Startgeheimnis; nicht weitergeben.)\n`);
   // Abgelaufene, nicht bestaetigte Werte verwerfen (der neue Wert wird beim Anbieter wieder geloescht).
-  setInterval(() => void rt.issuances.sweep(issuanceDeps(rt)).catch(() => undefined), 60_000).unref();
+  // The timer only calls the sweep hook of the runtime; every access checks its own deadline, so nothing depends on this timer.
+  setInterval(() => void rt.sweep().catch(() => undefined), 60_000).unref();
   // Check the browser sign-ins in the background (automation.signInCheckHours), so expired sessions show up before a renewal needs one.
   if (!demo) {
     startSignInScheduler(rt);

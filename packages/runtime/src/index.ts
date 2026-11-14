@@ -1,6 +1,7 @@
 export * from "./approvals.js";
 export * from "./automation.js";
 export * from "./connection-check.js";
+export * from "./instance-state.js";
 export * from "./issuances.js";
 export * from "./host.js";
 export * from "./runtime.js";
