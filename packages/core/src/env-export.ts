@@ -247,9 +247,12 @@ const COMMANDS: Readonly<Record<EnvCommand, Readonly<{ program: string; args: st
 const COMMAND_ENV_NAMES = /^(PATH|PATHEXT|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LC_[A-Z]+|TERM|DOCKER_[A-Z_]+|XDG_[A-Z_]+|SystemRoot|ComSpec|APPDATA|LOCALAPPDATA|USERPROFILE)$/;
 
 /** The filtered environment a local program may see (system basics and Docker, never prompt values or provider tokens). */
-export function commandEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function commandEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  // Windows names variables without regard to case, and the system spells the search path "Path": same list, matched without
+  // case there, so a child can still find `git.exe`. Other systems match exactly, as before.
+  const names = platform === "win32" ? new RegExp(COMMAND_ENV_NAMES.source, "i") : COMMAND_ENV_NAMES;
   const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(env)) if (value !== undefined && COMMAND_ENV_NAMES.test(name)) out[name] = value;
+  for (const [name, value] of Object.entries(env)) if (value !== undefined && names.test(name)) out[name] = value;
   return out;
 }
 

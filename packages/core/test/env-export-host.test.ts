@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { commandEnv, gitCheckIgnored, runEnvCommand, writeEnvFile } from "../src/env-export.js";
@@ -10,8 +11,39 @@ describe("commandEnv", () => {
   });
 });
 
+describe("commandEnv per platform", () => {
+  const source = { Path: "C:\\Windows", SystemRoot: "C:\\Windows", COMSPEC: "C:\\Windows\\cmd.exe", PathExt: ".EXE", UserProfile: "C:\\u", TEAM_SECRET_MADE_UP: "x" };
+
+  it("on Windows matches names without regard to case, so the search path and the system folder survive", () => {
+    expect(Object.keys(commandEnv(source, "win32")).sort()).toEqual(["COMSPEC", "Path", "PathExt", "SystemRoot", "UserProfile"]);
+  });
+
+  it("elsewhere matches names exactly, as before", () => {
+    expect(Object.keys(commandEnv(source, "linux")).sort()).toEqual(["SystemRoot"]);
+    expect(Object.keys(commandEnv(source, "darwin")).sort()).toEqual(["SystemRoot"]);
+  });
+});
+
+describe("gitCheckIgnored with the hardened environment and a real git", () => {
+  it("answers true, false and null for an ignored file, a visible file and a folder that is no repository", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "sd-env-realgit-")));
+    const env = { ...commandEnv(process.env), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" };
+    const repo = join(root, "repo");
+    await mkdir(repo);
+    execFileSync("git", ["init", "-q"], { cwd: repo, env });
+    await writeFile(join(repo, ".gitignore"), ".env.ignored\n");
+    expect(await gitCheckIgnored(join(repo, ".env.ignored"), env)).toBe(true);
+    expect(await gitCheckIgnored(join(repo, ".env.visible"), env)).toBe(false);
+    const plain = join(root, "plain");
+    await mkdir(plain);
+    expect(await gitCheckIgnored(join(plain, ".env"), env)).toBeNull();
+  });
+});
+
 describe("gitCheckIgnored with an environment", () => {
-  it("passes exactly the given environment to git", async () => {
+  // The fake git is a shell script without an extension and PATH is joined with ":": neither can start on Windows, which only runs
+  // .exe/.com programs without a shell. The real-git test below covers Windows.
+  it.skipIf(process.platform === "win32")("passes exactly the given environment to git", async () => {
     const bin = await realpath(await mkdtemp(join(tmpdir(), "sd-env-git-")));
     const dump = join(bin, "env.txt");
     await writeFile(join(bin, "git"), `#!/bin/sh\nenv > "${dump}"\nexit 1\n`, { mode: 0o755 });
