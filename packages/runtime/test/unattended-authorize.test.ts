@@ -17,8 +17,9 @@ import {
   type AuthorizationRequest,
   type Authorize,
   type AuthorizeFault,
+  type SystemRoutine,
 } from "../src/agent-api.js";
-import { LiveCheckScheduler } from "../src/live-check.js";
+import { LiveCheckScheduler, runLiveCheck } from "../src/live-check.js";
 import { createRuntime, issuanceDeps, type Runtime } from "../src/runtime.js";
 import { SignInScheduler } from "../src/sign-in-schedule.js";
 import { startupTeamSync } from "../src/team-sync.js";
@@ -63,8 +64,8 @@ function collectFaults(rt: Runtime): AuthorizeFault[] {
 }
 
 /** The faults a refusal must have produced, and nothing of the hook internals in them. */
-function expectFaults(faults: AuthorizeFault[], refusal: Refusal, action: string, count: number): void {
-  expect(faults).toEqual(Array.from({ length: refusal.fault === null ? 0 : count }, () => ({ action, reason: refusal.fault, ...(refusal.fault === "threw" ? { errorName: "Error" } : {}) })));
+function expectFaults(faults: AuthorizeFault[], refusal: Refusal, action: string, count: number, routine: SystemRoutine): void {
+  expect(faults).toEqual(Array.from({ length: refusal.fault === null ? 0 : count }, () => ({ action, reason: refusal.fault, routine, ...(refusal.fault === "threw" ? { errorName: "Error" } : {}) })));
   expect(JSON.stringify(faults)).not.toContain(DETAIL);
 }
 
@@ -102,7 +103,7 @@ describe("the system actor", () => {
       refusal.install(rt);
       const faults = collectFaults(rt);
       expect(await authorizeSystem(rt, "live-check-scheduler", "automation.run")).toBe(false);
-      expectFaults(faults, refusal, "automation.run", 1);
+      expectFaults(faults, refusal, "automation.run", 1, "live-check-scheduler");
     }
   });
 });
@@ -313,7 +314,7 @@ describe("start-up team sync (team-sync-startup)", () => {
       expect(await files()).toEqual(before);
       expect(rt.config.teamSync).toBeUndefined();
       expect(calls).toEqual([]);
-      expectFaults(faults, refusal, "team.sync.configure", 1);
+      expectFaults(faults, refusal, "team.sync.configure", 1, "team-sync-startup");
       vi.spyOn(console, "info").mockImplementation(() => undefined);
       allowing(rt);
       await startupTeamSync(rt, env);
@@ -322,7 +323,7 @@ describe("start-up team sync (team-sync-startup)", () => {
   }
 
   for (const refusal of FUNCTION_REFUSALS) {
-    it(`${refusal.name} at the apply step: the inventory and the team state stay as they were`, async () => {
+    it(`${refusal.name} at the apply step: the configuration IS written, inventory and team state stay as they were, and a second start asks and applies nothing`, async () => {
       const { rt, env, files } = await startupWorld();
       refusal.install(rt);
       const refusing = rt.authorize as Authorize;
@@ -338,7 +339,19 @@ describe("start-up team sync (team-sync-startup)", () => {
       expect(rt.inventory.data.secrets).toHaveLength(0);
       expect((await files()).inventory).toBe(before.inventory);
       expect(rt.teamSyncMemo.lastError).toBeNull();
-      expectFaults(faults, refusal, "team.sync.apply", 1);
+      expectFaults(faults, refusal, "team.sync.apply", 1, "team-sync-startup");
+      // The allowed first step wrote the configuration.
+      expect(rt.config.teamSync).toMatchObject({ repo: "acme/team-config" });
+      const after = await files();
+      expect(after.config).not.toBe(before.config);
+      expect(after.config).toContain("acme/team-config");
+      // A second start does not enter the set-up branch again: nothing is asked and nothing is applied.
+      const inventoryBefore = after.inventory;
+      seen.length = 0;
+      await startupTeamSync(rt, env);
+      expect(seen).toEqual([]);
+      expect(rt.inventory.data.secrets).toHaveLength(0);
+      expect((await files()).inventory).toBe(inventoryBefore);
     });
   }
 
@@ -414,12 +427,36 @@ describe("scheduled sign-in checks (sign-in-scheduler)", () => {
       expect(lines.every((l) => l.endsWith("not allowed by the authorisation hook"))).toBe(true);
       expect(lines.join("\n")).not.toContain(DETAIL);
       if (refusal.fault !== null) expect(faults.length).toBe(lines.length);
-      expect(faults.every((f) => f.action === "automation.run" && f.reason === refusal.fault)).toBe(true);
+      expect(faults.every((f) => f.action === "automation.run" && f.reason === refusal.fault && f.routine === "sign-in-scheduler")).toBe(true);
       expect(JSON.stringify(faults)).not.toContain(DETAIL);
       allowing(rt);
       expect((await scheduler.tick()).checked.length).toBeGreaterThan(0);
     });
   }
+
+  it("a refused host is not asked again before the retry time and is asked again after it", async () => {
+    const { rt, w, lines } = await signInWorld();
+    const seen: AuthorizationRequest[] = [];
+    rt.authorize = (request) => {
+      seen.push(request);
+      throw new PolicyError(DETAIL);
+    };
+    const scheduler = new SignInScheduler(rt, { log: (l) => void lines.push(l), timeoutSeconds: 0.05, retryMinutes: 30 });
+    await scheduler.tick();
+    const firstRound = seen.length;
+    expect(firstRound).toBeGreaterThan(0);
+    // The attempt time is remembered: five minutes later nothing is asked.
+    const start = Date.now();
+    const clock = vi.spyOn(rt.automation, "now").mockImplementation(() => new Date(start + 5 * 60_000));
+    await scheduler.tick();
+    expect(seen).toHaveLength(firstRound);
+    // After the retry time every refused host is asked again.
+    clock.mockImplementation(() => new Date(start + 31 * 60_000));
+    await scheduler.tick();
+    expect(seen).toHaveLength(2 * firstRound);
+    expect(w.opened).toEqual([]);
+    expect(rt.automation.signInChecks()).toEqual([]);
+  });
 
   it("the timer goes on after a refusal and checks as soon as the hook allows", async () => {
     const { rt, w, lines } = await signInWorld();
@@ -473,7 +510,7 @@ describe("scheduled live check (live-check-scheduler)", () => {
       // Still refused at the next tick: asked again, but the log line only comes when it turns from allowed to refused.
       expect(await scheduler.tick()).toEqual({ skipped: "refused", report: null });
       expect(lines).toHaveLength(1);
-      expectFaults(faults, refusal, "automation.run", 2);
+      expectFaults(faults, refusal, "automation.run", 2, "live-check-scheduler");
       allowing(rt);
       const retry = await scheduler.tick();
       expect(retry.skipped).toBeNull();
@@ -508,6 +545,19 @@ describe("scheduled live check (live-check-scheduler)", () => {
     expect((await first).skipped).toBeNull();
     expect(seen).toHaveLength(1);
     expect(rt.automation.liveCheckReports()).toHaveLength(1);
+  });
+
+  it("a manual run that starts while the hook is asked wins: the tick does not start a second run", async () => {
+    const { rt, log } = await liveCheckSetup({ world: newWorld() });
+    let manual: Promise<unknown> = Promise.resolve();
+    rt.authorize = () => {
+      manual = runLiveCheck(rt, { trigger: "manual", log });
+    };
+    const scheduler = new LiveCheckScheduler(rt, { log });
+    expect(await scheduler.tick()).toEqual({ skipped: "running", report: null });
+    await manual;
+    expect(rt.automation.liveCheckReports()).toHaveLength(1);
+    expect(rt.automation.liveCheckReports()[0]).toMatchObject({ trigger: "manual" });
   });
 
   it("the timer goes on after a refusal and runs as soon as the hook allows", async () => {

@@ -427,6 +427,8 @@ export class LiveCheckScheduler {
         return { skipped: "refused", report: null };
       }
       this.#refused = false;
+      // Asking took a while: a manual run may have started meanwhile.
+      if (isLiveCheckRunning(rt)) return { skipped: "running", report: null };
     }
     try {
       return { skipped: null, report: await runLiveCheck(rt, this.#options) };
