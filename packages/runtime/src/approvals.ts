@@ -36,6 +36,12 @@ export class ApprovalQueue {
   readonly #items = new Map<string, Approval>();
   /** Anfragen, die gerade abgearbeitet werden: ein zweites approve/deny darf nicht noch einmal arbeiten. */
   readonly #busy = new Set<string>();
+  readonly #now: () => Date;
+
+  /** `now` is the clock that stamps `createdAt` and `decidedAt` (default: the system clock). The runtime passes its own, so every time in a runtime comes from one clock. */
+  constructor(now: () => Date = () => new Date()) {
+    this.#now = now;
+  }
 
   /** Markiert eine offene Anfrage atomar als "in Bearbeitung". false, wenn sie nicht offen oder schon in Bearbeitung ist. */
   begin(id: string): boolean {
@@ -80,7 +86,7 @@ export class ApprovalQueue {
       // Without a reference the request came from the agent interface, the only caller that is asked for approval.
       requestedByRef: input.requestedByRef ? { ...input.requestedByRef } : { name: input.requestedBy, kind: "agent" },
       reason: input.reason ?? null,
-      createdAt: (input.now ?? new Date()).toISOString(),
+      createdAt: (input.now ?? this.#now()).toISOString(),
       state: "pending",
       snapshotHash: input.snapshot.hash,
       snapshot: input.snapshot.view,
@@ -106,7 +112,7 @@ export class ApprovalQueue {
     if (result) item.result = result;
     if (decidedBy) {
       item.decidedBy = { ...decidedBy };
-      item.decidedAt = new Date().toISOString();
+      item.decidedAt = this.#now().toISOString();
     }
     return item;
   }

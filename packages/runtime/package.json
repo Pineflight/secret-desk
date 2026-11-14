@@ -21,17 +21,25 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@secret-desk/automation": "workspace:*",
     "@secret-desk/core": "workspace:*",
     "@secret-desk/providers": "workspace:*",
     "zod": "^4.6.7"
   },
+  "peerDependencies": {
+    "@secret-desk/automation": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "@secret-desk/automation": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@secret-desk/automation": "workspace:*",
     "@types/libsodium-wrappers": "^0.8.2",
     "libsodium-wrappers": "^0.8.4"
   }

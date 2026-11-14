@@ -1,6 +1,6 @@
 import { ANTHROPIC_API_PREFIXES, isAnthropicApiKey } from "@secret-desk/providers/portable";
 import { stripeConnectionId, stripeKeyCarriesAccount, stripeKeyMode, type SecretValue, type StripeAccountMode } from "@secret-desk/core/portable";
-import type { Runtime } from "./runtime.js";
+import type { RuntimeCore } from "./runtime-core.js";
 
 /**
  * The descriptors of the provider facades (one guided flow per provider that signs in through the remote browser) and the lookups
@@ -31,7 +31,7 @@ export interface FacadeVariant {
   /** Catalog key of the sentence that says what this variant can do (shown under its name). */
   promise?: string;
   /** Checks the new key before it is stored (see the descriptor's `verifyKey`). */
-  verifyKey?(rt: Runtime, key: SecretValue, inputs: Record<string, string>): Promise<string | null>;
+  verifyKey?(rt: RuntimeCore, key: SecretValue, inputs: Record<string, string>): Promise<string | null>;
 }
 
 /** What a provider needs to join the facade. The recipe carries the sign-in (login.form) and the key creation. */
@@ -63,7 +63,7 @@ export interface FacadeDescriptor {
    * Checks the new key before it is stored (for example that it belongs to the chosen account). Resolves to a problem text, or
    * null when the key is fine.
    */
-  verifyKey?(rt: Runtime, key: SecretValue, inputs: Record<string, string>): Promise<string | null>;
+  verifyKey?(rt: RuntimeCore, key: SecretValue, inputs: Record<string, string>): Promise<string | null>;
   /** Fixed recipe parameters of the integration key (for example the read-only permission). */
   keyParams: Record<string, string>;
   /** The recipe parameter that names the provider project, and how to read it from a dashboard address. */
@@ -93,7 +93,7 @@ export interface FacadeDescriptor {
 const pad = (n: number): string => String(n).padStart(2, "0");
 
 /** The account a Stripe key belongs to (`GET /v1/account`). Null when the key is refused or the answer has no id. */
-async function stripeKeyAccount(rt: Runtime, key: SecretValue): Promise<string | null> {
+async function stripeKeyAccount(rt: RuntimeCore, key: SecretValue): Promise<string | null> {
   try {
     const res = await rt.fetch("https://api.stripe.com/v1/account", { method: "GET", headers: { Authorization: `Bearer ${key.reveal()}`, Accept: "application/json", "User-Agent": "secret-desk" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
     if (res.status !== 200) return null;
@@ -108,7 +108,7 @@ async function stripeKeyAccount(rt: Runtime, key: SecretValue): Promise<string |
  * A new Anthropic API key (Personal) must be a normal API key and must work: `GET /v1/models?limit=1`. Resolves to a problem text
  * (never the key), or null when the key is fine.
  */
-async function anthropicApiKeyProblem(rt: Runtime, key: SecretValue): Promise<string | null> {
+async function anthropicApiKeyProblem(rt: RuntimeCore, key: SecretValue): Promise<string | null> {
   const value = key.reveal();
   if (!isAnthropicApiKey(value)) return `The new key does not start with ${ANTHROPIC_API_PREFIXES.join(" or ")}, so it is not a normal API key and was not stored.`;
   let status: number;

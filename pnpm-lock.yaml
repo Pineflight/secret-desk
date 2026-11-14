@@ -169,9 +169,6 @@ importers:
 
   packages/runtime:
     dependencies:
-      '@secret-desk/automation':
-        specifier: workspace:*
-        version: link:../automation
       '@secret-desk/core':
         specifier: workspace:*
         version: link:../core
@@ -182,6 +179,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@secret-desk/automation':
+        specifier: workspace:*
+        version: link:../automation
       '@types/libsodium-wrappers':
         specifier: ^0.8.2
         version: 0.8.2

@@ -1,5 +1,5 @@
-import type { BrowserDriver } from "@secret-desk/automation";
 import type { ConnectionHost, EnvCommand, Vault } from "@secret-desk/core/portable";
+import type { PortableBrowserDriver as BrowserDriver } from "./automation-types.js";
 
 // The host capability without any Node API: the interface, its error and the helpers that read from it. The Node host that
 // fills the interface (`nodeRuntimeHost`) lives in `host.ts`, which re-exports everything here. This file is part of the
