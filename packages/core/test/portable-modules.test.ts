@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as portableEntry from "../src/portable.js";
@@ -21,6 +22,13 @@ const MODULE_ROOTS = ["vault-core.ts", "evidence.ts", "secret.ts", "inventory-ba
 // The portable entry point is a root too: it may not reach anything the modules above do not already reach.
 const ROOTS = [...MODULE_ROOTS, "portable.ts"];
 const EXPECTED_CLOSURE = ["base64.ts", "connections-core.ts", "evidence.ts", "git-names.ts", "github-core.ts", "inventory-backend.ts", "inventory-errors.ts", "inventory-store.ts", "place-key.ts", "reserved-names.ts", "secret.ts", "stages.ts", "types.ts", "variable-sources.ts", "vault-core.ts"];
+// The contract suites (`@secret-desk/core/testing`) are a separate root: they may reach the portable modules they test,
+// but they must not be reached from the root or from `portable.ts`, and they import no test framework.
+const TESTING_ROOTS = ["testing/index.ts"];
+const TESTING_CLOSURE = [
+  "testing/index.ts", "testing/framework.ts", "testing/inventory-fixture.ts", "testing/inventory-backend-contract.ts", "testing/vault-store-contract.ts", "testing/evidence-store-contract.ts",
+  "inventory-errors.ts", "inventory-store.ts", "evidence.ts", "vault-core.ts", "secret.ts", "types.ts", "stages.ts", "variable-sources.ts", "reserved-names.ts",
+];
 // npm packages that are pure JavaScript (no Node built-ins, no native or WASM code). Anything else, notably
 // `libsodium-wrappers`, fails the guard.
 const PURE_PACKAGES = ["yaml", "zod"];
@@ -59,29 +67,55 @@ async function closureOf(roots: string[]): Promise<Map<string, string>> {
     if (files.has(name)) continue;
     const source = await sourceOf(name);
     files.set(name, source);
-    queue.push(...valueImports(source));
+    // Imports are relative to the importing file, so a file in `testing/` reaches `../evidence.ts` as `evidence.ts`.
+    queue.push(...valueImports(source).map((spec) => posix.normalize(posix.join(posix.dirname(name), spec))));
   }
   return files;
+}
+
+/** The checks every portable file must pass. `allowedPackages` are the npm packages it may import. */
+function expectPortable(files: Map<string, string>, allowedPackages: string[]): void {
+  for (const [name, source] of files) {
+    const where = `in ${name}`;
+    for (const pkg of bareImports(source)) expect(allowedPackages, `${where}: ${pkg}`).toContain(pkg);
+    expect(source, where).not.toMatch(/libsodium/);
+    expect(source, where).not.toMatch(/from\s+["']node:/);
+    expect(source, where).not.toMatch(/import\s*\(\s*["']node:/);
+    for (const mod of NODE_BUILTINS) expect(source, `${where}: ${mod}`).not.toMatch(new RegExp(`from\\s+["']${mod}(/[^"']*)?["']`));
+    expect(source, where).not.toMatch(/\bprocess\./);
+    expect(source, where).not.toMatch(/\bglobalThis\.process\b/);
+    expect(source, where).not.toMatch(/\bBuffer\b/);
+    expect(source, where).not.toMatch(/\brequire\(/);
+    expect(source, where).not.toMatch(/\bNodeJS\./);
+    expect(source, where).not.toMatch(/\bErrnoException\b/);
+  }
 }
 
 describe("portable modules stay free of Node APIs", () => {
   it("follows relative value imports and checks every file it reaches", async () => {
     const files = await closureOf(ROOTS);
     expect([...files.keys()].sort()).toEqual([...EXPECTED_CLOSURE, "portable.ts"].sort());
-    for (const [name, source] of files) {
-      const where = `in ${name}`;
-      for (const pkg of bareImports(source)) expect(PURE_PACKAGES, `${where}: ${pkg}`).toContain(pkg);
-      expect(source, where).not.toMatch(/libsodium/);
-      expect(source, where).not.toMatch(/from\s+["']node:/);
-      expect(source, where).not.toMatch(/import\s*\(\s*["']node:/);
-      for (const mod of NODE_BUILTINS) expect(source, `${where}: ${mod}`).not.toMatch(new RegExp(`from\\s+["']${mod}(/[^"']*)?["']`));
-      expect(source, where).not.toMatch(/\bprocess\./);
-      expect(source, where).not.toMatch(/\bglobalThis\.process\b/);
-      expect(source, where).not.toMatch(/\bBuffer\b/);
-      expect(source, where).not.toMatch(/\brequire\(/);
-      expect(source, where).not.toMatch(/\bNodeJS\./);
-      expect(source, where).not.toMatch(/\bErrnoException\b/);
+    expectPortable(files, PURE_PACKAGES);
+  });
+
+  it("the contract suites are their own portable root: no Node APIs, no test framework, no npm package", async () => {
+    const files = await closureOf(TESTING_ROOTS);
+    const reached = [...files.keys()].sort();
+    expect(reached).toEqual([...TESTING_CLOSURE].sort());
+    // The suites reach the portable modules they test and the entry point reaches nothing else.
+    for (const name of reached) if (!name.startsWith("testing/")) expect(EXPECTED_CLOSURE, name).toContain(name);
+    expectPortable(files, PURE_PACKAGES);
+    // The framework is passed in by the caller: no test runner import in any form.
+    for (const [name, source] of files) expect(source, name).not.toMatch(/["'](vitest|jest|@jest\/globals|mocha|chai)["']/);
+  });
+
+  it("neither the package root nor the portable entry reaches the contract suites", async () => {
+    for (const root of ["index.ts", "portable.ts"]) {
+      const source = await sourceOf(root);
+      expect(valueImports(source).filter((spec) => spec.startsWith("testing/")), root).toEqual([]);
+      expect(source, root).not.toMatch(/testing/);
     }
+    expect([...(await closureOf(["portable.ts"])).keys()].filter((n) => n.startsWith("testing/"))).toEqual([]);
   });
 
   it("portable.ts reaches exactly the files the portable modules reach", async () => {
@@ -123,6 +157,10 @@ describe("portable modules stay free of Node APIs", () => {
     const pkg = JSON.parse(await readFile(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
     expect(pkg.exports["./portable"]).toEqual({ types: "./dist/portable.d.ts", default: "./dist/portable.js" });
     expect(pkg.exports["."].default).toBe("./dist/index.js");
+    // The contract suites have their own subpath; the published package does not depend on a test framework.
+    expect(pkg.exports["./testing"]).toEqual({ types: "./dist/testing/index.d.ts", default: "./dist/testing/index.js" });
+    expect(pkg.dependencies).not.toHaveProperty("vitest");
+    expect(pkg.peerDependencies).toBeUndefined();
     // tsc maps src/portable.ts to dist/portable.js and dist/portable.d.ts (rootDir src, outDir dist).
     await expect(readFile(fileURLToPath(new URL("../src/portable.ts", import.meta.url)), "utf8")).resolves.toContain("export *");
   });
