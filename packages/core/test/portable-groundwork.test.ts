@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -167,22 +166,94 @@ describe("looksSecret reads the JWT payload like Buffer did", () => {
     }
   });
 
-  it("matches the Buffer decoder on random segments", () => {
+  /** Small seeded generator (mulberry32): the same seed gives the same cases. */
+  const seeded = (seed: number): (() => number) => {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+
+  it("matches the Buffer decoder on random segments (seeded)", () => {
+    const seed = 20241114;
+    const rand = seeded(seed);
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/_-=!. \n";
     for (let i = 0; i < 400; i += 1) {
-      const body = Buffer.from(randomBytes(i % 40)).toString("base64url");
+      const bytes = Uint8Array.from({ length: i % 40 }, () => Math.floor(rand() * 256));
+      const body = Buffer.from(bytes).toString("base64url");
       let noise = "";
-      for (let j = 0; j < i % 6; j += 1) noise += alphabet[Math.floor(Math.random() * alphabet.length)]!.replace(".", "x");
-      const cut = Math.floor(Math.random() * (body.length + 1));
+      for (let j = 0; j < i % 6; j += 1) noise += alphabet[Math.floor(rand() * alphabet.length)]!.replace(".", "x");
+      const cut = Math.floor(rand() * (body.length + 1));
       const payload = `${body.slice(0, cut)}${noise}${body.slice(cut)}`;
       const value = jwt(payload);
-      expect(levelOf(value), JSON.stringify(payload)).toBe(expected(value));
+      expect(levelOf(value), `seed ${seed} case ${i} ${JSON.stringify(payload)}`).toBe(expected(value));
     }
     for (let i = 0; i < 200; i += 1) {
       const json = JSON.stringify({ role: ["service_role", "anon", "x"][i % 3], pad: "ä€".repeat(i % 5) });
-      const payload = Math.random() < 0.5 ? b64url(json) : Buffer.from(json).toString("base64");
+      const payload = rand() < 0.5 ? b64url(json) : Buffer.from(json).toString("base64");
       const value = jwt(payload.slice(0, payload.length - (i % 3)));
+      expect(levelOf(value), `seed ${seed} case ${i} ${payload}`).toBe(expected(value));
+    }
+  });
+
+  it("matches the Buffer decoder on invalid UTF-8 in the payload", () => {
+    const rand = seeded(7);
+    const cases: Buffer[] = [
+      Buffer.concat([Buffer.from('{"pad":"'), Buffer.from([0xff]), Buffer.from('","role":"service_role"}')]),
+      Buffer.concat([Buffer.from('{"role":"service_role","pad":"'), Buffer.from([0x80, 0xc3]), Buffer.from('"}')]),
+      Buffer.concat([Buffer.from('{"pad":"'), Buffer.from([0xe2, 0x82]), Buffer.from('","role":"anon"}')]),
+    ];
+    for (let i = 0; i < 100; i += 1) {
+      const junk = Buffer.from(Array.from({ length: 1 + (i % 5) }, () => 0x80 + Math.floor(rand() * 128)));
+      cases.push(Buffer.concat([Buffer.from('{"pad":"'), junk, Buffer.from(`","role":"${["service_role", "anon"][i % 2]}"}`)]));
+    }
+    cases.forEach((bytes, i) => {
+      for (const payload of [bytes.toString("base64url"), bytes.toString("base64")]) {
+        const value = jwt(payload);
+        expect(levelOf(value), `case ${i} ${payload}`).toBe(expected(value));
+      }
+    });
+  });
+
+  it("matches the Buffer decoder on an equals sign in the middle followed by valid base64", () => {
+    const first = b64url('{"role":"anon"}');
+    const second = b64url('{"role":"service_role"}');
+    for (const payload of [`${first}=${second}`, `${first}==${second}`, `${first.slice(0, 6)}=${first.slice(6)}`, `=${second}`, `${second}=`, `${second}=${first}=${second}`]) {
+      const value = jwt(payload);
       expect(levelOf(value), payload).toBe(expected(value));
+    }
+  });
+
+  it("matches the Buffer decoder when the filtered length is 1 modulo 4, also in the middle", () => {
+    const encoded = b64url('{"role":"service_role"}');
+    for (let cut = 0; cut <= encoded.length; cut += 1) {
+      // One stray alphabet character, then a stray one outside the alphabet, so the filtered length changes by 1 and 0.
+      for (const payload of [`${encoded.slice(0, cut)}A${encoded.slice(cut)}`, `${encoded.slice(0, cut)}!${encoded.slice(cut)}`, `${encoded.slice(0, cut)}A=${encoded.slice(cut)}`, `${encoded.slice(0, cut)}A!A${encoded.slice(cut)}`]) {
+        const value = jwt(payload);
+        expect(levelOf(value), payload).toBe(expected(value));
+      }
+    }
+    for (const payload of ["A", "AAAAA", "AAAA=A", `${encoded}A=`]) {
+      const value = jwt(payload);
+      expect(levelOf(value), payload).toBe(expected(value));
+    }
+  });
+
+  it("decodes a segment of about 1 MiB like Buffer does, in linear time", () => {
+    const filler = "a".repeat(1024 * 1024);
+    const body = Buffer.from(`{"pad":"${filler}","role":"service_role"}`).toString("base64url");
+    const noisy = body.replace(/(.{4096})/g, "$1\n!");
+    for (const payload of [body, noisy, `${body}A`]) {
+      const value = jwt(payload);
+      const started = performance.now();
+      const level = levelOf(value);
+      const elapsed = performance.now() - started;
+      expect(level).toBe(expected(value));
+      expect(elapsed, `${Math.round(elapsed)} ms`).toBeLessThan(2000);
     }
   });
 });
