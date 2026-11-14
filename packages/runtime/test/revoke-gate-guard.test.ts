@@ -86,7 +86,7 @@ describe("one gate for revoking a newly issued value", () => {
     expect((gate.match(CALL) ?? []).length).toBe(1);
     const discard = core.slice(core.indexOf("export async function discardIssuance"));
     expect(revokeUses(discard)).toBe(0);
-    for (const file of ["issuances.ts", "agent-api.ts"]) expect(revokeUses(await readFile(join(RUNTIME_SRC, file), "utf8")), file).toBe(0);
+    for (const file of ["issuances.ts", "agent-api.ts", "agent-api-core.ts"]) expect(revokeUses(await readFile(join(RUNTIME_SRC, file), "utf8")), file).toBe(0);
   });
 
   it("the environment export and the rotate flow call the gate for a new value", async () => {

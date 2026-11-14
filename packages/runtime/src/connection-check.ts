@@ -19,6 +19,7 @@ import { ANTHROPIC_KEY_KIND_PROBLEM, GRAFANA_COM_ROOT, isAnthropicAdminKey, isAn
 import { stripeKeyCarriesAccount } from "@secret-desk/core";
 export { stripeKeyCarriesAccount };
 import { assertCanSeal, githubAppKeyStatus } from "./github-crypto.js";
+import { KNOWN_CONNECTIONS } from "./known-connections.js";
 import type { Runtime } from "./runtime.js";
 
 /** Feste Namen der Probe-Eintraege des Schreibtests. */
@@ -477,8 +478,8 @@ async function writeProbe(rt: Runtime, target: GitHubTarget, id: string, token: 
 // Einstieg
 // ---------------------------------------------------------------------------
 
-/** Verbindungen, die das Portal selbst anbietet (auch ohne registrierten Anbieter, zum Beispiel bei ausgeschalteter Automatisierung). */
-export const KNOWN_CONNECTIONS: ReadonlySet<string> = new Set(["github", "team-sync", "github-app-key", "cloudflare", "cloudflare-turnstile", "supabase", "stripe", "stripe-test", "stripe-live", "resend", "revenuecat", "openai", "anthropic", "grafana", "grafana-cloud"]);
+// The list lives in `known-connections.ts` (portable); this module keeps exporting it under the same name.
+export { KNOWN_CONNECTIONS };
 const KNOWN = KNOWN_CONNECTIONS;
 
 /**

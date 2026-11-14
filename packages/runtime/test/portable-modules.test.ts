@@ -13,7 +13,8 @@ import * as portableEntry from "../src/portable.js";
 const CORE_PORTABLE = "@secret-desk/core/portable";
 const PROVIDERS_PORTABLE = "@secret-desk/providers/portable";
 const EXPECTED_RUNTIME_FILES = [
-  "approvals.ts", "automation-port.ts", "github-crypto-core.ts", "host-core.ts", "instance-state.ts", "issuances.ts", "live-check-notify.ts", "portable.ts", "runtime-core.ts",
+  "agent-api-core.ts", "approvals.ts", "automation-port.ts", "connection-guides.ts", "facade-registry.ts", "github-crypto-core.ts", "host-core.ts", "instance-state.ts", "issuances.ts",
+  "known-connections.ts", "live-check-notify.ts", "params.ts", "path-basename.ts", "portable.ts", "runtime-core.ts", "team-token-rights.ts",
 ];
 const EXPECTED_PROVIDER_FILES = [
   "anthropic.ts", "checks.ts", "cloudflare-access.ts", "cloudflare.ts", "discover.ts", "grafana.ts", "http.ts", "manual.ts", "openai.ts", "portable.ts", "resend.ts", "revenuecat.ts", "stripe.ts",
@@ -25,7 +26,7 @@ const EXPECTED_CORE_FILES = [
   "snapshot.ts", "stages.ts", "status.ts", "stripe-accounts.ts", "team.ts", "types.ts", "variable-sources.ts", "variables.ts", "vault-core.ts", "vendors.ts", "verification.ts", "worker-secrets.ts",
 ];
 // Modules that must never be in the closure: the Node host, the browser automation, the local builder and the agent interface.
-const NEVER_IN_CLOSURE = ["host.ts", "automation.ts", "runtime.ts", "agent-api.ts"];
+const NEVER_IN_CLOSURE = ["host.ts", "automation.ts", "runtime.ts", "agent-api.ts", "connection-check.ts", "facade.ts", "team-sync.ts", "repos.ts", "i18n-en.ts", "github-crypto.ts"];
 // Pure JavaScript only (no Node built-ins, no native or WASM code): what the core's portable closure may import.
 const PURE_PACKAGES = ["yaml", "zod", "@noble/hashes"];
 const NODE_BUILTINS = ["assert", "buffer", "child_process", "crypto", "events", "fs", "http", "https", "net", "os", "path", "stream", "tls", "url", "util", "zlib"];

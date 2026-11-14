@@ -21,7 +21,7 @@ import {
   type SessionVault,
 } from "@secret-desk/core/portable";
 import { createPortableRegistry } from "@secret-desk/providers/portable";
-import type { Authorize, AuthorizeFault } from "./agent-api.js";
+import type { Authorize, AuthorizeFault } from "./agent-api-core.js";
 import { ApprovalQueue } from "./approvals.js";
 import { noAutomation, noAutomationFor, type AutomationPort } from "./automation-port.js";
 import { createAppTokenProvider, createGitHubClientOn, type GitHubClientClass, type GitHubCryptoDefaults } from "./github-crypto-core.js";
