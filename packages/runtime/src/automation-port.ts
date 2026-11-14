@@ -1,5 +1,13 @@
-import type { BrowserDriver, BrowserProvider, LoginMethodInfo, LoginNeed, Recipe, SudoMethod, SudoProblem } from "@secret-desk/automation";
 import type { Provider } from "@secret-desk/core/portable";
+import type {
+  PortableBrowserDriver as BrowserDriver,
+  PortableBrowserProvider as BrowserProvider,
+  PortableLoginMethodInfo as LoginMethodInfo,
+  PortableLoginNeed as LoginNeed,
+  PortableRecipe as Recipe,
+  PortableSudoMethod as SudoMethod,
+  PortableSudoProblem as SudoProblem,
+} from "./automation-types.js";
 import type { LiveCheckReport } from "./live-check-store.js";
 import type { SessionLifetime, SignInCheck, SignInSource } from "./sign-in-store.js";
 

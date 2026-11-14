@@ -1,5 +1,5 @@
-import type { LoginCredentials, LoginMethodId, SudoAnswer } from "@secret-desk/automation";
-// Types only: the automation package is not part of the portable entry (no value is imported from it).
+import type { PortableLoginCredentials as LoginCredentials, PortableLoginMethodId as LoginMethodId, PortableSudoAnswer as SudoAnswer } from "./automation-types.js";
+// Types only, and none from the automation package: the portable entry needs that package neither at run time nor for its declarations.
 
 /**
  * Everything a running `Runtime` keeps in memory while it waits for a person: the one-time codes, approvals and provider

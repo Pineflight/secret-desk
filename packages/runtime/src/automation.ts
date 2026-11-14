@@ -378,11 +378,12 @@ export class AutomationManager implements AutomationPort {
       parseCdpEndpoint(this.#cdpEndpoint); // fail closed: an invalid endpoint never falls back to a local Chrome
       // The address comes from configuration or the environment of the host: a host that does not offer the capability refuses it.
       if (!host?.connectRemoteBrowser) throw new BrowserNotAvailableError("remote");
-      return host.connectRemoteBrowser({ cdpEndpoint: this.#cdpEndpoint, ...slow });
+      // The host interface names the driver by what the portable declarations know (open and close); this module needs the whole driver.
+      return host.connectRemoteBrowser({ cdpEndpoint: this.#cdpEndpoint, ...slow }) as BrowserDriver | Promise<BrowserDriver>;
     }
     if (!host?.launchLocalBrowser) throw new BrowserNotAvailableError("local");
     if (this.#pathError) throw this.#pathError;
-    return host.launchLocalBrowser({ ...(this.#chromePath ? { chromePath: this.#chromePath } : {}), profileDir: this.profileDir, ...slow });
+    return host.launchLocalBrowser({ ...(this.#chromePath ? { chromePath: this.#chromePath } : {}), profileDir: this.profileDir, ...slow }) as BrowserDriver | Promise<BrowserDriver>;
   }
 
   isBrowserProvider(p: Provider | undefined): p is BrowserProvider {

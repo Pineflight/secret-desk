@@ -26,12 +26,20 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@secret-desk/automation": "workspace:*",
     "@secret-desk/core": "workspace:*",
     "@secret-desk/providers": "workspace:*",
     "zod": "^4.6.7"
   },
+  "peerDependencies": {
+    "@secret-desk/automation": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@secret-desk/automation": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@secret-desk/automation": "workspace:*",
     "@types/libsodium-wrappers": "^0.8.2",
     "libsodium-wrappers": "^0.8.4"
   }
