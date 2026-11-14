@@ -13,6 +13,16 @@ vi.mock("@secret-desk/core", async (importOriginal) => {
     hasWriteStarted: (p: object) => ["partial", "committing"].includes(hold.states.get(p) ?? "") || actual.hasWriteStarted(p as never),
   };
 });
+// The queue imports the core through its portable entry now, so the same scripting is registered for that specifier too.
+vi.mock("@secret-desk/core/portable", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@secret-desk/core/portable")>();
+  return {
+    ...actual,
+    issuanceStateOf: (p: object) => hold.states.get(p) ?? actual.issuanceStateOf(p as never),
+    // A scripted "partial" item is one a write was started for.
+    hasWriteStarted: (p: object) => ["partial", "committing"].includes(hold.states.get(p) ?? "") || actual.hasWriteStarted(p as never),
+  };
+});
 
 const T0 = "2026-11-14T10:00:00.000Z";
 const at = (iso: string): number => Date.parse(iso);

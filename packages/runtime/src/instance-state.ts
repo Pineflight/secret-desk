@@ -1,4 +1,5 @@
 import type { LoginCredentials, LoginMethodId, SudoAnswer } from "@secret-desk/automation";
+// Types only: the automation package is not part of the portable entry (no value is imported from it).
 
 /**
  * Everything a running `Runtime` keeps in memory while it waits for a person: the one-time codes, approvals and provider

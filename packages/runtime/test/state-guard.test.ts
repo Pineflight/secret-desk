@@ -166,6 +166,6 @@ describe("no mutable state in module scope", () => {
       expect(code, name).not.toMatch(/(?<![.\w])(codeWaiters|confirmWaiters|accessWaiters)\b/);
       expect(code, name).not.toMatch(/^const (waiting|running)\b/m);
     }
-    expect(stripComments(await readFile(join(RUNTIME_SRC, "runtime.ts"), "utf8"))).toMatch(/new InstanceState\(\)/);
+    expect(stripComments(await readFile(join(RUNTIME_SRC, "runtime-core.ts"), "utf8"))).toMatch(/new InstanceState\(\)/);
   });
 });

@@ -1,17 +1,18 @@
+import { createSign } from "node:crypto";
+import { GitHubClient as NodeGitHubClient, sealForGitHub, type AppJwtSigner, type GitHubAppOptions, type GitHubClient, type GitHubClientOptions, type SecretSealer, type SecretValue, type TokenProvider } from "@secret-desk/core";
 import {
-  GitHubClient,
-  githubAppProvider,
-  type AppJwtSigner,
-  type ConnectionStatus,
-  type GitHubAppOptions,
-  type GitHubClientOptions,
-  type GitHubTarget,
-  type SecretSealer,
-  type SecretValue,
-  type TokenProvider,
-} from "@secret-desk/core";
-import { HostCapabilityError, type RuntimeHost } from "./host.js";
-import type { Runtime } from "./runtime.js";
+  assertCanSeal as assertCanSealCore,
+  createAppTokenProvider as createAppTokenProviderCore,
+  createGitHubClientOn,
+  type GitHubCrypto as GitHubCryptoCore,
+  type GitHubCryptoDefaults,
+} from "./github-crypto-core.js";
+import type { RuntimeHost } from "./host-core.js";
+
+// The Node wrapper around `github-crypto-core.ts`: same names as before. A runtime that has a host gets the Node defaults for the
+// two operations (libsodium for sealing, the Node crypto module for signing with a private key held in the process); a runtime
+// without a host gets none and refuses what it cannot do. The logic lives in the core module.
+export { githubAppKeyStatus, githubAppUsable } from "./github-crypto-core.js";
 
 /**
  * What decides how the two GitHub cryptography operations are done: the injected functions and the host.
@@ -25,85 +26,45 @@ export interface GitHubCrypto {
   sign?: AppJwtSigner | undefined;
 }
 
-/**
- * Without a host and without an injected sealer there is no way to seal a value: the Node default (libsodium) is not reached
- * on its own, the call is refused with a `HostCapabilityError`.
- */
-const sealUnavailable: SecretSealer = async () => {
-  throw sealRefusal();
-};
+/** The defaults of the Node edition: sealing with libsodium and signing with the Node crypto module. Given to a runtime that has a host. */
+export const NODE_GITHUB_DEFAULTS: GitHubCryptoDefaults = Object.freeze({
+  seal: sealForGitHub,
+  signWithKey: (key: SecretValue): AppJwtSigner => async (signingInput) => createSign("RSA-SHA256").update(signingInput).sign(key.reveal()).toString("base64url"),
+});
 
-const sealRefusal = (): HostCapabilityError => new HostCapabilityError("seal", "Cannot seal a value for GitHub: pass `seal` in the runtime options or a host.");
+/** The crypto description of the core for a Node runtime: a live view of `crypto`, with the Node defaults when it has a host. */
+export function withNodeDefaults(crypto: GitHubCrypto): GitHubCryptoCore {
+  return {
+    get host() {
+      return crypto.host;
+    },
+    get seal() {
+      return crypto.seal;
+    },
+    get sign() {
+      return crypto.sign;
+    },
+    get defaults() {
+      return crypto.host ? NODE_GITHUB_DEFAULTS : undefined;
+    },
+  };
+}
 
 /** Throws a `HostCapabilityError` when values cannot be sealed (no injected sealer and no host). Sends nothing. */
 export function assertCanSeal(crypto: GitHubCrypto): void {
-  if (!crypto.seal && !crypto.host) throw sealRefusal();
+  assertCanSealCore(withNodeDefaults(crypto));
 }
 
-/** The sealer for a client: the injected one, else the Node default of the core when a host exists, else one that refuses. */
-function sealerFor(crypto: GitHubCrypto): SecretSealer | undefined {
-  if (crypto.seal) return crypto.seal;
-  return crypto.host ? undefined : sealUnavailable;
-}
-
-/**
- * The client of the runtime: the client of the core, except that writing a secret checks the seal capability first, so a runtime
- * that cannot seal makes no request at all (the plain client would fetch the public key before it tries to seal).
- */
-class RuntimeGitHubClient extends GitHubClient {
-  readonly #crypto: GitHubCrypto;
-  constructor(crypto: GitHubCrypto, options: GitHubClientOptions) {
-    super(options);
-    this.#crypto = crypto;
-  }
-  override async putSecret(target: GitHubTarget, name: string, value: SecretValue): Promise<"created" | "updated"> {
-    assertCanSeal(this.#crypto);
-    return super.putSecret(target, name, value);
-  }
-}
-
-/** A GitHub client whose sealing follows `sealerFor`; everything else is the plain client of the core. */
+/** A GitHub client whose sealing follows the rules of `GitHubCrypto`; everything else is the client of the core. */
 export function createGitHubClient(crypto: GitHubCrypto, options: GitHubClientOptions): GitHubClient {
-  const seal = sealerFor(crypto);
-  return new RuntimeGitHubClient(crypto, { ...options, ...(seal ? { seal } : {}) });
+  return createGitHubClientOn(NodeGitHubClient, withNodeDefaults(crypto), options);
 }
 
 /**
  * A lazy provider of GitHub App installation tokens. With an injected `sign` the private key is never read: it stays where the
  * signer is. Otherwise the key is read through `getPrivateKey` and signed in this process, which needs a host (the Node
- * crypto of the core); without a host the call is refused with a `HostCapabilityError` before the key is read.
+ * crypto); without a host the call is refused with a `HostCapabilityError` before the key is read.
  */
-export function createAppTokenProvider(
-  crypto: GitHubCrypto,
-  options: Omit<GitHubAppOptions, "privateKey" | "sign">,
-  getPrivateKey: () => Promise<SecretValue>,
-): TokenProvider {
-  let inner: TokenProvider | null = null;
-  return async () => {
-    if (!inner) {
-      if (crypto.sign) {
-        inner = githubAppProvider({ ...options, sign: crypto.sign });
-      } else {
-        if (!crypto.host) throw new HostCapabilityError("sign", "Cannot sign a GitHub App token: pass `sign` in the runtime options or a host.");
-        inner = githubAppProvider({ ...options, privateKey: await getPrivateKey() });
-      }
-    }
-    return inner();
-  };
-}
-
-/**
- * The one answer to "is the GitHub App usable": a stored private key that is connected, or (only when the configuration uses a
- * GitHub App) an injected signer, whose key stays with the embedder. A stored key wins when both exist, so a runtime that has a
- * key shows exactly what it showed before; a signer-only runtime shows `connected` with the source `injected`.
- */
-export async function githubAppKeyStatus(rt: Pick<Runtime, "connections" | "sign" | "config">, id = "github-app-key"): Promise<ConnectionStatus> {
-  const stored = await rt.connections.status(id);
-  if (stored.connected || !rt.sign || rt.config.github.auth.type !== "app") return stored;
-  return { id, connected: true, source: "injected", hint: "The private key is held by the embedder (injected signer); none is stored here." };
-}
-
-/** Whether the GitHub App can be used (see `githubAppKeyStatus`). */
-export async function githubAppUsable(rt: Pick<Runtime, "connections" | "sign" | "config">): Promise<boolean> {
-  return (await githubAppKeyStatus(rt)).connected;
+export function createAppTokenProvider(crypto: GitHubCrypto, options: Omit<GitHubAppOptions, "privateKey" | "sign">, getPrivateKey: () => Promise<SecretValue>): TokenProvider {
+  return createAppTokenProviderCore(withNodeDefaults(crypto), options, getPrivateKey);
 }

@@ -8,8 +8,9 @@ import { ensurePrivateDir, writePrivateFile } from "@secret-desk/core";
  * screenshot, no address.
  */
 
-/** Connection id under which the notification address is read (a source like any connection token). Not listed in the portal. */
-export const LIVE_CHECK_NOTIFY_CONNECTION = "live-check-notify";
+// The connection id of the notification address has no Node dependency and lives in its own module (part of the portable
+// entry); it is re-exported from here.
+export { LIVE_CHECK_NOTIFY_CONNECTION } from "./live-check-notify.js";
 
 export type LiveCheckTrigger = "schedule" | "manual";
 export type LiveCheckConnectionResult = "ok" | "failed" | "not-connected";

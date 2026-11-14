@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-
-import { secretApprovalSnapshot, variableApprovalSnapshot, type ActorRef, type ApprovalSnapshot, type InventoryStore } from "@secret-desk/core";
+import { secretApprovalSnapshot, variableApprovalSnapshot, type ActorRef, type ApprovalSnapshot, type InventoryStoreCore } from "@secret-desk/core/portable";
 
 /** stale = der Eintrag hat sich seit der Anfrage geaendert, die Freigabe wurde verworfen. */
 export type ApprovalState = "pending" | "approved" | "denied" | "failed" | "stale";
@@ -52,7 +50,7 @@ export class ApprovalQueue {
    * has the content that was requested becomes stale right away, not only when somebody tries to approve it.
    * Returns the ids that were made stale.
    */
-  revalidate(inventory: InventoryStore): string[] {
+  revalidate(inventory: InventoryStoreCore): string[] {
     const stale: string[] = [];
     for (const a of this.#items.values()) {
       if (a.state !== "pending" || this.#busy.has(a.id)) continue;
@@ -75,7 +73,7 @@ export class ApprovalQueue {
       open.result = "Der Eintrag hat sich seit der Anfrage geaendert, Freigabe verworfen.";
     }
     const approval: Approval = {
-      id: randomUUID(),
+      id: globalThis.crypto.randomUUID(),
       action: input.action,
       targetId: input.targetId,
       requestedBy: input.requestedBy,
