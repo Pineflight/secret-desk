@@ -110,6 +110,15 @@ describe("prepareIssuance: the provider's issue threw IssuedButFailedError", () 
     expect(await checkIds(err)).toContain("in-place-value-lost");
   });
 
+  it("an entry that records no identifier yet: the new value is deleted all the same", async () => {
+    const { deps, revoke, lost } = await setup({ externalId: "new-id", replacedOld: false });
+    deps.inventory.patchSecret("cf-deploy-acme-app", { externalId: null });
+    expect(deps.inventory.getSecret("cf-deploy-acme-app")?.externalId).toBeUndefined();
+    const err = await lost();
+    expect(err.result).toEqual({ revokedNew: true });
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it("any other error from issue passes through unchanged and nothing is recorded", async () => {
     const { deps, revoke, evidence } = await setup({ replacedOld: false });
     const plain = new Error("provider down");
