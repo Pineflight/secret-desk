@@ -157,7 +157,7 @@ export async function exportEnv(
       if (!writeStarted) forgetRunValues(runValues, template.id);
       throw err;
     }
-    const warnings: string[] = [];
+    const warnings: string[] = [...(built.warnings ?? [])];
     if (written.gitIgnored === false) warnings.push("Die Datei ist nicht von Git ignoriert. In .gitignore eintragen, bevor etwas committet wird.");
     if (written.gitIgnored === null) warnings.push("Ob Git die Datei ignoriert, liess sich nicht pruefen.");
     if (wantsCommands && !host?.runCommand) warnings.push("Befehle der Vorlage laufen in dieser Umgebung nicht; die betroffenen Werte bleiben leer.");

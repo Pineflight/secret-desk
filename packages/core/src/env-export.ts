@@ -66,7 +66,12 @@ export interface EnvBuildResult {
    * Zum Widerrufen ueber das Tor `revokeNewValue`, wenn die Datei nicht geschrieben wird.
    */
   issuedTokens: IssuedToken[];
+  /** Sentences for the person, present only when there are any (no values). */
+  warnings?: string[];
 }
+
+/** Prefix of the keys in the values of a run that record which template issued a secret. A template id cannot contain it. */
+const RUN_ISSUED_MARK = "\u0000issued:";
 
 export interface IssuedToken {
   secretId: string;
@@ -432,6 +437,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
    * key that asks for it: a provider that replaces the value in place would otherwise kill the value written for the first key.
    */
   const issuedValues = new Map<string, string>();
+  const warnings: string[] = [];
 
   try {
     for (const entry of template.entries) {
@@ -448,6 +454,13 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         if (known !== undefined) value = known;
         else {
           const provider = deps.providers.get(secret.provider)!;
+          // The same in-place secret in a second template of one run: this issue replaces the value again and the file of the first
+          // template (already built, perhaps written) holds a value that no longer works. Warned about, not prevented (a run-wide reuse
+          // would have to know whether the first file was kept). The mark lives in the values of the run, under a key no template can have.
+          const issuedBy = deps.runValues?.get(`${RUN_ISSUED_MARK}${secret.id}`);
+          if (issuedBy !== undefined && provider.replacesInPlace === true) {
+            warnings.push(`Das Secret ${secret.id} wird in zwei Vorlagen desselben Laufs ausgestellt (${issuedBy} und ${template.id}): der Anbieter ersetzt den Wert an Ort und Stelle, die Datei der ersten Vorlage haelt danach einen Wert, der nicht mehr gilt.`);
+          }
           let result: IssuedSecret;
           try {
             result = await provider.issue!({
@@ -469,6 +482,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           }
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
+          deps.runValues?.set(`${RUN_ISSUED_MARK}${secret.id}`, template.id);
           issued.push(secret.id);
           issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
         }
@@ -492,7 +506,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");
-  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens };
+  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 export interface WriteEnvResult {

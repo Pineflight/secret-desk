@@ -229,7 +229,7 @@ A runtime can be embedded more than once in one process (several tenants), or in
   **Known limitations:**
   - The gate knows only the inventory: an identifier that is in use outside the inventory is not seen. Inside it, every secret entry counts, named by the flow or not.
   - For a provider that rotates in place **the `issue` call itself is the point of no return**: it has replaced the old value at the provider when it returns. If the export or the rotation fails afterwards, nothing here can restore it, and the new value is gone with the failed run: the places hold a value that no longer works. The text says so; the fix is to rotate the secret again. Only the checks before the first `issue` can prevent it, which is why the export runs them first.
-  - The hazards of providers that replace in place, and what handles each, are listed in [Providers that replace the value in place](#providers-that-replace-the-value-in-place). Still not covered there: the same secret asked for by two templates of one export run (each template issues it once; the second template issues again), and a time-out of the provider call (the outcome is not certain, so it is an ordinary error and nothing is recorded).
+  - The hazards of providers that replace in place, and what handles each, are listed in [Providers that replace the value in place](#providers-that-replace-the-value-in-place). Still not prevented there: the same secret asked for by two templates of one export run (each template issues it once and the run warns; a run-wide reuse is a follow-up), and a time-out of the provider call (the outcome is not certain, so it is an ordinary error and nothing is recorded).
   - `rotateSecret` is exported from the core but nothing in the desk app, the CLI or the MCP server calls it; its behaviour is covered by tests, not by a product path. It writes the main value only and refuses a provider that declares `companionParams` (see below). The environment export is reachable from the portal and the agent API.
   - `revoke-gate-guard.test.ts` is a text check of source files, not a proof. It sees `.revoke(`, `.revoke?.(`, `.revoke!(`, `.revoke.call(`/`apply`/`bind`, `["revoke"](`, `const f = p.revoke`, `f(p.revoke)` and `{ revoke } = p`. It does not see a call through a name it does not know (a computed key that is not a plain string, a function passed in from outside, `eval`). One call in the providers package is listed: the Anthropic provider (`withAnthropicAdmin`) delegates its revoke to the provider it wraps when no admin connection exists; it is a provider implementation passing a call on, not a flow that issues values.
   - The portal has no control to send the acknowledgement (`acknowledgeWritten` in the body of `POST reviews/:id/reject`) and does not list reviews kept for a decision. The API, `IssuanceQueue.orphans()` and the `onNeedsDecision` callback exist; the product surface is follow-up work.
@@ -259,7 +259,10 @@ the identifier names is the live object.
 What handles each hazard:
 - *Two keys of one template that ask for the same secret.* `buildEnvFile` issues each secret at most once per template and reuses the
   value for every key that asks for it, for every provider. The same secret asked for by two templates of one run is issued once per
-  template (not covered).
+  template, and the run warns (`EnvBuildResult.warnings`, shown in the answer of `exportEnv`) when a second template issues a secret of a
+  provider with `replacesInPlace`: the first file then holds a value that no longer works. The run-wide reuse of the value is left as a
+  follow-up, because it would have to know whether the first file was kept. The warning is also given when the first template failed
+  and was rolled back (it cannot tell), which is harmless.
 - *`issue` throws after the provider side changed.* A provider that knows the change happened (it got a success answer and a later step
   failed) throws `IssuedButFailedError` (core, in the provider contract) with the external identifier and `replacedOld`. A time-out is
   not certain and stays an ordinary error. `prepareIssuance` records it like an issued value that could not be kept (a report, the same
@@ -273,7 +276,9 @@ What handles each hazard:
   the provider replaced the value in place, the new value was not kept, run the issuance again or enter a value by hand. Not when a
   write was started (the places may hold the new value). The export writes such a report when `EnvBuildDeps.evidence` is set.
 - *Two processes on one inventory file.* The gate calls `InventoryStore.refreshNow()` before it decides: it reads the stored document
-  without the stamp shortcut and returns false when it cannot be taken over. The gate then answers `value-in-use` (nothing is revoked).
+  without the stamp shortcut and returns false whenever the copy cannot be shown to match what is stored: the stamp or the document cannot
+  be read, the document does not validate, or a save of the same store is running. Only a store without a backend, or one that has not
+  written yet, returns true. The gate then answers `value-in-use` (nothing is revoked).
   The guards for the old-value revokes re-read too, best effort.
 - *Before the action.* The dry-run plan, `preflightSecret` and the answers to an issuance request (`pending-approval`,
   `awaiting-review`) carry `notice` when the provider has the flag; the desk app shows it in the plan card. There is no extra confirmation step.
