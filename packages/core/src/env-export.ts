@@ -150,7 +150,7 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
  * Four kinds. In place (the issued identifier is the entry's current one): the provider replaced the value when it issued, the new
  * value was lost with the export, every place still holds the old value, which no longer works; nothing can or may be revoked, the
  * secret must be rotated again. Then: to delete by hand (the provider failed or cannot delete), in use by another entry (do not
- * delete), and written (the file may hold the value).
+ * delete), the inventory could not be read (it may be in use: check first), and written (the file may hold the value).
  */
 export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): string[] {
   const list = (pick: (o: IssuedTokenOutcome) => boolean): string => outcomes.filter(pick).map((o) => `${o.secretId} (${o.externalId ?? "ohne Kennung"})`).join(", ");
@@ -159,12 +159,14 @@ export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): strin
   const inPlaceWritten = list((o) => o.inPlace === true && o.writeStarted === true);
   const inUse = list((o) => rest(o) && o.result === "value-in-use");
   const written = list((o) => rest(o) && o.result === "write-started");
-  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started");
+  const unreadable = list((o) => rest(o) && o.result === "inventory-unreadable");
+  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started" && o.result !== "inventory-unreadable");
   const notices: string[] = [];
   if (inPlaceLost) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert ging mit dem fehlgeschlagenen Export verloren und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceLost}.`);
   if (inPlaceWritten) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert steht hoechstens in der Datei, deren Schreiben begonnen hatte, und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceWritten}.`);
   if (byHand) notices.push(`Nicht widerrufen (beim Anbieter von Hand entfernen): ${byHand}.`);
   if (inUse) notices.push(`Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle eines Eintrags ist und der Token in Gebrauch ist (nicht loeschen): ${inUse}.`);
+  if (unreadable) notices.push(`Nicht widerrufen, weil das Inventar nicht gelesen werden konnte: der Token kann in Gebrauch sein und bleibt beim Anbieter gueltig; erst pruefen, dann von Hand entfernen, falls er nicht gebraucht wird: ${unreadable}.`);
   if (written) notices.push(`Nicht widerrufen, weil das Schreiben der Datei begonnen hatte und sie den Wert enthalten kann: der Token bleibt beim Anbieter gueltig (von Hand entfernen, wenn die Datei nicht gebraucht wird): ${written}.`);
   return notices;
 }

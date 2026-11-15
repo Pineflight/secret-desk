@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ConnectionStore, FileInventoryBackend, InventoryStore, ProviderRegistry, SecretValue, revokeNewValue, rotateSecret } from "../src/index.js";
+import { ConnectionStore, FileInventoryBackend, InventoryStore, ProviderRegistry, SecretValue, revokeIssuedTokens, revokeNewValue, rotateSecret, unrevokedNotices } from "../src/index.js";
 import type { PendingIssuance, Provider, RotateDeps } from "../src/index.js";
 
 // Defence in depth: the gate itself refuses to delete a value that was replaced in place, whatever identifier a caller hands it, and a
@@ -69,5 +69,17 @@ describe("rotateSecret and an inventory that cannot be read", () => {
     expect(revoke).not.toHaveBeenCalled();
     expect(result.orphanExternalId).toBe("new-id");
     expect(result.warnings).toEqual(["Der neue Token (Kennung new-id) wurde nicht widerrufen: das Inventar liess sich gerade nicht lesen, ob er in Gebrauch ist, ist unbekannt. Er bleibt beim Anbieter gueltig: spaeter pruefen und von Hand widerrufen."]);
+  });
+});
+
+describe("a failed export and an inventory that cannot be read", () => {
+  it("tells the person to check the token first, not to delete it by hand, and leaves it valid", async () => {
+    const { deps, revoke } = world();
+    // A stand-in for a store whose stored document cannot be read right now.
+    const inventory = { refreshNow: () => false, data: { secrets: [] }, getSecret: () => ({ id: "s1", provider: "acme" }) } as never;
+    const outcomes = await revokeIssuedTokens([{ secretId: "s1", provider: "acme", externalId: "new-id" }], { ...deps, inventory });
+    expect(outcomes).toEqual([{ secretId: "s1", externalId: "new-id", result: "inventory-unreadable" }]);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(unrevokedNotices(outcomes)).toEqual(["Nicht widerrufen, weil das Inventar nicht gelesen werden konnte: der Token kann in Gebrauch sein und bleibt beim Anbieter gueltig; erst pruefen, dann von Hand entfernen, falls er nicht gebraucht wird: s1 (new-id)."]);
   });
 });

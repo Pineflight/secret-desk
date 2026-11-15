@@ -136,19 +136,55 @@ describe("the gate cannot read the stored document: the copy may be stale, so it
     expect(InventoryStore.fromText(TEXT("AAAAAAAA")).refreshNow()).toBe(true);
   });
 
-  it("a store that has not written yet has nothing to be stale against only while the file is still absent", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "sd-unwritten-"));
-    const path = join(dir, "inventory.yaml");
-    const revoke = vi.fn(async () => undefined);
-    const deps = { inventory: InventoryStore.fromText(TEXT("AAAAAAAA"), path), providers: new ProviderRegistry().register({ id: "acme", label: "Acme", kind: "automatic", revoke }), connections: new ConnectionStore() };
-    const target = { secretId: "cf-token", provider: "acme", externalId: "BBBBBBBB" };
-    expect(deps.inventory.refreshNow()).toBe(true);
-    // Another process creates the file, with an entry that holds the identifier.
-    const other = InventoryStore.fromText(TEXT("BBBBBBBB"), path);
-    await other.save();
-    expect(deps.inventory.refreshNow()).toBe(false);
-    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
-    expect(revoke).not.toHaveBeenCalled();
+  describe("a store that has not written yet", () => {
+    async function unwritten() {
+      const dir = await mkdtemp(join(tmpdir(), "sd-unwritten-"));
+      const path = join(dir, "inventory.yaml");
+      const revoke = vi.fn(async () => undefined);
+      const inventory = InventoryStore.fromText(TEXT("AAAAAAAA"), path);
+      const deps = { inventory, providers: new ProviderRegistry().register({ id: "acme", label: "Acme", kind: "automatic", revoke }), connections: new ConnectionStore() };
+      return { path, inventory, deps, revoke };
+    }
+    const held = { secretId: "cf-token", provider: "acme", externalId: "BBBBBBBB" };
+
+    it("has nothing to be stale against while the file is still absent", async () => {
+      const { inventory } = await unwritten();
+      expect(inventory.refreshNow()).toBe(true);
+    });
+
+    it("takes over a file another process created, and the gate then decides on it: held is in use, an unrelated one is deleted", async () => {
+      const { path, inventory, deps, revoke } = await unwritten();
+      // Another process creates the file, with an entry that holds the identifier.
+      await InventoryStore.fromText(TEXT("BBBBBBBB"), path).save();
+      expect(await revokeNewValue(held, deps)).toEqual({ status: "refused", reason: "value-in-use" });
+      expect(inventory.getSecret("holder")?.externalId).toBe("BBBBBBBB");
+      expect(revoke).not.toHaveBeenCalled();
+      // From then on it is an ordinary store of that file.
+      expect(await revokeNewValue({ ...held, externalId: "CCCCCCCC" }, deps)).toEqual({ status: "revoked" });
+      expect(revoke).toHaveBeenCalledTimes(1);
+    });
+
+    it("with unsaved changes it keeps answering false", async () => {
+      const { path, inventory } = await unwritten();
+      inventory.patchSecret("cf-token", { notes: "unsaved" });
+      await InventoryStore.fromText(TEXT("BBBBBBBB"), path).save();
+      expect(inventory.refreshNow()).toBe(false);
+    });
+
+    it("answers false when the file that appeared is not valid, or cannot be read", async () => {
+      const { path, inventory } = await unwritten();
+      await writeFile(path, "secrets: [\n  - {");
+      expect(inventory.refreshNow()).toBe(false);
+      const dir = await mkdtemp(join(tmpdir(), "sd-unwritten-read-"));
+      class Unreadable extends FileInventoryBackend {
+        override read(): InventorySnapshot | null {
+          return null;
+        }
+      }
+      const other = join(dir, "inventory.yaml");
+      await writeFile(other, TEXT("AAAAAAAA"));
+      expect(InventoryStore.withBackend(new Unreadable(other), TEXT("AAAAAAAA")).refreshNow()).toBe(false);
+    });
   });
 });
 

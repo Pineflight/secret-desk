@@ -173,15 +173,37 @@ export class InventoryStoreCore {
    * cannot be read right now (the file is missing, or being replaced), the document does not parse or validate, or a save of this
    * store is running (its result is not known yet). The caller must then treat what it sees as possibly stale. True only when the copy
    * was read against the stored document in one pass and is current, or when there is nothing stored to be stale against: no backend,
-   * or a store that has not written yet while the file is still absent (another process may have created it since: then false).
+   * or a store that has not written yet while the file is still absent. If another process created the file since, a store with no
+   * unsaved changes takes it over (as an ordinary refresh would) and answers from that read; with unsaved changes it answers false.
    */
   refreshNow(): boolean {
     const backend = this.#backend;
     if (!backend) return true;
     if (this.#saveRuns > 0) return false;
-    if (this.#unwritten) return backend.stamp() === null;
+    if (this.#unwritten) return this.#adoptLateFile(backend);
     this.#stale = true;
     return this.#refresh();
+  }
+
+  /** A store that has not written yet, asked for a fresh read: true while the file is absent; else the file is taken over if nothing is unsaved. */
+  #adoptLateFile(backend: InventoryBackend): boolean {
+    const st = backend.stamp();
+    if (st === null) return true;
+    if (this.#pending.length > 0) return false;
+    const snapshot = backend.read();
+    if (snapshot === null) return false;
+    try {
+      this.#adopt(snapshot);
+    } catch {
+      // The document is not valid right now: the copy stays and nothing can be said about it.
+      return false;
+    }
+    this.#stamp = st;
+    this.#verifiedAt = Date.now();
+    this.#unwritten = false;
+    this.#problem = null;
+    this.#emit();
+    return true;
   }
 
   /** Wird nach jedem Nachladen einer von aussen geaenderten Datei aufgerufen (Cache-Invalidierung, Freigaben pruefen). */

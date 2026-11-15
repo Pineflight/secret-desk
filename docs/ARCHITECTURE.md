@@ -280,10 +280,13 @@ What handles each hazard:
   without the stamp shortcut and returns false whenever the copy cannot be shown to match what is stored: the stamp or the document cannot
   be read, the document does not validate, or a save of the same store is running. It reads once and answers with that read. True only when
   the copy was read against the stored document and is current, with no backend, or for a store that has not written yet while the file
-  is still absent (if another process created the file since, it returns false). The gate then answers `inventory-unreadable`. That
+  is still absent. If another process created the file since, a store with no unsaved changes takes it over (as an ordinary refresh
+  would) and answers from that read; with unsaved changes it answers false. The gate answers `inventory-unreadable` for false. That
   refusal leaves the new value **valid at the provider**: it is reported once (the evidence note `revoke-refused` for a review or a
-  record, the warning of the renewal function, the notice of a failed export) and **not retried**; whoever sees it checks the value and
-  deletes it by hand. The renewal function's warning names the unreadable inventory and does not claim another entry uses the token.
+  record, in a plain sentence; the warning of the renewal function; the notice of a failed export, which says to check the token
+  first, not just to delete it) and **not retried**; whoever sees it checks the value and deletes it by hand. The renewal function's
+  warning names the unreadable inventory and does not claim another entry uses the token. Follow-up, old behaviour: the CLI and the desk
+  app show only "rejected" for any refusal of the gate.
   The guards for the old-value revokes re-read too, best effort.
 - *Before the action.* The dry-run plan, `preflightSecret` and the answers to an issuance request (`pending-approval`,
   `awaiting-review`) carry `notice` when the provider has the flag; the desk app shows it in the plan card. There is no extra confirmation step.

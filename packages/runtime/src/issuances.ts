@@ -429,7 +429,10 @@ export class IssuanceQueue {
       return;
     }
     this.#store.delete(record.id);
-    if (reason !== "no-id") await noteEvidence(deps, record, { id: "revoke-refused", label: `Neuer Wert nicht widerrufen, Eintrag verworfen: ${reason}`, status: "warn" });
+    if (reason === "inventory-unreadable") {
+      // A plain sentence, not the raw word: the record is dropped and nothing is tried again, so the person must know to check the value.
+      await noteEvidence(deps, record, { id: "revoke-refused", label: "Neuer Wert nicht widerrufen: das Inventar liess sich nicht lesen, ob er in Gebrauch ist, ist unbekannt. Er bleibt beim Anbieter gueltig und wird nicht erneut versucht: pruefen und von Hand entfernen.", status: "warn" });
+    } else if (reason !== "no-id") await noteEvidence(deps, record, { id: "revoke-refused", label: `Neuer Wert nicht widerrufen, Eintrag verworfen: ${reason}`, status: "warn" });
   }
 
   /** The gate, plus what the queue does with a refusal. */
