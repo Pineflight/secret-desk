@@ -46,6 +46,49 @@ export interface IssuedSecret {
   expiresAt?: string | null;
   /** Kennung beim Anbieter, damit der alte Wert spaeter widerrufen werden kann. */
   externalId?: string;
+  /**
+   * The provider replaced the current value at the provider in place while issuing: the old value stopped working right then, and
+   * there is nothing new to delete if this value is not kept. Set it whenever that happened, also when the identifier is not the
+   * one the entry records (for example when the entry records none yet).
+   */
+  replacedInPlace?: boolean;
+}
+
+/**
+ * What `issue` throws when it knows the provider side already changed (the value was created or replaced) and a later step failed,
+ * so no value reaches the caller. The issuance path and the environment export record it like an issued value that could not be
+ * kept and hand it to the revoke gate; nothing calls the provider's `revoke` directly for it. Throw it only when the change is certain
+ * (the provider answered success); an answer that never arrived is not certain and stays an ordinary error.
+ * The message must carry no value.
+ */
+export class IssuedButFailedError extends Error {
+  /** The provider's identifier of what exists now, when the provider knows it. */
+  readonly externalId: string | undefined;
+  /** The current value at the provider was replaced (it no longer works): nothing exists to delete, the old value is gone. */
+  readonly replacedOld: boolean;
+  constructor(message: string, info: { externalId?: string | undefined; replacedOld: boolean }) {
+    super(message);
+    this.name = "IssuedButFailedError";
+    this.externalId = info.externalId;
+    this.replacedOld = info.replacedOld;
+  }
+}
+
+/**
+ * The error as an `IssuedButFailedError` this module can trust, or undefined. An instance of this class is returned as it is. An error
+ * made by another copy of this module is recognised by its name and a boolean `replacedOld`, and rebuilt: an `externalId` that is not a
+ * string is dropped (treated as unknown), so nothing downstream ever sees a non-string identifier.
+ */
+export function asIssuedButFailed(err: unknown): IssuedButFailedError | undefined {
+  if (err instanceof IssuedButFailedError) return err;
+  if (!(err instanceof Error) || err.name !== "IssuedButFailedError") return undefined;
+  const { replacedOld, externalId } = err as { replacedOld?: unknown; externalId?: unknown };
+  return typeof replacedOld === "boolean" ? new IssuedButFailedError(err.message, { ...(typeof externalId === "string" ? { externalId } : {}), replacedOld }) : undefined;
+}
+
+/** Also true for an instance made by another copy of this module (the name and the fields decide). */
+export function isIssuedButFailedError(err: unknown): err is IssuedButFailedError {
+  return asIssuedButFailed(err) !== undefined;
 }
 
 export interface RevokeContext {
@@ -115,6 +158,12 @@ export interface Provider {
   /** Verbindung, die der Anbieter braucht (zum Beispiel cloudflare). */
   connection?: string;
   guide?: ProviderGuide;
+  /**
+   * Issuing replaces an existing value at the provider immediately (the new value keeps the old identifier): the old value stops
+   * working the moment `issue` returns, even if the review is discarded later. Set it for every provider that can do that, also when
+   * it only does so for an entry that already has a value. Callers show `replacesInPlaceNotice` before they issue.
+   */
+  replacesInPlace?: boolean;
   /** Parameter, die ein Eintrag dieses Anbieters unter `params` braucht (fehlt = keine). */
   params?: ParamSpec[];
   /** The `ttlDays` values the provider can honour (fehlt = any). A renewal of an entry with another value is `params_invalid`. */
@@ -135,6 +184,12 @@ export interface Provider {
   reviewChecklist?(secret: SecretEntry, ctx?: { stageKind: StageKind }): string[];
   revoke?(ctx: RevokeContext): Promise<void>;
 }
+
+/** What a person or an agent is told before an action that issues from a provider with `replacesInPlace`. */
+export const REPLACES_IN_PLACE_NOTICE = "Das Ausstellen ersetzt einen bestehenden Wert beim Anbieter sofort: der bisherige Wert gilt danach nicht mehr, auch wenn die Pruefung verworfen wird. Alles, was ihn noch nutzt, scheitert, bis es den neuen Wert erhaelt.";
+
+/** The notice for a provider that replaces in place, or undefined. */
+export const replacesInPlaceNotice = (provider: Pick<Provider, "replacesInPlace"> | undefined): string | undefined => (provider?.replacesInPlace === true ? REPLACES_IN_PLACE_NOTICE : undefined);
 
 export class ProviderRegistry {
   readonly #providers = new Map<string, Provider>();

@@ -8,7 +8,7 @@ import { putPlaceSecret } from "./place-io.js";
 import { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStoreCore } from "./inventory-store.js";
 import { entryHoldingId, revokeNewValue, type RevokeOutcome } from "./issuance.js";
-import type { ProviderRegistry } from "./provider.js";
+import { REPLACES_IN_PLACE_NOTICE, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { isWorkerPlace, type Place, type SecretEntry, type Stage } from "./types.js";
 
@@ -59,6 +59,9 @@ export interface RotationPlan {
   readOnly: boolean;
   places: string[];
   revokesOld: boolean;
+  /** Set when issuing replaces an existing value at the provider immediately (`Provider.replacesInPlace`); `notice` says what that means. */
+  replacesInPlace?: true;
+  notice?: string;
   ttlDays: number | null;
   /** Parameter-Pruefung gegen die Spezifikation des Anbieters (ohne Netzaufruf). */
   params: { ok: boolean; missing: string[]; problems: ParamProblem[] };
@@ -112,6 +115,7 @@ export function planRotation(secretId: string, deps: Pick<RotateDeps, "inventory
     readOnly: provider?.readOnly === true,
     places: secret.places.map(describePlace),
     revokesOld: Boolean(secret.externalId && provider?.revoke && options.revokeOld !== false),
+    ...(provider?.replacesInPlace === true ? { replacesInPlace: true as const, notice: REPLACES_IN_PLACE_NOTICE } : {}),
     ttlDays: secret.ttlDays ?? null,
     params: { ok: problems.length === 0, missing: problems.filter((p) => p.code === "missing").map((p) => p.key), problems },
   };
@@ -136,6 +140,10 @@ function addDays(date: Date, days: number): string {
  * aus einer Voreinstellung, einer Konfiguration oder der Anfrage eines Agenten. Bleibt der neue Token nach einem Fehler gueltig,
  * steht seine Kennung nur in `orphanExternalId` und in den Warnungen (und im Bericht, wenn `deps.evidence` gesetzt ist).
  * Der Klartext verlaesst diese Funktion nicht und steht in keinem Ergebnis oder Ereignis.
+ *
+ * Writes the main value only, never companion values: a provider that declares `companionParams` is refused with a `RotationError`
+ * before anything is issued (a client id next to its client secret would otherwise be left half written). Nothing in the desk app, the
+ * CLI or the MCP server calls this function; issuance (`prepareIssuance`, `commitIssuance`) is the path that writes companions.
  */
 export async function rotateSecret(secretId: string, deps: RotateDeps, options: RotateOptions & { acknowledgeWritten?: boolean } = {}): Promise<RotationResult> {
   const secret = deps.inventory.getSecret(secretId);
@@ -146,6 +154,12 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     throw new RotationError(`Anbieter "${secret.provider}" kann nicht automatisch erzeugen. Wert von Hand einfuegen.`);
   }
   if (secret.places.length === 0) throw new RotationError("Das Secret hat kein Ziel (places).");
+  // This function writes the main value only. A provider with companion values (a client id next to a client secret) would leave a
+  // half-written pair, so it is refused before anything is created at the provider: issue and confirm (`prepareIssuance`,
+  // `commitIssuance`) writes every value of the issuance.
+  if ((provider.companionParams?.length ?? 0) > 0) {
+    throw new RotationError(`Anbieter "${secret.provider}" liefert Begleitwerte, die diese Funktion nicht schreibt. Stattdessen ausstellen und bestaetigen (prepareIssuance, commitIssuance).`);
+  }
 
   assertEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider));
   const now = (deps.now ?? (() => new Date()))();
@@ -178,7 +192,8 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   }
 
   // A provider that rotates in place hands back the identifier the entry already has: the "new" value is the old object.
-  const inPlace = issued.externalId !== undefined && issued.externalId === secret.externalId;
+  // The provider may also say so itself: an entry that records no identifier yet, or another one, still had its value replaced.
+  const inPlace = issued.replacedInPlace === true || (issued.externalId !== undefined && issued.externalId === secret.externalId);
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
   if (failed > 0) {
     const result: RotationResult = { secretId, ok: false, partial: failed < outcomes.length, places: outcomes, revoked: false, expires: secret.expires };
@@ -208,6 +223,10 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
       } else if (outcome.reason === "value-in-use") {
         // Another entry (not this one: that is the in-place case above) records the identifier as its current one.
         warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: seine Kennung ist die aktuelle eines anderen Eintrags im Inventar, der Token ist in Gebrauch.`);
+      } else if (outcome.reason === "inventory-unreadable") {
+        // Not "used by another entry": the stored inventory could not be read, so nobody knows. Left valid, reported here only.
+        result.orphanExternalId = issued.externalId!;
+        warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: das Inventar liess sich gerade nicht lesen, ob er in Gebrauch ist, ist unbekannt. Er bleibt beim Anbieter gueltig: spaeter pruefen und von Hand widerrufen.`);
       } else if (outcome.reason === "write-started") {
         result.orphanExternalId = issued.externalId!;
         warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: Schreibvorgaenge wurden gesendet und koennen trotz Fehlermeldung angewendet worden sein, der Token kann in Gebrauch sein. Er bleibt beim Anbieter gueltig: Ziele pruefen und das Secret erneut rotieren oder ihn beim Anbieter von Hand widerrufen.`);

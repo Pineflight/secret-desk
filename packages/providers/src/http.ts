@@ -1,4 +1,4 @@
-import { redact, type ConnectionStoreCore, type SecretValue } from "@secret-desk/core/portable";
+import { IssuedButFailedError, redact, type ConnectionStoreCore, type SecretValue } from "@secret-desk/core/portable";
 
 /** Fehler eines Anbieters. Die Meldung ist gekuerzt und von bekannten Werten bereinigt. */
 export class ProviderError extends Error {
@@ -81,6 +81,16 @@ export const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export function badResponse(provider: string): ProviderError {
   return new ProviderError(provider, null, "Unerwartete Antwort des Anbieters");
+}
+
+/**
+ * The error a provider throws when its call changed something at the provider (the answer was a success) but the answer could not be
+ * used, so no value reached the caller. `replacedOld`: the call replaced the current value in place. A failure with no answer (a time-out)
+ * is not certain and does not belong here.
+ */
+export function acceptedButUnusable(provider: string, err: unknown, info: { externalId?: string; replacedOld: boolean }): unknown {
+  const accepted = err instanceof ProviderError && err.status !== null && err.status >= 200 && err.status < 300;
+  return accepted ? new IssuedButFailedError(`${provider}: Der Anbieter hat die Aenderung angenommen, aber die Antwort war unbrauchbar`, info) : err;
 }
 
 export function requireString(provider: string, params: Record<string, unknown>, key: string): string {

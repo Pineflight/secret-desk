@@ -43,6 +43,8 @@ import {
   discardIssuance,
   exportTeamBundle,
   inspectVariable,
+  IssuedValueLostError,
+  replacesInPlaceNotice,
   overallStatus,
   planRotation,
   prepareIssuance,
@@ -654,6 +656,23 @@ async function keepOrDiscard(rt: RuntimeCore, pending: PendingIssuance): Promise
  * und mit den Belegen des Browsers als Anlagen am Bericht.
  */
 async function prepareTracked(rt: RuntimeCore, actor: Actor, secretId: string, via?: { requestedBy: ActorRef; approvalId: string }): Promise<PendingIssuance> {
+  try {
+    return await prepareTrackedOnce(rt, actor, secretId, via);
+  } catch (err) {
+    // The provider changed the value and then failed: `prepareIssuance` handed it to the gate already. A delete the provider did not
+    // confirm is owed like the one of a rejected review, so the sweep tries it again. A store that refuses the record changes nothing.
+    if (err instanceof IssuedValueLostError) {
+      try {
+        rt.issuances.oweIfNeeded(err.pending, err.result);
+      } catch {
+        /* the error below is the one to report */
+      }
+    }
+    throw err;
+  }
+}
+
+async function prepareTrackedOnce(rt: RuntimeCore, actor: Actor, secretId: string, via?: { requestedBy: ActorRef; approvalId: string }): Promise<PendingIssuance> {
   const secret = rt.inventory.getSecret(secretId);
   /* v8 ignore start -- every caller names an entry that exists; prepareIssuance reports a missing one */
   const provider = secret ? rt.providers.get(secret.provider) : undefined;
@@ -690,8 +709,9 @@ export function cancelAutomationRun(rt: RuntimeCore, actor: Actor, secretId: str
 }
 
 export type IssuanceRequestResult =
-  | { status: "awaiting-review"; issuance: IssuanceView; message: string }
-  | { status: "pending-approval"; approvalId: string; secretId: string; message: string }
+  /** `notice`: present when issuing from this provider replaces the current value at the provider immediately (`Provider.replacesInPlace`). */
+  | { status: "awaiting-review"; issuance: IssuanceView; message: string; notice?: string }
+  | { status: "pending-approval"; approvalId: string; secretId: string; message: string; notice?: string }
   | { status: "dry-run"; plan: ReturnType<typeof planRotation>; /** Nur fuer Menschen: lesender Vorabcheck beim Anbieter. */ preflight?: EntryPreflight };
 
 /**
@@ -712,6 +732,7 @@ export async function requestIssuance(rt: RuntimeCore, actor: Actor, secretId: s
     return actor.kind === "human" ? { status: "dry-run", plan, preflight: await preflightEntry(secret, issuanceDeps(rt)) } : { status: "dry-run", plan };
   }
   await authorize(rt, { actor, action: "issuance.prepare", subject: { secretId, stage: secret.stage } });
+  const notice = replacesInPlaceNotice(rt.providers.get(secret.provider));
   // Ein Browser-Lauf oeffnet ein Fenster am Rechner des Menschen: Agenten brauchen dafuer in jeder Stage eine Freigabe.
   const isBrowser = rt.automation.isBrowserProvider(rt.providers.get(secret.provider));
   const browser = actor.kind === "agent" && isBrowser;
@@ -723,13 +744,14 @@ export async function requestIssuance(rt: RuntimeCore, actor: Actor, secretId: s
       approvalId: approval.id,
       secretId,
       message: browser ? "Dieser Anbieter oeffnet ein Browserfenster. Das braucht immer eine Freigabe im Portal (Reiter Freigaben)." : `Stage ${secret.stage} braucht eine Freigabe im Portal (Reiter Freigaben).`,
+      ...(notice ? { notice } : {}),
     };
   }
   // Aufraeumen abgelaufener Pruefungen passiert beim Start einer neuen Ausstellung (und im Takt des Portals), nie beim Lesen.
   await rt.issuances.sweep(issuanceDeps(rt));
   const pending = await prepareTracked(rt, actor, secretId);
   await keepOrDiscard(rt, pending);
-  return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben." };
+  return { status: "awaiting-review", issuance: issuanceView(pending), message: "Wert erzeugt und geprueft. Ein Mensch bestaetigt ihn im Portal (Reiter Pruefen), erst dann wird geschrieben.", ...(notice ? { notice } : {}) };
 }
 
 /** Der Mensch gibt den Wert selbst ein (zum Beispiel ein Stripe-Key). Er wird geprueft und wartet auf Bestaetigung. */

@@ -221,7 +221,8 @@ A runtime can be embedded more than once in one process (several tenants), or in
   - `write-started`: a write of this item was ever started (the item's own fact, or the record's). Only an explicit acknowledgement lifts it, which only a person's reject (`acknowledgeWritten`) or `revokeOrphan(..., { acceptPartial: true })` supplies. The record is kept and marked `needsDecision`, `RuntimeOptions.onNeedsDecision` is told (a record, never a value) and an evidence note is written when the report exists; this also happens when such a review expires or goes stale.
   - `value-in-use`: the identifier equals the current external id of **any** secret entry in the inventory (compared as strings, without the provider; the entry itself, a companion and an entry nobody named alike), read at that moment (another review of the same provider identifier may have been confirmed, or a confirm left its record behind).
   - `secret-gone`, `provider-changed`: for a record alone, the entry must still exist and have the provider the record names (with the entry as it was issued, in memory, its provider and parameters are used instead).
-  - `no-id`, `no-revoke`: nothing to call.
+  - `no-id`, `no-revoke`: nothing to call (`no-id` also for a value the provider replaced in place: `RevokeTarget.replacedInPlace`, or the same fact on its pending item).
+  - `inventory-unreadable`: the stored inventory could not be read right now (see "Two processes on one inventory file" below), so "in use" cannot be ruled out.
   The refusals other than `write-started` mean the record is stale and it is dropped. **Outside the gate on purpose:** the undo inside `prepareIssuance` (no item exists yet, nothing was written, the value was created a moment ago) and the two old-value revokes, which delete the value that was *replaced*, after every place holds the new one: the one after a confirmed commit (`issuance.ts`) and the one after a rotation (`rotate.ts`). Both have two guards of their own and skip the revoke, with a warning in the report or the result, when the old identifier equals the new one (a provider that rotates in place: the old value is the object that now holds the new one) or when another secret entry outside the flow still has it as its current identifier (companions copy identifiers, so such an entry can still use the value). Both guards, like the gate, compare identifier strings over all secret entries of the inventory without looking at the provider (two providers that happen to use the same string make them refuse, which leaves a value valid, never deletes one). The gate itself takes `RevokeGateDeps` (inventory, providers, connections, fetch, provider configuration): it never writes, so it needs no GitHub client.
   - **What "a write was started" means for a flow that is not a review.** *Environment export:* the file write. It counts as started from the moment `writeEnvFile` is about to create the file, after the path, the allowed folders, the existing-file check and the folder creation passed (`onWriteStart`, which `exportEnv` uses). Every check that needs no value (`checkEnvTarget`: path usable, inside the allowed folders, not a folder, no existing file without `overwrite`, the folders above are folders) runs **before the first value is issued**, so an export that is bound to fail on the target does not issue at all; `writeEnvFile` repeats the checks. A failure before the write started that remains (a later template entry failing, a command failing, a change of the file system between the check and the write) leaves the file unwritten, so the issued value may be deleted, unless its identifier is the current one of an entry. A failure after that, for example the Git ignore check, does not: the value may be in the file, the gate refuses with `write-started`. No template command receives an issued value (commands only produce values); if one ever did, receiving it would count as a write. A value handed to a later template of the same run (`runValues`) is forgotten when the export failed before the file write started, so a later `ref` entry cannot pick up a value that was deleted; after the write started it stays, because the value is still valid. *Rotate flow:* a place write that was sent. A write that threw or timed out counts, because the remote may have applied it, so when every place failed the new value is not deleted either (`write-started`), unless a person passes `acknowledgeWritten`; when only some places failed it is never deleted.
   - **What the caller reports.** Where the gate refuses, the caller says so and does not hide it: the error of a failed export carries one sentence per kind, each on its own line, with the entry and the identifier: **in place** (the issued identifier equals the entry's current one: the provider replaced the value when it issued, the new value was lost with the failed export, every place still holds the old value, which no longer works, nothing is to be revoked, rotate the secret again and write its places; with the file write started it says the new value is at most in the file; the same text for a provider that has no `revoke`), to delete by hand (the provider failed or cannot delete), in use by another entry (do not delete) and written (the file may hold the value, the token stays valid). The result of `rotateSecret` carries a warning and `orphanExternalId` (the identifier that is still valid at the provider) for a value that stays and is not in use, and the warning names the places that were not written; after a failed or partial rotation in place it says the same as the export (the value is not returned, so "write the places again" is never advice: the secret must be rotated again). A new token that stays valid after a failed rotation is also noted in an evidence report when `RotateDeps.evidence` is set (identifier and fingerprint, never the value). `acknowledgeWritten` must be passed only on a person's explicit action.
@@ -229,8 +230,8 @@ A runtime can be embedded more than once in one process (several tenants), or in
   **Known limitations:**
   - The gate knows only the inventory: an identifier that is in use outside the inventory is not seen. Inside it, every secret entry counts, named by the flow or not.
   - For a provider that rotates in place **the `issue` call itself is the point of no return**: it has replaced the old value at the provider when it returns. If the export or the rotation fails afterwards, nothing here can restore it, and the new value is gone with the failed run: the places hold a value that no longer works. The text says so; the fix is to rotate the secret again. Only the checks before the first `issue` can prevent it, which is why the export runs them first.
-  - Not covered: two keys of one template that issue the same in-place secret (the second `issue` replaces the first value); `rotateSecret` does not write companion values; a provider whose `issue` throws after the provider side already changed (nothing was returned, so nothing is reported); two processes that change the inventory between the `issue` and the revoke (the gate reads the inventory at the moment of the revoke).
-  - `rotateSecret` is exported from the core but nothing in the desk app, the CLI or the MCP server calls it; its behaviour is covered by tests, not by a product path. The environment export is reachable from the portal and the agent API.
+  - The hazards of providers that replace in place, and what handles each, are listed in [Providers that replace the value in place](#providers-that-replace-the-value-in-place). Still not prevented there: the same secret asked for by two templates of one export run (each template issues it once and the run warns; a run-wide reuse is a follow-up), and a time-out of the provider call (the outcome is not certain, so it is an ordinary error and nothing is recorded).
+  - `rotateSecret` is exported from the core but nothing in the desk app, the CLI or the MCP server calls it; its behaviour is covered by tests, not by a product path. It writes the main value only and refuses a provider that declares `companionParams` (see below). The environment export is reachable from the portal and the agent API.
   - `revoke-gate-guard.test.ts` is a text check of source files, not a proof. It sees `.revoke(`, `.revoke?.(`, `.revoke!(`, `.revoke.call(`/`apply`/`bind`, `["revoke"](`, `const f = p.revoke`, `f(p.revoke)` and `{ revoke } = p`. It does not see a call through a name it does not know (a computed key that is not a plain string, a function passed in from outside, `eval`). One call in the providers package is listed: the Anthropic provider (`withAnthropicAdmin`) delegates its revoke to the provider it wraps when no admin connection exists; it is a provider implementation passing a call on, not a flow that issues values.
   - The portal has no control to send the acknowledgement (`acknowledgeWritten` in the body of `POST reviews/:id/reject`) and does not list reviews kept for a decision. The API, `IssuanceQueue.orphans()` and the `onNeedsDecision` callback exist; the product surface is follow-up work.
   - Two reviews of one secret can be confirmed concurrently (this was already so before); the gate's `value-in-use` check reads the inventory at the moment of the revoke and cannot see a confirm that is still in flight.
@@ -241,6 +242,79 @@ A runtime can be embedded more than once in one process (several tenants), or in
 - *A failed delete is tried again, with limits.* A delete of the new value of an expired review (or of a review a person rejected, when the provider did not confirm) that fails is not reported as settled: it is tried again after a growing wait (`REVOKE_RETRY_MS` times the number of tries; the sweep skips it until then, so repeated calls cannot use the tries up), at most `MAX_REVOKE_TRIES` times in all. Any error out of the discard counts as a failed try, never as settled; only "a commit is in flight", "committed" and "discarded" are understood states, and a refusal of the gate is a decision, not a failure (it is not retried). When it gives up, the evidence report gets a note, `RuntimeOptions.onRevokeAbandoned` is told (a record, never a value), and the record stays as an orphan. A later success corrects nothing silently: it adds its own evidence note.
 - *Existence is not probed with the hook.* For an id nobody knows, confirm and reject answer "gone" without asking the authorisation hook: a hook call per guessed id would write one audit entry per guess and could consume a per-action approval. Review ids are random, so they cannot be guessed; an authenticated person can tell "gone" from "not allowed". The clean-up sweep inside confirm runs after the person was authorised, never before.
 - *One clock.* The runtime's own deadlines (reviews, waits, the team token run's time-out and timeline) use `RuntimeOptions.now`. The time-outs inside the browser automation package (sign-in and recipe waits) use the system clock.
+
+## Providers that replace the value in place
+
+Most providers create a new object when they issue: the new value has a new identifier, the old value keeps working until a confirmed
+commit deletes it, and discarding the review deletes the new object. A provider that replaces **in place** keeps the identifier: the
+old value stops working the moment `issue` returns, even if the review is discarded, and nothing exists that a discard could delete.
+
+Two providers do this (`Provider.replacesInPlace: true`; an issue result says it did with `IssuedSecret.replacedInPlace`):
+- `cloudflare-access-service-token`: for an entry that already has a service token the secret of that token is replaced (the client ID
+  stays); without one a new token is created. The flag means "may replace".
+- `supabase-db-password`: always; the identifier is the project reference.
+
+A value that says it was replaced in place is never handed to the provider's revoke (not by a discard, a sweep or a failed export): what
+the identifier names is the live object.
+
+What handles each hazard:
+- *Two keys of one template that ask for the same secret.* `buildEnvFile` issues each secret at most once per template and reuses the
+  value for every key that asks for it, for every provider. The same secret asked for by two templates of one run is issued once per
+  template, and the run warns (`EnvBuildResult.warnings`, shown in the answer of `exportEnv`) when a second template issues a secret of a
+  provider with `replacesInPlace`: the first file then holds a value that no longer works. The run-wide reuse of the value is left as a
+  follow-up, because it would have to know whether the first file was kept. A template whose build failed takes its marks back; the
+  warning is still given when the first template was built but its file was not written, which is harmless.
+- *`issue` throws after the provider side changed.* A provider that knows the change happened (it got a success answer and a later step
+  failed) throws `IssuedButFailedError` (core, in the provider contract) with the external identifier and `replacedOld`. A time-out is
+  not certain and stays an ordinary error. `prepareIssuance` records it like an issued value that could not be kept (a report, the same
+  discard path as the sweep and `IssuanceQueue.discardUnkept`, so the revoke gate decides) and throws `IssuedValueLostError` with the
+  gate's decision, the report id and the value-free record; the runtime owes a failed delete to the sweep (`oweIfNeeded`). The
+  environment export records the identifier among the issued values, so its failure path hands it to the gate too. Nothing calls a
+  provider's revoke directly. The two providers throw it for a success answer that cannot be used; the Access provider also for a new
+  token whose answer has no values.
+- *A value of an in-place provider is discarded unconfirmed* (sweep after the deadline, the path of a value the queue could not keep,
+  a person's reject, a stale entry, a failed export). The gate revokes nothing, and the report carries the check `in-place-value-lost`:
+  the provider replaced the value in place, the new value was not kept, run the issuance again or enter a value by hand. Not when a
+  write was started (the places may hold the new value). The export writes such a report when `EnvBuildDeps.evidence` is set.
+- *Two processes on one inventory file.* The gate calls `InventoryStore.refreshNow()` before it decides: it reads the stored document
+  without the stamp shortcut and returns false whenever the copy cannot be shown to match what is stored: the stamp or the document cannot
+  be read, the document does not validate, or a save of the same store is running. It reads once and answers with that read. True only when
+  the copy was read against the stored document and is current, with no backend, or for a store that has not written yet while the file
+  is still absent. If another process created the file since, a store with no unsaved changes takes it over (as an ordinary refresh
+  would) and answers from that read; with unsaved changes it answers false. The gate answers `inventory-unreadable` for false. That
+  refusal leaves the new value **valid at the provider**: it is reported once (the evidence note `revoke-refused` for a review or a
+  record, in a plain sentence; the warning of the renewal function; the notice of a failed export, which says to check the token
+  first, not just to delete it) and **not retried**; whoever sees it checks the value and deletes it by hand. The renewal function's
+  warning names the unreadable inventory and does not claim another entry uses the token. Follow-up, old behaviour: the CLI and the desk
+  app show only "rejected" for any refusal of the gate.
+  The guards for the old-value revokes re-read too, best effort.
+- *Before the action.* The dry-run plan, `preflightSecret` and the answers to an issuance request (`pending-approval`,
+  `awaiting-review`) carry `notice` when the provider has the flag; the desk app shows it in the plan card. There is no extra confirmation step.
+- *`rotateSecret`* writes the main value only. It refuses a provider that declares `companionParams` with a `RotationError` before anything
+  is issued, so it cannot leave a half-written pair.
+
+Future option, not built: a "prepare" capability that creates a new value at the provider without replacing the old one, so an in-place
+provider could be confirmed or discarded like the others.
+
+### Recipe (browser) providers
+
+Read from the recipes in `recipes/`, no live check. Every recipe that creates a token captures `externalId` from `name`, and the name is
+`tokenName(secret.id, now)`: the secret id plus date and time to the minute, so a renewal gets a new name. None of them opens an
+existing token to regenerate or reveal its value; each one creates a new token and the old one is deleted by `revoke` after
+confirmation. So none replaces in place and none carries the flag. The identifier can repeat only when the same secret is issued twice in
+the same minute (two objects with one name, not a replacement).
+
+| Recipe | Result |
+| --- | --- |
+| `anthropic-admin-key`, `anthropic-api-key` | creates a new key, identifier = name, not in place |
+| `github-fine-grained-token` | creates a new token, identifier = name, not in place |
+| `grafana-cloud-access-policy` | creates a policy and a token, identifier = name, not in place |
+| `openai-admin-key`, `openai-api-key` | creates a new key, identifier = name, not in place |
+| `revenuecat-secret-api-key` | creates a new key, identifier = name, not in place |
+| `stripe-restricted-key` | creates a new key, identifier = name, not in place |
+| `supabase-access-token` | creates a new token, identifier = name, not in place |
+| `vesselapi-api-key` | creates a new key, identifier = name, not in place |
+| `peecho-api-keys` | `kind: read`: reads existing keys, creates nothing, has no identifier, replaces nothing |
 
 ## Authorisation hook
 

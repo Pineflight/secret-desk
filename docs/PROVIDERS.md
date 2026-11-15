@@ -239,3 +239,14 @@ manual route for them (or browser automation, see [BROWSER-AUTOMATION.md](BROWSE
 ## Adding your own provider
 Without an API: in the inventory under `providers` (name, URL, steps), or via the MCP tool `desk_add_provider`.
 With an API: register a `Provider` with `issue`, `revoke`, `verify` and `reviewChecklist` (see `packages/providers/src`).
+
+### If `issue` replaces an existing value at the provider
+- Set `replacesInPlace: true` on the provider. Plans, preflights and answers to issuance requests then carry a notice that the current
+  value stops working immediately.
+- Set `replacedInPlace: true` on the issued value when it replaced one (the old identifier is kept, so a discard has nothing to delete).
+- Throw `IssuedButFailedError(message, { externalId, replacedOld })` (exported by the core) when `issue` fails after the provider
+  answered success, so the identifier is recorded and handed to the revoke gate instead of being lost. Do not throw it when the outcome
+  is uncertain (a time-out). The message carries no value. Never call `revoke` yourself for it.
+- Companion values: the exported renewal function in the core (`rotateSecret`) refuses a provider with `companionParams`; use issue and confirm.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#providers-that-replace-the-value-in-place).

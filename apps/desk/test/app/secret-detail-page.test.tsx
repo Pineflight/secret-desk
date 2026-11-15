@@ -295,6 +295,13 @@ describe("Secret detail: renewal", () => {
     expect(screen.queryByText(t("params.plan.resource", { resource: "" }), { exact: false })).toBeNull();
   });
 
+  it("shows the notice of a provider that replaces the value in place", async () => {
+    page({ "POST renewal-requests": { status: "dry-run", plan: plan({ replacesInPlace: true, notice: "Issuing replaces an existing value at the provider immediately." }) } });
+    const { user } = renderApp(<SecretDetailPage />);
+    await user.click(await screen.findByRole("button", { name: t("secretDetail.planOnly") }));
+    expect(await screen.findByText("Issuing replaces an existing value at the provider immediately.")).toBeInTheDocument();
+  });
+
   it("sends the user to the parameters when they are missing or invalid", async () => {
     const portal = page({ "GET secrets/s1": secret({ automatic: true, params: { status: "missing", missing: ["accountId", "region"] } }), "GET secrets/s1/params": { status: 404, body: { error: "no params" } } });
     const { user } = renderApp(<SecretDetailPage />);

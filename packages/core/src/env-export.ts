@@ -8,8 +8,9 @@ import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
-import { revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
-import type { ProviderRegistry } from "./provider.js";
+import type { EvidenceStore } from "./evidence.js";
+import { noteInPlaceValueLost, revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
+import { asIssuedButFailed, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
@@ -29,6 +30,8 @@ export interface EnvBuildDeps {
   prompts?: Record<string, string>;
   /** Konfiguration der Anbieter (zum Beispiel erlaubte Grafana-Hosts), wird an provider.issue durchgereicht. */
   providerConfig?: ProviderConfig;
+  /** When present, a failed export that lost the new value of an in-place provider leaves a warning in a report here (never a value). */
+  evidence?: EvidenceStore;
   /**
    * Nur diese Stages duerfen als `issue`-Quelle ausgestellt werden (gesetzt fuer Agenten: Dev-Stages).
    * Ohne Angabe gilt keine Einschraenkung (Mensch).
@@ -63,6 +66,23 @@ export interface EnvBuildResult {
    * Zum Widerrufen ueber das Tor `revokeNewValue`, wenn die Datei nicht geschrieben wird.
    */
   issuedTokens: IssuedToken[];
+  /** Sentences for the person, present only when there are any (no values). */
+  warnings?: string[];
+}
+
+/**
+ * Which template of a run issued which secret, kept on the map of the run under a symbol (the map itself holds only values and its keys
+ * stay as they were; nothing is kept in module scope). Memory only; it goes when the map of the run goes.
+ */
+const ISSUED_IN_RUN = Symbol("issuedInRun");
+
+/** The marks of a run, or undefined: without values of a run, or when the map cannot take a property (frozen or sealed): then no marks and no warning. */
+function issuedInRun(runValues: Map<string, string> | undefined): Map<string, string> | undefined {
+  if (!runValues) return undefined;
+  const holder = runValues as Map<string, string> & { [ISSUED_IN_RUN]?: Map<string, string> };
+  const existing = holder[ISSUED_IN_RUN];
+  if (existing || !Object.isExtensible(holder)) return existing;
+  return (holder[ISSUED_IN_RUN] = new Map());
 }
 
 export interface IssuedToken {
@@ -70,6 +90,8 @@ export interface IssuedToken {
   externalId?: string;
   /** The provider of the entry when the value was issued. Absent: the entry's provider at revoke time. */
   provider?: string;
+  /** The provider said it replaced the current value in place when it issued this one (`IssuedSecret.replacedInPlace`). */
+  replacedInPlace?: true;
 }
 
 /** What became of one issued value: deleted at the provider, a failed delete, or the gate's reason for not calling the provider. */
@@ -92,7 +114,7 @@ export interface IssuedTokenOutcome {
  * entry already has, and a delete would remove the token that is in use), and never when `writeStarted` says the file write began
  * (the value may be in the file). Returns one outcome per value; `unrevokedNotices` turns them into the sentences for the caller.
  */
-export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: RevokeGateDeps, options: { writeStarted?: boolean } = {}): Promise<IssuedTokenOutcome[]> {
+export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: RevokeGateDeps, options: { writeStarted?: boolean; evidence?: EvidenceStore; now?: () => Date } = {}): Promise<IssuedTokenOutcome[]> {
   const out: IssuedTokenOutcome[] = [];
   for (const t of tokens) {
     const outcome = await revokeNewValue(
@@ -100,13 +122,18 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
         secretId: t.secretId,
         provider: t.provider ?? deps.inventory.getSecret(t.secretId)?.provider ?? "",
         externalId: t.externalId,
+        // A value the provider says it replaced in place has nothing to delete: what the identifier names is the live object.
+        replacedInPlace: t.replacedInPlace === true,
         companionIds: tokens.filter((o) => o.secretId !== t.secretId).map((o) => o.secretId),
         writeStarted: options.writeStarted === true,
       },
       deps,
     );
     // "In place" is read from the inventory: the identifier the provider returned is the one the entry records as current.
-    const inPlace = t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId;
+    // or the provider said so (an entry that records no identifier yet still had its value replaced).
+    const inPlace = t.replacedInPlace === true || (t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId);
+    // The gate revoked nothing for it, so the evidence must say what is left. Not when the file write started: the file may hold it.
+    if (inPlace && options.writeStarted !== true) await noteInPlaceValueLost(options.evidence, deps.inventory.getSecret(t.secretId), t.externalId, (options.now ?? (() => new Date()))());
     out.push({
       secretId: t.secretId,
       ...(t.externalId ? { externalId: t.externalId } : {}),
@@ -123,7 +150,7 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
  * Four kinds. In place (the issued identifier is the entry's current one): the provider replaced the value when it issued, the new
  * value was lost with the export, every place still holds the old value, which no longer works; nothing can or may be revoked, the
  * secret must be rotated again. Then: to delete by hand (the provider failed or cannot delete), in use by another entry (do not
- * delete), and written (the file may hold the value).
+ * delete), the inventory could not be read (it may be in use: check first), and written (the file may hold the value).
  */
 export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): string[] {
   const list = (pick: (o: IssuedTokenOutcome) => boolean): string => outcomes.filter(pick).map((o) => `${o.secretId} (${o.externalId ?? "ohne Kennung"})`).join(", ");
@@ -132,12 +159,14 @@ export function unrevokedNotices(outcomes: readonly IssuedTokenOutcome[]): strin
   const inPlaceWritten = list((o) => o.inPlace === true && o.writeStarted === true);
   const inUse = list((o) => rest(o) && o.result === "value-in-use");
   const written = list((o) => rest(o) && o.result === "write-started");
-  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started");
+  const unreadable = list((o) => rest(o) && o.result === "inventory-unreadable");
+  const byHand = list((o) => rest(o) && o.result !== "value-in-use" && o.result !== "write-started" && o.result !== "inventory-unreadable");
   const notices: string[] = [];
   if (inPlaceLost) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert ging mit dem fehlgeschlagenen Export verloren und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceLost}.`);
   if (inPlaceWritten) notices.push(`Der Anbieter hat den Wert unter derselben Kennung ersetzt (Rotation an Ort und Stelle): der neue Wert steht hoechstens in der Datei, deren Schreiben begonnen hatte, und alle Ziele halten noch den alten Wert, der nicht mehr gilt. Nichts ist zu widerrufen. Das Secret erneut rotieren und seine Ziele schreiben: ${inPlaceWritten}.`);
   if (byHand) notices.push(`Nicht widerrufen (beim Anbieter von Hand entfernen): ${byHand}.`);
   if (inUse) notices.push(`Nicht widerrufen, weil die Kennung im Inventar noch die aktuelle eines Eintrags ist und der Token in Gebrauch ist (nicht loeschen): ${inUse}.`);
+  if (unreadable) notices.push(`Nicht widerrufen, weil das Inventar nicht gelesen werden konnte: der Token kann in Gebrauch sein und bleibt beim Anbieter gueltig; erst pruefen, dann von Hand entfernen, falls er nicht gebraucht wird: ${unreadable}.`);
   if (written) notices.push(`Nicht widerrufen, weil das Schreiben der Datei begonnen hatte und sie den Wert enthalten kann: der Token bleibt beim Anbieter gueltig (von Hand entfernen, wenn die Datei nicht gebraucht wird): ${written}.`);
   return notices;
 }
@@ -152,6 +181,9 @@ export function forgetRunValues(runValues: Map<string, string> | undefined, temp
   // Keys are `<templateId>:<KEY>` and the marker `<templateId>:`; a KEY is an environment name and has no colon, so the template id
   // is everything before the last one and must match exactly (a template `a` does not own the keys of a template `a:b`).
   for (const key of [...(runValues?.keys() ?? [])]) if (key.slice(0, key.lastIndexOf(":")) === templateId) runValues!.delete(key);
+  // The record of which secrets the template issued goes too: a retry of the template must not warn about itself.
+  const issued = issuedInRun(runValues);
+  for (const [secretId, by] of [...(issued ?? [])]) if (by === templateId) issued!.delete(secretId);
 }
 
 export function generateValue(kind: "hex" | "base64" | "base64url" | "uuid", bytes: number): string {
@@ -418,6 +450,14 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     }
   }
   const pairs = new Map<string, { publicKey: string; privateKey: string }>();
+  /**
+   * The value issued for each secret during this export. A secret is issued at most once per export and the value is reused for every
+   * key that asks for it: a provider that replaces the value in place would otherwise kill the value written for the first key.
+   */
+  const issuedValues = new Map<string, string>();
+  const warnings: string[] = [];
+  /** Which template of the run issued which secret (`forgetRunValues` takes a template's entries back). */
+  const runIssued = issuedInRun(deps.runValues);
 
   try {
     for (const entry of template.entries) {
@@ -430,21 +470,42 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
       else if (from.type === "variable") value = deps.inventory.getVariable(from.variable)!.value!;
       else {
         const secret = deps.inventory.getSecret(from.secret)!;
-        const provider = deps.providers.get(secret.provider)!;
-        const result = await provider.issue!({
-          secret,
-          params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
-          stage: template.stage,
-          stageKind: stageKind(deps.inventory.stages, template.stage),
-          connections: deps.connections,
-          fetch: deps.fetch ?? fetch,
-          now,
-          label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
-          ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
-        });
-        value = result.value.reveal();
-        issued.push(secret.id);
-        issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}) });
+        const known = issuedValues.get(secret.id);
+        if (known !== undefined) value = known;
+        else {
+          const provider = deps.providers.get(secret.provider)!;
+          // The same in-place secret in a second template of one run: this issue replaces the value again and the file of the first
+          // template (already built, perhaps written) holds a value that no longer works. Warned about, not prevented (a run-wide reuse
+          // would have to know whether the first file was kept).
+          const issuedBy = runIssued?.get(secret.id);
+          if (issuedBy !== undefined && provider.replacesInPlace === true) {
+            warnings.push(`Das Secret ${secret.id} wird in zwei Vorlagen desselben Laufs ausgestellt (${issuedBy} und ${template.id}): der Anbieter ersetzt den Wert an Ort und Stelle, die Datei der ersten Vorlage haelt danach einen Wert, der nicht mehr gilt.`);
+          }
+          let result: IssuedSecret;
+          try {
+            result = await provider.issue!({
+              secret,
+              params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
+              stage: template.stage,
+              stageKind: stageKind(deps.inventory.stages, template.stage),
+              connections: deps.connections,
+              fetch: deps.fetch ?? fetch,
+              now,
+              label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
+              ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
+            });
+          } catch (err) {
+            // The provider side changed and no value came back: record it like an issued value, so the handler below hands it to the gate.
+            const lost = asIssuedButFailed(err);
+            if (lost) issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(lost.externalId ? { externalId: lost.externalId } : {}), ...(lost.replacedOld ? { replacedInPlace: true as const } : {}) });
+            throw err;
+          }
+          value = result.value.reveal();
+          issuedValues.set(secret.id, value);
+          runIssued?.set(secret.id, template.id);
+          issued.push(secret.id);
+          issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
+        }
       }
       if (entry.description) lines.push(`# ${commentText(entry.description)}`);
       sources[entry.key] = from.type;
@@ -460,12 +521,12 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
   } catch (err) {
     // Ein spaeterer Schritt ist gescheitert: schon ausgestellte Werte nicht beim Anbieter verwaist zuruecklassen, aber nur ueber das
     // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
-    addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps));
+    addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps, { ...(deps.evidence ? { evidence: deps.evidence } : {}), now: () => now }));
     forgetRunValues(deps.runValues, template.id);
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");
-  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens };
+  return { text: `${lines.join("\n")}\n`, keys: template.entries.map((e) => e.key), sources, skipped, issuedSecretIds: issued, issuedTokens, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 export interface WriteEnvResult {

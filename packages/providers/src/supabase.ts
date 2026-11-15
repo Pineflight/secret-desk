@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { contextKind, SecretValue, type Check, type DiscoverContext, type DiscoveredOption, type ParamSpec, type PreflightContext, type PreflightFinding, type PreflightResult, type Provider, type StageKind, type VerifyContext } from "@secret-desk/core";
 import { asList, getJson, readFailure, str, unknownKind } from "./discover.js";
 import { check, probe, step, steps } from "./checks.js";
-import { badResponse, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg } from "./http.js";
+import { acceptedButUnusable, badResponse, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg } from "./http.js";
 
 const API = "https://api.supabase.com";
 
@@ -336,6 +336,7 @@ const dbPasswordProvider: Provider = {
   params: dbPasswordSpecs,
   discover: (kind, ctx) => discoverSupabase("supabase-db-password", kind, ctx),
   companionParams: ["dbUrlTarget"],
+  replacesInPlace: true,
   preflight: (ctx) => preflightSupabase("supabase-db-password", ctx, true, true),
   async issue(ctx) {
     const id = "supabase-db-password";
@@ -348,9 +349,12 @@ const dbPasswordProvider: Provider = {
     try {
       await callWithToken(id, ctx, "supabase", `${API}/v1/projects/${seg(ref)}/database/password`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ password }) }, [password]);
     } catch (err) {
+      // A success answer that cannot be read: the password was changed and nobody knows the new one.
+      const accepted = acceptedButUnusable(id, err, { externalId: ref, replacedOld: true });
+      if (accepted !== err) throw accepted;
       dbPasswordFailure(id, err);
     }
-    return { value: new SecretValue(password), externalId: ref, expiresAt: null, ...(targetId && url ? { companions: [{ entryId: targetId, value: new SecretValue(url) }] } : {}) };
+    return { value: new SecretValue(password), externalId: ref, expiresAt: null, replacedInPlace: true, ...(targetId && url ? { companions: [{ entryId: targetId, value: new SecretValue(url) }] } : {}) };
   },
   async verify(ctx) {
     const v = ctx.value.reveal();

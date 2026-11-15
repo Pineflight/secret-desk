@@ -9,10 +9,10 @@ import { placeToTarget, type GitHubClient, type FetchLike } from "./github-core.
 import { checkPlaceWritable, listPlaceSecrets, putPlaceSecret, type PlaceClients } from "./place-io.js";
 import type { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStoreCore } from "./inventory-store.js";
-import type { ProviderRegistry } from "./provider.js";
+import { asIssuedButFailed, type IssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
-import type { SecretValue } from "./secret.js";
+import { SecretValue } from "./secret.js";
 import { fingerprintOf, overallStatus, type ActorRef, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
 
 export interface IssuanceDeps {
@@ -42,6 +42,8 @@ export interface PendingIssuance {
   companions: PendingCompanion[];
   report: VerificationReport;
   oldExternalId?: string;
+  /** The provider replaced the current value in place when it issued this one (see `IssuedSecret.replacedInPlace`). */
+  replacedInPlace?: true;
   /** Hash ueber Ziele, Anbieter, Parameter, Stage und alte Kennung zum Zeitpunkt der Pruefung (siehe snapshot.ts). */
   snapshot: string;
   /** Der Eintrag, mit dem ausgestellt wurde. Widerrufen wird immer mit diesen Parametern, nie mit nachtraeglich geaenderten. */
@@ -142,6 +144,7 @@ export async function prepareIssuance(
   let value: SecretValue;
   let externalId: string | undefined;
   let expiresAt: string | null | undefined;
+  let replacedInPlace = false;
   let kind: VerificationReport["kind"];
   let params = secret.params;
   const preChecks: Check[] = [];
@@ -171,10 +174,19 @@ export async function prepareIssuance(
       if (target.stage !== secret.stage) throw new IssuanceError(`Der Begleiter ${id} liegt in einer anderen Stage (${target.stage}).`);
       if (target.places.length === 0) throw new IssuanceError(`Der Begleiter ${id} hat kein Ziel (places).`);
     }
-    const issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
+    let issued: IssuedSecret;
+    try {
+      issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
+    } catch (err) {
+      // The provider side changed and no value came back: it takes the path of an issued value that could not be kept.
+      const lost = asIssuedButFailed(err);
+      if (lost) throw await keepLostIssuance(lost, { secret, snapshot, issuedSecret, label, now, deps });
+      throw err;
+    }
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
+    replacedInPlace = issued.replacedInPlace === true;
     kind = "issued";
     const allowed = companionTargets(provider, params);
     for (const c of issued.companions ?? []) {
@@ -184,8 +196,9 @@ export async function prepareIssuance(
       if (!found || found.kind !== (c.kind ?? "secret")) {
         // The provider returned a value for an entry nobody named: undo what was created, write nothing.
         // Outside the revoke gate (`revokeNewValue`) on purpose: no item exists yet, nothing was written anywhere, and the value
-        // was created a moment ago in this very call, so it cannot be in use.
-        if (externalId && externalId !== secret.externalId && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
+        // was created a moment ago in this very call, so it cannot be in use. Never for a value the provider replaced in place: what
+        // the identifier names is the live object there, and deleting it would destroy the value that was just replaced.
+        if (externalId && externalId !== secret.externalId && !issued.replacedInPlace && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
         throw new IssuanceError("Der Anbieter lieferte einen Begleitwert fuer einen nicht benannten Eintrag. Nichts wurde geschrieben.");
       }
       companions.push({ entryId: c.entryId, kind: found.kind, value: c.value, snapshot: companionSnapshot(found.entry) });
@@ -271,6 +284,7 @@ export async function prepareIssuance(
     companions,
     report,
     ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
+    ...(replacedInPlace ? { replacedInPlace: true as const } : {}),
     snapshot,
     issuedSecret,
     newExpires,
@@ -280,6 +294,75 @@ export async function prepareIssuance(
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttl).toISOString(),
   };
+}
+
+/**
+ * The error `prepareIssuance` throws when the provider's `issue` threw `IssuedButFailedError`: the provider side changed and no value
+ * reached the caller. By then the value was handed to the revoke gate like any issued value that could not be kept (what the gate
+ * decided is in `result`, the report in the evidence store under `reportId`). `pending` is the value-free record of that discard: an
+ * embedder with a queue passes it to `oweIfNeeded` so a failed delete is retried like the sweep's.
+ */
+export class IssuedValueLostError extends IssuanceError {
+  readonly externalId: string | undefined;
+  readonly replacedOld: boolean;
+  readonly reportId: string;
+  readonly result: DiscardResult;
+  readonly pending: PendingIssuance;
+  constructor(cause: IssuedButFailedError, pending: PendingIssuance, result: DiscardResult) {
+    const lines = [`Der Anbieter hat den Wert geaendert, aber das Ausstellen ist danach fehlgeschlagen: ${cause.message}`];
+    if (cause.replacedOld) lines.push("Der bisherige Wert gilt beim Anbieter nicht mehr und der neue ist niemandem bekannt. Die Ausstellung erneut ausfuehren oder einen Wert von Hand eingeben.");
+    else if (result.revokedNew) lines.push("Der neu angelegte Wert wurde beim Anbieter wieder geloescht.");
+    else if (cause.externalId) lines.push(`Der neu angelegte Wert (Kennung ${cause.externalId}) wurde nicht geloescht und bleibt beim Anbieter gueltig: von Hand entfernen.`);
+    else lines.push("Der Anbieter hat keine Kennung genannt: den neuen Wert beim Anbieter pruefen und von Hand entfernen.");
+    super(lines.join("\n"));
+    this.name = "IssuedValueLostError";
+    this.externalId = cause.externalId;
+    this.replacedOld = cause.replacedOld;
+    this.reportId = pending.report.id;
+    this.result = result;
+    this.pending = pending;
+  }
+}
+
+/** Records a value that was created or replaced at the provider but never returned, and hands it to the gate (`discardIssuanceNow`). */
+async function keepLostIssuance(
+  cause: IssuedButFailedError,
+  ctx: { secret: SecretEntry; snapshot: string; issuedSecret: SecretEntry; label: string; now: Date; deps: IssuanceDeps },
+): Promise<IssuedValueLostError> {
+  const { secret, now } = ctx;
+  const report: VerificationReport = {
+    id: globalThis.crypto.randomUUID(),
+    secretId: secret.id,
+    secretName: secret.name,
+    createdAt: now.toISOString(),
+    kind: "issued",
+    provider: secret.provider,
+    stage: secret.stage,
+    label: ctx.label,
+    ...(cause.externalId ? { externalId: cause.externalId } : {}),
+    expiresAt: null,
+    targets: secret.places.map(describePlace),
+    checks: [{ id: "issue-failed-after-change", label: "Der Anbieter hat den Wert geaendert, aber das Ausstellen ist danach fehlgeschlagen", status: "warn", detail: cause.message }],
+    checklist: [],
+    fingerprint: fingerprintOf(new SecretValue("")),
+    attachments: [],
+  };
+  const pending: PendingIssuance = {
+    id: report.id,
+    secretId: secret.id,
+    value: new SecretValue(""),
+    companions: [],
+    report,
+    ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
+    ...(cause.replacedOld ? { replacedInPlace: true as const } : {}),
+    snapshot: ctx.snapshot,
+    issuedSecret: ctx.issuedSecret,
+    newExpires: null,
+    createdAt: now.toISOString(),
+    expiresAt: now.toISOString(),
+  };
+  const result = await discardIssuanceNow(pending, ctx.deps, { by: "system", why: "failed" });
+  return new IssuedValueLostError(cause, pending, result);
 }
 
 export interface CommitResult {
@@ -454,7 +537,8 @@ async function commitIssuanceOnce(
   // the person confirmed; the gate is for a NEW value that may be in use. It has two guards of its own: the identifier must
   // differ from the new one, and no entry outside this commit may still hold it (companions copy identifiers, so an entry
   // that was not part of this issuance can carry the same identifier and still use that value).
-  const oldId = pending.oldExternalId;
+  // A value the provider replaced in place has no old object to delete: the identifier names the live one.
+  const oldId = pending.replacedInPlace === true ? undefined : pending.oldExternalId;
   const oldHolder = oldId && oldId !== pending.report.externalId ? entryHoldingId(deps.inventory, oldId, [secret.id, ...companionEntries.map((c) => c.entry.id)]) : undefined;
   if (oldHolder && provider?.revoke) {
     pending.report.checks.push({ id: "revoke-old", label: `Alten Wert nicht widerrufen: seine Kennung ist noch die aktuelle von Eintrag ${oldHolder}`, status: "warn", detail: "Der Wert wird dort noch gebraucht. Beim Anbieter erst loeschen, wenn dieser Eintrag erneuert ist." });
@@ -522,14 +606,29 @@ async function commitIssuanceOnce(
  * so the identifier of a value can be the current one of an entry that is not part of the flow asking.
  */
 export function entryHoldingId(inventory: InventoryStoreCore, id: string, except: readonly string[]): string | undefined {
-  return inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
+  // Another process (the desk app and the CLI share one inventory file) may have changed an identifier since this copy was read.
+  // Best effort here: when the stored document cannot be read right now, the copy in memory is what there is.
+  inventoryIsFresh(inventory);
+  return holderOf(inventory, id, except);
+}
+
+const holderOf = (inventory: InventoryStoreCore, id: string, except: readonly string[]): string | undefined => inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
+
+/**
+ * Re-reads the inventory from its backend (`refreshNow`) so a decision to revoke rests on what is stored now, not on the copy this
+ * process read earlier. False: the stored document could not be taken over, the copy may be stale. A structural stand-in without
+ * `refreshNow` (an embedder's double) has no backend and counts as fresh.
+ */
+function inventoryIsFresh(inventory: InventoryStoreCore): boolean {
+  const reload = (inventory as Partial<Pick<InventoryStoreCore, "refreshNow">>).refreshNow;
+  return reload ? reload.call(inventory) : true;
 }
 
 /** What the gate reads: the inventory and what it takes to call a provider. No places, no GitHub: it never writes. */
 export type RevokeGateDeps = Pick<IssuanceDeps, "inventory" | "providers" | "connections" | "fetch" | "providerConfig">;
 
 /** Why the gate did not call the provider. The first reason is a decision for a person; the others mean the record is stale. */
-export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke";
+export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke" | "inventory-unreadable";
 
 export type RevokeOutcome = { status: "revoked" } | { status: "failed" } | { status: "refused"; reason: RevokeRefusal };
 
@@ -548,6 +647,11 @@ export interface RevokeTarget {
   pending?: PendingIssuance | undefined;
   /** The entry as it was issued: the delete uses its provider and parameters. Without it the entry in the inventory is used. */
   issuedSecret?: SecretEntry | undefined;
+  /**
+   * The provider replaced the value in place when it issued this one (`IssuedSecret.replacedInPlace`): what the identifier names is the
+   * live object, so there is nothing to delete. The gate refuses with `no-id` whatever the identifier is. The same fact on `pending` counts.
+   */
+  replacedInPlace?: boolean | undefined;
 }
 
 /**
@@ -559,7 +663,8 @@ export interface RevokeTarget {
  *  - `value-in-use`: the identifier is the current one of the entry or of a companion entry, read now (another review of the
  *    same provider identifier may have been confirmed).
  *  - `secret-gone`, `provider-changed`: for a record alone (no issued entry) the entry must still exist with the same provider.
- *  - `no-id`, `no-revoke`: there is nothing to call.
+ *  - `no-id`, `no-revoke`: there is nothing to call (`no-id` also when the value was replaced in place).
+ *  - `inventory-unreadable`: the stored inventory could not be read right now, so "in use" cannot be ruled out.
  * The gate knows only the inventory, not uses outside it. The rotate flow and the environment export call it too (the new value
  * of a rotation whose writes all failed, the values of an export that failed), with `writeStarted` set by the caller: the
  * first when it sent any write, the second when it began to write the file. Outside the gate on purpose: the old-value revokes
@@ -567,11 +672,15 @@ export interface RevokeTarget {
  */
 export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
   const id = target.externalId;
-  if (!id) return { status: "refused", reason: "no-id" };
+  if (!id || target.replacedInPlace === true || target.pending?.replacedInPlace === true) return { status: "refused", reason: "no-id" };
+  // Decided on the inventory as it is stored now: another process may have changed an identifier since this copy was read. When the
+  // stored document cannot be read right now the copy may be stale, so nothing is revoked (`inventory-unreadable`): the new value stays
+  // valid at the provider, the refusal is reported once in the evidence and not retried.
+  if (!inventoryIsFresh(deps.inventory)) return { status: "refused", reason: "inventory-unreadable" };
   const current = deps.inventory.getSecret(target.secretId);
   // Any secret entry that records the identifier as its current one holds the value, named by the target or not (companions copy
   // identifiers). Compared as strings over all secret entries, without the provider.
-  if (entryHoldingId(deps.inventory, id, []) !== undefined) return { status: "refused", reason: "value-in-use" };
+  if (holderOf(deps.inventory, id, []) !== undefined) return { status: "refused", reason: "value-in-use" };
   const started = target.writeStarted === true || (target.pending !== undefined && writeStarted.has(target.pending));
   if (started && !options.acknowledgeWritten) return { status: "refused", reason: "write-started" };
   if (!target.issuedSecret) {
@@ -591,7 +700,7 @@ export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps,
 }
 
 /** Why an issued value is discarded: a person rejected it, its time ran out, the entry changed, or the queue could not keep it (the store refused the record). */
-export type DiscardWhy = "rejected" | "expired" | "stale" | "unkept";
+export type DiscardWhy = "rejected" | "expired" | "stale" | "unkept" | "failed";
 
 export interface DiscardResult {
   revokedNew: boolean;
@@ -619,11 +728,12 @@ async function discardIssuanceNow(
   if (discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
   discarded.add(pending);
   // Same id as before means the provider rotated in place: nothing new exists that could be deleted.
-  const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
+  // The provider says so, or the identifier is the one the entry already has.
+  const rotatedInPlace = pending.replacedInPlace === true || (pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId);
   const externalId = rotatedInPlace ? undefined : pending.report.externalId;
   // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
   // A value the provider issued but named no identifier for cannot be deleted: the gate says so (`no-id`) and the report must too.
-  const issuedWithoutId = pending.report.kind === "issued" && pending.report.externalId === undefined;
+  const issuedWithoutId = pending.report.kind === "issued" && pending.report.externalId === undefined && !rotatedInPlace;
   const outcome: RevokeOutcome | undefined =
     externalId || issuedWithoutId
       ? await revokeNewValue({ secretId: pending.secretId, provider: pending.issuedSecret?.provider ?? pending.report.provider, externalId, companionIds: pending.companions.map((c) => c.entryId), pending, ...(pending.issuedSecret ? { issuedSecret: pending.issuedSecret } : {}) }, deps, { acknowledgeWritten: reason.acknowledgeWritten === true })
@@ -636,6 +746,9 @@ async function discardIssuanceNow(
   if (revokedNew && reason.acknowledgeWritten === true && writeStarted.has(pending)) {
     pending.report.checks.push({ id: "revoked-written", label: `Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war. Diese Orte halten einen widerrufenen Wert: ${writtenPlacesOf(pending).join(", ")}`, status: "warn" });
   }
+  // The provider replaced the value in place: the old value is already invalid and the new one is known to nobody. The gate rightly
+  // revoked nothing, so the report must say what is left. Not when a write was started: the places may hold the new value then.
+  if (rotatedInPlace && !writeStarted.has(pending)) pending.report.checks.push(inPlaceValueLostCheck());
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,
@@ -643,7 +756,7 @@ async function discardIssuanceNow(
     at: now.toISOString(),
     ticks: [],
     decision: "rejected",
-    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : reason.why === "unkept" ? "Pruefung konnte nicht gespeichert werden" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
+    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : reason.why === "unkept" ? "Pruefung konnte nicht gespeichert werden" : reason.why === "failed" ? "Ausstellen nach der Aenderung beim Anbieter fehlgeschlagen" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
   };
   // The delete above has happened (or was refused) whatever the report store does: a failing store must not look like a failed
   // delete, or the caller would revoke an already revoked identifier a second time.
@@ -653,4 +766,41 @@ async function discardIssuanceNow(
     /* the result below is what counts */
   }
   return { revokedNew, ...(outcome?.status === "refused" ? { refused: outcome.reason } : {}) };
+}
+
+/**
+ * The warning a report carries when a value of a provider that replaces in place was discarded unconfirmed (a person rejected it, its
+ * time ran out, the entry changed, the queue could not keep it, or an export failed): the gate revokes nothing there, but the old value
+ * is already invalid and the new one is known to nobody.
+ */
+export const inPlaceValueLostCheck = (): Check => ({
+  id: "in-place-value-lost",
+  label: "Der Anbieter hat den Wert an Ort und Stelle ersetzt; der neue Wert wurde nicht behalten: die Ausstellung erneut ausfuehren oder einen Wert von Hand eingeben.",
+  status: "warn",
+});
+
+/**
+ * Saves a report that says an export lost the new value of a secret whose provider replaced it in place. Best effort: the failed export
+ * is the error the caller sees, a store that fails changes nothing. Names, identifiers and a fixed fingerprint, never a value.
+ */
+export async function noteInPlaceValueLost(evidence: EvidenceStore | undefined, secret: SecretEntry | undefined, externalId: string | undefined, now: Date): Promise<void> {
+  if (!evidence || !secret) return;
+  const report: VerificationReport = {
+    id: globalThis.crypto.randomUUID(),
+    secretId: secret.id,
+    secretName: secret.name,
+    createdAt: now.toISOString(),
+    kind: "issued",
+    provider: secret.provider,
+    stage: secret.stage,
+    label: `${secret.id}-${secret.stage}-${now.toISOString().slice(0, 10)}`,
+    ...(externalId ? { externalId } : {}),
+    expiresAt: null,
+    targets: secret.places.map(describePlace),
+    checks: [inPlaceValueLostCheck()],
+    checklist: [],
+    fingerprint: fingerprintOf(new SecretValue("")),
+    attachments: [],
+  };
+  await evidence.save(report).catch(() => undefined);
 }

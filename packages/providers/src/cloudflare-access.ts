@@ -1,7 +1,7 @@
-import { SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext, type PreflightContext, type PreflightResult } from "@secret-desk/core/portable";
+import { IssuedButFailedError, SecretValue, type Check, type ParamSpec, type Provider, type VerifyContext, type PreflightContext, type PreflightResult } from "@secret-desk/core/portable";
 import { check } from "./checks.js";
 import { ACCOUNT_SCOPE, CLOUDFLARE_ACCOUNT_ID_SPEC, CLOUDFLARE_API, discoverCloudflare, preflightCloudflare } from "./cloudflare.js";
-import { badResponse, callJson, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg, type CallContext } from "./http.js";
+import { acceptedButUnusable, badResponse, callJson, callWithToken, JSON_HEADERS, ProviderError, requireString, revokeIdempotent, seg, type CallContext } from "./http.js";
 
 const ID = "cloudflare-access-service-token";
 const CONNECTION = "cloudflare";
@@ -149,6 +149,8 @@ export const cloudflareAccessProvider: Provider = {
   connection: CONNECTION,
   params: specs,
   companionParams: ["clientIdTarget"],
+  // An entry that already has a service token gets the secret of that token replaced.
+  replacesInPlace: true,
   discover: (kind, ctx) => discoverCloudflare(ID, CONNECTION, specs, kind, ctx),
   preflight,
   async issue(ctx) {
@@ -159,19 +161,26 @@ export const cloudflareAccessProvider: Provider = {
     return withHelperToken({ ...ctx }, accountId, ctx.label, async (helper) => {
       const rotate = oldId !== undefined && oldId !== "" && (await tokenExists(ctx, helper, accountId, oldId));
       if (rotate) {
-        const res = await callHelper<Envelope<AccessToken>>(ctx, helper, `${tokensUrl(accountId)}/${seg(oldId!)}/rotate`, { method: "POST", body: "{}" });
+        // From here on the old secret is gone at Cloudflare as soon as the call succeeded: an answer that cannot be used must not vanish.
+        const lost = { externalId: oldId!, replacedOld: true };
+        const res = await callHelper<Envelope<AccessToken>>(ctx, helper, `${tokensUrl(accountId)}/${seg(oldId!)}/rotate`, { method: "POST", body: "{}" }).catch((err: unknown) => {
+          throw acceptedButUnusable(ID, err, lost);
+        });
         const r = res?.result;
-        if (!r || typeof r.client_secret !== "string") throw badResponse(ID);
+        if (!r || typeof r.client_secret !== "string") throw new IssuedButFailedError(badResponse(ID).message, lost);
         // The client ID stays the same, so the companion entry is not rewritten.
-        return { value: new SecretValue(r.client_secret), externalId: oldId!, expiresAt: r.expires_at ?? expiryFromDuration(ctx.now, duration) };
+        return { value: new SecretValue(r.client_secret), externalId: oldId!, expiresAt: r.expires_at ?? expiryFromDuration(ctx.now, duration), replacedInPlace: true };
       }
-      const res = await callHelper<Envelope<AccessToken>>(ctx, helper, tokensUrl(accountId), { method: "POST", body: JSON.stringify({ name: ctx.label, duration }) });
+      const res = await callHelper<Envelope<AccessToken>>(ctx, helper, tokensUrl(accountId), { method: "POST", body: JSON.stringify({ name: ctx.label, duration }) }).catch((err: unknown) => {
+        throw acceptedButUnusable(ID, err, { replacedOld: false });
+      });
       const r = res?.result;
       if (r && typeof r.id === "string" && (typeof r.client_secret !== "string" || typeof r.client_id !== "string")) {
-        // The token exists at Cloudflare but the one-time values did not arrive: it must not orphan unnoticed.
-        throw new ProviderError(ID, null, `Antwort ohne Werte: bei Cloudflare koennte ein verwaister Service-Token bestehen (Kennung ${r.id}). Im Dashboard pruefen und loeschen.`);
+        // The token exists at Cloudflare but the one-time values did not arrive: it must not orphan unnoticed (the caller hands it to the revoke gate).
+        throw new IssuedButFailedError(new ProviderError(ID, null, `Antwort ohne Werte: bei Cloudflare koennte ein verwaister Service-Token bestehen (Kennung ${r.id}). Im Dashboard pruefen und loeschen.`).message, { externalId: r.id, replacedOld: false });
       }
-      if (!r || typeof r.id !== "string" || typeof r.client_secret !== "string" || typeof r.client_id !== "string") throw badResponse(ID);
+      // The call succeeded, so a token may exist whose identifier is unknown.
+      if (!r || typeof r.id !== "string" || typeof r.client_secret !== "string" || typeof r.client_id !== "string") throw new IssuedButFailedError(badResponse(ID).message, { replacedOld: false });
       return {
         value: new SecretValue(r.client_secret),
         externalId: r.id,

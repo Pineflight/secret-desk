@@ -165,6 +165,47 @@ export class InventoryStoreCore {
     return { message: this.#problem.message, since: new Date(this.#problem.since).toISOString(), persistent: Date.now() - this.#problem.since >= INVALID_GRACE_MS };
   }
 
+  /**
+   * Reads the stored document now, without the cheap checks that normally decide whether a read is needed (the change stamp, the
+   * pause between hashes), and takes it over when it differs. For a decision that must not rest on an older copy: the stamp of a file
+   * that another process rewrote can look unchanged (the same size, a copied modification time), and every ordinary read trusts it
+   * for a moment. Returns false whenever the copy in memory cannot be shown to match what is stored: the change stamp or the document
+   * cannot be read right now (the file is missing, or being replaced), the document does not parse or validate, or a save of this
+   * store is running (its result is not known yet). The caller must then treat what it sees as possibly stale. True only when the copy
+   * was read against the stored document in one pass and is current, or when there is nothing stored to be stale against: no backend,
+   * or a store that has not written yet while the file is still absent. If another process created the file since, a store with no
+   * unsaved changes takes it over (as an ordinary refresh would) and answers from that read; with unsaved changes it answers false.
+   */
+  refreshNow(): boolean {
+    const backend = this.#backend;
+    if (!backend) return true;
+    if (this.#saveRuns > 0) return false;
+    if (this.#unwritten) return this.#adoptLateFile(backend);
+    this.#stale = true;
+    return this.#refresh();
+  }
+
+  /** A store that has not written yet, asked for a fresh read: true while the file is absent; else the file is taken over if nothing is unsaved. */
+  #adoptLateFile(backend: InventoryBackend): boolean {
+    const st = backend.stamp();
+    if (st === null) return true;
+    if (this.#pending.length > 0) return false;
+    const snapshot = backend.read();
+    if (snapshot === null) return false;
+    try {
+      this.#adopt(snapshot);
+    } catch {
+      // The document is not valid right now: the copy stays and nothing can be said about it.
+      return false;
+    }
+    this.#stamp = st;
+    this.#verifiedAt = Date.now();
+    this.#unwritten = false;
+    this.#problem = null;
+    this.#emit();
+    return true;
+  }
+
   /** Wird nach jedem Nachladen einer von aussen geaenderten Datei aufgerufen (Cache-Invalidierung, Freigaben pruefen). */
   onExternalChange(fn: () => void): () => void {
     this.#listeners.add(fn);
@@ -540,26 +581,31 @@ export class InventoryStoreCore {
     }
   }
 
-  /** Takes over the file on disk if it differs from the base. Cheap when nothing changed. */
-  #refresh(): void {
+  /**
+   * Takes over the file on disk if it differs from the base. Cheap when nothing changed. Returns true when the copy in memory was
+   * read against the stored document and is current (it matched, or it was taken over), or the cheap check says nothing changed;
+   * false when nothing was compared (no backend, a save or refresh running, a stamp or a document that cannot be read) or the stored
+   * document could not be taken over. Most callers ignore it; `refreshNow` answers with it.
+   */
+  #refresh(): boolean {
     const backend = this.#backend;
-    if (!backend || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return;
+    if (!backend || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return false;
     const now = Date.now();
     const st = backend.stamp();
-    if (!st) return;
+    if (!st) return false;
     const unchanged = sameStamp(st, this.#stamp);
     if (this.#problem) {
       // The last attempt failed: retry when the file changed or after a short pause.
-      if (sameStamp(st, this.#invalidStamp) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return;
-    } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return;
+      if (sameStamp(st, this.#invalidStamp) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return false;
+    } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return true;
     const snapshot = backend.read();
-    if (snapshot === null) return;
+    if (snapshot === null) return false;
     this.#stale = false;
     if (snapshot.revision === this.#baseRevision) {
       this.#stamp = st;
       this.#verifiedAt = now;
       this.#problem = null;
-      return;
+      return true;
     }
     this.#refreshing = true;
     try {
@@ -572,12 +618,13 @@ export class InventoryStoreCore {
       this.#invalidStamp = st;
       this.#invalidAt = now;
       this.#problem ??= { message: (err as Error).message, since: now };
-      return;
+      return false;
     } finally {
       this.#refreshing = false;
     }
     this.#problem = null;
     this.#emit();
+    return true;
   }
 
   #emit(): void {
