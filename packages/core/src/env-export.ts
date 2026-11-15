@@ -76,10 +76,13 @@ export interface EnvBuildResult {
  */
 const ISSUED_IN_RUN = Symbol("issuedInRun");
 
+/** The marks of a run, or undefined: without values of a run, or when the map cannot take a property (frozen or sealed): then no marks and no warning. */
 function issuedInRun(runValues: Map<string, string> | undefined): Map<string, string> | undefined {
   if (!runValues) return undefined;
   const holder = runValues as Map<string, string> & { [ISSUED_IN_RUN]?: Map<string, string> };
-  return (holder[ISSUED_IN_RUN] ??= new Map());
+  const existing = holder[ISSUED_IN_RUN];
+  if (existing || !Object.isExtensible(holder)) return existing;
+  return (holder[ISSUED_IN_RUN] = new Map());
 }
 
 export interface IssuedToken {
@@ -118,8 +121,9 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
       {
         secretId: t.secretId,
         provider: t.provider ?? deps.inventory.getSecret(t.secretId)?.provider ?? "",
+        externalId: t.externalId,
         // A value the provider says it replaced in place has nothing to delete: what the identifier names is the live object.
-        externalId: t.replacedInPlace === true ? undefined : t.externalId,
+        replacedInPlace: t.replacedInPlace === true,
         companionIds: tokens.filter((o) => o.secretId !== t.secretId).map((o) => o.secretId),
         writeStarted: options.writeStarted === true,
       },
@@ -175,6 +179,9 @@ export function forgetRunValues(runValues: Map<string, string> | undefined, temp
   // Keys are `<templateId>:<KEY>` and the marker `<templateId>:`; a KEY is an environment name and has no colon, so the template id
   // is everything before the last one and must match exactly (a template `a` does not own the keys of a template `a:b`).
   for (const key of [...(runValues?.keys() ?? [])]) if (key.slice(0, key.lastIndexOf(":")) === templateId) runValues!.delete(key);
+  // The record of which secrets the template issued goes too: a retry of the template must not warn about itself.
+  const issued = issuedInRun(runValues);
+  for (const [secretId, by] of [...(issued ?? [])]) if (by === templateId) issued!.delete(secretId);
 }
 
 export function generateValue(kind: "hex" | "base64" | "base64url" | "uuid", bytes: number): string {
@@ -447,9 +454,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
    */
   const issuedValues = new Map<string, string>();
   const warnings: string[] = [];
-  /** Which template of the run issued which secret; a failed export takes its own entries back. */
+  /** Which template of the run issued which secret (`forgetRunValues` takes a template's entries back). */
   const runIssued = issuedInRun(deps.runValues);
-  const marks: string[] = [];
 
   try {
     for (const entry of template.entries) {
@@ -495,7 +501,6 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
           runIssued?.set(secret.id, template.id);
-          marks.push(secret.id);
           issued.push(secret.id);
           issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
         }
@@ -516,7 +521,6 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
     addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps, { ...(deps.evidence ? { evidence: deps.evidence } : {}), now: () => now }));
     forgetRunValues(deps.runValues, template.id);
-    for (const id of marks) runIssued?.delete(id);
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");

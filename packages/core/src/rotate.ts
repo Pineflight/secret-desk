@@ -223,6 +223,10 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
       } else if (outcome.reason === "value-in-use") {
         // Another entry (not this one: that is the in-place case above) records the identifier as its current one.
         warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: seine Kennung ist die aktuelle eines anderen Eintrags im Inventar, der Token ist in Gebrauch.`);
+      } else if (outcome.reason === "inventory-unreadable") {
+        // Not "used by another entry": the stored inventory could not be read, so nobody knows. Left valid, reported here only.
+        result.orphanExternalId = issued.externalId!;
+        warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: das Inventar liess sich gerade nicht lesen, ob er in Gebrauch ist, ist unbekannt. Er bleibt beim Anbieter gueltig: spaeter pruefen und von Hand widerrufen.`);
       } else if (outcome.reason === "write-started") {
         result.orphanExternalId = issued.externalId!;
         warnings.push(`Der neue Token (Kennung ${issued.externalId}) wurde nicht widerrufen: Schreibvorgaenge wurden gesendet und koennen trotz Fehlermeldung angewendet worden sein, der Token kann in Gebrauch sein. Er bleibt beim Anbieter gueltig: Ziele pruefen und das Secret erneut rotieren oder ihn beim Anbieter von Hand widerrufen.`);

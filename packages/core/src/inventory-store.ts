@@ -171,17 +171,17 @@ export class InventoryStoreCore {
    * that another process rewrote can look unchanged (the same size, a copied modification time), and every ordinary read trusts it
    * for a moment. Returns false whenever the copy in memory cannot be shown to match what is stored: the change stamp or the document
    * cannot be read right now (the file is missing, or being replaced), the document does not parse or validate, or a save of this
-   * store is running (its result is not known yet). The caller must then treat what it sees as possibly stale. Only a store without a
-   * backend, or one that has not written yet, has nothing to read and returns true.
+   * store is running (its result is not known yet). The caller must then treat what it sees as possibly stale. True only when the copy
+   * was read against the stored document in one pass and is current, or when there is nothing stored to be stale against: no backend,
+   * or a store that has not written yet while the file is still absent (another process may have created it since: then false).
    */
   refreshNow(): boolean {
     const backend = this.#backend;
-    if (!backend || this.#unwritten) return true;
+    if (!backend) return true;
     if (this.#saveRuns > 0) return false;
-    if (backend.stamp() === null || backend.read() === null) return false;
+    if (this.#unwritten) return backend.stamp() === null;
     this.#stale = true;
-    this.#refresh();
-    return this.#problem === null;
+    return this.#refresh();
   }
 
   /** Wird nach jedem Nachladen einer von aussen geaenderten Datei aufgerufen (Cache-Invalidierung, Freigaben pruefen). */
@@ -559,26 +559,31 @@ export class InventoryStoreCore {
     }
   }
 
-  /** Takes over the file on disk if it differs from the base. Cheap when nothing changed. */
-  #refresh(): void {
+  /**
+   * Takes over the file on disk if it differs from the base. Cheap when nothing changed. Returns true when the copy in memory was
+   * read against the stored document and is current (it matched, or it was taken over), or the cheap check says nothing changed;
+   * false when nothing was compared (no backend, a save or refresh running, a stamp or a document that cannot be read) or the stored
+   * document could not be taken over. Most callers ignore it; `refreshNow` answers with it.
+   */
+  #refresh(): boolean {
     const backend = this.#backend;
-    if (!backend || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return;
+    if (!backend || this.#refreshing || this.#saveRuns > 0 || this.#unwritten) return false;
     const now = Date.now();
     const st = backend.stamp();
-    if (!st) return;
+    if (!st) return false;
     const unchanged = sameStamp(st, this.#stamp);
     if (this.#problem) {
       // The last attempt failed: retry when the file changed or after a short pause.
-      if (sameStamp(st, this.#invalidStamp) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return;
-    } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return;
+      if (sameStamp(st, this.#invalidStamp) && now - this.#invalidAt < INVALID_RETRY_MS && !this.#stale) return false;
+    } else if (unchanged && !this.#stale && now - this.#verifiedAt < REHASH_AFTER_MS) return true;
     const snapshot = backend.read();
-    if (snapshot === null) return;
+    if (snapshot === null) return false;
     this.#stale = false;
     if (snapshot.revision === this.#baseRevision) {
       this.#stamp = st;
       this.#verifiedAt = now;
       this.#problem = null;
-      return;
+      return true;
     }
     this.#refreshing = true;
     try {
@@ -591,12 +596,13 @@ export class InventoryStoreCore {
       this.#invalidStamp = st;
       this.#invalidAt = now;
       this.#problem ??= { message: (err as Error).message, since: now };
-      return;
+      return false;
     } finally {
       this.#refreshing = false;
     }
     this.#problem = null;
     this.#emit();
+    return true;
   }
 
   #emit(): void {

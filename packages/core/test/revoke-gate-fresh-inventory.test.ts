@@ -78,7 +78,7 @@ describe("the revoke gate reads the inventory fresh", () => {
   it("when the stored document cannot be read right now, the copy may be stale: nothing is revoked", async () => {
     const { path, first, deps, target, revoke } = await setup();
     await writeFile(path, "secrets: [\n  - {");
-    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
     expect(revoke).not.toHaveBeenCalled();
     expect(first.problem).not.toBeNull();
   });
@@ -89,7 +89,7 @@ describe("the gate cannot read the stored document: the copy may be stale, so it
     const { backend, first, deps, target, revoke } = await setup();
     backend.stampGone = true;
     expect(first.refreshNow()).toBe(false);
-    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
     expect(revoke).not.toHaveBeenCalled();
   });
 
@@ -97,7 +97,20 @@ describe("the gate cannot read the stored document: the copy may be stale, so it
     const { backend, first, deps, target, revoke } = await setup();
     backend.readGone = true;
     expect(first.refreshNow()).toBe(false);
-    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("the document answers once and then not: one pass reads once, so the answer is the answer of that read", async () => {
+    const { backend, first, deps, target, revoke } = await setup();
+    const reads = vi.spyOn(backend, "read");
+    expect(first.refreshNow()).toBe(true);
+    expect(reads).toHaveBeenCalledTimes(1);
+    reads.mockReturnValueOnce(null);
+    expect(first.refreshNow()).toBe(false);
+    expect(reads).toHaveBeenCalledTimes(2);
+    reads.mockReturnValueOnce(null);
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
     expect(revoke).not.toHaveBeenCalled();
   });
 
@@ -112,16 +125,30 @@ describe("the gate cannot read the stored document: the copy may be stale, so it
     // The save has started once the queue ran a tick.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(first.refreshNow()).toBe(false);
-    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "value-in-use" });
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
     expect(revoke).not.toHaveBeenCalled();
     release();
     await saving;
     expect(first.refreshNow()).toBe(true);
   });
 
-  it("a store without a backend or one that has not written yet has nothing to read", () => {
+  it("a store without a backend has nothing to read", () => {
     expect(InventoryStore.fromText(TEXT("AAAAAAAA")).refreshNow()).toBe(true);
-    expect(InventoryStore.fromText(TEXT("AAAAAAAA"), join(tmpdir(), "sd-never-written.yaml")).refreshNow()).toBe(true);
+  });
+
+  it("a store that has not written yet has nothing to be stale against only while the file is still absent", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sd-unwritten-"));
+    const path = join(dir, "inventory.yaml");
+    const revoke = vi.fn(async () => undefined);
+    const deps = { inventory: InventoryStore.fromText(TEXT("AAAAAAAA"), path), providers: new ProviderRegistry().register({ id: "acme", label: "Acme", kind: "automatic", revoke }), connections: new ConnectionStore() };
+    const target = { secretId: "cf-token", provider: "acme", externalId: "BBBBBBBB" };
+    expect(deps.inventory.refreshNow()).toBe(true);
+    // Another process creates the file, with an entry that holds the identifier.
+    const other = InventoryStore.fromText(TEXT("BBBBBBBB"), path);
+    await other.save();
+    expect(deps.inventory.refreshNow()).toBe(false);
+    expect(await revokeNewValue(target, deps)).toEqual({ status: "refused", reason: "inventory-unreadable" });
+    expect(revoke).not.toHaveBeenCalled();
   });
 });
 

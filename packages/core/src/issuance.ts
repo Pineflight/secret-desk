@@ -628,7 +628,7 @@ function inventoryIsFresh(inventory: InventoryStoreCore): boolean {
 export type RevokeGateDeps = Pick<IssuanceDeps, "inventory" | "providers" | "connections" | "fetch" | "providerConfig">;
 
 /** Why the gate did not call the provider. The first reason is a decision for a person; the others mean the record is stale. */
-export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke";
+export type RevokeRefusal = "write-started" | "value-in-use" | "secret-gone" | "provider-changed" | "no-id" | "no-revoke" | "inventory-unreadable";
 
 export type RevokeOutcome = { status: "revoked" } | { status: "failed" } | { status: "refused"; reason: RevokeRefusal };
 
@@ -647,6 +647,11 @@ export interface RevokeTarget {
   pending?: PendingIssuance | undefined;
   /** The entry as it was issued: the delete uses its provider and parameters. Without it the entry in the inventory is used. */
   issuedSecret?: SecretEntry | undefined;
+  /**
+   * The provider replaced the value in place when it issued this one (`IssuedSecret.replacedInPlace`): what the identifier names is the
+   * live object, so there is nothing to delete. The gate refuses with `no-id` whatever the identifier is. The same fact on `pending` counts.
+   */
+  replacedInPlace?: boolean | undefined;
 }
 
 /**
@@ -658,7 +663,8 @@ export interface RevokeTarget {
  *  - `value-in-use`: the identifier is the current one of the entry or of a companion entry, read now (another review of the
  *    same provider identifier may have been confirmed).
  *  - `secret-gone`, `provider-changed`: for a record alone (no issued entry) the entry must still exist with the same provider.
- *  - `no-id`, `no-revoke`: there is nothing to call.
+ *  - `no-id`, `no-revoke`: there is nothing to call (`no-id` also when the value was replaced in place).
+ *  - `inventory-unreadable`: the stored inventory could not be read right now, so "in use" cannot be ruled out.
  * The gate knows only the inventory, not uses outside it. The rotate flow and the environment export call it too (the new value
  * of a rotation whose writes all failed, the values of an export that failed), with `writeStarted` set by the caller: the
  * first when it sent any write, the second when it began to write the file. Outside the gate on purpose: the old-value revokes
@@ -666,10 +672,11 @@ export interface RevokeTarget {
  */
 export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
   const id = target.externalId;
-  if (!id) return { status: "refused", reason: "no-id" };
+  if (!id || target.replacedInPlace === true || target.pending?.replacedInPlace === true) return { status: "refused", reason: "no-id" };
   // Decided on the inventory as it is stored now: another process may have changed an identifier since this copy was read. When the
-  // stored document cannot be read right now the copy may be stale, and "may be in use" is answered as in use (nothing is revoked).
-  if (!inventoryIsFresh(deps.inventory)) return { status: "refused", reason: "value-in-use" };
+  // stored document cannot be read right now the copy may be stale, so nothing is revoked (`inventory-unreadable`): the new value stays
+  // valid at the provider, the refusal is reported once in the evidence and not retried.
+  if (!inventoryIsFresh(deps.inventory)) return { status: "refused", reason: "inventory-unreadable" };
   const current = deps.inventory.getSecret(target.secretId);
   // Any secret entry that records the identifier as its current one holds the value, named by the target or not (companions copy
   // identifiers). Compared as strings over all secret entries, without the provider.

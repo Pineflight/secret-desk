@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConnectionStore, InventoryStore, ProviderRegistry, SecretValue, buildEnvFile } from "../src/index.js";
+import { ConnectionStore, InventoryStore, ProviderRegistry, SecretValue, buildEnvFile, forgetRunValues } from "../src/index.js";
 import type { EnvTemplate, Provider } from "../src/index.js";
 
 // The same in-place secret in two templates of one export run: the second template issues again and the value written for the first one
@@ -46,5 +46,29 @@ describe("buildEnvFile: one run, two templates, the same secret", () => {
     const w = world(true);
     await buildEnvFile(w.template("first"), w.deps);
     expect("warnings" in (await buildEnvFile(w.template("second"), w.deps))).toBe(false);
+  });
+
+  it("a frozen or sealed map of values cannot carry the marks: no warning and no crash", async () => {
+    for (const lock of [Object.freeze, Object.seal]) {
+      const w = world(true);
+      const runValues = lock(new Map<string, string>());
+      await buildEnvFile(w.template("first"), { ...w.deps, runValues });
+      expect("warnings" in (await buildEnvFile(w.template("second"), { ...w.deps, runValues }))).toBe(false);
+      expect(w.calls()).toBe(2);
+    }
+  });
+
+  it("forgetRunValues takes back what a template issued, so a retry does not warn about itself", async () => {
+    const w = world(true);
+    const runValues = new Map<string, string>();
+    await buildEnvFile(w.template("first"), { ...w.deps, runValues });
+    forgetRunValues(runValues, "first");
+    // The retry of the first template, and then the second, are in the same position as before the first run.
+    expect("warnings" in (await buildEnvFile(w.template("first"), { ...w.deps, runValues }))).toBe(false);
+    forgetRunValues(runValues, "first");
+    expect("warnings" in (await buildEnvFile(w.template("second"), { ...w.deps, runValues }))).toBe(false);
+    // Another template's marks stay.
+    expect((await buildEnvFile(w.template("first"), { ...w.deps, runValues })).warnings).toHaveLength(1);
+    forgetRunValues(undefined, "first");
   });
 });
