@@ -718,11 +718,12 @@ async function discardIssuanceNow(
   if (discarded.has(pending)) throw new IssuanceError("Die Anfrage wird gerade bestaetigt oder ist schon erledigt.");
   discarded.add(pending);
   // Same id as before means the provider rotated in place: nothing new exists that could be deleted.
-  const rotatedInPlace = pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId;
+  // The provider says so, or the identifier is the one the entry already has.
+  const rotatedInPlace = pending.replacedInPlace === true || (pending.report.externalId !== undefined && pending.report.externalId === pending.oldExternalId);
   const externalId = rotatedInPlace ? undefined : pending.report.externalId;
   // Widerrufen mit dem Eintrag von damals: spaeter geaenderte Parameter (zum Beispiel eine andere Adresse) bleiben aussen vor.
   // A value the provider issued but named no identifier for cannot be deleted: the gate says so (`no-id`) and the report must too.
-  const issuedWithoutId = pending.report.kind === "issued" && pending.report.externalId === undefined;
+  const issuedWithoutId = pending.report.kind === "issued" && pending.report.externalId === undefined && !rotatedInPlace;
   const outcome: RevokeOutcome | undefined =
     externalId || issuedWithoutId
       ? await revokeNewValue({ secretId: pending.secretId, provider: pending.issuedSecret?.provider ?? pending.report.provider, externalId, companionIds: pending.companions.map((c) => c.entryId), pending, ...(pending.issuedSecret ? { issuedSecret: pending.issuedSecret } : {}) }, deps, { acknowledgeWritten: reason.acknowledgeWritten === true })
@@ -737,7 +738,7 @@ async function discardIssuanceNow(
   }
   // The provider replaced the value in place: the old value is already invalid and the new one is known to nobody. The gate rightly
   // revoked nothing, so the report must say what is left. Not when a write was started: the places may hold the new value then.
-  if ((rotatedInPlace || pending.replacedInPlace === true) && !writeStarted.has(pending)) pending.report.checks.push(inPlaceValueLostCheck());
+  if (rotatedInPlace && !writeStarted.has(pending)) pending.report.checks.push(inPlaceValueLostCheck());
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,

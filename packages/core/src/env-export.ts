@@ -104,7 +104,8 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
       {
         secretId: t.secretId,
         provider: t.provider ?? deps.inventory.getSecret(t.secretId)?.provider ?? "",
-        externalId: t.externalId,
+        // A value the provider says it replaced in place has nothing to delete: what the identifier names is the live object.
+        externalId: t.replacedInPlace === true ? undefined : t.externalId,
         companionIds: tokens.filter((o) => o.secretId !== t.secretId).map((o) => o.secretId),
         writeStarted: options.writeStarted === true,
       },

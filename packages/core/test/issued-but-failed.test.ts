@@ -105,9 +105,18 @@ describe("prepareIssuance: the provider's issue threw IssuedButFailedError", () 
   it("replaced in place, and the entry records no identifier yet: still the in-place warning", async () => {
     const { lost, revoke, checkIds } = await setup({ externalId: "project-ref", replacedOld: true });
     const err = await lost();
-    // The identifier is new to the inventory, so the gate is asked; the provider has nothing to delete it with.
-    expect(revoke).toHaveBeenCalledTimes(1);
+    // The provider says it replaced the value in place: what the identifier names is the live object, so nothing is deleted.
+    expect(revoke).not.toHaveBeenCalled();
     expect(await checkIds(err)).toContain("in-place-value-lost");
+  });
+
+  it("any other error from issue passes through unchanged and nothing is recorded", async () => {
+    const { deps, revoke, evidence } = await setup({ replacedOld: false });
+    const plain = new Error("provider down");
+    const own = { ...deps, providers: new ProviderRegistry().register({ id: "cloudflare-token", label: "Cloudflare", kind: "automatic", issue: async () => Promise.reject(plain), revoke }) };
+    await expect(prepareIssuance("cf-deploy-acme-app", own)).rejects.toBe(plain);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await evidence.list("cf-deploy-acme-app")).toEqual([]);
   });
 
   it("an error from another copy of the module is recognised by its name and field, a plain error of that name is not", async () => {
@@ -164,6 +173,26 @@ envTemplates:
     const { err, revoke } = await run({ replacedOld: true });
     expect(revoke).not.toHaveBeenCalled();
     expect(err.message).toContain("dev-token (ohne Kennung)");
+  });
+
+  it("a value issued earlier that the provider says it replaced in place is reported as such when a later secret fails", async () => {
+    const issuedFirst: Provider = { id: "acme", label: "Acme", kind: "automatic", issue: async () => ({ value: new SecretValue("made-up-first-value"), externalId: "first-id", replacedInPlace: true }), revoke: vi.fn(async () => undefined) };
+    const breaks: Provider = { id: "breaks", label: "Breaks", kind: "automatic", issue: async () => Promise.reject(new Error("later entry failed")) };
+    const inventory = InventoryStore.fromText(`version: 1
+secrets:
+  - { id: dev-token, name: DEV_TOKEN, stage: dev, service: x, provider: acme, expiry: none }
+  - { id: dev-other, name: DEV_OTHER, stage: dev, service: x, provider: breaks, expiry: none }
+envTemplates:
+  - { id: t, repo: t, stage: dev, entries: [{ key: A, from: { type: issue, secret: dev-token } }, { key: B, from: { type: issue, secret: dev-other } }] }
+`);
+    const evidence = new MemoryEvidenceStore();
+    const err = await buildEnvFile(inventory.data.envTemplates[0] as EnvTemplate, { inventory, providers: new ProviderRegistry().register(issuedFirst).register(breaks), connections: new ConnectionStore(), evidence }).catch((e: Error) => e);
+    expect(err.message).toContain("Der Anbieter hat den Wert unter derselben Kennung ersetzt");
+    expect(err.message).toContain("dev-token (first-id)");
+    expect(issuedFirst.revoke).not.toHaveBeenCalled();
+    // The entry records no identifier yet, so only the provider's word says it was replaced in place.
+    const reports = await evidence.list("dev-token");
+    expect((await evidence.get("dev-token", reports[0]!.id))?.checks.map((c) => c.id)).toEqual(["in-place-value-lost"]);
   });
 
   it("created without an identifier: to be removed by hand", async () => {

@@ -102,7 +102,7 @@ export const MAX_REVOKE_TRIES = 5;
 export const REVOKE_RETRY_MS = 60_000;
 
 const recordOf = (p: PendingIssuance): PendingRecord => {
-  const rotatedInPlace = p.report.externalId !== undefined && p.report.externalId === p.oldExternalId;
+  const rotatedInPlace = p.replacedInPlace === true || (p.report.externalId !== undefined && p.report.externalId === p.oldExternalId);
   return {
     id: p.id,
     secretId: p.secretId,

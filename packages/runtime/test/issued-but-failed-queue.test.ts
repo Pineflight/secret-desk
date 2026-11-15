@@ -78,7 +78,7 @@ describe("requestIssuance: the provider changed the value and then failed", () =
     const { rt, revoke, evidence } = await build({ info: { externalId: "ext-same", replacedOld: true } });
     const err = await requestIssuance(rt, human, "auto-acme-app").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(IssuedValueLostError);
-    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
     const report = await evidence.get("auto-acme-app", (err as IssuedValueLostError).reportId);
     expect(report?.checks.map((c) => c.id)).toContain("in-place-value-lost");
   });

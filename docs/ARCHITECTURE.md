@@ -253,6 +253,9 @@ Two providers do this (`Provider.replacesInPlace: true`; an issue result says it
   stays); without one a new token is created. The flag means "may replace".
 - `supabase-db-password`: always; the identifier is the project reference.
 
+A value that says it was replaced in place is never handed to the provider's revoke (not by a discard, a sweep or a failed export): what
+the identifier names is the live object.
+
 What handles each hazard:
 - *Two keys of one template that ask for the same secret.* `buildEnvFile` issues each secret at most once per template and reuses the
   value for every key that asks for it, for every provider. The same secret asked for by two templates of one run is issued once per
