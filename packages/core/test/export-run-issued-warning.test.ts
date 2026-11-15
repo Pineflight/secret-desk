@@ -69,6 +69,9 @@ describe("buildEnvFile: one run, two templates, the same secret", () => {
     expect("warnings" in (await buildEnvFile(w.template("second"), { ...w.deps, runValues }))).toBe(false);
     // Another template's marks stay.
     expect((await buildEnvFile(w.template("first"), { ...w.deps, runValues })).warnings).toHaveLength(1);
+    // Forgetting another template leaves them: the mark of "first" is still there.
+    forgetRunValues(runValues, "second");
+    expect((await buildEnvFile(w.template("second"), { ...w.deps, runValues })).warnings).toHaveLength(1);
     forgetRunValues(undefined, "first");
   });
 });
