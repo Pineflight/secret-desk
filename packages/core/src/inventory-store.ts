@@ -169,11 +169,16 @@ export class InventoryStoreCore {
    * Reads the stored document now, without the cheap checks that normally decide whether a read is needed (the change stamp, the
    * pause between hashes), and takes it over when it differs. For a decision that must not rest on an older copy: the stamp of a file
    * that another process rewrote can look unchanged (the same size, a copied modification time), and every ordinary read trusts it
-   * for a moment. Returns false when the stored document could not be taken over (it does not parse or validate right now): the copy
-   * in memory may then be older than what is stored, and the caller must treat what it sees as possibly stale. A store without a
+   * for a moment. Returns false whenever the copy in memory cannot be shown to match what is stored: the change stamp or the document
+   * cannot be read right now (the file is missing, or being replaced), the document does not parse or validate, or a save of this
+   * store is running (its result is not known yet). The caller must then treat what it sees as possibly stale. Only a store without a
    * backend, or one that has not written yet, has nothing to read and returns true.
    */
   refreshNow(): boolean {
+    const backend = this.#backend;
+    if (!backend || this.#unwritten) return true;
+    if (this.#saveRuns > 0) return false;
+    if (backend.stamp() === null || backend.read() === null) return false;
     this.#stale = true;
     this.#refresh();
     return this.#problem === null;
