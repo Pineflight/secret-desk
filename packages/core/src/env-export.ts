@@ -71,19 +71,15 @@ export interface EnvBuildResult {
 }
 
 /**
- * Which template of a run issued which secret, kept beside the values of the run (the map itself holds only values and its keys stay
- * as they were). Memory only; it goes when the map of the run goes.
+ * Which template of a run issued which secret, kept on the map of the run under a symbol (the map itself holds only values and its keys
+ * stay as they were; nothing is kept in module scope). Memory only; it goes when the map of the run goes.
  */
-const issuedInRuns = new WeakMap<Map<string, string>, Map<string, string>>();
+const ISSUED_IN_RUN = Symbol("issuedInRun");
 
 function issuedInRun(runValues: Map<string, string> | undefined): Map<string, string> | undefined {
   if (!runValues) return undefined;
-  let issued = issuedInRuns.get(runValues);
-  if (!issued) {
-    issued = new Map();
-    issuedInRuns.set(runValues, issued);
-  }
-  return issued;
+  const holder = runValues as Map<string, string> & { [ISSUED_IN_RUN]?: Map<string, string> };
+  return (holder[ISSUED_IN_RUN] ??= new Map());
 }
 
 export interface IssuedToken {
