@@ -229,8 +229,8 @@ A runtime can be embedded more than once in one process (several tenants), or in
   **Known limitations:**
   - The gate knows only the inventory: an identifier that is in use outside the inventory is not seen. Inside it, every secret entry counts, named by the flow or not.
   - For a provider that rotates in place **the `issue` call itself is the point of no return**: it has replaced the old value at the provider when it returns. If the export or the rotation fails afterwards, nothing here can restore it, and the new value is gone with the failed run: the places hold a value that no longer works. The text says so; the fix is to rotate the secret again. Only the checks before the first `issue` can prevent it, which is why the export runs them first.
-  - Not covered: two keys of one template that issue the same in-place secret (the second `issue` replaces the first value); `rotateSecret` does not write companion values; a provider whose `issue` throws after the provider side already changed (nothing was returned, so nothing is reported); two processes that change the inventory between the `issue` and the revoke (the gate reads the inventory at the moment of the revoke).
-  - `rotateSecret` is exported from the core but nothing in the desk app, the CLI or the MCP server calls it; its behaviour is covered by tests, not by a product path. The environment export is reachable from the portal and the agent API.
+  - The hazards of providers that replace in place, and what handles each, are listed in [Providers that replace the value in place](#providers-that-replace-the-value-in-place). Still not covered there: the same secret asked for by two templates of one export run (each template issues it once; the second template issues again), and a time-out of the provider call (the outcome is not certain, so it is an ordinary error and nothing is recorded).
+  - `rotateSecret` is exported from the core but nothing in the desk app, the CLI or the MCP server calls it; its behaviour is covered by tests, not by a product path. It writes the main value only and refuses a provider that declares `companionParams` (see below). The environment export is reachable from the portal and the agent API.
   - `revoke-gate-guard.test.ts` is a text check of source files, not a proof. It sees `.revoke(`, `.revoke?.(`, `.revoke!(`, `.revoke.call(`/`apply`/`bind`, `["revoke"](`, `const f = p.revoke`, `f(p.revoke)` and `{ revoke } = p`. It does not see a call through a name it does not know (a computed key that is not a plain string, a function passed in from outside, `eval`). One call in the providers package is listed: the Anthropic provider (`withAnthropicAdmin`) delegates its revoke to the provider it wraps when no admin connection exists; it is a provider implementation passing a call on, not a flow that issues values.
   - The portal has no control to send the acknowledgement (`acknowledgeWritten` in the body of `POST reviews/:id/reject`) and does not list reviews kept for a decision. The API, `IssuanceQueue.orphans()` and the `onNeedsDecision` callback exist; the product surface is follow-up work.
   - Two reviews of one secret can be confirmed concurrently (this was already so before); the gate's `value-in-use` check reads the inventory at the moment of the revoke and cannot see a confirm that is still in flight.
@@ -241,6 +241,64 @@ A runtime can be embedded more than once in one process (several tenants), or in
 - *A failed delete is tried again, with limits.* A delete of the new value of an expired review (or of a review a person rejected, when the provider did not confirm) that fails is not reported as settled: it is tried again after a growing wait (`REVOKE_RETRY_MS` times the number of tries; the sweep skips it until then, so repeated calls cannot use the tries up), at most `MAX_REVOKE_TRIES` times in all. Any error out of the discard counts as a failed try, never as settled; only "a commit is in flight", "committed" and "discarded" are understood states, and a refusal of the gate is a decision, not a failure (it is not retried). When it gives up, the evidence report gets a note, `RuntimeOptions.onRevokeAbandoned` is told (a record, never a value), and the record stays as an orphan. A later success corrects nothing silently: it adds its own evidence note.
 - *Existence is not probed with the hook.* For an id nobody knows, confirm and reject answer "gone" without asking the authorisation hook: a hook call per guessed id would write one audit entry per guess and could consume a per-action approval. Review ids are random, so they cannot be guessed; an authenticated person can tell "gone" from "not allowed". The clean-up sweep inside confirm runs after the person was authorised, never before.
 - *One clock.* The runtime's own deadlines (reviews, waits, the team token run's time-out and timeline) use `RuntimeOptions.now`. The time-outs inside the browser automation package (sign-in and recipe waits) use the system clock.
+
+## Providers that replace the value in place
+
+Most providers create a new object when they issue: the new value has a new identifier, the old value keeps working until a confirmed
+commit deletes it, and discarding the review deletes the new object. A provider that replaces **in place** keeps the identifier: the
+old value stops working the moment `issue` returns, even if the review is discarded, and nothing exists that a discard could delete.
+
+Two providers do this (`Provider.replacesInPlace: true`; an issue result says it did with `IssuedSecret.replacedInPlace`):
+- `cloudflare-access-service-token`: for an entry that already has a service token the secret of that token is replaced (the client ID
+  stays); without one a new token is created. The flag means "may replace".
+- `supabase-db-password`: always; the identifier is the project reference.
+
+What handles each hazard:
+- *Two keys of one template that ask for the same secret.* `buildEnvFile` issues each secret at most once per template and reuses the
+  value for every key that asks for it, for every provider. The same secret asked for by two templates of one run is issued once per
+  template (not covered).
+- *`issue` throws after the provider side changed.* A provider that knows the change happened (it got a success answer and a later step
+  failed) throws `IssuedButFailedError` (core, in the provider contract) with the external identifier and `replacedOld`. A time-out is
+  not certain and stays an ordinary error. `prepareIssuance` records it like an issued value that could not be kept (a report, the same
+  discard path as the sweep and `IssuanceQueue.discardUnkept`, so the revoke gate decides) and throws `IssuedValueLostError` with the
+  gate's decision, the report id and the value-free record; the runtime owes a failed delete to the sweep (`oweIfNeeded`). The
+  environment export records the identifier among the issued values, so its failure path hands it to the gate too. Nothing calls a
+  provider's revoke directly. The two providers throw it for a success answer that cannot be used; the Access provider also for a new
+  token whose answer has no values.
+- *A value of an in-place provider is discarded unconfirmed* (sweep after the deadline, the path of a value the queue could not keep,
+  a person's reject, a stale entry, a failed export). The gate revokes nothing, and the report carries the check `in-place-value-lost`:
+  the provider replaced the value in place, the new value was not kept, run the issuance again or enter a value by hand. Not when a
+  write was started (the places may hold the new value). The export writes such a report when `EnvBuildDeps.evidence` is set.
+- *Two processes on one inventory file.* The gate calls `InventoryStore.refreshNow()` before it decides: it reads the stored document
+  without the stamp shortcut and returns false when it cannot be taken over. The gate then answers `value-in-use` (nothing is revoked).
+  The guards for the old-value revokes re-read too, best effort.
+- *Before the action.* The dry-run plan, `preflightSecret` and the answers to an issuance request (`pending-approval`,
+  `awaiting-review`) carry `notice` when the provider has the flag; the desk app shows it in the plan card. There is no extra confirmation step.
+- *`rotateSecret`* writes the main value only. It refuses a provider that declares `companionParams` with a `RotationError` before anything
+  is issued, so it cannot leave a half-written pair.
+
+Future option, not built: a "prepare" capability that creates a new value at the provider without replacing the old one, so an in-place
+provider could be confirmed or discarded like the others.
+
+### Recipe (browser) providers
+
+Read from the recipes in `recipes/`, no live check. Every recipe that creates a token captures `externalId` from `name`, and the name is
+`tokenName(secret.id, now)`: the secret id plus date and time to the minute, so a renewal gets a new name. None of them opens an
+existing token to regenerate or reveal its value; each one creates a new token and the old one is deleted by `revoke` after
+confirmation. So none replaces in place and none carries the flag. The identifier can repeat only when the same secret is issued twice in
+the same minute (two objects with one name, not a replacement).
+
+| Recipe | Result |
+| --- | --- |
+| `anthropic-admin-key`, `anthropic-api-key` | creates a new key, identifier = name, not in place |
+| `github-fine-grained-token` | creates a new token, identifier = name, not in place |
+| `grafana-cloud-access-policy` | creates a policy and a token, identifier = name, not in place |
+| `openai-admin-key`, `openai-api-key` | creates a new key, identifier = name, not in place |
+| `revenuecat-secret-api-key` | creates a new key, identifier = name, not in place |
+| `stripe-restricted-key` | creates a new key, identifier = name, not in place |
+| `supabase-access-token` | creates a new token, identifier = name, not in place |
+| `vesselapi-api-key` | creates a new key, identifier = name, not in place |
+| `peecho-api-keys` | `kind: read`: reads existing keys, creates nothing, has no identifier, replaces nothing |
 
 ## Authorisation hook
 
