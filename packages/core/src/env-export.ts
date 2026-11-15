@@ -70,8 +70,21 @@ export interface EnvBuildResult {
   warnings?: string[];
 }
 
-/** Prefix of the keys in the values of a run that record which template issued a secret. A template id cannot contain it. */
-const RUN_ISSUED_MARK = "\u0000issued:";
+/**
+ * Which template of a run issued which secret, kept beside the values of the run (the map itself holds only values and its keys stay
+ * as they were). Memory only; it goes when the map of the run goes.
+ */
+const issuedInRuns = new WeakMap<Map<string, string>, Map<string, string>>();
+
+function issuedInRun(runValues: Map<string, string> | undefined): Map<string, string> | undefined {
+  if (!runValues) return undefined;
+  let issued = issuedInRuns.get(runValues);
+  if (!issued) {
+    issued = new Map();
+    issuedInRuns.set(runValues, issued);
+  }
+  return issued;
+}
 
 export interface IssuedToken {
   secretId: string;
@@ -438,7 +451,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
    */
   const issuedValues = new Map<string, string>();
   const warnings: string[] = [];
-  /** The marks this template put into the values of the run; a failed export takes them back with the rest of its values. */
+  /** Which template of the run issued which secret; a failed export takes its own entries back. */
+  const runIssued = issuedInRun(deps.runValues);
   const marks: string[] = [];
 
   try {
@@ -458,8 +472,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           const provider = deps.providers.get(secret.provider)!;
           // The same in-place secret in a second template of one run: this issue replaces the value again and the file of the first
           // template (already built, perhaps written) holds a value that no longer works. Warned about, not prevented (a run-wide reuse
-          // would have to know whether the first file was kept). The mark lives in the values of the run, under a key no template can have.
-          const issuedBy = deps.runValues?.get(`${RUN_ISSUED_MARK}${secret.id}`);
+          // would have to know whether the first file was kept).
+          const issuedBy = runIssued?.get(secret.id);
           if (issuedBy !== undefined && provider.replacesInPlace === true) {
             warnings.push(`Das Secret ${secret.id} wird in zwei Vorlagen desselben Laufs ausgestellt (${issuedBy} und ${template.id}): der Anbieter ersetzt den Wert an Ort und Stelle, die Datei der ersten Vorlage haelt danach einen Wert, der nicht mehr gilt.`);
           }
@@ -484,8 +498,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           }
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
-          deps.runValues?.set(`${RUN_ISSUED_MARK}${secret.id}`, template.id);
-          marks.push(`${RUN_ISSUED_MARK}${secret.id}`);
+          runIssued?.set(secret.id, template.id);
+          marks.push(secret.id);
           issued.push(secret.id);
           issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
         }
@@ -506,7 +520,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
     addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps, { ...(deps.evidence ? { evidence: deps.evidence } : {}), now: () => now }));
     forgetRunValues(deps.runValues, template.id);
-    for (const mark of marks) deps.runValues?.delete(mark);
+    for (const id of marks) runIssued?.delete(id);
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");
