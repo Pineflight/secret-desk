@@ -418,6 +418,11 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     }
   }
   const pairs = new Map<string, { publicKey: string; privateKey: string }>();
+  /**
+   * The value issued for each secret during this export. A secret is issued at most once per export and the value is reused for every
+   * key that asks for it: a provider that replaces the value in place would otherwise kill the value written for the first key.
+   */
+  const issuedValues = new Map<string, string>();
 
   try {
     for (const entry of template.entries) {
@@ -430,21 +435,26 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
       else if (from.type === "variable") value = deps.inventory.getVariable(from.variable)!.value!;
       else {
         const secret = deps.inventory.getSecret(from.secret)!;
-        const provider = deps.providers.get(secret.provider)!;
-        const result = await provider.issue!({
-          secret,
-          params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
-          stage: template.stage,
-          stageKind: stageKind(deps.inventory.stages, template.stage),
-          connections: deps.connections,
-          fetch: deps.fetch ?? fetch,
-          now,
-          label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
-          ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
-        });
-        value = result.value.reveal();
-        issued.push(secret.id);
-        issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}) });
+        const known = issuedValues.get(secret.id);
+        if (known !== undefined) value = known;
+        else {
+          const provider = deps.providers.get(secret.provider)!;
+          const result = await provider.issue!({
+            secret,
+            params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
+            stage: template.stage,
+            stageKind: stageKind(deps.inventory.stages, template.stage),
+            connections: deps.connections,
+            fetch: deps.fetch ?? fetch,
+            now,
+            label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
+            ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
+          });
+          value = result.value.reveal();
+          issuedValues.set(secret.id, value);
+          issued.push(secret.id);
+          issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}) });
+        }
       }
       if (entry.description) lines.push(`# ${commentText(entry.description)}`);
       sources[entry.key] = from.type;

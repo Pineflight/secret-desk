@@ -200,17 +200,19 @@ describe("buildEnvFile checks before it issues anything", () => {
 });
 
 describe("buildEnvFile failure after a token was issued", () => {
-  const TWO = "{ key: A, from: { type: issue, secret: dev-token } }, { key: B, from: { type: issue, secret: dev-token } }";
+  // A secret is issued once per export, so the failing second issue needs a second secret.
+  const SECRETS = `${SECRET}  - { id: dev-token-2, name: DEV_TOKEN_2, stage: dev, service: x, provider: issuer, expiry: none }\n`;
+  const TWO = "{ key: A, from: { type: issue, secret: dev-token } }, { key: B, from: { type: issue, secret: dev-token-2 } }";
   const failSecond = (w: ReturnType<typeof world>, error: unknown) => w.issue.mockResolvedValueOnce({ value: new SecretValue("first"), externalId: "ext-1" }).mockRejectedValueOnce(error);
 
   it("revokes what was issued; what cannot be revoked is appended to the error", async () => {
-    const w = world(`secrets:\n${SECRET}envTemplates:\n${tpl("t", TWO)}`, { revoke: async () => { throw new Error("no"); } });
+    const w = world(`secrets:\n${SECRETS}envTemplates:\n${tpl("t", TWO)}`, { revoke: async () => { throw new Error("no"); } });
     failSecond(w, new Error("provider down"));
     await expect(buildEnvFile(template(w.inventory, "t"), w.deps)).rejects.toThrow(/provider down\nNicht widerrufen \(beim Anbieter von Hand entfernen\): dev-token \(ext-1\)\./);
   });
 
   it("revokes quietly when everything can be revoked", async () => {
-    const w = world(`secrets:\n${SECRET}envTemplates:\n${tpl("t", TWO)}`);
+    const w = world(`secrets:\n${SECRETS}envTemplates:\n${tpl("t", TWO)}`);
     failSecond(w, new Error("provider down"));
     const err = await buildEnvFile(template(w.inventory, "t"), w.deps).catch((e: Error) => e);
     expect((err as Error).message).toBe("provider down");
@@ -218,7 +220,7 @@ describe("buildEnvFile failure after a token was issued", () => {
   });
 
   it("passes on a thrown value that is not an Error", async () => {
-    const w = world(`secrets:\n${SECRET}envTemplates:\n${tpl("t", TWO)}`, { revoke: async () => { throw new Error("no"); } });
+    const w = world(`secrets:\n${SECRETS}envTemplates:\n${tpl("t", TWO)}`, { revoke: async () => { throw new Error("no"); } });
     failSecond(w, "plain");
     await expect(buildEnvFile(template(w.inventory, "t"), w.deps)).rejects.toBe("plain");
   });
