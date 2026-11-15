@@ -261,8 +261,8 @@ What handles each hazard:
   value for every key that asks for it, for every provider. The same secret asked for by two templates of one run is issued once per
   template, and the run warns (`EnvBuildResult.warnings`, shown in the answer of `exportEnv`) when a second template issues a secret of a
   provider with `replacesInPlace`: the first file then holds a value that no longer works. The run-wide reuse of the value is left as a
-  follow-up, because it would have to know whether the first file was kept. The warning is also given when the first template failed
-  and was rolled back (it cannot tell), which is harmless.
+  follow-up, because it would have to know whether the first file was kept. A template whose build failed takes its marks back; the
+  warning is still given when the first template was built but its file was not written, which is harmless.
 - *`issue` throws after the provider side changed.* A provider that knows the change happened (it got a success answer and a later step
   failed) throws `IssuedButFailedError` (core, in the provider contract) with the external identifier and `replacedOld`. A time-out is
   not certain and stays an ordinary error. `prepareIssuance` records it like an issued value that could not be kept (a report, the same

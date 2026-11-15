@@ -438,6 +438,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
    */
   const issuedValues = new Map<string, string>();
   const warnings: string[] = [];
+  /** The marks this template put into the values of the run; a failed export takes them back with the rest of its values. */
+  const marks: string[] = [];
 
   try {
     for (const entry of template.entries) {
@@ -483,6 +485,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
           deps.runValues?.set(`${RUN_ISSUED_MARK}${secret.id}`, template.id);
+          marks.push(`${RUN_ISSUED_MARK}${secret.id}`);
           issued.push(secret.id);
           issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
         }
@@ -503,6 +506,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
     // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
     addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps, { ...(deps.evidence ? { evidence: deps.evidence } : {}), now: () => now }));
     forgetRunValues(deps.runValues, template.id);
+    for (const mark of marks) deps.runValues?.delete(mark);
     throw err;
   }
   deps.runValues?.set(`${template.id}:`, "");
