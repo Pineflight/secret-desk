@@ -9,7 +9,7 @@ import { placeToTarget, type GitHubClient, type FetchLike } from "./github-core.
 import { checkPlaceWritable, listPlaceSecrets, putPlaceSecret, type PlaceClients } from "./place-io.js";
 import type { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStoreCore } from "./inventory-store.js";
-import type { ProviderRegistry } from "./provider.js";
+import { isIssuedButFailedError, type IssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
 import { SecretValue } from "./secret.js";
@@ -174,7 +174,14 @@ export async function prepareIssuance(
       if (target.stage !== secret.stage) throw new IssuanceError(`Der Begleiter ${id} liegt in einer anderen Stage (${target.stage}).`);
       if (target.places.length === 0) throw new IssuanceError(`Der Begleiter ${id} hat kein Ziel (places).`);
     }
-    const issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
+    let issued: IssuedSecret;
+    try {
+      issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
+    } catch (err) {
+      // The provider side changed and no value came back: it takes the path of an issued value that could not be kept.
+      if (isIssuedButFailedError(err)) throw await keepLostIssuance(err, { secret, snapshot, issuedSecret, label, now, deps });
+      throw err;
+    }
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
@@ -285,6 +292,75 @@ export async function prepareIssuance(
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttl).toISOString(),
   };
+}
+
+/**
+ * The error `prepareIssuance` throws when the provider's `issue` threw `IssuedButFailedError`: the provider side changed and no value
+ * reached the caller. By then the value was handed to the revoke gate like any issued value that could not be kept (what the gate
+ * decided is in `result`, the report in the evidence store under `reportId`). `pending` is the value-free record of that discard: an
+ * embedder with a queue passes it to `oweIfNeeded` so a failed delete is retried like the sweep's.
+ */
+export class IssuedValueLostError extends IssuanceError {
+  readonly externalId: string | undefined;
+  readonly replacedOld: boolean;
+  readonly reportId: string;
+  readonly result: DiscardResult;
+  readonly pending: PendingIssuance;
+  constructor(cause: IssuedButFailedError, pending: PendingIssuance, result: DiscardResult) {
+    const lines = [`Der Anbieter hat den Wert geaendert, aber das Ausstellen ist danach fehlgeschlagen: ${cause.message}`];
+    if (cause.replacedOld) lines.push("Der bisherige Wert gilt beim Anbieter nicht mehr und der neue ist niemandem bekannt. Die Ausstellung erneut ausfuehren oder einen Wert von Hand eingeben.");
+    else if (result.revokedNew) lines.push("Der neu angelegte Wert wurde beim Anbieter wieder geloescht.");
+    else if (cause.externalId) lines.push(`Der neu angelegte Wert (Kennung ${cause.externalId}) wurde nicht geloescht und bleibt beim Anbieter gueltig: von Hand entfernen.`);
+    else lines.push("Der Anbieter hat keine Kennung genannt: den neuen Wert beim Anbieter pruefen und von Hand entfernen.");
+    super(lines.join("\n"));
+    this.name = "IssuedValueLostError";
+    this.externalId = cause.externalId;
+    this.replacedOld = cause.replacedOld;
+    this.reportId = pending.report.id;
+    this.result = result;
+    this.pending = pending;
+  }
+}
+
+/** Records a value that was created or replaced at the provider but never returned, and hands it to the gate (`discardIssuanceNow`). */
+async function keepLostIssuance(
+  cause: IssuedButFailedError,
+  ctx: { secret: SecretEntry; snapshot: string; issuedSecret: SecretEntry; label: string; now: Date; deps: IssuanceDeps },
+): Promise<IssuedValueLostError> {
+  const { secret, now } = ctx;
+  const report: VerificationReport = {
+    id: globalThis.crypto.randomUUID(),
+    secretId: secret.id,
+    secretName: secret.name,
+    createdAt: now.toISOString(),
+    kind: "issued",
+    provider: secret.provider,
+    stage: secret.stage,
+    label: ctx.label,
+    ...(cause.externalId ? { externalId: cause.externalId } : {}),
+    expiresAt: null,
+    targets: secret.places.map(describePlace),
+    checks: [{ id: "issue-failed-after-change", label: "Der Anbieter hat den Wert geaendert, aber das Ausstellen ist danach fehlgeschlagen", status: "warn", detail: cause.message }],
+    checklist: [],
+    fingerprint: fingerprintOf(new SecretValue("")),
+    attachments: [],
+  };
+  const pending: PendingIssuance = {
+    id: report.id,
+    secretId: secret.id,
+    value: new SecretValue(""),
+    companions: [],
+    report,
+    ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
+    ...(cause.replacedOld ? { replacedInPlace: true as const } : {}),
+    snapshot: ctx.snapshot,
+    issuedSecret: ctx.issuedSecret,
+    newExpires: null,
+    createdAt: now.toISOString(),
+    expiresAt: now.toISOString(),
+  };
+  const result = await discardIssuanceNow(pending, ctx.deps, { by: "system", why: "failed" });
+  return new IssuedValueLostError(cause, pending, result);
 }
 
 export interface CommitResult {
@@ -596,7 +672,7 @@ export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps,
 }
 
 /** Why an issued value is discarded: a person rejected it, its time ran out, the entry changed, or the queue could not keep it (the store refused the record). */
-export type DiscardWhy = "rejected" | "expired" | "stale" | "unkept";
+export type DiscardWhy = "rejected" | "expired" | "stale" | "unkept" | "failed";
 
 export interface DiscardResult {
   revokedNew: boolean;
@@ -651,7 +727,7 @@ async function discardIssuanceNow(
     at: now.toISOString(),
     ticks: [],
     decision: "rejected",
-    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : reason.why === "unkept" ? "Pruefung konnte nicht gespeichert werden" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
+    note: `${reason.why === "expired" ? "Zeit abgelaufen" : reason.why === "stale" ? "Eintrag seit der Pruefung geaendert" : reason.why === "unkept" ? "Pruefung konnte nicht gespeichert werden" : reason.why === "failed" ? "Ausstellen nach der Aenderung beim Anbieter fehlgeschlagen" : "Abgelehnt"}${reason.note ? `: ${reason.note}` : ""}${pending.report.externalId && !revokedNew ? " (neuer Wert beim Anbieter NICHT widerrufen)" : ""}`,
   };
   // The delete above has happened (or was refused) whatever the report store does: a failing store must not look like a failed
   // delete, or the caller would revoke an already revoked identifier a second time.

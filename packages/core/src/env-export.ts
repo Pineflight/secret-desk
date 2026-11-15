@@ -10,7 +10,7 @@ import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { EvidenceStore } from "./evidence.js";
 import { noteInPlaceValueLost, revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
-import type { ProviderRegistry } from "./provider.js";
+import { isIssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
@@ -447,17 +447,24 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
         if (known !== undefined) value = known;
         else {
           const provider = deps.providers.get(secret.provider)!;
-          const result = await provider.issue!({
-            secret,
-            params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
-            stage: template.stage,
-            stageKind: stageKind(deps.inventory.stages, template.stage),
-            connections: deps.connections,
-            fetch: deps.fetch ?? fetch,
-            now,
-            label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
-            ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
-          });
+          let result: IssuedSecret;
+          try {
+            result = await provider.issue!({
+              secret,
+              params: effectiveParams(provider, secret.params, integrationDefaultsOf(deps.inventory, provider)),
+              stage: template.stage,
+              stageKind: stageKind(deps.inventory.stages, template.stage),
+              connections: deps.connections,
+              fetch: deps.fetch ?? fetch,
+              now,
+              label: `${secret.id}-${template.stage}-${now.toISOString().slice(0, 10)}`,
+              ...(deps.providerConfig ? { providerConfig: deps.providerConfig } : {}),
+            });
+          } catch (err) {
+            // The provider side changed and no value came back: record it like an issued value, so the handler below hands it to the gate.
+            if (isIssuedButFailedError(err)) issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(err.externalId ? { externalId: err.externalId } : {}), ...(err.replacedOld ? { replacedInPlace: true as const } : {}) });
+            throw err;
+          }
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
           issued.push(secret.id);

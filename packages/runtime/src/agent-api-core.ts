@@ -43,6 +43,7 @@ import {
   discardIssuance,
   exportTeamBundle,
   inspectVariable,
+  IssuedValueLostError,
   overallStatus,
   planRotation,
   prepareIssuance,
@@ -654,6 +655,23 @@ async function keepOrDiscard(rt: RuntimeCore, pending: PendingIssuance): Promise
  * und mit den Belegen des Browsers als Anlagen am Bericht.
  */
 async function prepareTracked(rt: RuntimeCore, actor: Actor, secretId: string, via?: { requestedBy: ActorRef; approvalId: string }): Promise<PendingIssuance> {
+  try {
+    return await prepareTrackedOnce(rt, actor, secretId, via);
+  } catch (err) {
+    // The provider changed the value and then failed: `prepareIssuance` handed it to the gate already. A delete the provider did not
+    // confirm is owed like the one of a rejected review, so the sweep tries it again. A store that refuses the record changes nothing.
+    if (err instanceof IssuedValueLostError) {
+      try {
+        rt.issuances.oweIfNeeded(err.pending, err.result);
+      } catch {
+        /* the error below is the one to report */
+      }
+    }
+    throw err;
+  }
+}
+
+async function prepareTrackedOnce(rt: RuntimeCore, actor: Actor, secretId: string, via?: { requestedBy: ActorRef; approvalId: string }): Promise<PendingIssuance> {
   const secret = rt.inventory.getSecret(secretId);
   /* v8 ignore start -- every caller names an entry that exists; prepareIssuance reports a missing one */
   const provider = secret ? rt.providers.get(secret.provider) : undefined;

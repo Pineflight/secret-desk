@@ -54,6 +54,31 @@ export interface IssuedSecret {
   replacedInPlace?: boolean;
 }
 
+/**
+ * What `issue` throws when it knows the provider side already changed (the value was created or replaced) and a later step failed,
+ * so no value reaches the caller. The issuance path and the environment export record it like an issued value that could not be
+ * kept and hand it to the revoke gate; nothing calls the provider's `revoke` directly for it. Throw it only when the change is certain
+ * (the provider answered success); an answer that never arrived is not certain and stays an ordinary error.
+ * The message must carry no value.
+ */
+export class IssuedButFailedError extends Error {
+  /** The provider's identifier of what exists now, when the provider knows it. */
+  readonly externalId: string | undefined;
+  /** The current value at the provider was replaced (it no longer works): nothing exists to delete, the old value is gone. */
+  readonly replacedOld: boolean;
+  constructor(message: string, info: { externalId?: string | undefined; replacedOld: boolean }) {
+    super(message);
+    this.name = "IssuedButFailedError";
+    this.externalId = info.externalId;
+    this.replacedOld = info.replacedOld;
+  }
+}
+
+/** Also true for an instance made by another copy of this module (the name and the fields decide). */
+export function isIssuedButFailedError(err: unknown): err is IssuedButFailedError {
+  return err instanceof IssuedButFailedError || (err instanceof Error && err.name === "IssuedButFailedError" && typeof (err as { replacedOld?: unknown }).replacedOld === "boolean");
+}
+
 export interface RevokeContext {
   externalId: string;
   secret: SecretEntry;
