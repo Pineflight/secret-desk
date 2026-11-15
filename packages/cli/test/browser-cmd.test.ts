@@ -81,7 +81,8 @@ describe("browser doctor (fakes)", () => {
     expect(r.out).toContain("[ok  ] playwright-core installiert");
     expect(r.out).toContain("[ok  ] Mode: local Chrome");
     expect(r.out).toContain("[ok  ] Chrome gefunden: /opt/chrome");
-    expect(r.out).toContain("Profilordner: /tmp/profile (wird beim ersten Lauf angelegt, Modus 700)");
+    // Windows has no file mode: the product names the user profile there instead (see the next test).
+    expect(r.out).toContain(`Profilordner: /tmp/profile (wird beim ersten Lauf angelegt${process.platform === "win32" ? "; Schutz ueber das Benutzerprofil" : ", Modus 700"})`);
     expect(r.out).toContain("[warn] Keine Rezepte gefunden");
     expect(r.code).toBe(0);
   });

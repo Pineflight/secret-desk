@@ -37,7 +37,8 @@ describe("default warnings", () => {
     await writeFile(file, `${"a".repeat(43)}\n`);
     await chmod(file, 0o644);
     expect(await loadOrCreateAgentToken(file, false, "linux")).toBe("a".repeat(43));
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows reports a writable file as mode 666 whatever chmod was given, so the mode can only be read back elsewhere.
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(await loadOrCreateAgentToken(file, false, "win32")).toBe("a".repeat(43));
     expect(warn).toHaveBeenCalledTimes(2);

@@ -62,7 +62,8 @@ describe("agent token file", () => {
     const warnings: string[] = [];
     const token = await loadOrCreateAgentToken(file, false, "linux", (m) => warnings.push(m));
     expect(token).toBe("a".repeat(43));
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows reports a writable file as mode 666 whatever chmod was given, so the mode can only be read back elsewhere.
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(warnings).toHaveLength(1);
   });
 
@@ -79,6 +80,7 @@ describe("agent token file", () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "x", "agent-token");
     await loadOrCreateAgentToken(file);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows cannot report mode 600 (see above).
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 });
