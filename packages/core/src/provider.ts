@@ -46,6 +46,12 @@ export interface IssuedSecret {
   expiresAt?: string | null;
   /** Kennung beim Anbieter, damit der alte Wert spaeter widerrufen werden kann. */
   externalId?: string;
+  /**
+   * The provider replaced the current value at the provider in place while issuing: the old value stopped working right then, and
+   * there is nothing new to delete if this value is not kept. Set it whenever that happened, also when the identifier is not the
+   * one the entry records (for example when the entry records none yet).
+   */
+  replacedInPlace?: boolean;
 }
 
 export interface RevokeContext {

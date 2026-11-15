@@ -350,7 +350,7 @@ const dbPasswordProvider: Provider = {
     } catch (err) {
       dbPasswordFailure(id, err);
     }
-    return { value: new SecretValue(password), externalId: ref, expiresAt: null, ...(targetId && url ? { companions: [{ entryId: targetId, value: new SecretValue(url) }] } : {}) };
+    return { value: new SecretValue(password), externalId: ref, expiresAt: null, replacedInPlace: true, ...(targetId && url ? { companions: [{ entryId: targetId, value: new SecretValue(url) }] } : {}) };
   },
   async verify(ctx) {
     const v = ctx.value.reveal();

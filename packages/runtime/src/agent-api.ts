@@ -99,7 +99,7 @@ export async function exportEnv(
   // Values are about to be generated, fetched and written to a file: the hook is asked after every built-in check, before the first of those.
   await authorize(rt, { actor, action: "env.export", subject: { repo: template.repo, stage: template.stage } });
   try {
-    const envDeps = { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers };
+    const envDeps = { inventory: rt.inventory, providers: rt.providers, connections: rt.connections, fetch: rt.fetch, providerConfig: rt.config.providers, evidence: rt.evidence, now: rt.now };
     const readTemplateFile = async (other: EnvTemplate): Promise<string | null> => {
       const otherFolder = await linkedFolder(rt, other.repo);
       if (!otherFolder) return null;
@@ -153,7 +153,7 @@ export async function exportEnv(
     } catch (err) {
       // Datei nicht (vollstaendig) geschrieben: frisch ausgestellte Dev-Tokens nicht beim Anbieter verwaist lassen, aber nur ueber das Tor
       // (nie eine Kennung, die im Inventar noch gilt, nie nach Beginn des Schreibens), und was bleibt, steht in der Fehlermeldung.
-      addUnrevokedNotices(err, await revokeIssuedTokens(built.issuedTokens, envDeps, { writeStarted }));
+      addUnrevokedNotices(err, await revokeIssuedTokens(built.issuedTokens, envDeps, { writeStarted, evidence: rt.evidence, now: rt.now }));
       if (!writeStarted) forgetRunValues(runValues, template.id);
       throw err;
     }

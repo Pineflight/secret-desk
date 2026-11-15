@@ -12,7 +12,7 @@ import type { InventoryStoreCore } from "./inventory-store.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
-import type { SecretValue } from "./secret.js";
+import { SecretValue } from "./secret.js";
 import { fingerprintOf, overallStatus, type ActorRef, type Check, type CompanionSummary, type ChecklistItem, type Confirmation, type VerificationReport } from "./verification.js";
 
 export interface IssuanceDeps {
@@ -42,6 +42,8 @@ export interface PendingIssuance {
   companions: PendingCompanion[];
   report: VerificationReport;
   oldExternalId?: string;
+  /** The provider replaced the current value in place when it issued this one (see `IssuedSecret.replacedInPlace`). */
+  replacedInPlace?: true;
   /** Hash ueber Ziele, Anbieter, Parameter, Stage und alte Kennung zum Zeitpunkt der Pruefung (siehe snapshot.ts). */
   snapshot: string;
   /** Der Eintrag, mit dem ausgestellt wurde. Widerrufen wird immer mit diesen Parametern, nie mit nachtraeglich geaenderten. */
@@ -142,6 +144,7 @@ export async function prepareIssuance(
   let value: SecretValue;
   let externalId: string | undefined;
   let expiresAt: string | null | undefined;
+  let replacedInPlace = false;
   let kind: VerificationReport["kind"];
   let params = secret.params;
   const preChecks: Check[] = [];
@@ -175,6 +178,7 @@ export async function prepareIssuance(
     value = issued.value;
     externalId = issued.externalId;
     expiresAt = issued.expiresAt;
+    replacedInPlace = issued.replacedInPlace === true;
     kind = "issued";
     const allowed = companionTargets(provider, params);
     for (const c of issued.companions ?? []) {
@@ -271,6 +275,7 @@ export async function prepareIssuance(
     companions,
     report,
     ...(secret.externalId ? { oldExternalId: secret.externalId } : {}),
+    ...(replacedInPlace ? { replacedInPlace: true as const } : {}),
     snapshot,
     issuedSecret,
     newExpires,
@@ -636,6 +641,9 @@ async function discardIssuanceNow(
   if (revokedNew && reason.acknowledgeWritten === true && writeStarted.has(pending)) {
     pending.report.checks.push({ id: "revoked-written", label: `Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war. Diese Orte halten einen widerrufenen Wert: ${writtenPlacesOf(pending).join(", ")}`, status: "warn" });
   }
+  // The provider replaced the value in place: the old value is already invalid and the new one is known to nobody. The gate rightly
+  // revoked nothing, so the report must say what is left. Not when a write was started: the places may hold the new value then.
+  if ((rotatedInPlace || pending.replacedInPlace === true) && !writeStarted.has(pending)) pending.report.checks.push(inPlaceValueLostCheck());
   const now = (deps.now ?? (() => new Date()))();
   pending.report.confirmation = {
     by: reason.by,
@@ -653,4 +661,41 @@ async function discardIssuanceNow(
     /* the result below is what counts */
   }
   return { revokedNew, ...(outcome?.status === "refused" ? { refused: outcome.reason } : {}) };
+}
+
+/**
+ * The warning a report carries when a value of a provider that replaces in place was discarded unconfirmed (a person rejected it, its
+ * time ran out, the entry changed, the queue could not keep it, or an export failed): the gate revokes nothing there, but the old value
+ * is already invalid and the new one is known to nobody.
+ */
+export const inPlaceValueLostCheck = (): Check => ({
+  id: "in-place-value-lost",
+  label: "Der Anbieter hat den Wert an Ort und Stelle ersetzt; der neue Wert wurde nicht behalten: die Ausstellung erneut ausfuehren oder einen Wert von Hand eingeben.",
+  status: "warn",
+});
+
+/**
+ * Saves a report that says an export lost the new value of a secret whose provider replaced it in place. Best effort: the failed export
+ * is the error the caller sees, a store that fails changes nothing. Names, identifiers and a fixed fingerprint, never a value.
+ */
+export async function noteInPlaceValueLost(evidence: EvidenceStore | undefined, secret: SecretEntry | undefined, externalId: string | undefined, now: Date): Promise<void> {
+  if (!evidence || !secret) return;
+  const report: VerificationReport = {
+    id: globalThis.crypto.randomUUID(),
+    secretId: secret.id,
+    secretName: secret.name,
+    createdAt: now.toISOString(),
+    kind: "issued",
+    provider: secret.provider,
+    stage: secret.stage,
+    label: `${secret.id}-${secret.stage}-${now.toISOString().slice(0, 10)}`,
+    ...(externalId ? { externalId } : {}),
+    expiresAt: null,
+    targets: secret.places.map(describePlace),
+    checks: [inPlaceValueLostCheck()],
+    checklist: [],
+    fingerprint: fingerprintOf(new SecretValue("")),
+    attachments: [],
+  };
+  await evidence.save(report).catch(() => undefined);
 }

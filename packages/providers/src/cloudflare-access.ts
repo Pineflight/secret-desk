@@ -163,7 +163,7 @@ export const cloudflareAccessProvider: Provider = {
         const r = res?.result;
         if (!r || typeof r.client_secret !== "string") throw badResponse(ID);
         // The client ID stays the same, so the companion entry is not rewritten.
-        return { value: new SecretValue(r.client_secret), externalId: oldId!, expiresAt: r.expires_at ?? expiryFromDuration(ctx.now, duration) };
+        return { value: new SecretValue(r.client_secret), externalId: oldId!, expiresAt: r.expires_at ?? expiryFromDuration(ctx.now, duration), replacedInPlace: true };
       }
       const res = await callHelper<Envelope<AccessToken>>(ctx, helper, tokensUrl(accountId), { method: "POST", body: JSON.stringify({ name: ctx.label, duration }) });
       const r = res?.result;

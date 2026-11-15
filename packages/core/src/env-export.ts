@@ -8,7 +8,8 @@ import type { ConnectionStore } from "./connections.js";
 import type { ProviderConfig } from "./config.js";
 import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
-import { revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
+import type { EvidenceStore } from "./evidence.js";
+import { noteInPlaceValueLost, revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
 import type { ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
@@ -29,6 +30,8 @@ export interface EnvBuildDeps {
   prompts?: Record<string, string>;
   /** Konfiguration der Anbieter (zum Beispiel erlaubte Grafana-Hosts), wird an provider.issue durchgereicht. */
   providerConfig?: ProviderConfig;
+  /** When present, a failed export that lost the new value of an in-place provider leaves a warning in a report here (never a value). */
+  evidence?: EvidenceStore;
   /**
    * Nur diese Stages duerfen als `issue`-Quelle ausgestellt werden (gesetzt fuer Agenten: Dev-Stages).
    * Ohne Angabe gilt keine Einschraenkung (Mensch).
@@ -70,6 +73,8 @@ export interface IssuedToken {
   externalId?: string;
   /** The provider of the entry when the value was issued. Absent: the entry's provider at revoke time. */
   provider?: string;
+  /** The provider said it replaced the current value in place when it issued this one (`IssuedSecret.replacedInPlace`). */
+  replacedInPlace?: true;
 }
 
 /** What became of one issued value: deleted at the provider, a failed delete, or the gate's reason for not calling the provider. */
@@ -92,7 +97,7 @@ export interface IssuedTokenOutcome {
  * entry already has, and a delete would remove the token that is in use), and never when `writeStarted` says the file write began
  * (the value may be in the file). Returns one outcome per value; `unrevokedNotices` turns them into the sentences for the caller.
  */
-export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: RevokeGateDeps, options: { writeStarted?: boolean } = {}): Promise<IssuedTokenOutcome[]> {
+export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: RevokeGateDeps, options: { writeStarted?: boolean; evidence?: EvidenceStore; now?: () => Date } = {}): Promise<IssuedTokenOutcome[]> {
   const out: IssuedTokenOutcome[] = [];
   for (const t of tokens) {
     const outcome = await revokeNewValue(
@@ -106,7 +111,10 @@ export async function revokeIssuedTokens(tokens: readonly IssuedToken[], deps: R
       deps,
     );
     // "In place" is read from the inventory: the identifier the provider returned is the one the entry records as current.
-    const inPlace = t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId;
+    // or the provider said so (an entry that records no identifier yet still had its value replaced).
+    const inPlace = t.replacedInPlace === true || (t.externalId !== undefined && deps.inventory.getSecret(t.secretId)?.externalId === t.externalId);
+    // The gate revoked nothing for it, so the evidence must say what is left. Not when the file write started: the file may hold it.
+    if (inPlace && options.writeStarted !== true) await noteInPlaceValueLost(options.evidence, deps.inventory.getSecret(t.secretId), t.externalId, (options.now ?? (() => new Date()))());
     out.push({
       secretId: t.secretId,
       ...(t.externalId ? { externalId: t.externalId } : {}),
@@ -453,7 +461,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
           value = result.value.reveal();
           issuedValues.set(secret.id, value);
           issued.push(secret.id);
-          issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}) });
+          issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(result.externalId ? { externalId: result.externalId } : {}), ...(result.replacedInPlace ? { replacedInPlace: true as const } : {}) });
         }
       }
       if (entry.description) lines.push(`# ${commentText(entry.description)}`);
@@ -470,7 +478,7 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
   } catch (err) {
     // Ein spaeterer Schritt ist gescheitert: schon ausgestellte Werte nicht beim Anbieter verwaist zuruecklassen, aber nur ueber das
     // Tor. Noch nichts wurde geschrieben und kein Befehl hat einen Wert erhalten, also `writeStarted` false.
-    addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps));
+    addUnrevokedNotices(err, await revokeIssuedTokens(issuedTokens, deps, { ...(deps.evidence ? { evidence: deps.evidence } : {}), now: () => now }));
     forgetRunValues(deps.runValues, template.id);
     throw err;
   }
