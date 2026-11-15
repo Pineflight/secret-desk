@@ -195,8 +195,9 @@ export async function prepareIssuance(
       if (!found || found.kind !== (c.kind ?? "secret")) {
         // The provider returned a value for an entry nobody named: undo what was created, write nothing.
         // Outside the revoke gate (`revokeNewValue`) on purpose: no item exists yet, nothing was written anywhere, and the value
-        // was created a moment ago in this very call, so it cannot be in use.
-        if (externalId && externalId !== secret.externalId && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
+        // was created a moment ago in this very call, so it cannot be in use. Never for a value the provider replaced in place: what
+        // the identifier names is the live object there, and deleting it would destroy the value that was just replaced.
+        if (externalId && externalId !== secret.externalId && !issued.replacedInPlace && provider.revoke) await provider.revoke({ externalId, secret, params, connections: deps.connections, fetch: f, ...pc }).catch(() => undefined);
         throw new IssuanceError("Der Anbieter lieferte einen Begleitwert fuer einen nicht benannten Eintrag. Nichts wurde geschrieben.");
       }
       companions.push({ entryId: c.entryId, kind: found.kind, value: c.value, snapshot: companionSnapshot(found.entry) });
@@ -535,7 +536,8 @@ async function commitIssuanceOnce(
   // the person confirmed; the gate is for a NEW value that may be in use. It has two guards of its own: the identifier must
   // differ from the new one, and no entry outside this commit may still hold it (companions copy identifiers, so an entry
   // that was not part of this issuance can carry the same identifier and still use that value).
-  const oldId = pending.oldExternalId;
+  // A value the provider replaced in place has no old object to delete: the identifier names the live one.
+  const oldId = pending.replacedInPlace === true ? undefined : pending.oldExternalId;
   const oldHolder = oldId && oldId !== pending.report.externalId ? entryHoldingId(deps.inventory, oldId, [secret.id, ...companionEntries.map((c) => c.entry.id)]) : undefined;
   if (oldHolder && provider?.revoke) {
     pending.report.checks.push({ id: "revoke-old", label: `Alten Wert nicht widerrufen: seine Kennung ist noch die aktuelle von Eintrag ${oldHolder}`, status: "warn", detail: "Der Wert wird dort noch gebraucht. Beim Anbieter erst loeschen, wenn dieser Eintrag erneuert ist." });

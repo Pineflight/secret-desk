@@ -192,7 +192,8 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
   }
 
   // A provider that rotates in place hands back the identifier the entry already has: the "new" value is the old object.
-  const inPlace = issued.externalId !== undefined && issued.externalId === secret.externalId;
+  // The provider may also say so itself: an entry that records no identifier yet, or another one, still had its value replaced.
+  const inPlace = issued.replacedInPlace === true || (issued.externalId !== undefined && issued.externalId === secret.externalId);
   const failed = outcomes.filter((o) => o.outcome === "failed").length;
   if (failed > 0) {
     const result: RotationResult = { secretId, ok: false, partial: failed < outcomes.length, places: outcomes, revoked: false, expires: secret.expires };
