@@ -603,7 +603,22 @@ async function commitIssuanceOnce(
  * so the identifier of a value can be the current one of an entry that is not part of the flow asking.
  */
 export function entryHoldingId(inventory: InventoryStoreCore, id: string, except: readonly string[]): string | undefined {
-  return inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
+  // Another process (the desk app and the CLI share one inventory file) may have changed an identifier since this copy was read.
+  // Best effort here: when the stored document cannot be read right now, the copy in memory is what there is.
+  inventoryIsFresh(inventory);
+  return holderOf(inventory, id, except);
+}
+
+const holderOf = (inventory: InventoryStoreCore, id: string, except: readonly string[]): string | undefined => inventory.data.secrets.find((s) => s.externalId === id && !except.includes(s.id))?.id;
+
+/**
+ * Re-reads the inventory from its backend (`refreshNow`) so a decision to revoke rests on what is stored now, not on the copy this
+ * process read earlier. False: the stored document could not be taken over, the copy may be stale. A structural stand-in without
+ * `refreshNow` (an embedder's double) has no backend and counts as fresh.
+ */
+function inventoryIsFresh(inventory: InventoryStoreCore): boolean {
+  const reload = (inventory as Partial<Pick<InventoryStoreCore, "refreshNow">>).refreshNow;
+  return reload ? reload.call(inventory) : true;
 }
 
 /** What the gate reads: the inventory and what it takes to call a provider. No places, no GitHub: it never writes. */
@@ -649,10 +664,13 @@ export interface RevokeTarget {
 export async function revokeNewValue(target: RevokeTarget, deps: RevokeGateDeps, options: { acknowledgeWritten?: boolean } = {}): Promise<RevokeOutcome> {
   const id = target.externalId;
   if (!id) return { status: "refused", reason: "no-id" };
+  // Decided on the inventory as it is stored now: another process may have changed an identifier since this copy was read. When the
+  // stored document cannot be read right now the copy may be stale, and "may be in use" is answered as in use (nothing is revoked).
+  if (!inventoryIsFresh(deps.inventory)) return { status: "refused", reason: "value-in-use" };
   const current = deps.inventory.getSecret(target.secretId);
   // Any secret entry that records the identifier as its current one holds the value, named by the target or not (companions copy
   // identifiers). Compared as strings over all secret entries, without the provider.
-  if (entryHoldingId(deps.inventory, id, []) !== undefined) return { status: "refused", reason: "value-in-use" };
+  if (holderOf(deps.inventory, id, []) !== undefined) return { status: "refused", reason: "value-in-use" };
   const started = target.writeStarted === true || (target.pending !== undefined && writeStarted.has(target.pending));
   if (started && !options.acknowledgeWritten) return { status: "refused", reason: "write-started" };
   if (!target.issuedSecret) {

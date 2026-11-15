@@ -165,6 +165,20 @@ export class InventoryStoreCore {
     return { message: this.#problem.message, since: new Date(this.#problem.since).toISOString(), persistent: Date.now() - this.#problem.since >= INVALID_GRACE_MS };
   }
 
+  /**
+   * Reads the stored document now, without the cheap checks that normally decide whether a read is needed (the change stamp, the
+   * pause between hashes), and takes it over when it differs. For a decision that must not rest on an older copy: the stamp of a file
+   * that another process rewrote can look unchanged (the same size, a copied modification time), and every ordinary read trusts it
+   * for a moment. Returns false when the stored document could not be taken over (it does not parse or validate right now): the copy
+   * in memory may then be older than what is stored, and the caller must treat what it sees as possibly stale. A store without a
+   * backend, or one that has not written yet, has nothing to read and returns true.
+   */
+  refreshNow(): boolean {
+    this.#stale = true;
+    this.#refresh();
+    return this.#problem === null;
+  }
+
   /** Wird nach jedem Nachladen einer von aussen geaenderten Datei aufgerufen (Cache-Invalidierung, Freigaben pruefen). */
   onExternalChange(fn: () => void): () => void {
     this.#listeners.add(fn);
