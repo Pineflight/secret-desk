@@ -1114,6 +1114,7 @@ const PATTERN_ENTRIES: ReadonlyArray<PatternEntry> = [
   [/^Neuer Wert bereits geschrieben, nicht widerrufen: (.+)$/, "New value already written, not revoked: $1"],
   [/^Neuer Wert geschrieben oder moeglicherweise geschrieben, nicht widerrufen: (.+)$/, "New value written or possibly written, not revoked: $1"],
   [/^Der Anbieter hat den Wert geaendert, aber das Ausstellen ist danach fehlgeschlagen: (.+)$/, "The provider changed the value, but issuing failed afterwards: $1"],
+  [/^Anbieter "(.+)" liefert Begleitwerte, die diese Funktion nicht schreibt\. Stattdessen ausstellen und bestaetigen \(prepareIssuance, commitIssuance\)\.$/, "Provider \"$1\" returns companion values that this function does not write. Issue and confirm instead (prepareIssuance, commitIssuance)."],
   [/^Der neu angelegte Wert \(Kennung (.+)\) wurde nicht geloescht und bleibt beim Anbieter gueltig: von Hand entfernen\.$/, "The newly created value (identifier $1) was not deleted and stays valid at the provider: remove it by hand."],
   [/^Neuer Wert nicht widerrufen, Eintrag verworfen: (.+)$/, "New value not revoked, record dropped: $1"],
   [/^Neuer Wert widerrufen, obwohl ein Schreibvorgang begonnen war\. Diese Orte halten einen widerrufenen Wert: (.+)$/, "New value revoked although a write had been started. These places hold a revoked value: $1"],

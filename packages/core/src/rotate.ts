@@ -140,6 +140,10 @@ function addDays(date: Date, days: number): string {
  * aus einer Voreinstellung, einer Konfiguration oder der Anfrage eines Agenten. Bleibt der neue Token nach einem Fehler gueltig,
  * steht seine Kennung nur in `orphanExternalId` und in den Warnungen (und im Bericht, wenn `deps.evidence` gesetzt ist).
  * Der Klartext verlaesst diese Funktion nicht und steht in keinem Ergebnis oder Ereignis.
+ *
+ * Writes the main value only, never companion values: a provider that declares `companionParams` is refused with a `RotationError`
+ * before anything is issued (a client id next to its client secret would otherwise be left half written). Nothing in the desk app, the
+ * CLI or the MCP server calls this function; issuance (`prepareIssuance`, `commitIssuance`) is the path that writes companions.
  */
 export async function rotateSecret(secretId: string, deps: RotateDeps, options: RotateOptions & { acknowledgeWritten?: boolean } = {}): Promise<RotationResult> {
   const secret = deps.inventory.getSecret(secretId);
@@ -150,6 +154,12 @@ export async function rotateSecret(secretId: string, deps: RotateDeps, options: 
     throw new RotationError(`Anbieter "${secret.provider}" kann nicht automatisch erzeugen. Wert von Hand einfuegen.`);
   }
   if (secret.places.length === 0) throw new RotationError("Das Secret hat kein Ziel (places).");
+  // This function writes the main value only. A provider with companion values (a client id next to a client secret) would leave a
+  // half-written pair, so it is refused before anything is created at the provider: issue and confirm (`prepareIssuance`,
+  // `commitIssuance`) writes every value of the issuance.
+  if ((provider.companionParams?.length ?? 0) > 0) {
+    throw new RotationError(`Anbieter "${secret.provider}" liefert Begleitwerte, die diese Funktion nicht schreibt. Stattdessen ausstellen und bestaetigen (prepareIssuance, commitIssuance).`);
+  }
 
   assertEntryParams(provider, secret, integrationDefaultsOf(deps.inventory, provider));
   const now = (deps.now ?? (() => new Date()))();
