@@ -10,7 +10,8 @@ import { createLocalRuntime } from "../src/runtime.js";
 // Git ohne Benutzer-/Systemkonfiguration (url.insteadOf, init.templateDir, Hooks ...): gilt auch fuer die Aufrufe der Runtime.
 const GIT_ENV_SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
 beforeAll(() => {
-  process.env["GIT_CONFIG_GLOBAL"] = devNull;
+  // Git on Windows refuses os.devNull (`\\.\nul`); the device name NUL works.
+  process.env["GIT_CONFIG_GLOBAL"] = process.platform === "win32" ? "NUL" : devNull;
   process.env["GIT_CONFIG_NOSYSTEM"] = "1";
 });
 afterAll(() => {
@@ -113,7 +114,8 @@ describe("linking", () => {
     process.env["USERPROFILE"] = process.env["HOME"];
     try {
       await expect(setLink(rt, "acme-app", foreign)).rejects.toThrow("ausserhalb");
-      await expect(setLink(rt, "acme-app", "/etc")).rejects.toThrow("ausserhalb");
+      // A folder that exists on every system and lies outside the made-up home (`/etc` does not exist on Windows).
+      await expect(setLink(rt, "acme-app", process.platform === "win32" ? (process.env["SystemRoot"] ?? "C:\\Windows") : "/etc")).rejects.toThrow("ausserhalb");
     } finally {
       for (const [k, v] of Object.entries(savedHome)) {
         if (v === undefined) delete process.env[k];

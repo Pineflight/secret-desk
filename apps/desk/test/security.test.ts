@@ -62,23 +62,25 @@ describe("agent token file", () => {
     const warnings: string[] = [];
     const token = await loadOrCreateAgentToken(file, false, "linux", (m) => warnings.push(m));
     expect(token).toBe("a".repeat(43));
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows reports a writable file as mode 666 whatever chmod was given, so the mode can only be read back elsewhere.
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(warnings).toHaveLength(1);
   });
 
-  it("warns on Windows only", async () => {
+  it("on Windows adopts the token without a warning: POSIX modes do not exist there, so a mode read-back is no finding", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "agent-token");
     await writeFile(file, `${"b".repeat(43)}\n`, { mode: 0o644 });
     const warnings: string[] = [];
-    await loadOrCreateAgentToken(file, false, "win32", (m) => warnings.push(m));
-    expect(warnings).toHaveLength(1);
+    expect(await loadOrCreateAgentToken(file, false, "win32", (m) => warnings.push(m))).toBe("b".repeat(43));
+    expect(warnings).toEqual([]);
   });
 
   it("creates new with 600", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "x", "agent-token");
     await loadOrCreateAgentToken(file);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows cannot report mode 600 (see above).
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 });

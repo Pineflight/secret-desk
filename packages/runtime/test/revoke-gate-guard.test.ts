@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -61,7 +61,7 @@ async function usesByFile(dirs: string[]): Promise<Record<string, number>> {
   for (const dir of dirs) {
     for (const file of await sourceFiles(dir)) {
       const uses = revokeUses(await readFile(file, "utf8"));
-      if (uses > 0) found[file.slice(file.lastIndexOf("/") + 1)] = uses;
+      if (uses > 0) found[basename(file)] = uses;
     }
   }
   return found;

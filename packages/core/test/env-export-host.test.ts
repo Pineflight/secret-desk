@@ -10,8 +10,23 @@ describe("commandEnv", () => {
   });
 });
 
+describe("commandEnv per platform", () => {
+  const source = { Path: "C:\\Windows", SystemRoot: "C:\\Windows", COMSPEC: "C:\\Windows\\cmd.exe", PathExt: ".EXE", UserProfile: "C:\\u", TEAM_SECRET_MADE_UP: "x" };
+
+  it("on Windows matches names without regard to case, so the search path and the system folder survive", () => {
+    expect(Object.keys(commandEnv(source, "win32")).sort()).toEqual(["COMSPEC", "Path", "PathExt", "SystemRoot", "UserProfile"]);
+  });
+
+  it("elsewhere matches names exactly, as before", () => {
+    expect(Object.keys(commandEnv(source, "linux")).sort()).toEqual(["SystemRoot"]);
+    expect(Object.keys(commandEnv(source, "darwin")).sort()).toEqual(["SystemRoot"]);
+  });
+});
+
 describe("gitCheckIgnored with an environment", () => {
-  it("passes exactly the given environment to git", async () => {
+  // The fake git is a shell script without an extension and PATH is joined with ":": neither can start on Windows, which only runs
+  // .exe/.com programs without a shell. The real-git test in the runtime package (git-env.test.ts) covers Windows.
+  it.skipIf(process.platform === "win32")("passes exactly the given environment to git", async () => {
     const bin = await realpath(await mkdtemp(join(tmpdir(), "sd-env-git-")));
     const dump = join(bin, "env.txt");
     await writeFile(join(bin, "git"), `#!/bin/sh\nenv > "${dump}"\nexit 1\n`, { mode: 0o755 });

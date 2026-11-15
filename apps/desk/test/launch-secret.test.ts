@@ -11,7 +11,8 @@ describe("launch secret file", () => {
     const file = join(await dirOf(), "nested", "launch-secret");
     const first = await loadOrCreateLaunchSecret(file);
     expect(Buffer.from(first, "base64url")).toHaveLength(32);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows reports a writable file as mode 666 whatever chmod was given, so the mode can only be read back elsewhere.
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(await loadOrCreateLaunchSecret(file)).toBe(first);
     expect((await readFile(file, "utf8")).trim()).toBe(first);
   });
@@ -28,7 +29,7 @@ describe("launch secret file", () => {
     await chmod(file, 0o644);
     const warnings: string[] = [];
     expect(await loadOrCreateLaunchSecret(file, "linux", (m) => warnings.push(m))).toBe("d".repeat(43));
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600); // see the first test
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).not.toContain("d".repeat(43));
   });

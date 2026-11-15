@@ -22,8 +22,11 @@ export interface NodeRuntimeHostOptions {
  * repository's own `.git/config` still applies; the `-c` switches below turn off the settings that would run a program for the
  * two commands the host starts.
  */
-function gitEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-  return { ...commandEnv(env), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" };
+export function gitEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  // Git on Windows refuses the device path `\\.\nul` that `os.devNull` gives there ("unable to access ... Invalid argument") and
+  // every call then fails; the plain device name `NUL` works. Other systems keep `os.devNull`.
+  const nullDevice = platform === "win32" ? "NUL" : devNull;
+  return { ...commandEnv(env, platform), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: nullDevice, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" };
 }
 
 /** `-c` switches for every Git call of the host: no file system monitor hook, no untracked cache. */

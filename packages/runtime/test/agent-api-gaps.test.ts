@@ -527,7 +527,8 @@ describe("env files", () => {
     });
   });
 
-  it.skipIf(process.getuid?.() === 0)("a referenced file that cannot be read is ignored", async () => {
+  // chmod 000 has no effect on Windows, so the file stays readable there.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("a referenced file that cannot be read is ignored", async () => {
     const { chmod } = await import("node:fs/promises");
     const base = await setup();
     const other = join(base.projects, "other");

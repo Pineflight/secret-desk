@@ -10,7 +10,8 @@ import { PortalSession, allowedHosts } from "../src/server/security.js";
 // Git ohne Benutzer-/Systemkonfiguration (url.insteadOf, init.templateDir, Hooks ...): gilt auch fuer die Aufrufe der Runtime.
 const GIT_ENV_SAVED = { GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"], GIT_CONFIG_NOSYSTEM: process.env["GIT_CONFIG_NOSYSTEM"] };
 beforeAll(() => {
-  process.env["GIT_CONFIG_GLOBAL"] = devNull;
+  // Git on Windows refuses os.devNull (`\\.\nul`); the device name NUL works.
+  process.env["GIT_CONFIG_GLOBAL"] = process.platform === "win32" ? "NUL" : devNull;
   process.env["GIT_CONFIG_NOSYSTEM"] = "1";
 });
 afterAll(() => {
