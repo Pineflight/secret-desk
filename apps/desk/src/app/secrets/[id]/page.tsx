@@ -72,7 +72,7 @@ export default function SecretDetailPage() {
   useEffect(() => setRunActive(live), [live]);
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; readOnly?: boolean; revokesOld: boolean; ttlDays: number | null; stage: string; provider: string; params?: { ok: boolean; missing: string[]; problems: { message: string }[] }; preflight?: EntryPreflight } | null>(null);
+  const [plan, setPlan] = useState<{ places: string[]; automatic: boolean; readOnly?: boolean; revokesOld: boolean; notice?: string; ttlDays: number | null; stage: string; provider: string; params?: { ok: boolean; missing: string[]; problems: { message: string }[] }; preflight?: EntryPreflight } | null>(null);
   // Fehlende Parameter: Der Klick fuehrt zur Parameterkarte, die sich dann zum Bearbeiten oeffnet.
   const [paramsFocus, setParamsFocus] = useState(0);
   const [paramsNotice, setParamsNotice] = useState<string | null>(null);
@@ -145,6 +145,7 @@ export default function SecretDetailPage() {
               <li>{plan.readOnly ? t("secretDetail.planRead") : plan.automatic ? t("secretDetail.planAuto") : t("secretDetail.planManual")}</li>
               <li>{t("secretDetail.planTargets", { targets: plan.places?.length ? plan.places.join(", ") : t("secretDetail.planNoTargets") })}</li>
               {plan.readOnly ? null : <li>{plan.revokesOld ? t("secretDetail.planRevokes") : t("secretDetail.planKeeps")}</li>}
+              {plan.notice ? <li>{plan.notice}</li> : null}
               {plan.ttlDays ? <li>{t("secretDetail.planTtl", { days: plan.ttlDays })}</li> : null}
               {plan.params ? <li>{plan.params.ok ? t("params.plan.paramsOk") : plan.params.missing.length > 0 ? t("params.plan.paramsMissing", { keys: plan.params.missing.join(", ") }) : t("params.plan.paramsInvalid", { text: plan.params.problems.map((p) => p.message).join("; ") })}</li> : null}
               {plan.preflight?.resource ? <li>{t("params.plan.resource", { resource: plan.preflight.resource })}</li> : null}

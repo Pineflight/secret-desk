@@ -16,7 +16,7 @@ import {
   type PreflightFinding,
 } from "./params.js";
 import { NotConnectedError } from "./connections-core.js";
-import type { Provider, ProviderRegistry } from "./provider.js";
+import { replacesInPlaceNotice, type Provider, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { githubPlacesOf, type SecretEntry } from "./types.js";
 
@@ -43,6 +43,8 @@ export interface EntryPreflight {
   findings: PreflightFinding[];
   connection?: string;
   hint?: string;
+  /** Issuing from this provider replaces the current value at the provider immediately (`Provider.replacesInPlace`); present only then. */
+  notice?: string;
 }
 
 const worst = (f: PreflightFinding[]): "ok" | "warn" | "fail" => (f.some((x) => x.level === "fail") ? "fail" : f.some((x) => x.level === "warn") ? "warn" : "ok");
@@ -52,6 +54,13 @@ const worst = (f: PreflightFinding[]): "ok" | "warn" | "fail" => (f.some((x) => 
  * `rethrowNotConnected`: Beim Ausstellen soll die fehlende Verbindung den gewohnten Fehler liefern.
  */
 export async function preflightEntry(secret: SecretEntry, deps: ParamsDeps, options: { rethrowNotConnected?: boolean } = {}): Promise<EntryPreflight> {
+  const result = await checkEntry(secret, deps, options);
+  // Also when the check was skipped: a provider that replaces in place does so whether or not its read-only check could run.
+  const notice = replacesInPlaceNotice(deps.providers.get(secret.provider));
+  return notice ? { ...result, notice } : result;
+}
+
+async function checkEntry(secret: SecretEntry, deps: ParamsDeps, options: { rethrowNotConnected?: boolean }): Promise<EntryPreflight> {
   const provider = deps.providers.get(secret.provider);
   if (!provider?.preflight) return { status: "skipped", skippedReason: "none", resource: null, findings: [] };
   const state = entryParamsState(deps.inventory, provider, secret);

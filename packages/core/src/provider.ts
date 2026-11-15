@@ -146,6 +146,12 @@ export interface Provider {
   /** Verbindung, die der Anbieter braucht (zum Beispiel cloudflare). */
   connection?: string;
   guide?: ProviderGuide;
+  /**
+   * Issuing replaces an existing value at the provider immediately (the new value keeps the old identifier): the old value stops
+   * working the moment `issue` returns, even if the review is discarded later. Set it for every provider that can do that, also when
+   * it only does so for an entry that already has a value. Callers show `replacesInPlaceNotice` before they issue.
+   */
+  replacesInPlace?: boolean;
   /** Parameter, die ein Eintrag dieses Anbieters unter `params` braucht (fehlt = keine). */
   params?: ParamSpec[];
   /** The `ttlDays` values the provider can honour (fehlt = any). A renewal of an entry with another value is `params_invalid`. */
@@ -166,6 +172,12 @@ export interface Provider {
   reviewChecklist?(secret: SecretEntry, ctx?: { stageKind: StageKind }): string[];
   revoke?(ctx: RevokeContext): Promise<void>;
 }
+
+/** What a person or an agent is told before an action that issues from a provider with `replacesInPlace`. */
+export const REPLACES_IN_PLACE_NOTICE = "Das Ausstellen ersetzt einen bestehenden Wert beim Anbieter sofort: der bisherige Wert gilt danach nicht mehr, auch wenn die Pruefung verworfen wird. Alles, was ihn noch nutzt, scheitert, bis es den neuen Wert erhaelt.";
+
+/** The notice for a provider that replaces in place, or undefined. */
+export const replacesInPlaceNotice = (provider: Pick<Provider, "replacesInPlace"> | undefined): string | undefined => (provider?.replacesInPlace === true ? REPLACES_IN_PLACE_NOTICE : undefined);
 
 export class ProviderRegistry {
   readonly #providers = new Map<string, Provider>();

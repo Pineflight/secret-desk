@@ -149,6 +149,8 @@ export const cloudflareAccessProvider: Provider = {
   connection: CONNECTION,
   params: specs,
   companionParams: ["clientIdTarget"],
+  // An entry that already has a service token gets the secret of that token replaced.
+  replacesInPlace: true,
   discover: (kind, ctx) => discoverCloudflare(ID, CONNECTION, specs, kind, ctx),
   preflight,
   async issue(ctx) {

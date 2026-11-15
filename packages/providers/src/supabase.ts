@@ -336,6 +336,7 @@ const dbPasswordProvider: Provider = {
   params: dbPasswordSpecs,
   discover: (kind, ctx) => discoverSupabase("supabase-db-password", kind, ctx),
   companionParams: ["dbUrlTarget"],
+  replacesInPlace: true,
   preflight: (ctx) => preflightSupabase("supabase-db-password", ctx, true, true),
   async issue(ctx) {
     const id = "supabase-db-password";

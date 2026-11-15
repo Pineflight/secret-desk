@@ -8,7 +8,7 @@ import { putPlaceSecret } from "./place-io.js";
 import { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStoreCore } from "./inventory-store.js";
 import { entryHoldingId, revokeNewValue, type RevokeOutcome } from "./issuance.js";
-import type { ProviderRegistry } from "./provider.js";
+import { REPLACES_IN_PLACE_NOTICE, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { isWorkerPlace, type Place, type SecretEntry, type Stage } from "./types.js";
 
@@ -59,6 +59,9 @@ export interface RotationPlan {
   readOnly: boolean;
   places: string[];
   revokesOld: boolean;
+  /** Set when issuing replaces an existing value at the provider immediately (`Provider.replacesInPlace`); `notice` says what that means. */
+  replacesInPlace?: true;
+  notice?: string;
   ttlDays: number | null;
   /** Parameter-Pruefung gegen die Spezifikation des Anbieters (ohne Netzaufruf). */
   params: { ok: boolean; missing: string[]; problems: ParamProblem[] };
@@ -112,6 +115,7 @@ export function planRotation(secretId: string, deps: Pick<RotateDeps, "inventory
     readOnly: provider?.readOnly === true,
     places: secret.places.map(describePlace),
     revokesOld: Boolean(secret.externalId && provider?.revoke && options.revokeOld !== false),
+    ...(provider?.replacesInPlace === true ? { replacesInPlace: true as const, notice: REPLACES_IN_PLACE_NOTICE } : {}),
     ttlDays: secret.ttlDays ?? null,
     params: { ok: problems.length === 0, missing: problems.filter((p) => p.code === "missing").map((p) => p.key), problems },
   };
