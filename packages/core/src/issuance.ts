@@ -9,7 +9,7 @@ import { placeToTarget, type GitHubClient, type FetchLike } from "./github-core.
 import { checkPlaceWritable, listPlaceSecrets, putPlaceSecret, type PlaceClients } from "./place-io.js";
 import type { WorkerSecretsClient } from "./worker-secrets.js";
 import type { InventoryStoreCore } from "./inventory-store.js";
-import { isIssuedButFailedError, type IssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
+import { asIssuedButFailed, type IssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import { describePlace, RotationError, type PlaceOutcome, type RotateOptions } from "./rotate.js";
 import { SecretValue } from "./secret.js";
@@ -179,7 +179,8 @@ export async function prepareIssuance(
       issued = await provider.issue({ secret, params, stage: secret.stage, stageKind: kind0, connections: deps.connections, fetch: f, now, label, ...pc });
     } catch (err) {
       // The provider side changed and no value came back: it takes the path of an issued value that could not be kept.
-      if (isIssuedButFailedError(err)) throw await keepLostIssuance(err, { secret, snapshot, issuedSecret, label, now, deps });
+      const lost = asIssuedButFailed(err);
+      if (lost) throw await keepLostIssuance(lost, { secret, snapshot, issuedSecret, label, now, deps });
       throw err;
     }
     value = issued.value;

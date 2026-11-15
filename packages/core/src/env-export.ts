@@ -10,7 +10,7 @@ import type { FetchLike } from "./github.js";
 import type { InventoryStore } from "./inventory.js";
 import type { EvidenceStore } from "./evidence.js";
 import { noteInPlaceValueLost, revokeNewValue, type RevokeGateDeps, type RevokeRefusal } from "./issuance.js";
-import { isIssuedButFailedError, type IssuedSecret, type ProviderRegistry } from "./provider.js";
+import { asIssuedButFailed, type IssuedSecret, type ProviderRegistry } from "./provider.js";
 import { stageKind } from "./stages.js";
 import type { EnvCommand, EnvSource, EnvTemplate } from "./types.js";
 import { isPathInsideOrSame, localPathProblem, realpathLoose, writePrivateFile } from "./platform.js";
@@ -463,7 +463,8 @@ export async function buildEnvFile(template: EnvTemplate, deps: EnvBuildDeps): P
             });
           } catch (err) {
             // The provider side changed and no value came back: record it like an issued value, so the handler below hands it to the gate.
-            if (isIssuedButFailedError(err)) issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(err.externalId ? { externalId: err.externalId } : {}), ...(err.replacedOld ? { replacedInPlace: true as const } : {}) });
+            const lost = asIssuedButFailed(err);
+            if (lost) issuedTokens.push({ secretId: secret.id, provider: secret.provider, ...(lost.externalId ? { externalId: lost.externalId } : {}), ...(lost.replacedOld ? { replacedInPlace: true as const } : {}) });
             throw err;
           }
           value = result.value.reveal();

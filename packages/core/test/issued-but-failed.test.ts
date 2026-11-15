@@ -6,7 +6,7 @@ import { MemoryEvidenceStore } from "../src/evidence.js";
 import { GitHubClient, patProvider } from "../src/github.js";
 import { InventoryStore } from "../src/inventory.js";
 import { IssuanceError, IssuedValueLostError, prepareIssuance } from "../src/issuance.js";
-import { IssuedButFailedError, ProviderRegistry, isIssuedButFailedError, type Provider } from "../src/provider.js";
+import { IssuedButFailedError, ProviderRegistry, asIssuedButFailed, isIssuedButFailedError, type Provider } from "../src/provider.js";
 import { SecretValue } from "../src/secret.js";
 import type { EnvTemplate } from "../src/index.js";
 import { INVENTORY_YAML } from "./fixtures.js";
@@ -126,6 +126,25 @@ describe("prepareIssuance: the provider's issue threw IssuedButFailedError", () 
     await expect(prepareIssuance("cf-deploy-acme-app", own)).rejects.toBe(plain);
     expect(revoke).not.toHaveBeenCalled();
     expect(await evidence.list("cf-deploy-acme-app")).toEqual([]);
+  });
+
+  it("from another copy of the module only a string identifier is believed", async () => {
+    const own = new IssuedButFailedError("x", { externalId: "e1", replacedOld: false });
+    expect(asIssuedButFailed(own)).toBe(own);
+    const rebuilt = asIssuedButFailed(Object.assign(new Error("x"), { name: "IssuedButFailedError", replacedOld: true, externalId: "e2" }));
+    expect(rebuilt).toBeInstanceOf(IssuedButFailedError);
+    expect(rebuilt).toMatchObject({ externalId: "e2", replacedOld: true });
+    expect(asIssuedButFailed(Object.assign(new Error("x"), { name: "IssuedButFailedError", replacedOld: true, externalId: 42 }))).toMatchObject({ externalId: undefined, replacedOld: true });
+    expect(asIssuedButFailed(Object.assign(new Error("x"), { name: "IssuedButFailedError", replacedOld: false, externalId: { id: 1 } }))?.externalId).toBeUndefined();
+    expect(asIssuedButFailed(Object.assign(new Error("x"), { name: "IssuedButFailedError" }))).toBeUndefined();
+    expect(asIssuedButFailed("x")).toBeUndefined();
+    // Through the issuance path: a number is not an identifier, so nothing is sent to the gate and the error says so.
+    const { deps } = await setup({ replacedOld: false });
+    const foreign = Object.assign(new Error("x"), { name: "IssuedButFailedError", replacedOld: false, externalId: 42 });
+    const providers = new ProviderRegistry().register({ id: "cloudflare-token", label: "Cloudflare", kind: "automatic", issue: async () => Promise.reject(foreign), revoke: async () => undefined });
+    const err = await prepareIssuance("cf-deploy-acme-app", { ...deps, providers }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IssuedValueLostError);
+    expect(err).toMatchObject({ externalId: undefined, result: { revokedNew: false, refused: "no-id" } });
   });
 
   it("an error from another copy of the module is recognised by its name and field, a plain error of that name is not", async () => {

@@ -74,9 +74,21 @@ export class IssuedButFailedError extends Error {
   }
 }
 
+/**
+ * The error as an `IssuedButFailedError` this module can trust, or undefined. An instance of this class is returned as it is. An error
+ * made by another copy of this module is recognised by its name and a boolean `replacedOld`, and rebuilt: an `externalId` that is not a
+ * string is dropped (treated as unknown), so nothing downstream ever sees a non-string identifier.
+ */
+export function asIssuedButFailed(err: unknown): IssuedButFailedError | undefined {
+  if (err instanceof IssuedButFailedError) return err;
+  if (!(err instanceof Error) || err.name !== "IssuedButFailedError") return undefined;
+  const { replacedOld, externalId } = err as { replacedOld?: unknown; externalId?: unknown };
+  return typeof replacedOld === "boolean" ? new IssuedButFailedError(err.message, { ...(typeof externalId === "string" ? { externalId } : {}), replacedOld }) : undefined;
+}
+
 /** Also true for an instance made by another copy of this module (the name and the fields decide). */
 export function isIssuedButFailedError(err: unknown): err is IssuedButFailedError {
-  return err instanceof IssuedButFailedError || (err instanceof Error && err.name === "IssuedButFailedError" && typeof (err as { replacedOld?: unknown }).replacedOld === "boolean");
+  return asIssuedButFailed(err) !== undefined;
 }
 
 export interface RevokeContext {
