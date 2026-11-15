@@ -91,7 +91,8 @@ describe("L2: loadOrCreateAgentToken", () => {
     const file = join(dir, "agent-token");
     await writeFile(file, `${"c".repeat(43)}\n`, { mode: 0o600 });
     const warnings: string[] = [];
-    expect(await loadOrCreateAgentToken(file, false, "linux", (m) => warnings.push(m))).toBe("c".repeat(43));
+    // The real platform: the file system that wrote the file decides what a read-back of its mode means (666 on Windows, which is no finding there).
+    expect(await loadOrCreateAgentToken(file, false, process.platform, (m) => warnings.push(m))).toBe("c".repeat(43));
     expect(warnings).toEqual([]);
   });
   it("newly created tokens are random and distinct", async () => {

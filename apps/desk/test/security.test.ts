@@ -67,13 +67,13 @@ describe("agent token file", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("warns on Windows only", async () => {
+  it("on Windows adopts the token without a warning: POSIX modes do not exist there, so a mode read-back is no finding", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sd-token-"));
     const file = join(dir, "agent-token");
     await writeFile(file, `${"b".repeat(43)}\n`, { mode: 0o644 });
     const warnings: string[] = [];
-    await loadOrCreateAgentToken(file, false, "win32", (m) => warnings.push(m));
-    expect(warnings).toHaveLength(1);
+    expect(await loadOrCreateAgentToken(file, false, "win32", (m) => warnings.push(m))).toBe("b".repeat(43));
+    expect(warnings).toEqual([]);
   });
 
   it("creates new with 600", async () => {

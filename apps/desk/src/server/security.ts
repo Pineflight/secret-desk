@@ -117,15 +117,17 @@ export function agentTokenPath(home: string | undefined): string {
   return join(home, ".secret-desk", "agent-token");
 }
 
-/** Liest den Agenten-Token oder legt ihn an (Modus 600). Ist die Datei zu offen, wird sie auf 600 gesetzt (Windows: nur Warnung). */
+/**
+ * Liest den Agenten-Token oder legt ihn an (Modus 600). Ist die Datei zu offen, wird sie auf 600 gesetzt. Windows hat keine POSIX-Modi
+ * (ein Auslesen liefert immer 666): dort wird weder gewarnt noch behauptet, der Modus sei gesetzt; geschuetzt ist die Datei durch die
+ * Zugriffsrechte des Benutzerprofil-Ordners.
+ */
 export async function loadOrCreateAgentToken(path: string, rotate = false, platform: NodeJS.Platform = process.platform, warn: (msg: string) => void = (m) => console.warn(m)): Promise<string> {
   if (!rotate) {
     try {
       const existing = (await readFile(path, "utf8")).trim();
       if (existing.length >= 32) {
-        if (platform === "win32") {
-          warn(`Hinweis: Dateirechte der Agenten-Token-Datei ${path} lassen sich unter Windows nicht pruefen; sie sollte nur in Ihrem Benutzerprofil liegen.`);
-        } else if (((await stat(path)).mode & 0o077) !== 0) {
+        if (platform !== "win32" && ((await stat(path)).mode & 0o077) !== 0) {
           await chmod(path, 0o600);
           warn(`Die Agenten-Token-Datei ${path} war fuer andere lesbar und wurde auf Modus 600 gesetzt. Token erneuern, falls andere Benutzer Zugriff hatten.`);
         }

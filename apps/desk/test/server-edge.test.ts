@@ -31,7 +31,7 @@ describe("host check", () => {
 });
 
 describe("default warnings", () => {
-  it("warns through the console when an agent token file is too open or cannot be checked", async () => {
+  it("warns through the console when an agent token file is too open, and not on Windows", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const file = join(await dirOf(), "agent-token");
     await writeFile(file, `${"a".repeat(43)}\n`);
@@ -41,8 +41,7 @@ describe("default warnings", () => {
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(await loadOrCreateAgentToken(file, false, "win32")).toBe("a".repeat(43));
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[1]![0])).toContain("Windows");
+    expect(warn).toHaveBeenCalledTimes(1); // Windows: no mode check, so no second warning
   });
   it("warns through the console when the launch secret file is too open", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

@@ -41,6 +41,7 @@ async function prepare() {
   vi.stubEnv("SECRET_DESK_LAUNCH_SECRET_FILE", "");
   vi.stubEnv("SECRET_DESK_NO_LAUNCH_SECRET", "1");
   vi.stubEnv("HOME", dir);
+  vi.stubEnv("USERPROFILE", dir); // os.homedir() reads USERPROFILE, not HOME, on Windows
   vi.spyOn(process, "cwd").mockReturnValue(work);
   return { dir, work };
 }
