@@ -138,7 +138,7 @@ describe("GET secrets/:id/params", () => {
     const r = await call(deps, ui(deps, "GET", "secrets/cf-deploy-acme-app-staging/params"));
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ secretId: "cf-deploy-acme-app-staging", provider: "cloudflare-token", connection: "cloudflare", connected: true, complete: false, unknown: { custom: "keep-me" } });
-    expect(r.json.specs.map((s: { key: string }) => s.key)).toEqual(["accountId", "permissions", "zoneId", "zones", "allZones"]);
+    expect(r.json.specs.map((s: { key: string }) => s.key)).toEqual(["accountId", "permissions", "zoneId", "zones", "allZones", "r2Buckets", "r2Jurisdiction"]);
     expect(r.json.problems.map((p: { key: string; code: string }) => [p.key, p.code])).toEqual([["accountId", "missing"], ["permissions", "missing"]]);
     expect(r.json.resources.accountId).toMatchObject({ status: "ok", suggested: "acc1" });
     expect(r.json.resources.zoneId.options[0]).toMatchObject({ value: "z1", suggestedFor: { score: 2 } });
