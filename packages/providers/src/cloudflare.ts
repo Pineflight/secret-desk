@@ -12,6 +12,11 @@ interface Envelope<T> {
 const TID = "cloudflare-token";
 export const ACCOUNT_SCOPE = "com.cloudflare.api.account";
 const ZONE_SCOPE = "com.cloudflare.api.account.zone";
+/** Scope of permission groups that apply to single R2 buckets (for example "Workers R2 Storage Bucket Item Read"). */
+export const R2_BUCKET_SCOPE = "com.cloudflare.edge.r2.bucket";
+const R2_JURISDICTIONS = ["default", "eu", "fedramp"] as const;
+/** R2 bucket names: 3 to 63 characters, lowercase letters, digits and hyphens, no hyphen at either end. */
+const R2_BUCKET_NAME = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 
 export const CLOUDFLARE_ACCOUNT_ID_SPEC: ParamSpec = {
   key: "accountId",
@@ -120,6 +125,30 @@ const tokenSpecs: ParamSpec[] = [
     help: "Zonengebundene Rechte gelten fuer jede Zone des Kontos, auch fuer spaeter angelegte. Nicht zusammen mit zoneId oder zones.",
     helpEn: "Zone-bound permissions apply to every zone of the account, including ones created later. Not together with zoneId or zones.",
   },
+  {
+    key: "r2Buckets",
+    label: "R2-Buckets (Namen)",
+    labelEn: "R2 buckets (names)",
+    type: "stringList",
+    required: false,
+    help: "Bucket-Namen fuer bucketgebundene R2-Rechte, zum Beispiel Workers R2 Storage Bucket Item Read oder Write. Der Token gilt dann nur fuer diese Buckets. 3 bis 63 Zeichen: Kleinbuchstaben, Ziffern, Bindestriche.",
+    helpEn: "Bucket names for bucket-bound R2 permissions, for example Workers R2 Storage Bucket Item Read or Write. The token then applies to these buckets only. 3 to 63 characters: lowercase letters, digits, hyphens.",
+  },
+  {
+    key: "r2Jurisdiction",
+    label: "R2-Jurisdiktion",
+    labelEn: "R2 jurisdiction",
+    type: "enum",
+    required: false,
+    defaultValue: "default",
+    options: [
+      { value: "default", label: "Standard", labelEn: "Default" },
+      { value: "eu", label: "EU", labelEn: "EU" },
+      { value: "fedramp", label: "FedRAMP", labelEn: "FedRAMP" },
+    ],
+    help: "Jurisdiktion der Buckets aus r2Buckets. Sie ist Teil der Bucket-Ressource des Tokens.",
+    helpEn: "Jurisdiction of the buckets in r2Buckets. It is part of the token's bucket resource.",
+  },
 ];
 
 const turnstileSpecs: ParamSpec[] = [
@@ -189,10 +218,12 @@ export async function discoverCloudflare(id: string, connection: string, specs: 
 
 /** account, zone oder gemischt - anhand der Geltungsbereiche, die Cloudflare je Berechtigungsgruppe nennt. */
 function groupScope(scopes: string[]): string {
-  const account = scopes.includes(ACCOUNT_SCOPE);
-  const zone = scopes.includes(ZONE_SCOPE);
-  return account && zone ? "account, zone" : zone ? "zone" : account ? "account" : scopes.join(", ");
+  const named = [scopes.includes(ACCOUNT_SCOPE) ? "account" : "", scopes.includes(ZONE_SCOPE) ? "zone" : "", scopes.includes(R2_BUCKET_SCOPE) ? R2_BUCKET_DETAIL : ""].filter(Boolean);
+  return named.length > 0 ? named.join(", ") : scopes.join(", ");
 }
+
+/** Scope label of bucket-bound groups in the discovery detail. */
+const R2_BUCKET_DETAIL = "r2-bucket";
 
 /** Konto und Berechtigungen gegen das Token der Verbindung pruefen (lesend). */
 export async function preflightCloudflare(id: string, connection: string, specs: readonly ParamSpec[], ctx: PreflightContext, withPermissions: boolean): Promise<PreflightResult> {
@@ -221,6 +252,10 @@ export async function preflightCloudflare(id: string, connection: string, specs:
     if (missing.length > 0) findings.push({ id: "permissions", level: "fail", label: `Unbekannte Berechtigungsgruppen: ${missing.join(", ")}` });
     else findings.push({ id: "permissions", level: "ok", label: "Alle Berechtigungsgruppen existieren" });
     const zoneBound = wanted.filter((n) => known.get(n) === "zone");
+    const r2Bound = wanted.filter((n) => known.get(n)?.includes(R2_BUCKET_DETAIL));
+    const r2 = r2PreflightFinding(accountId, ctx.params, r2Bound);
+    if (r2.finding) findings.push(r2.finding);
+    if (r2.resource) resource = `${resource}, ${r2.resource}`;
     const target = zoneTargetOf(id, ctx.params);
     if (zoneBound.length > 0 && !hasZoneTarget(target)) findings.push({ id: "zone", level: "fail", label: `Zone fehlt (zoneId, zones oder allZones): ${zoneBound.join(", ")} gilt nur fuer Zonen` });
     else if (target.all) {
@@ -246,6 +281,25 @@ export async function preflightCloudflare(id: string, connection: string, specs:
   return { resource, findings };
 }
 
+/** Planned R2 bucket resources as a finding; fails when the buckets and the bucket-bound permissions do not fit together. */
+function r2PreflightFinding(accountId: string, params: Record<string, unknown>, bound: string[]): { finding?: PreflightFinding; resource?: string } {
+  let target: R2Target;
+  try {
+    target = r2TargetOf(params);
+  } catch (err) {
+    return { finding: { id: "r2-buckets", level: "fail", label: (err as Error).message } };
+  }
+  const mismatch = r2Mismatch(bound.length, target);
+  if (mismatch === "missing") return { finding: { id: "r2-buckets", level: "fail", label: `R2-Buckets fehlen (r2Buckets): ${bound.join(", ")} gilt nur fuer einzelne Buckets` } };
+  if (mismatch === "unused") return { finding: { id: "r2-buckets", level: "fail", label: "r2Buckets angegeben, aber keine bucketgebundene Berechtigung gewaehlt" } };
+  if (bound.length === 0) return {};
+  const keys = r2BucketKeys(accountId, target);
+  return {
+    finding: { id: "r2-buckets", level: "ok", label: `Bucketgebundene Rechte (${bound.join(", ")}) gelten nur fuer ${target.buckets.join(", ")} (${target.jurisdiction})`, detail: `Ressourcen: ${keys.join(", ")}` },
+    resource: `R2-Buckets ${target.jurisdiction}/${target.buckets.join(", ")}`,
+  };
+}
+
 function permissionNames(params: Record<string, unknown>): string[] | undefined {
   const p = params["permissions"];
   return Array.isArray(p) && p.every((x) => typeof x === "string") ? [...new Set(p as string[])] : undefined;
@@ -269,6 +323,38 @@ function zoneTargetOf(id: string, params: Record<string, unknown>): ZoneTarget {
 }
 
 const hasZoneTarget = (t: ZoneTarget): boolean => t.all || t.zoneId !== "" || t.zoneNames.length > 0;
+
+/** The R2 buckets a token's bucket-bound permissions cover, and their jurisdiction. */
+interface R2Target {
+  buckets: string[];
+  jurisdiction: (typeof R2_JURISDICTIONS)[number];
+}
+
+const r2Problem = (key: string, code: "missing" | "not_in_options", message: string): ParamsInvalidError => {
+  const spec = tokenSpecs.find((x) => x.key === key)!;
+  return new ParamsInvalidError([{ key, code, message, label: spec.label, labelEn: spec.labelEn }]);
+};
+
+/** Reads r2Buckets and r2Jurisdiction; a bucket name that breaks the R2 rules or an unknown jurisdiction aborts (fail closed). */
+function r2TargetOf(params: Record<string, unknown>): R2Target {
+  const list = params["r2Buckets"];
+  const buckets = Array.isArray(list) ? [...new Set(list.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))] : [];
+  const invalid = buckets.filter((b) => !R2_BUCKET_NAME.test(b));
+  if (invalid.length > 0) throw r2Problem("r2Buckets", "not_in_options", `Ungueltige R2-Bucket-Namen (3 bis 63 Zeichen, Kleinbuchstaben, Ziffern, Bindestriche): ${invalid.join(", ")}`);
+  const j = params["r2Jurisdiction"] ?? "default";
+  if (!(R2_JURISDICTIONS as readonly unknown[]).includes(j)) throw r2Problem("r2Jurisdiction", "not_in_options", "r2Jurisdiction muss default, eu oder fedramp sein");
+  return { buckets, jurisdiction: j as R2Target["jurisdiction"] };
+}
+
+/** `com.cloudflare.edge.r2.bucket.<account>_<jurisdiction>_<bucket>`, one per bucket. */
+const r2BucketKeys = (accountId: string, t: R2Target): string[] => t.buckets.map((b) => `${R2_BUCKET_SCOPE}.${accountId}_${t.jurisdiction}_${b}`);
+
+/** Bucket-bound permissions need buckets and buckets need at least one bucket-bound permission. */
+function r2Mismatch(boundCount: number, t: R2Target): "missing" | "unused" | null {
+  if (boundCount > 0 && t.buckets.length === 0) return "missing";
+  if (boundCount === 0 && t.buckets.length > 0) return "unused";
+  return null;
+}
 
 /** A zone id as Cloudflare prints it: 32 hex characters. */
 const ZONE_ID = /^[0-9a-f]{32}$/;
@@ -352,6 +438,7 @@ async function verifyToken(ctx: VerifyContext): Promise<Check[]> {
         );
       }
       const accountId = typeof ctx.params["accountId"] === "string" ? ctx.params["accountId"] : undefined;
+      const r2Wanted = r2TargetOf(ctx.params);
       if (!accountId) {
         out.push(check("account-scope", "Nur das erwartete Konto", "warn", { detail: "Parameter accountId fehlt, kein Vergleich moeglich" }));
       } else {
@@ -364,9 +451,12 @@ async function verifyToken(ctx: VerifyContext): Promise<Check[]> {
         const zoneKeys = [...keys].filter((k) => k.startsWith(zonePrefix));
         const zoneCountOk = target.zoneNames.length === 0 || zoneKeys.length === target.zoneNames.length + (target.zoneId ? 1 : 0);
         const zoneAllowed = (k: string): boolean => !target.all && k.startsWith(zonePrefix) && (target.zoneNames.length > 0 || k === `${zonePrefix}${target.zoneId}`);
-        const others = [...keys].filter((k) => k !== want && !zoneAllowed(k));
+        // With r2Buckets the bucket resources are judged by the r2-buckets check below; here they only count as a scope of their own.
+        const bucketPrefix = `${R2_BUCKET_SCOPE}.`;
+        const bucketKeys = r2Wanted.buckets.length > 0 ? [...keys].filter((k) => k.startsWith(bucketPrefix)) : [];
+        const others = [...keys].filter((k) => k !== want && !zoneAllowed(k) && !bucketKeys.includes(k));
         // Mit zonengebundenen Rechten steht neben dem Konto nur die gewaehlte Zone; ohne sie darf das Konto fehlen.
-        const ok = (keys.has(want) || zoneKeys.length > 0) && others.length === 0 && zoneCountOk;
+        const ok = (keys.has(want) || zoneKeys.length > 0 || bucketKeys.length > 0) && others.length === 0 && zoneCountOk;
         out.push(
           check("account-scope", "Nur das erwartete Konto", ok ? "pass" : "fail", {
             expected: want,
@@ -375,9 +465,31 @@ async function verifyToken(ctx: VerifyContext): Promise<Check[]> {
           }),
         );
       }
+      if (r2Wanted.buckets.length > 0) out.push(await r2ScopeCheck(ctx, accountId, r2Wanted, policies, wanted ?? []));
       return out;
     }),
   ]);
+}
+
+/**
+ * Compares the resources of every policy that carries a bucket-bound permission with the expected bucket keys. It passes only
+ * when each such policy lists exactly these keys, so a token with account-wide access to the bucket permissions fails.
+ */
+async function r2ScopeCheck(ctx: VerifyContext, accountId: string | undefined, target: R2Target, policies: Record<string, unknown>[], wanted: string[]): Promise<Check> {
+  const label = "Nur die erwarteten R2-Buckets";
+  if (!accountId) return check("r2-buckets", label, "warn", { detail: "Parameter accountId fehlt, kein Vergleich moeglich" });
+  const r = await probeWithConnection(TID, ctx, "cloudflare", `${CLOUDFLARE_API}/user/tokens/permission_groups`);
+  const list = isRecord(r.json) && Array.isArray(r.json["result"]) ? r.json["result"].filter(isRecord) : [];
+  const bound = new Set(list.filter((g) => Array.isArray(g["scopes"]) && g["scopes"].includes(R2_BUCKET_SCOPE) && typeof g["name"] === "string").map((g) => g["name"] as string));
+  const boundWanted = wanted.filter((n) => bound.has(n));
+  if (r.status < 200 || r.status >= 300 || boundWanted.length === 0) return check("r2-buckets", label, "warn", { detail: "Bucketgebundene Berechtigungen nicht ermittelbar (Berechtigungsgruppen nicht lesbar)" });
+  const expected = r2BucketKeys(accountId, target);
+  const carrying = policies.filter((p) => Array.isArray(p["permission_groups"]) && p["permission_groups"].some((g) => isRecord(g) && typeof g["name"] === "string" && bound.has(g["name"])));
+  const actual = new Set<string>();
+  for (const p of carrying) for (const k of isRecord(p["resources"]) ? Object.keys(p["resources"]) : []) actual.add(k);
+  const { missing, extra } = sameSet([...actual], expected);
+  const parts = [extra.length ? `Zusaetzlich: ${extra.join(", ")}` : "", missing.length ? `Fehlt: ${missing.join(", ")}` : ""].filter(Boolean);
+  return check("r2-buckets", label, parts.length ? "fail" : "pass", { expected: expected.join(", "), actual: [...actual].join(", ") || "keine Ressourcen", ...(parts.length ? { detail: parts.join("; ") } : {}) });
 }
 
 const tokenProvider: Provider = {
@@ -412,6 +524,13 @@ const tokenProvider: Provider = {
       const all = byName.get(n)!;
       return all.some((g) => (g.scopes ?? []).includes(ZONE_SCOPE)) && !all.some((g) => (g.scopes ?? []).includes(ACCOUNT_SCOPE));
     };
+    // Bucket-bound R2 groups (scope includes the bucket scope) get their own policy on the named buckets.
+    const isBucket = (n: string): boolean => byName.get(n)!.some((g) => (g.scopes ?? []).includes(R2_BUCKET_SCOPE));
+    const bucketBound = permissions.filter(isBucket);
+    const r2 = r2TargetOf(ctx.params);
+    const r2Wrong = r2Mismatch(bucketBound.length, r2);
+    if (r2Wrong === "missing") throw r2Problem("r2Buckets", "missing", `r2Buckets fehlt: ${bucketBound.join(", ")} gilt nur fuer einzelne Buckets`);
+    if (r2Wrong === "unused") throw new ProviderError(id, null, "r2Buckets angegeben, aber keine bucketgebundene Berechtigung gewaehlt");
     const zoneBound = permissions.filter(isZone);
     const target = zoneTargetOf(id, ctx.params);
     if (zoneBound.length > 0 && !hasZoneTarget(target)) {
@@ -423,10 +542,11 @@ const tokenProvider: Provider = {
     const zoneResources: Record<string, unknown> = target.all ? { [`${ACCOUNT_SCOPE}.${accountId}`]: { [`${ZONE_SCOPE}.*`]: "*" } } : Object.fromEntries([...new Set(zoneIds)].map((z) => [`${ZONE_SCOPE}.${z}`, "*"]));
 
     const expiresOn = expiryFrom(ctx.now, ctx.secret.ttlDays ?? DEFAULT_TTL_DAYS);
-    const accountGroups = permissions.filter((n) => !isZone(n));
+    const accountGroups = permissions.filter((n) => !isBucket(n) && !isZone(n));
     const policies = [
       ...(accountGroups.length > 0 ? [{ effect: "allow", resources: { [`${ACCOUNT_SCOPE}.${accountId}`]: "*" }, permission_groups: accountGroups.map((n) => ({ id: pick(n, ACCOUNT_SCOPE).id })) }] : []),
       ...(zoneBound.length > 0 ? [{ effect: "allow", resources: zoneResources, permission_groups: zoneBound.map((n) => ({ id: pick(n, ZONE_SCOPE).id })) }] : []),
+      ...(bucketBound.length > 0 ? [{ effect: "allow", resources: Object.fromEntries(r2BucketKeys(accountId, r2).map((k) => [k, "*"])), permission_groups: bucketBound.map((n) => ({ id: pick(n, R2_BUCKET_SCOPE).id })) }] : []),
     ];
     const body = {
       name: ctx.label,

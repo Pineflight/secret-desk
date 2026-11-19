@@ -134,6 +134,36 @@ Presets on the `permissions` parameter (the lists live in `packages/providers/sr
 
 Zone-level groups (DNS, Zone Settings, Page Rules, Config Settings, Workers Routes, SSL and Certificates, Zone) go to the zone policy, the others to the account policy. The group names are the ones the Cloudflare permission-group list is shows (user tokens); the names were checked against a live account on 2026-11-04. The pages groups are called *Pages Read* and *Pages Write*. A name the account does not list stops the issuance and is named in the error (fail closed). Cloudflare for SaaS custom hostnames are managed under the zone's SSL and certificates; no separate "Custom Hostnames" group is known, and if the account lists one, add it to `permissions`. Use separate entries (and tokens) for plan and apply so the read-only token cannot change anything. The account-level `Workers R2 Storage` groups cover R2 buckets managed by Terraform, not object access: use `cloudflare-r2-credentials` for that.
 
+#### R2 bucket scope (least privilege)
+
+`cloudflare-token` can limit R2 permissions to single buckets. Two optional parameters:
+
+- `r2Buckets` (string list): bucket names, each 3 to 63 characters of lowercase letters, digits and hyphens (no hyphen at either end).
+- `r2Jurisdiction` (`default`, `eu` or `fedramp`, default `default`): part of the bucket resource.
+
+Permission groups whose scopes (read from the permission-group list, like for zones) include `com.cloudflare.edge.r2.bucket` are bucket-bound, for example *Workers R2 Storage Bucket Item Read* and *Workers R2 Storage Bucket Item Write*. They go into their own policy with one resource per bucket:
+
+```json
+{ "com.cloudflare.edge.r2.bucket.<accountId>_<jurisdiction>_<bucket>": "*" }
+```
+
+Account-wide R2 groups such as *Workers R2 Storage Write* stay on the account policy, so a token can mix both. Bucket-bound permissions without `r2Buckets`, and `r2Buckets` without a bucket-bound permission, abort the issuance before a token is created. The preflight (and so the dry run) shows the planned resources, and the verification (`r2-buckets` check) passes only when every policy with a bucket-bound permission lists exactly the expected bucket resources, so a token with account-wide access fails. The resource key format with a jurisdiction is taken from Cloudflare's documentation and covered by mocked tests; it has not been confirmed against the live API.
+
+Example: an EU bucket token with Object Read & Write on one bucket.
+
+```yaml
+- id: example-bucket-rw
+  name: EXAMPLE_BUCKET_TOKEN
+  stage: prod
+  service: cloudflare
+  provider: cloudflare-token
+  params:
+    accountId: 0123456789abcdef0123456789abcdef
+    permissions: [Workers R2 Storage Bucket Item Read, Workers R2 Storage Bucket Item Write]
+    r2Buckets: [example-bucket]
+    r2Jurisdiction: eu
+```
+
 ### Cloudflare R2 S3 credentials (access key ID and secret access key together)
 
 Account-owned tokens are not used: the *Create additional tokens* connection token gets HTTP 403 (code 9109) on `/accounts/<id>/tokens` (seen live on 2026-11-04).
