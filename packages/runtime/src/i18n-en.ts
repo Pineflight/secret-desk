@@ -323,6 +323,7 @@ const EXACT_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["Nur die erwarteten R2-Buckets", "Only the expected R2 buckets"],
   ["Bucketgebundene Berechtigungen nicht ermittelbar (Berechtigungsgruppen nicht lesbar)", "Bucket-bound permissions cannot be determined (permission groups not readable)"],
   ["r2Buckets angegeben, aber keine bucketgebundene Berechtigung gewaehlt", "r2Buckets given, but no bucket-bound permission chosen"],
+  ["accountId muss fuer bucketgebundene R2-Rechte eine Cloudflare-Konto-Kennung sein (32 Hex-Zeichen)", "accountId must be a Cloudflare account id (32 hex characters) for bucket-bound R2 permissions"],
   ["r2Jurisdiction muss default, eu oder fedramp sein", "r2Jurisdiction must be default, eu or fedramp"],
   ["Parameter accountId fehlt, kein Vergleich moeglich", "Parameter accountId is missing, no comparison possible"],
   ["keine Ressourcen", "no resources"],

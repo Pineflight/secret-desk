@@ -6,6 +6,7 @@ import { byId, connections, expectNoLeak, issueCtx, routeFetch, secretEntry, ver
 const token = cloudflareProviders.find((p) => p.id === "cloudflare-token")!;
 const ACCOUNT = "com.cloudflare.api.account";
 const BUCKET = "com.cloudflare.edge.r2.bucket";
+const ACC = "0123456789abcdef0123456789abcdef";
 const GROUPS = [
   { id: "item-read", name: "Workers R2 Storage Bucket Item Read", scopes: [BUCKET] },
   { id: "item-write", name: "Workers R2 Storage Bucket Item Write", scopes: [BUCKET] },
@@ -15,8 +16,8 @@ const GROUPS = [
 const groupsRoute: Route = { url: "/user/tokens/permission_groups", reply: { body: { result: GROUPS } } };
 const createRoute: Route = { method: "POST", url: "/user/tokens", reply: { body: { result: { id: "tok1", value: "ISSUED-VALUE-ABCDEFGH" } } } };
 const RW = ["Workers R2 Storage Bucket Item Read", "Workers R2 Storage Bucket Item Write"];
-const base = { accountId: "acc1", permissions: RW, r2Buckets: ["example-bucket"] };
-const key = (j: string, b: string) => `${BUCKET}.acc1_${j}_${b}`;
+const base = { accountId: ACC, permissions: RW, r2Buckets: ["example-bucket"] };
+const key = (j: string, b: string) => `${BUCKET}.${ACC}_${j}_${b}`;
 
 async function policiesOf(params: Record<string, unknown>) {
   const m = routeFetch(groupsRoute, createRoute);
@@ -46,7 +47,7 @@ describe("cloudflare-token R2 bucket scope: issue", () => {
   it("uses the eu jurisdiction in the resource key", async () => {
     const p = await policiesOf({ ...base, r2Jurisdiction: "eu" });
     expect(p).toHaveLength(1);
-    expect(p[0]!.resources).toEqual({ "com.cloudflare.edge.r2.bucket.acc1_eu_example-bucket": "*" });
+    expect(p[0]!.resources).toEqual({ "com.cloudflare.edge.r2.bucket.0123456789abcdef0123456789abcdef_eu_example-bucket": "*" });
   });
 
   it("adds one resource per bucket and drops duplicates and blanks", async () => {
@@ -57,13 +58,36 @@ describe("cloudflare-token R2 bucket scope: issue", () => {
   it("keeps account-wide R2 groups on the account in a mixed token", async () => {
     const p = await policiesOf({ ...base, permissions: ["Workers R2 Storage Write", "Account Settings Read", ...RW] });
     expect(p).toEqual([
-      { effect: "allow", resources: { [`${ACCOUNT}.acc1`]: "*" }, permission_groups: [{ id: "r2-write" }, { id: "settings" }] },
+      { effect: "allow", resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: [{ id: "r2-write" }, { id: "settings" }] },
       { effect: "allow", resources: { [key("default", "example-bucket")]: "*" }, permission_groups: [{ id: "item-read" }, { id: "item-write" }] },
     ]);
   });
 
   it("leaves tokens without r2Buckets unchanged (no jurisdiction needed)", async () => {
-    expect(await policiesOf({ accountId: "acc1", permissions: ["Workers R2 Storage Write"] })).toEqual([{ effect: "allow", resources: { [`${ACCOUNT}.acc1`]: "*" }, permission_groups: [{ id: "r2-write" }] }]);
+    expect(await policiesOf({ accountId: ACC, permissions: ["Workers R2 Storage Write"] })).toEqual([{ effect: "allow", resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: [{ id: "r2-write" }] }]);
+  });
+
+  it("keeps a group with account and bucket scope account-wide without r2Buckets, and uses the bucket variant with r2Buckets", async () => {
+    const dual = { ...groupsRoute, reply: { body: { result: [...GROUPS, { id: "dual-acc", name: "Dual Group", scopes: [ACCOUNT] }, { id: "dual-bucket", name: "Dual Group", scopes: [BUCKET] }] } } } satisfies Route;
+    const issue = async (params: Record<string, unknown>) => {
+      const m = routeFetch(dual, createRoute);
+      await token.issue!(issueCtx(m.fetch, params, { conns: ["cloudflare"] }));
+      return JSON.parse(m.calls.find((c) => c.method === "POST")!.body!).policies;
+    };
+    expect(await issue({ accountId: ACC, permissions: ["Dual Group"] })).toEqual([{ effect: "allow", resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: [{ id: "dual-acc" }] }]);
+    expect(await issue({ accountId: ACC, permissions: ["Dual Group"], r2Buckets: ["example-bucket"] })).toEqual([{ effect: "allow", resources: { [key("default", "example-bucket")]: "*" }, permission_groups: [{ id: "dual-bucket" }] }]);
+  });
+
+  it("requires a real account id for bucket resources", async () => {
+    for (const bad of ["acc1", ACC.toUpperCase(), `${ACC}0`]) {
+      const m = routeFetch(groupsRoute, createRoute);
+      const err = await token.issue!(issueCtx(m.fetch, { ...base, accountId: bad }, { conns: ["cloudflare"] })).catch((e: unknown) => e);
+      expect(err, bad).toBeInstanceOf(ParamsInvalidError);
+      expect((err as ParamsInvalidError).problems[0]).toMatchObject({ key: "accountId", code: "not_in_options" });
+      expect(m.calls.some((c) => c.method === "POST")).toBe(false);
+    }
+    // without bucket-bound permissions the account id keeps its old, unchecked form
+    expect(await policiesOf({ accountId: "acc1", permissions: ["Workers R2 Storage Write"] })).toHaveLength(1);
   });
 
   it("rejects bucket-bound permissions without r2Buckets and creates no token", async () => {
@@ -117,9 +141,9 @@ describe("cloudflare-token R2 bucket scope: verify", () => {
   });
 
   it("fails on account-wide access to the bucket permissions", async () => {
-    const checks = await run(eu, [{ resources: { [`${ACCOUNT}.acc1`]: "*" }, permission_groups: names }]);
+    const checks = await run(eu, [{ resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: names }]);
     expect(byId(checks)["r2-buckets"]).toBe("fail");
-    expect(checks.find((c) => c.id === "r2-buckets")!.detail).toContain(`Zusaetzlich: ${ACCOUNT}.acc1`);
+    expect(checks.find((c) => c.id === "r2-buckets")!.detail).toContain(`Zusaetzlich: ${ACCOUNT}.0123456789abcdef0123456789abcdef`);
   });
 
   it("fails when a bucket is missing, an extra bucket is present or the jurisdiction differs", async () => {
@@ -133,13 +157,37 @@ describe("cloudflare-token R2 bucket scope: verify", () => {
   it("accepts a mixed token: the account policy stays account-wide, the bucket policy exact", async () => {
     const mixed = { ...eu, permissions: ["Workers R2 Storage Write", ...RW] };
     const policies = [
-      { resources: { [`${ACCOUNT}.acc1`]: "*" }, permission_groups: [{ name: "Workers R2 Storage Write" }] },
+      { resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: [{ name: "Workers R2 Storage Write" }] },
       { resources: { [key("eu", "example-bucket")]: "*" }, permission_groups: names },
     ];
     expect(byId(await run(mixed, policies))).toMatchObject({ "account-scope": "pass", "r2-buckets": "pass" });
     // the same account policy also carrying the bucket permissions is account-wide access
-    const wide = [{ resources: { [`${ACCOUNT}.acc1`]: "*", [key("eu", "example-bucket")]: "*" }, permission_groups: [...names, { name: "Workers R2 Storage Write" }] }];
+    const wide = [{ resources: { [`${ACCOUNT}.${ACC}`]: "*", [key("eu", "example-bucket")]: "*" }, permission_groups: [...names, { name: "Workers R2 Storage Write" }] }];
     expect(byId(await run(mixed, wide))["r2-buckets"]).toBe("fail");
+  });
+
+  it("fails the account scope for a bucket key of another account, with the same bucket name", async () => {
+    const foreign = `${BUCKET}.${"f".repeat(32)}_eu_example-bucket`;
+    const checks = await run(eu, [{ resources: { [key("eu", "example-bucket")]: "*", [foreign]: "*" }, permission_groups: names }]);
+    expect(byId(checks)["account-scope"]).toBe("fail");
+    expect(checks.find((c) => c.id === "account-scope")!.detail).toContain(foreign);
+  });
+
+  it("compares per policy: two partial policies for two buckets fail", async () => {
+    const two = { ...eu, r2Buckets: ["example-bucket", "other-bucket"] };
+    const partial = [
+      { resources: { [key("eu", "example-bucket")]: "*" }, permission_groups: [names[0]] },
+      { resources: { [key("eu", "other-bucket")]: "*" }, permission_groups: [names[1]] },
+    ];
+    const checks = await run(two, partial);
+    expect(byId(checks)["r2-buckets"]).toBe("fail");
+    expect(checks.find((c) => c.id === "r2-buckets")!.detail).toContain("Fehlt:");
+    const whole = partial.map((p) => ({ ...p, resources: { [key("eu", "example-bucket")]: "*", [key("eu", "other-bucket")]: "*" } }));
+    expect(byId(await run(two, whole))["r2-buckets"]).toBe("pass");
+  });
+
+  it("warns instead of passing when the account id is not a real id", async () => {
+    expect(byId(await run({ ...eu, accountId: "acc1" }, []))).toMatchObject({ permissions: "warn" });
   });
 
   it("fails the account scope for foreign resources next to the buckets, and without any resource", async () => {
@@ -157,7 +205,7 @@ describe("cloudflare-token R2 bucket scope: verify", () => {
 
   it("warns without accountId and ignores r2Buckets-free tokens", async () => {
     expect(byId(await run({ permissions: RW, r2Buckets: ["example-bucket"] }, []))["r2-buckets"]).toBe("warn");
-    const plain = await run({ accountId: "acc1", permissions: ["Account Settings Read"] }, [{ resources: { [`${ACCOUNT}.acc1`]: "*" }, permission_groups: [{ name: "Account Settings Read" }] }]);
+    const plain = await run({ accountId: ACC, permissions: ["Account Settings Read"] }, [{ resources: { [`${ACCOUNT}.${ACC}`]: "*" }, permission_groups: [{ name: "Account Settings Read" }] }]);
     expect(plain.some((c) => c.id === "r2-buckets")).toBe(false);
   });
 
@@ -167,7 +215,7 @@ describe("cloudflare-token R2 bucket scope: verify", () => {
 });
 
 describe("cloudflare-token R2 bucket scope: preflight", () => {
-  const acc = { url: "/accounts?per_page=50", reply: { body: { result: [{ id: "acc1", name: "Example" }] } } } satisfies Route;
+  const acc = { url: "/accounts?per_page=50", reply: { body: { result: [{ id: "0123456789abcdef0123456789abcdef", name: "Example" }] } } } satisfies Route;
   const pre = async (params: Record<string, unknown>, conns: ConnectionStore = connections("cloudflare")) => {
     const m = routeFetch(acc, groupsRoute);
     return token.preflight!({ secret: secretEntry(), params, stage: "dev", connections: conns, fetch: m.fetch, now: new Date("2026-11-01T10:00:00Z") } as never);
@@ -176,7 +224,7 @@ describe("cloudflare-token R2 bucket scope: preflight", () => {
 
   it("shows the planned resources", async () => {
     const r = await pre({ ...base, r2Jurisdiction: "eu", r2Buckets: ["example-bucket", "other-bucket"] });
-    expect(r.resource).toBe("Cloudflare-Konto Example (acc1), R2-Buckets eu/example-bucket, other-bucket");
+    expect(r.resource).toBe("Cloudflare-Konto Example (0123456789abcdef0123456789abcdef), R2-Buckets eu/example-bucket, other-bucket");
     expect(r2(r)).toMatchObject({ level: "ok", detail: `Ressourcen: ${key("eu", "example-bucket")}, ${key("eu", "other-bucket")}` });
     expect((await pre(base)).resource).toContain("R2-Buckets default/example-bucket");
   });
@@ -185,9 +233,20 @@ describe("cloudflare-token R2 bucket scope: preflight", () => {
     expect(r2(await pre({ ...base, r2Buckets: [] }))).toMatchObject({ level: "fail", label: expect.stringContaining("R2-Buckets fehlen") });
     expect(r2(await pre({ ...base, permissions: ["Workers R2 Storage Write"] }))).toMatchObject({ level: "fail", label: expect.stringContaining("keine bucketgebundene") });
     expect(r2(await pre({ ...base, r2Buckets: ["No_Good"] }))).toMatchObject({ level: "fail", label: expect.stringContaining("No_Good") });
-    const quiet = await pre({ accountId: "acc1", permissions: ["Workers R2 Storage Write"] });
+    const quiet = await pre({ accountId: ACC, permissions: ["Workers R2 Storage Write"] });
     expect(r2(quiet)).toBeUndefined();
-    expect(quiet.resource).toBe("Cloudflare-Konto Example (acc1)");
+    expect(quiet.resource).toBe("Cloudflare-Konto Example (0123456789abcdef0123456789abcdef)");
+  });
+
+  it("fails the preflight for an account id that is not a real id", async () => {
+    expect(r2(await pre({ ...base, accountId: "acc1" }))).toMatchObject({ level: "fail", label: expect.stringContaining("32 Hex-Zeichen") });
+  });
+
+  it("treats a group with account and bucket scope as account-wide unless buckets are named", async () => {
+    const dualGroups = { ...groupsRoute, reply: { body: { result: [{ id: "d1", name: "Dual Group", scopes: [ACCOUNT, BUCKET] }] } } } satisfies Route;
+    const dual = async (params: Record<string, unknown>) => token.preflight!({ secret: secretEntry(), params, stage: "dev", connections: connections("cloudflare"), fetch: routeFetch(acc, dualGroups).fetch, now: new Date() } as never);
+    expect(r2(await dual({ accountId: ACC, permissions: ["Dual Group"] }))).toBeUndefined();
+    expect(r2(await dual({ accountId: ACC, permissions: ["Dual Group"], r2Buckets: ["example-bucket"] }))).toMatchObject({ level: "ok" });
   });
 
   it("labels bucket-bound groups in discovery", async () => {
