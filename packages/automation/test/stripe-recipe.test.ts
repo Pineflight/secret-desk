@@ -493,3 +493,108 @@ describe("stripe-restricted-key recipe, single-page form", () => {
     expect(d.calls.some((c) => c.startsWith("fill"))).toBe(false);
   });
 });
+
+describe("stripe-restricted-key recipe, checkout preset", () => {
+  const rowOf = (name: string) => `css tr:has-text("${name}"):not(:has-text("View documentation"))`;
+  const button = (name: string, level: string) => `${rowOf(name)} >> role=button[name="${level}"s] >> nth=0`;
+  // Rows and levels of the preset: Write for Checkout Sessions, Customers and Charges and Refunds; Read for Products and Prices.
+  const rows = [
+    ["Checkout Sessions", "Write"],
+    ["Customers", "Write"],
+    ["Products", "Read"],
+    ["Prices", "Read"],
+    ["Charges and Refunds", "Write"],
+  ] as const;
+
+  it("creates a checkout key on the single-page form: each row gets its level, the webhook row and the full access are not touched", async () => {
+    const r = await recipe();
+    const d = singlePage({ extraVisible: rows.flatMap(([row]) => [rowOf(row), button(row, rows.find(([x]) => x === row)![1])]) });
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "checkout" }), d, {}, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(res.createdName).toBe(VARS.name);
+    for (const [row, level] of rows) expect(d.calls).toContain(`click ${button(row, level)}`);
+    expect(d.filled.get(FILTER)).toBe("Charges");
+    // Products and Prices are Read only; no other row gets Write.
+    expect(d.calls).not.toContain(`click ${button("Products", "Write")}`);
+    expect(d.calls).not.toContain(`click ${button("Prices", "Write")}`);
+    expect(d.calls).not.toContain(`click ${WRITE}`);
+    expect(d.calls.join("\n")).not.toContain("Custom permissions");
+    // Every level is set before Create key; the banner is rejected, never accepted.
+    const createAt = d.calls.indexOf(`click ${CREATE_EXACT}`);
+    for (const [row, level] of rows) expect(d.calls.indexOf(`click ${button(row, level)}`)).toBeLessThan(createAt);
+    expect(d.calls.join("\n")).not.toContain("Accept all");
+    for (const s of d.shots) expect(s.masks).toContain('css a[aria-label="Click to copy"]');
+  });
+
+  it("live: opens the side panel from the key list and creates a checkout key on the single-page form", async () => {
+    const r = await recipe();
+    const OPEN = 'button "Create restricted key" (exact)';
+    const CARD = 'css [role=dialog] :text-is("Powering an integration you built")';
+    const OWN = 'css [role=dialog] :text-is("Choose your own")';
+    const d: FakeDriver = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER, OPEN, 'css #key-name', FILTER, CREATE_EXACT, ...rows.flatMap(([row]) => [rowOf(row), button(row, rows.find(([x]) => x === row)![1])])],
+      on: (e, drv) => {
+        if (e.action === "goto") { drv.url = e.key; return; }
+        if (e.action === "click" && e.key === OPEN) {
+          drv.pageText.add("How will you be using this key?");
+          drv.visible.add('Text "How will you be using this key?"').add(CARD).add(CONTINUE);
+        }
+        if (e.action === "click" && e.key === CONTINUE) {
+          drv.pageText.add("Choose a permission template");
+          drv.visible.add(OWN);
+        }
+        if (e.action === "click" && e.key === OWN) {
+          drv.pageText.add("Create restricted API key");
+          drv.visible.add('Text "Create restricted API key"');
+        }
+        if (e.action === "click" && e.key === CREATE_EXACT) {
+          drv.visible.add(COPY_LINK(VARS.name));
+          drv.texts.set(COPY_LINK(VARS.name), ` ${KEY} `);
+        }
+      },
+    });
+    const res = await runRecipe(r, vars(r, { account: ACCOUNT, mode: "live", preset: "checkout" }), d, { onWaitingForHuman: () => undefined }, { pollMs: 2 });
+    expect(res.value.reveal()).toBe(KEY);
+    expect(d.calls[1]).toBe(`goto https://dashboard.stripe.com/${ACCOUNT}/apikeys`);
+    const order = [`click ${OPEN}`, `click ${CARD}`, `click ${CONTINUE}`, `click ${OWN}`, `click ${button("Checkout Sessions", "Write")}`, `click ${CREATE_EXACT}`].map((c) => d.calls.indexOf(c));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("refuses the checkout preset on the wizard before any key exists", async () => {
+    const r = await recipe();
+    const d = new FakeDriver({
+      pollMs: 2,
+      visible: [BANNER],
+      on: (e, drv) => {
+        if (e.action === "goto") {
+          drv.url = e.key;
+          drv.pageText.add("Choose how you");
+          drv.visible.add('Text "Choose how you"');
+        }
+      },
+    });
+    const err = (await runRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "checkout" }), d).catch((e: unknown) => e)) as RecipeRunError;
+    expect(err).toBeInstanceOf(RecipeRunError);
+    expect(err.message).toMatch(/single-page form only/);
+    expect(err.createdName).toBeUndefined();
+    expect(d.calls.some((c) => c.startsWith("fill"))).toBe(false);
+    expect(d.calls).not.toContain(`click ${CONTINUE}`);
+    expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
+  });
+
+  it("a dry run of the checkout preset stops before Create key", async () => {
+    const r = await recipe();
+    const d = singlePage({ extraVisible: rows.flatMap(([row]) => [rowOf(row), button(row, rows.find(([x]) => x === row)![1])]) });
+    await dryRunRecipe(r, vars(r, { account: ACCOUNT, mode: "sandbox", preset: "checkout" }), d, {}, { pollMs: 2 });
+    expect(d.calls).toContain(`click ${button("Customers", "Write")}`);
+    expect(d.calls).not.toContain(`click ${CREATE_EXACT}`);
+  });
+
+  it("rejects an unknown preset and lists checkout among the options", async () => {
+    const r = await recipe();
+    expect(() => recipeParamVars(r, { account: ACCOUNT, mode: "sandbox", preset: "checkouts" })).toThrow(/checkout/);
+    expect(() => recipeParamVars(r, { account: ACCOUNT, mode: "sandbox", preset: "checkout" })).not.toThrow();
+  });
+});

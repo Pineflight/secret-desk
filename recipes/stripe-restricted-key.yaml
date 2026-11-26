@@ -1,4 +1,4 @@
-# STATUS: wizard variant: full run verified live on 2026-11-04 (two sandboxes), earlier parts on 2026-11-03. Single-page variant: verified by probe on 2026-11-04 (fields, create, copy link in the list, key expiry), not as a full recipe run. The live mode, the full-access preset of the single-page variant (refused there) and the sign-in form are not verified
+# STATUS: wizard variant: full run verified live on 2026-11-04 (two sandboxes), earlier parts on 2026-11-03. Single-page variant: verified by probe on 2026-11-04 (fields, create, copy link in the list, key expiry), not as a full recipe run. The live mode, the full-access preset of the single-page variant (refused there) and the sign-in form are not verified. The checkout preset (2026-11-26) is not verified live: its row labels and the Write/Read levels are not probed yet
 # Creates a Stripe restricted key for one account and mode (Stripe has no API that creates keys). The key is shown once in the
 # "Your new secret key" view: the page prints it truncated, the full value sits in the attributes `aria-label` and `data-text`
 # of that element (there is no input), so the token is captured from `data-text`.
@@ -45,9 +45,9 @@ params:
   - key: preset
     label: Rechte
     labelEn: Permissions
-    options: ["webhooks", "full-except-sensitive", "refunds"]
+    options: ["webhooks", "full-except-sensitive", "refunds", "checkout"]
     default: webhooks
-    help: "webhooks: only Webhook Endpoints, Event Destinations with Write. full-except-sensitive: Stripe's full access without sensitive operations. refunds: Charges and Refunds with Write, Payment Intents and Invoices with Read (for partial refunds)."
+    help: "webhooks: only Webhook Endpoints, Event Destinations with Write. full-except-sensitive: Stripe's full access without sensitive operations. refunds: Charges and Refunds with Write, Payment Intents and Invoices with Read (for partial refunds). checkout: Checkout Sessions and Customers with Write, Products and Prices with Read, Charges and Refunds with Write (for a shop that creates Checkout Sessions and handles refunds)."
 login:
   # Signed in = a dashboard page of an account. Signed out, the dashboard redirects to /login.
   expect: { url: "^https://dashboard\\.stripe\\.com/acct_[A-Za-z0-9]+/" }
@@ -145,6 +145,12 @@ steps:
       all:
         - { var: variant, equals: wizard }
         - { var: preset, equals: refunds }
+  # The checkout preset is explored on the single-page form only: refuse on the wizard before anything exists.
+  - fail: "This account shows the key wizard; the preset checkout is supported on the single-page form only. Use the preset webhooks or full-except-sensitive."
+    when:
+      all:
+        - { var: variant, equals: wizard }
+        - { var: preset, equals: checkout }
   - click: { role: button, name: "Reject all", exact: true, optional: true, timeoutSeconds: 8 }
 
   # ---- Wizard ----
@@ -273,6 +279,88 @@ steps:
       all:
         - { var: variant, equals: single-page }
         - { var: preset, equals: refunds }
+  # Preset checkout (rows not probed yet, 2026-11-26: the labels are Stripe's names as the refunds rows use them; the run
+  # stops before anything is created when a row does not show). Each row: filter by name, wait for the row, set the level.
+  # Checkout Sessions: Write.
+  - fill: { placeholder: "Filter resources", value: "Checkout Sessions" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - waitFor: { visible: { css: 'tr:has-text("Checkout Sessions"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - click: { css: 'tr:has-text("Checkout Sessions"):not(:has-text("View documentation")) >> role=button[name="Write"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  # Customers: Write.
+  - fill: { placeholder: "Filter resources", value: "Customers" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - waitFor: { visible: { css: 'tr:has-text("Customers"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - click: { css: 'tr:has-text("Customers"):not(:has-text("View documentation")) >> role=button[name="Write"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  # Products: Read.
+  - fill: { placeholder: "Filter resources", value: "Products" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - waitFor: { visible: { css: 'tr:has-text("Products"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - click: { css: 'tr:has-text("Products"):not(:has-text("View documentation")) >> role=button[name="Read"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  # Prices: Read.
+  - fill: { placeholder: "Filter resources", value: "Prices" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - waitFor: { visible: { css: 'tr:has-text("Prices"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - click: { css: 'tr:has-text("Prices"):not(:has-text("View documentation")) >> role=button[name="Read"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  # Charges and Refunds: Write (the row that holds refunds, as the refunds preset uses it).
+  - fill: { placeholder: "Filter resources", value: "Charges" }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - waitFor: { visible: { css: 'tr:has-text("Charges and Refunds"):not(:has-text("View documentation"))' }, timeoutSeconds: 30 }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
+  - click: { css: 'tr:has-text("Charges and Refunds"):not(:has-text("View documentation")) >> role=button[name="Write"s] >> nth=0' }
+    when:
+      all:
+        - { var: variant, equals: single-page }
+        - { var: preset, equals: checkout }
 
   # ---- Both ----
   # The live mode may ask to confirm the password before the key is created: answered in the portal (generic flow: a visible
